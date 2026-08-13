@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Support\MandantContext;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -168,6 +169,65 @@ class User extends Authenticatable implements JWTSubject
             ->get()
             ->pluck('role.slug')
             ->first();
+    }
+
+    /**
+     * The first role assignment (role + pivot scope) within a mandant, or null.
+     * Mirrors `roleForMandant()` but also exposes the pivot's `team_id`, which
+     * the authorization layer needs for team_admin scope checks.
+     */
+    public function roleAssignmentForMandant(int $mandantId): ?RoleUser
+    {
+        return $this->roleUserAssignments()
+            ->forMandant($mandantId)
+            ->with('role')
+            ->orderBy('role_user.id')
+            ->first();
+    }
+
+    /**
+     * Whether the user holds a permission within a mandant (defaults to the
+     * current mandant from `MandantContext`). super_admin bypasses the matrix
+     * entirely (global, also without a mandant). For team_admin the permission
+     * is additionally scoped to the team of his role assignment — an explicit
+     * `$teamId` must match it, without an argument the own team is used; no
+     * team assignment (P2) → deny.
+     */
+    public function hasPermission(string $permission, ?int $mandantId = null, ?int $teamId = null): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        $mandantId ??= MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return false;
+        }
+
+        $assignment = $this->roleAssignmentForMandant($mandantId);
+
+        if ($assignment === null) {
+            return false;
+        }
+
+        $roleSlug = $assignment->role->slug;
+
+        if (! in_array($permission, (array) config("permissions.{$roleSlug}"), true)) {
+            return false;
+        }
+
+        if ($roleSlug !== UserRole::TEAM_ADMIN->value) {
+            return true;
+        }
+
+        $roleTeamId = $assignment->team_id === null ? null : (int) $assignment->team_id;
+
+        if ($roleTeamId === null) {
+            return false;
+        }
+
+        return $teamId === null || (int) $teamId === $roleTeamId;
     }
 
     /**

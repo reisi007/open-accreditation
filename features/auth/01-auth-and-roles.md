@@ -72,6 +72,43 @@ Model-Helfer am `User`: `isSuperAdmin()`, `isMandantAdmin($mandantId)`,
 super_admin-Zeile). `RoleSeeder`/`DatabaseSeeder` sind idempotent; Admin wird
 als globaler super_admin angelegt (`ADMIN_EMAIL`/`ADMIN_PASSWORD`).
 
+## Autorisierung / Gates (P1d)
+
+Zentrale **Rollen→Permission-Matrix** in `backend/config/permissions.php`
+(Single Source of Truth). Jede Permission wird in
+`backend/app/Providers/AuthServiceProvider::boot()` als **Gate** registriert;
+die Scope-Logik lebt in `User::hasPermission()` (Matrix + Mandant-/Team-Scope).
+
+| Rolle | Permissions | Scope |
+|---|---|---|
+| `super_admin` | `*` (global, `Gate::before` → `true`) | beliebiger/kein Mandant |
+| `mandant_admin` | `categories.manage`, `events.manage`, `users.manage`, `accreditations.view`, `accreditations.manage` | aktueller Mandant (`MandantContext`) |
+| `team_admin` | `teams.manage`, `events.manage`, `accreditations.manage`, `accreditations.view` (read-only, D7) | eigenes Team (`role_user.team_id`) |
+| `user` | `accreditations.self` | aktueller Mandant |
+| `verifier` | `verification.verify` | aktueller Mandant |
+
+Semantik:
+
+- **Cross-Mandant deny:** Keine Rolle im aktuellen Mandanten
+  (`roleForMandant()` → null) → alle Gates `false`. Nur `super_admin` ist
+  global (`Gate::before` → `true`), auch ohne gesetzten Mandanten. Gäste und
+  User ohne Rolle → `false`.
+- **Team-Scope (team_admin):** Gates akzeptieren optional eine `team_id` als
+  zweites Argument (z. B. `Gate::authorize('events.manage', $teamId)`). Eine
+  fremde `team_id` → deny; ohne Argument wird das Team der Rolle
+  (`role_user.team_id`) verwendet. Team ohne Team-Zuordnung (P2) → deny.
+  mandant_admin/`user`/`verifier` ignorieren das `team_id`-Argument (ihr Scope
+  ist der gesamte Mandant).
+- **D7 (P2/P3):** `accreditations.view` für `team_admin` ist vorbereitet —
+  read-only-Sicht auf Verbands-Akkreditierungen eigener Personen. Die
+  Personen-Scope-Filterung folgt mit den echten Ressourcen in P3; hier ist nur
+  die Gate-Semantik festgenagelt (Permission vorhanden, Rolle gültig, Team
+  validiert).
+- `mandants.manage`/`teams.manage` sind **super_admin-only** — Mandanten und
+  Teams verwaltet der Super Admin, nicht der Mandant-Admin (D2/Portal-Muster).
+- Nutzung in Controllern/Policies (P2+): `Gate::allows()`/`Gate::authorize()`
+  oder direkt `$user->hasPermission($permission, $mandantId, $teamId)`.
+
 ## Profil
 
 `PUT /api/user/profile` (auth) — nur der authentifizierte User, **keine

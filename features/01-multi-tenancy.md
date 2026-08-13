@@ -38,8 +38,11 @@
   `fallback_mandant`, `defaults` (`teams_enabled`, `is_active` für P2-Admin-UI).
   Die Mandanten selbst liegen in der DB (Migrationen
   `create_mandants_tables`), nicht im Config.
-- Alle Mandant-abhängigen Queries laufen über `forCurrentMandant()`-Scopes
-  (Portal-Muster, Mandanten-Isolation darf nicht regredieren).
+- Mandant-Isolation: Nur `MandantDomain` nutzt den `scopeForCurrentMandant()`-
+  Scope (host-abgeleitet, Portal-Muster). Mandant-scoped Rollen-/Domain-Queries
+  laufen über explizite `scopeForMandant()`/`scopeForTeam()` (siehe `RoleUser`)
+  — Cross-Mandant-Lecks sind damit ausgeschlossen, die Isolationsgarantie darf
+  nicht regredieren.
 
 ## Seed (Ist P1)
 
