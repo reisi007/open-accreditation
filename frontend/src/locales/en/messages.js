@@ -1,0 +1,1 @@
+/*eslint-disable*/module.exports={messages:JSON.parse("{\"1KPcLc\":[\"Welcome to the accreditation platform.\"],\"3qoX1w\":[\"Language\"],\"Hi3bOS\":[\"Accreditation platform\"],\"yFrffo\":[\"Accreditation\"]}")};
