@@ -38,5 +38,12 @@ class AppServiceProvider extends ServiceProvider
             ->by('login:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('register', static fn (Request $request): Limit => Limit::perMinute(10)
             ->by('register:'.$request->ip()));
+
+        // P3b-F1: applying for accreditations throttles per authenticated user
+        // (a scripted flood of applications across many accreditations is the
+        // threat — quota is not enforced at apply time), falling back to per-ip
+        // for unauthenticated requests.
+        RateLimiter::for('apply', static fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('apply:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
     }
 }

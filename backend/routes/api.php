@@ -59,8 +59,9 @@ Route::middleware('auth:api')->group(function (): void {
     Route::delete('/user/media/{media}', [UserMediaController::class, 'destroy'])->name('api.user.media.destroy');
 
     // P3b: apply for an accreditation (deadline/duplicate guarded in the
-    // controller) and "Meine Akkreditierungen".
-    Route::post('/accreditations/{accreditation}/apply', [AccreditationController::class, 'apply'])->name('api.accreditations.apply');
+    // controller) and "Meine Akkreditierungen". Apply is throttled per
+    // authenticated user (fallback per-ip) via the named `apply` limiter.
+    Route::post('/accreditations/{accreditation}/apply', [AccreditationController::class, 'apply'])->middleware('throttle:apply')->name('api.accreditations.apply');
     Route::get('/applications', [ApplicationController::class, 'index'])->name('api.applications.index');
     Route::delete('/applications/{application}', [ApplicationController::class, 'destroy'])->name('api.applications.destroy');
 });
@@ -136,6 +137,8 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/accreditations', [AdminAccreditationController::class, 'store'])->name('accreditations.store');
         Route::put('/accreditations/{accreditation}', [AdminAccreditationController::class, 'update'])->name('accreditations.update');
         Route::delete('/accreditations/{accreditation}', [AdminAccreditationController::class, 'destroy'])->name('accreditations.destroy');
+        // P3c: manual allocation trigger (mode=all | mode=first).
+        Route::post('/accreditations/{accreditation}/allocate', [AdminAccreditationController::class, 'allocate'])->name('accreditations.allocate');
     });
 
     Route::middleware('can:users.manage')->group(function (): void {

@@ -40,17 +40,11 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**P3b — Selbstanmeldung (Delegieren):**
-- [ ] Models + Migrationen: `accreditations` (mandant_id, team_id nullable, category_id, scope enum event|league|season, event_id nullable, quota int, deadline_start/end, auto_approve bool), `applications` (accreditation_id, user_id, status enum requested|approved|denied|blacklisted, applied_at, priority bool, reason nullable), `blacklists` (mandant_id, email nullable, domain nullable, note)
-- [ ] API: `GET /api/accreditations` (öffentliche Verfügbarkeit je Event), `POST /api/accreditations/{id}/apply` (Antrag, Quota offen + Frist-Check, Status `requested`, Photo/Presse-ID/Anhänge aus Profil), `GET /api/applications` („Meine Akkreditierungen")
-- [ ] Frontend: Antrag-Seite (Kategorie/Scope wählen, Verfügbarkeitsanzeige, Absenden), „Meine Akkreditierungen"-Übersicht mit Status
-- [ ] Tests: PHPUnit (Antrag-Logik, Quota/Frist-Prüfung beim Antrag, Doppel-Antrag verhindert, Mandant-Scoping), Playwright `@feature:accreditation`
-
 **P3c — Allocation-Engine (Delegieren, STRICT Unit-Tests):**
-- [ ] Service `AllocationService`: Kernregeln — Quota (Limit), FCFS nach Fristende, Blacklist (Person + Domäne) nie freigegeben, VIP-Prio (Person/Domäne) vorgereiht, auto/manual je Akkreditierung
-- [ ] Massenfreigabe: „alle freigeben" + „erste X freigeben" (Respektiert Quota + Blacklist + VIP-Reihenfolge)
-- [ ] Trigger: manuell (Admin), nach Fristende (automatisch, Schedule/Queue)
-- [ ] Tests: PHPUnit ausführlich — Überzeichnung (Quota erschöpft → Ablehnung), VIP-Reihenfolge (vorgereiht), Frist-Randfälle (vor/nach Deadline, exakt am Deadline-Ende), Blacklist (Person+Domäne, auch bei auto-approve), „erste X"-Zuteilung deterministisch, auto/manual-Kombinationen
+- [ ] Service `AllocationService` (backend-only, keine UI): `approveSelection(accreditation, limit)` = „erste X" (manual) + `approveAllEligible(accreditation)` = „alle freigeben"/Auto. **Reihenfolge deterministisch:** VIP (`priority`) zuerst, dann FCFS `(created_at, id)`; **Blacklist nie freigegeben** (email + domain, mandant-scoped; auto → denied mit reason 'Blacklist'); Überzeichnung → denied 'Quota erschöpft' (nur auto); Quota wird nie überschritten; idempotent (2. Lauf ändert nichts)
+- [ ] Trigger: manuell `POST /api/admin/accreditations/{id}/allocate` body `{mode: 'all'|'first', limit?}` (Gate accreditations.manage, team_admin eigene Teams); automatisch `php artisan allocation:run` (Schedule, stündlich/minütlich): aktive `auto_approve`-Accreditations mit `deadline_end < now` → `approveAllEligible`
+- [ ] **P3b-Fix:** benannter Rate-Limiter `apply` für `POST /api/accreditations/{id}/apply` (z. B. 30/min) + Test
+- [ ] Tests: PHPUnit ausführlich — Überzeichnung (Quota erschöpft → Ablehnung), VIP-Reihenfolge (vorgereiht, auch bei späterem Antrag), Frist-Randfälle (vor/nach Deadline, exakt am Deadline-Ende via Carbon setTestNow; auto nur nach Fristende), Blacklist (Person+Domäne, auch bei auto-approve), „erste X"-Zuteilung deterministisch (id-Tiebreak bei gleichem created_at), auto/manual-Kombinationen, Idempotenz, Cross-Mandant-Isolation, Quota nie überschritten
 
 **P3d — Sub-Akkreditierungen (Delegieren, STRICT Unit-Tests):**
 - [ ] Modell: `sub_accreditations` (Typ Park/Sitz, eigenes Quota, eigene auto/manual-Allokation) + Anträge nur bei vorhandener Haupt-Akkreditierung
@@ -97,9 +91,11 @@
 - [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
 - [ ] **P2a-RL (low)** Admin-Write-Routen (`/api/admin/*`) tragen kein Rate-Limit → für P7-Hardening benannte Limiter vorsehen.
 - [ ] **P2b-F8 (info)** Event-Partial-Update: nur `deadline_start` ODER nur `deadline_end` wird nicht gegen gespeicherten Gegenwert validiert (Rand-Datenkonsistenz, kein Exploit) → P7 oder akzeptiert.
-- [ ] **P2b-F9 (info)** @smoke-Login-Druck: Suite braucht ~11–13 Logins/min bei Limit 10/min (Limit überschritten); CI-Retries (2) können 429 auslösen → offen; Fix läuft im P3b-Backend-Paket: Login-Limiter auf 15/min anheben + AuthThrottleTest anpassen.
 - [ ] **P3a-F1 (info)** Countdown-Plural-Workaround in `DeadlineCountdown.tsx` (String-Interpolation statt Lingui-ICU-Plural) → akzeptiert.
 - [ ] **P3a-F2 (info)** E2E-Daten-Ansammlung: `ensurePrimaryMandantActivePortalEvent` erzeugt Events ohne Cleanup → lokale Kosmetik, akzeptiert.
+- [ ] **P3b-F1 (low)** Rate-Limit für `POST /api/accreditations/{id}/apply` fehlt → Fix in P3c (benannter Limiter `apply`, z. B. 30/min) + Test.
+- [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
+- [ ] **P3b-F3 (info)** Medien-Snapshot beim Antrag (Foto/Presse-ID/Anhänge): Entscheidung in P3e — Freigabe-Sicht bezieht Medien des Antragstellers.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
 - [ ] **P2c-F3 (low)** `role_user.team_id` hat keine FK/Cascade auf `teams` → verwaiste team_admin-Zuweisungen bei Team-Delete (kein Escalation, nur Datenhygiene) → bei P3e (Team-Lösch-Flow) Cleanup/Cascade vorsehen.
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.

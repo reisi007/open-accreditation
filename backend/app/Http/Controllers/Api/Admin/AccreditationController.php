@@ -8,6 +8,7 @@ use App\Http\Resources\AccreditationResource;
 use App\Models\Accreditation;
 use App\Models\Category;
 use App\Models\Event;
+use App\Services\AllocationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,8 @@ use Symfony\Component\HttpFoundation\Response;
 class AccreditationController extends Controller
 {
     use ResolvesAdminTeamScope;
+
+    public function __construct(private readonly AllocationService $allocationService) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -130,6 +133,34 @@ class AccreditationController extends Controller
         $accreditation->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Run the P3c allocation engine on one accreditation (manual trigger):
+     * `mode=all` approves every eligible application up to the quota,
+     * `mode=first` approves only the first `limit` candidates. A `limit` is
+     * required for `mode=first` and ignored for `mode=all`.
+     */
+    public function allocate(Request $request, Accreditation $accreditation): JsonResponse
+    {
+        $mandantId = $this->currentMandantId();
+        $accreditation = $this->assertMandantScope($accreditation, $mandantId);
+        $teamIds = $this->teamIds($request);
+        $this->assertOwnership($accreditation, $teamIds);
+
+        $rules = ['mode' => ['required', Rule::in(['all', 'first'])]];
+
+        if ($request->input('mode') === 'first') {
+            $rules['limit'] = ['required', 'integer', 'min:1'];
+        }
+
+        $validated = $request->validate($rules);
+
+        $result = $validated['mode'] === 'all'
+            ? $this->allocationService->approveAllEligible($accreditation)
+            : $this->allocationService->approveSelection($accreditation, (int) $validated['limit']);
+
+        return response()->json(['data' => $result->toArray()]);
     }
 
     /**
