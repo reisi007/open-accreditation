@@ -4,7 +4,7 @@ test('App loads and shows the header', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
 
     const banner = page.getByRole('banner');
-    await expect(banner.getByRole('link', { name: 'Akkreditierung' })).toBeVisible();
+    await expect(banner.getByRole('link', { name: 'Akkreditierung', exact: true })).toBeVisible();
 
     const main = page.getByRole('main');
     await expect(main.getByRole('heading', { level: 1 })).toBeVisible();
@@ -17,5 +17,5 @@ test('Language switcher switches the UI to English', { tag: '@smoke' }, async ({
     await page.getByRole('combobox', { name: 'Sprache' }).selectOption('en');
 
     await expect(page.getByRole('heading', { level: 2, name: 'Event calendar' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Accreditation' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Accreditation', exact: true })).toBeVisible();
 });

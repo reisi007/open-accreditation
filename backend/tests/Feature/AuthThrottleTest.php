@@ -38,7 +38,9 @@ class AuthThrottleTest extends TestCase
         $loginLimit = $login($request);
         $registerLimit = $register($request);
 
-        $this->assertSame(10, $loginLimit->maxAttempts);
+        // P2b-F9: login budget is 15/min (E2E @smoke needs ~11–13 logins/min),
+        // register stays at 10/min.
+        $this->assertSame(15, $loginLimit->maxAttempts);
         $this->assertSame(10, $registerLimit->maxAttempts);
 
         // Same request/ip must still resolve to distinct bucket keys, otherwise
@@ -48,8 +50,8 @@ class AuthThrottleTest extends TestCase
 
     public function test_register_bucket_is_untouched_by_login_throttling(): void
     {
-        // Exhaust the login bucket (10/min) with failed login attempts.
-        for ($i = 0; $i < 11; $i++) {
+        // Exhaust the login bucket (15/min) with failed login attempts.
+        for ($i = 0; $i < 16; $i++) {
             $this->postJson('/api/auth/login', [
                 'email' => 'unknown@example.com',
                 'password' => 'wrong-password',

@@ -90,6 +90,76 @@ function isoDateInDays(days = 0) {
 }
 
 /**
+ * Creates a unique active, event-scoped accreditation (plus the backing
+ * category and event) so the public accreditation list and the application
+ * flow have deterministic content. The deadline window is open (past start,
+ * future end), quota 5.
+ *
+ * @returns {Promise<{ accreditation: object; categoryName: string; eventTitle: string }>}
+ */
+export async function ensurePrimaryMandantAccreditation() {
+    const api = await loginAdminApi();
+    try {
+        const mandantsBody = await (await api.get('/api/admin/mandants')).json();
+        const mandants = mandantsBody.data ?? [];
+        let primary = null;
+        for (const mandant of mandants) {
+            if (mandant.is_primary) {
+                primary = mandant;
+                break;
+            }
+        }
+        if (primary === null) {
+            primary = mandants[0] ?? null;
+        }
+        if (!primary) {
+            throw new Error('No mandant found for accreditation setup');
+        }
+
+        const suffix = Date.now();
+        const categoryName = `E2E Akkreditierung ${suffix}`;
+        const categorySlug = `e2e-akkreditierung-${suffix}`;
+        const category = await api.post('/api/admin/categories', {
+            data: { name: categoryName, slug: categorySlug },
+        });
+        if (category.status() !== 201) {
+            throw new Error(`Creating the setup category failed with status ${category.status()}`);
+        }
+        const categoryData = (await category.json()).data;
+
+        const eventTitle = `E2E Akkreditierung Event ${suffix}`;
+        const event = await api.post('/api/admin/events', {
+            data: { title: eventTitle, active: true },
+        });
+        if (event.status() !== 201) {
+            throw new Error(`Creating the setup event failed with status ${event.status()}`);
+        }
+        const eventData = (await event.json()).data;
+
+        const accreditation = await api.post('/api/admin/accreditations', {
+            data: {
+                category_id: categoryData.id,
+                scope: 'event',
+                event_id: eventData.id,
+                quota: 5,
+                deadline_start: isoDateInDays(-5),
+                deadline_end: isoDateInDays(30),
+                auto_approve: false,
+                active: true,
+            },
+        });
+        if (accreditation.status() !== 201) {
+            throw new Error(`Creating the setup accreditation failed with status ${accreditation.status()}`);
+        }
+        const accreditationData = (await accreditation.json()).data;
+
+        return { accreditation: accreditationData, categoryName, eventTitle };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Creates a unique active portal event (team-scoped, future date + deadline)
  * so the public portal calendar has deterministic content. Returns the event,
  * its team and the mandant name shown as the portal heading.

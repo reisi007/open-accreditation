@@ -40,13 +40,6 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**P3a — Öffentliches Portal (Delegieren):**
-- [ ] Landing: Mandant-/Team-Kacheln (aus `is_active` + `teams_enabled`), Sprachumschalter DE/EN (bestehend)
-- [ ] Veranstaltungskalender: Filter Team/Typ (Wettbewerb), nur aktive Events, Akkreditierungsfrist-Countdown
-- [ ] Event-Detail: Titel, Datum, Ort (Heimstätte/Override), Wettbewerb, Frist (Start/Ende + Countdown), Event-Verwalter-Kontakt (mandant/team-admin E-Mail)
-- [ ] Öffentliche API: `GET /api/portal/mandants` (Kacheln), `GET /api/portal/events` (Kalender-Filter), `GET /api/portal/events/{id}` — auth-frei, mandant-scoped
-- [ ] Tests: PHPUnit (Kalender-Filter, active-Filter, Frist-Logik), Playwright `@feature:accreditation`
-
 **P3b — Selbstanmeldung (Delegieren):**
 - [ ] Models + Migrationen: `accreditations` (mandant_id, team_id nullable, category_id, scope enum event|league|season, event_id nullable, quota int, deadline_start/end, auto_approve bool), `applications` (accreditation_id, user_id, status enum requested|approved|denied|blacklisted, applied_at, priority bool, reason nullable), `blacklists` (mandant_id, email nullable, domain nullable, note)
 - [ ] API: `GET /api/accreditations` (öffentliche Verfügbarkeit je Event), `POST /api/accreditations/{id}/apply` (Antrag, Quota offen + Frist-Check, Status `requested`, Photo/Presse-ID/Anhänge aus Profil), `GET /api/applications` („Meine Akkreditierungen")
@@ -104,10 +97,10 @@
 - [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
 - [ ] **P2a-RL (low)** Admin-Write-Routen (`/api/admin/*`) tragen kein Rate-Limit → für P7-Hardening benannte Limiter vorsehen.
 - [ ] **P2b-F8 (info)** Event-Partial-Update: nur `deadline_start` ODER nur `deadline_end` wird nicht gegen gespeicherten Gegenwert validiert (Rand-Datenkonsistenz, kein Exploit) → P7 oder akzeptiert.
-- [ ] **P2b-F9 (info)** @smoke-Login-Druck: ~7 Login-Calls bei Limit 10/min, Headroom 3; CI-Retries (2) können 429 auslösen → falls Flake: Smoke sequenziell (`--workers=1`) oder Login-Last reduzieren. (B2-Fix greift, Register-Bucket unberührt.)
+- [ ] **P2b-F9 (info)** @smoke-Login-Druck: Suite braucht ~11–13 Logins/min bei Limit 10/min (Limit überschritten); CI-Retries (2) können 429 auslösen → offen; Fix läuft im P3b-Backend-Paket: Login-Limiter auf 15/min anheben + AuthThrottleTest anpassen.
+- [ ] **P3a-F1 (info)** Countdown-Plural-Workaround in `DeadlineCountdown.tsx` (String-Interpolation statt Lingui-ICU-Plural) → akzeptiert.
+- [ ] **P3a-F2 (info)** E2E-Daten-Ansammlung: `ensurePrimaryMandantActivePortalEvent` erzeugt Events ohne Cleanup → lokale Kosmetik, akzeptiert.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
-- [ ] **P2c-F1 (low)** `roles: []` (leeres Array) → 422 nicht explizit getestet → Test wird in P3a-Backend-Paket ergänzt (offen bis dahin).
-- [ ] **P2c-F2 (low)** `useAdminTeams` ohne Vitest-Test (team_admin-Zweig, currentTeamIds) → wird in P3a-Frontend-Paket ergänzt (offen bis dahin).
 - [ ] **P2c-F3 (low)** `role_user.team_id` hat keine FK/Cascade auf `teams` → verwaiste team_admin-Zuweisungen bei Team-Delete (kein Escalation, nur Datenhygiene) → bei P3e (Team-Lösch-Flow) Cleanup/Cascade vorsehen.
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 - [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.

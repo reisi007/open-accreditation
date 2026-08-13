@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AccreditationController;
+use App\Http\Controllers\Api\Admin\AccreditationController as AdminAccreditationController;
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
 use App\Http\Controllers\Api\Admin\MandantController;
@@ -7,6 +9,7 @@ use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
 use App\Http\Controllers\Api\Admin\TeamController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Portal\PortalController;
 use App\Http\Controllers\Api\Portal\PortalMediaController;
@@ -54,6 +57,12 @@ Route::middleware('auth:api')->group(function (): void {
     Route::post('/user/media', [UserMediaController::class, 'store'])->name('api.user.media.store');
     Route::get('/user/media/{media}', [UserMediaController::class, 'show'])->name('api.user.media.show');
     Route::delete('/user/media/{media}', [UserMediaController::class, 'destroy'])->name('api.user.media.destroy');
+
+    // P3b: apply for an accreditation (deadline/duplicate guarded in the
+    // controller) and "Meine Akkreditierungen".
+    Route::post('/accreditations/{accreditation}/apply', [AccreditationController::class, 'apply'])->name('api.accreditations.apply');
+    Route::get('/applications', [ApplicationController::class, 'index'])->name('api.applications.index');
+    Route::delete('/applications/{application}', [ApplicationController::class, 'destroy'])->name('api.applications.destroy');
 });
 
 /*
@@ -122,6 +131,13 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::delete('/events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
     });
 
+    Route::middleware('can:accreditations.manage')->group(function (): void {
+        Route::get('/accreditations', [AdminAccreditationController::class, 'index'])->name('accreditations.index');
+        Route::post('/accreditations', [AdminAccreditationController::class, 'store'])->name('accreditations.store');
+        Route::put('/accreditations/{accreditation}', [AdminAccreditationController::class, 'update'])->name('accreditations.update');
+        Route::delete('/accreditations/{accreditation}', [AdminAccreditationController::class, 'destroy'])->name('accreditations.destroy');
+    });
+
     Route::middleware('can:users.manage')->group(function (): void {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->name('users.roles.update');
@@ -156,4 +172,21 @@ Route::prefix('portal')->middleware('throttle:60,1')->name('api.portal.')->group
     Route::get('/events/{event}', [PortalController::class, 'show'])->name('events.show');
     Route::get('/mandant/logo', [PortalMediaController::class, 'logo'])->name('mandant.logo');
     Route::get('/mandant/header', [PortalMediaController::class, 'header'])->name('mandant.header');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public accreditation API (P3b: Akkreditierungen)
+|--------------------------------------------------------------------------
+|
+| Auth-free like the portal — the accreditation list/detail is the public
+| application surface. Scoped to the current mandant from MandantContext.
+| `GET /api/accreditations` (optional `event_id` filter, foreign → 422) and
+| `GET /api/accreditations/{id}` (inactive/foreign → 404). A light
+| `throttle:60,1` keeps scraping in check. Responses: `{data: …}`.
+|
+*/
+Route::prefix('accreditations')->middleware('throttle:60,1')->name('api.accreditations.')->group(function (): void {
+    Route::get('/', [AccreditationController::class, 'index'])->name('index');
+    Route::get('/{accreditation}', [AccreditationController::class, 'show'])->name('show');
 });

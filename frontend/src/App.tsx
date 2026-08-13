@@ -6,13 +6,18 @@ import { setUnauthorizedHandler } from './api/client';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { isAdminUser, isSuperAdminUser } from './logic/adminRoles';
 import { RequireAdmin } from './logic/RequireAdmin';
+import { RequireAuth } from './logic/RequireAuth';
 import { RequireRole } from './logic/RequireRole';
 import { RequireRoles } from './logic/RequireRoles';
 import { useAuth } from './logic/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { EventDetailPage } from './pages/portal/EventDetailPage';
 import { PortalHomePage } from './pages/portal/PortalHomePage';
+import { AccreditationsPage } from './pages/AccreditationsPage';
+import { ApplyPage } from './pages/ApplyPage';
+import { MyAccreditationsPage } from './pages/MyAccreditationsPage';
 import { AdminLayout } from './pages/admin/AdminLayout';
+import { AccreditationsPage as AdminAccreditationsPage } from './pages/admin/AccreditationsPage';
 import { CategoriesPage } from './pages/admin/CategoriesPage';
 import { EventsPage } from './pages/admin/EventsPage';
 import { MandantDetailPage } from './pages/admin/MandantDetailPage';
@@ -76,6 +81,7 @@ function AuthNav() {
 
 function RootLayout() {
     const { i18n } = useLingui();
+    const { isAuthenticated } = useAuth();
 
     return (
         <div className="min-h-dvh bg-base-100">
@@ -85,6 +91,16 @@ function RootLayout() {
                         <span className="iconify material-symbols--badge text-2xl text-primary"></span>
                         {i18n._(t`Akkreditierung`)}
                     </Link>
+                </div>
+                <div className="navbar-center flex items-center gap-1">
+                    <Link to="/akkreditierungen" className="btn btn-ghost btn-sm">
+                        {i18n._(t`Akkreditierungen`)}
+                    </Link>
+                    {isAuthenticated ? (
+                        <Link to="/meine-akkreditierungen" className="btn btn-ghost btn-sm">
+                            {i18n._(t`Meine Akkreditierungen`)}
+                        </Link>
+                    ) : null}
                 </div>
                 <AuthNav />
             </header>
@@ -111,6 +127,23 @@ const router = createBrowserRouter([
                 children: [
                     { index: true, element: <PortalHomePage /> },
                     { path: 'events/:id', element: <EventDetailPage /> },
+                    { path: 'akkreditierungen', element: <AccreditationsPage /> },
+                    {
+                        path: 'apply/:accreditationId',
+                        element: (
+                            <RequireAuth>
+                                <ApplyPage />
+                            </RequireAuth>
+                        ),
+                    },
+                    {
+                        path: 'meine-akkreditierungen',
+                        element: (
+                            <RequireAuth>
+                                <MyAccreditationsPage />
+                            </RequireAuth>
+                        ),
+                    },
                     { path: 'login', element: <LoginPage /> },
                 ],
             },
@@ -137,6 +170,7 @@ const router = createBrowserRouter([
                     },
                     { path: 'categories', element: <CategoriesPage /> },
                     { path: 'events', element: <EventsPage /> },
+                    { path: 'accreditations', element: <AdminAccreditationsPage /> },
                     {
                         element: (
                             <RequireRoles roles={['super_admin', 'mandant_admin']}>

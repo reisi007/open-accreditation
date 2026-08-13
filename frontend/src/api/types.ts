@@ -128,3 +128,56 @@ export interface PortalEventDetail extends PortalEvent {
     deadline_effective: string | null;
     contact: { name: string; email: string } | null;
 }
+
+export type AccreditationScope = 'event' | 'league' | 'season';
+
+export interface AccreditationReference {
+    id: number;
+    name: string;
+}
+
+export interface AccreditationEventReference {
+    id: number;
+    title: string;
+    date: string | null;
+}
+
+export interface Accreditation {
+    id: number;
+    category_id: number;
+    category: AccreditationReference | null;
+    scope: AccreditationScope;
+    event_id: number | null;
+    event: AccreditationEventReference | null;
+    team_id: number | null;
+    team: AccreditationReference | null;
+    quota: number;
+    applications_count: number;
+    available: number;
+    deadline_start: string | null;
+    deadline_end: string | null;
+    auto_approve: boolean;
+    active: boolean;
+}
+
+export type ApplicationStatus = 'requested' | 'approved' | 'denied' | 'blacklisted';
+
+export interface ApplicationAccreditation {
+    id: number;
+    category: AccreditationReference | null;
+    scope: AccreditationScope;
+    event: AccreditationEventReference | null;
+    team: AccreditationReference | null;
+    deadline_end: string | null;
+    quota: number;
+    available: number;
+}
+
+export interface Application {
+    id: number;
+    accreditation: ApplicationAccreditation | null;
+    status: ApplicationStatus;
+    priority: boolean;
+    reason: string | null;
+    created_at: string;
+}

@@ -60,6 +60,11 @@ export function AdminLayout() {
                                 {i18n._(t`Events`)}
                             </NavLink>
                         </li>
+                        <li>
+                            <NavLink to="/admin/accreditations" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
+                                {i18n._(t`Akkreditierungen`)}
+                            </NavLink>
+                        </li>
                         {showUsers ? (
                             <li>
                                 <NavLink to="/admin/users" className={({ isActive }) => (isActive ? 'menu-active' : '')}>

@@ -31,7 +31,10 @@ class AppServiceProvider extends ServiceProvider
         // key it falls back to the route+ip signature shared by both routes).
         // Login throttles per authenticated user id, falling back to per-ip
         // for unauthenticated (failed) attempts; register is per-ip.
-        RateLimiter::for('login', static fn (Request $request): Limit => Limit::perMinute(10)
+        // P2b-F9: login budget raised 10 → 15/min — the E2E @smoke suite needs
+        // ~11–13 logins per minute (session-switching tests). 15/min keeps the
+        // brute-force protection intact. Register stays at 10/min.
+        RateLimiter::for('login', static fn (Request $request): Limit => Limit::perMinute(15)
             ->by('login:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('register', static fn (Request $request): Limit => Limit::perMinute(10)
             ->by('register:'.$request->ip()));

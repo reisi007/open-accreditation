@@ -13,6 +13,11 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/logic/accreditationLabels.ts
+msgid "{available} Plätze frei"
+msgstr "{available} slots available"
+
+#: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/MandantForm.tsx
@@ -20,6 +25,10 @@ msgstr ""
 #: src/pages/admin/TeamForm.tsx
 msgid "Abbrechen"
 msgstr "Cancel"
+
+#: src/logic/accreditationLabels.ts
+msgid "Abgelehnt"
+msgstr "Denied"
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
@@ -35,16 +44,63 @@ msgstr "Admin"
 msgid "Akkreditierung"
 msgstr "Accreditation"
 
+#: src/pages/ApplyPage.tsx
+msgid "Akkreditierung beantragen"
+msgstr "Apply for accreditation"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierung bearbeiten"
+msgstr "Edit accreditation"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierung erstellen"
+msgstr "Create accreditation"
+
+#: src/pages/ApplyPage.tsx
+msgid "Akkreditierung konnte nicht geladen werden."
+msgstr "Accreditation could not be loaded."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierung konnte nicht gelöscht werden."
+msgstr "Accreditation could not be deleted."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierung konnte nicht gespeichert werden."
+msgstr "Accreditation could not be saved."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierung wirklich löschen?"
+msgstr "Really delete this accreditation?"
+
+#: src/App.tsx
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/AdminLayout.tsx
+msgid "Akkreditierungen"
+msgstr "Accreditations"
+
+#: src/pages/portal/EventDetailPage.tsx
+msgid "Akkreditierungen für dieses Event"
+msgstr "Accreditations for this event"
+
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Akkreditierungen konnten nicht geladen werden."
+msgstr "Accreditations could not be loaded."
+
 #: src/App.tsx
 #~ msgid "Akkreditierungs-Plattform"
 #~ msgstr "Accreditation platform"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Aktionen"
 msgstr "Actions"
 
+#: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantForm.tsx
@@ -52,6 +108,7 @@ msgstr "Actions"
 msgid "Aktiv"
 msgstr "Active"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Alle"
 msgstr "All"
@@ -73,11 +130,44 @@ msgstr "Log in"
 msgid "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
 msgstr "Login failed. Please try again."
 
+#: src/pages/ApplyPage.tsx
+msgid "Antrag erfolgreich gesendet."
+msgstr "Application submitted successfully."
+
+#: src/pages/ApplyPage.tsx
+msgid "Antrag konnte nicht gesendet werden."
+msgstr "Application could not be submitted."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Antrag konnte nicht zurückgezogen werden."
+msgstr "Application could not be withdrawn."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Anträge konnten nicht geladen werden."
+msgstr "Applications could not be loaded."
+
+#: src/pages/admin/AccreditationForm.tsx
+msgid "Automatische Freigabe"
+msgstr "Auto approve"
+
+#: src/components/ApplyButton.tsx
+msgid "Beantragen"
+msgstr "Apply"
+
+#: src/logic/accreditationLabels.ts
+msgid "Beantragt"
+msgstr "Requested"
+
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Bearbeiten"
 msgstr "Edit"
+
+#: src/pages/admin/accreditationFormUtils.ts
+msgid "Bei Geltungsbereich \"Spiel\" ist ein Event erforderlich."
+msgstr "An event is required when the scope is \"Game\"."
 
 #: src/pages/admin/AdminLayout.tsx
 #: src/pages/admin/RoleForm.tsx
@@ -101,6 +191,10 @@ msgstr "Description"
 msgid "Bild konnte nicht entfernt werden."
 msgstr "The image could not be removed."
 
+#: src/pages/admin/AccreditationForm.tsx
+msgid "Bitte auswählen"
+msgstr "Please select"
+
 #: src/pages/admin/userRoleFormUtils.ts
 msgid "Bitte ein Team auswählen."
 msgstr "Please select a team."
@@ -117,6 +211,7 @@ msgstr "Please enter a valid port number."
 msgid "Bitte Team auswählen"
 msgstr "Select a team"
 
+#: src/pages/admin/accreditationFormUtils.ts
 #: src/pages/admin/eventFormUtils.ts
 msgid "Das Ende der Frist muss nach dem Beginn liegen."
 msgstr "The deadline end must come after the deadline start."
@@ -196,6 +291,15 @@ msgstr "Allows managing teams for this mandant."
 msgid "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
 msgstr "Only lowercase letters, numbers and hyphens are allowed."
 
+#: src/pages/admin/AccreditationForm.tsx
+#: src/pages/ApplyPage.tsx
+msgid "Event"
+msgstr "Event"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Event / Team"
+msgstr "Event / Team"
+
 #: src/pages/admin/EventsPage.tsx
 msgid "Event bearbeiten"
 msgstr "Edit event"
@@ -225,7 +329,14 @@ msgstr "Events"
 msgid "Events konnten nicht geladen werden."
 msgstr "The events could not be loaded."
 
+#: src/logic/accreditationLabels.ts
+msgid "Freigegeben"
+msgstr "Approved"
+
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/ApplyPage.tsx
 msgid "Frist"
 msgstr "Deadline"
 
@@ -233,13 +344,25 @@ msgstr "Deadline"
 msgid "Frist abgelaufen"
 msgstr "Deadline expired"
 
+#: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/EventForm.tsx
 msgid "Frist Beginn"
 msgstr "Deadline start"
 
+#: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/EventForm.tsx
 msgid "Frist Ende"
 msgstr "Deadline end"
+
+#: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/ApplyPage.tsx
+msgid "Geltungsbereich"
+msgstr "Scope"
+
+#: src/logic/accreditationLabels.ts
+msgid "Gesperrt"
+msgstr "Blacklisted"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Header"
@@ -258,10 +381,16 @@ msgstr "Upload"
 msgid "Impressum"
 msgstr "Imprint"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Inaktiv"
 msgstr "Inactive"
+
+#: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Kategorie"
+msgstr "Category"
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Kategorie bearbeiten"
@@ -270,6 +399,10 @@ msgstr "Edit category"
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Kategorie erstellen"
 msgstr "Create category"
+
+#: src/pages/admin/accreditationFormUtils.ts
+msgid "Kategorie ist erforderlich."
+msgstr "Category is required."
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Kategorie konnte nicht gelöscht werden."
@@ -304,6 +437,10 @@ msgstr "No image uploaded."
 msgid "Keine"
 msgstr "None"
 
+#: src/pages/AccreditationsPage.tsx
+msgid "Keine Akkreditierungen verfügbar."
+msgstr "No accreditations available."
+
 #: src/pages/admin/UsersPage.tsx
 msgid "Keine Benutzer gefunden."
 msgstr "No users found."
@@ -320,6 +457,11 @@ msgstr "Contact"
 msgid "Leer = unverändert"
 msgstr "Empty = unchanged"
 
+#: src/logic/accreditationLabels.ts
+#: src/pages/admin/AccreditationForm.tsx
+msgid "Liga"
+msgstr "League"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Logo"
 msgstr "Logo"
@@ -328,6 +470,7 @@ msgstr "Logo"
 msgid "Logo & Header"
 msgstr "Logo & Header"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -375,6 +518,12 @@ msgstr "Mandants"
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "The mandants could not be loaded."
 
+#: src/App.tsx
+#: src/pages/ApplyPage.tsx
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Meine Akkreditierungen"
+msgstr "My accreditations"
+
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/userRoleFormUtils.ts
 msgid "Mindestens eine Rolle muss ausgewählt bleiben."
@@ -394,11 +543,16 @@ msgstr "Name"
 msgid "Name ist erforderlich."
 msgstr "Name is required."
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Neu"
 msgstr "New"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Neue Akkreditierung"
+msgstr "New accreditation"
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Neue Kategorie"
@@ -415,6 +569,14 @@ msgstr "New event"
 #: src/components/DeadlineCountdown.tsx
 msgid "Noch {count} {noun}"
 msgstr "Only {count} {noun} left"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Noch keine Akkreditierungen vorhanden."
+msgstr "No accreditations yet."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Noch keine Anträge vorhanden."
+msgstr "No applications yet."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Domains vorhanden."
@@ -457,6 +619,15 @@ msgstr "The portal could not be loaded."
 msgid "Primär"
 msgstr "Primary"
 
+#: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Quota"
+msgstr "Quota"
+
+#: src/pages/admin/accreditationFormUtils.ts
+msgid "Quota muss mindestens 1 sein."
+msgstr "Quota must be at least 1."
+
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Rollen"
@@ -470,6 +641,12 @@ msgstr "Edit roles"
 msgid "Rollen konnten nicht gespeichert werden."
 msgstr "Roles could not be saved."
 
+#: src/logic/accreditationLabels.ts
+#: src/pages/admin/AccreditationForm.tsx
+msgid "Saison"
+msgstr "Season"
+
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -529,12 +706,18 @@ msgstr "SMTP password"
 msgid "SMTP-Port"
 msgstr "SMTP port"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Speichern"
 msgstr "Save"
+
+#: src/logic/accreditationLabels.ts
+#: src/pages/admin/AccreditationForm.tsx
+msgid "Spiel"
+msgstr "Game"
 
 #: src/pages/admin/EventForm.tsx
 msgid "Spielort"
@@ -544,6 +727,7 @@ msgstr "Venue"
 msgid "Sprache"
 msgstr "Language"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Status"
@@ -565,6 +749,7 @@ msgstr "day"
 msgid "Tage"
 msgstr "days"
 
+#: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
@@ -643,11 +828,13 @@ msgstr "The events could not be loaded."
 msgid "Veranstaltungskalender"
 msgstr "Event calendar"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Verbandsebene"
 msgstr "Association level"
 
+#: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 msgid "Verbandsebene (Mandant)"
@@ -657,6 +844,14 @@ msgstr "Association level (Mandant)"
 msgid "Vereine"
 msgstr "Clubs"
 
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Verfügbar"
+msgstr "Available"
+
+#: src/pages/ApplyPage.tsx
+msgid "Verfügbarkeit"
+msgstr "Availability"
+
 #: src/pages/admin/RoleForm.tsx
 msgid "Verifizierer"
 msgstr "Verifier"
@@ -664,6 +859,10 @@ msgstr "Verifier"
 #: src/pages/admin/MandantForm.tsx
 msgid "Verschlüsselung"
 msgstr "Encryption"
+
+#: src/logic/accreditationLabels.ts
+msgid "Warteliste"
+msgstr "Waiting list"
 
 #: src/pages/admin/EventForm.tsx
 #: src/pages/portal/EventDetailPage.tsx
@@ -675,6 +874,10 @@ msgstr "Competition"
 #~ msgid "Willkommen bei der Akkreditierungs-Plattform."
 #~ msgstr "Welcome to the accreditation platform."
 
+#: src/pages/ApplyPage.tsx
+msgid "Zurück zu Akkreditierungen"
+msgstr "Back to accreditations"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Zurück zur Mandantenliste"
 msgstr "Back to mandant list"
@@ -682,3 +885,7 @@ msgstr "Back to mandant list"
 #: src/pages/portal/EventDetailPage.tsx
 msgid "Zurück zur Startseite"
 msgstr "Back to home"
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Zurückziehen"
+msgstr "Withdraw"

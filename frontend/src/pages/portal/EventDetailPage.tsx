@@ -2,8 +2,10 @@ import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { Link, useParams } from 'react-router-dom';
 import useSWR from 'swr';
-import { getPortalEvent } from '../../api/client';
-import type { PortalEventDetail } from '../../api/types';
+import { getPortalEvent, listAccreditations } from '../../api/client';
+import type { Accreditation, PortalEventDetail } from '../../api/types';
+import { ApplyButton } from '../../components/ApplyButton';
+import { accreditationScopeLabel, availabilityLabel } from '../../logic/accreditationLabels';
 import { DeadlineCountdown } from '../../components/DeadlineCountdown';
 import { formatDate } from '../../logic/formatDate';
 
@@ -20,6 +22,11 @@ export function EventDetailPage() {
     } = useSWR<PortalEventDetail>(
         validId === null ? null : ['/api/portal/events/detail', validId],
         validId === null ? null : () => getPortalEvent(validId),
+    );
+
+    const { data: accreditations } = useSWR<Accreditation[]>(
+        validId === null ? null : ['/api/accreditations', validId],
+        validId === null ? null : () => listAccreditations({ event_id: validId }),
     );
 
     return (
@@ -77,6 +84,44 @@ export function EventDetailPage() {
                         </div>
                     ) : null}
                 </article>
+            ) : null}
+
+            {accreditations && accreditations.length > 0 ? (
+                <section
+                    aria-label={i18n._(t`Akkreditierungen für dieses Event`)}
+                    className="flex flex-col gap-4"
+                >
+                    <h2 className="text-2xl font-bold">{i18n._(t`Akkreditierungen für dieses Event`)}</h2>
+                    <div className="flex flex-col gap-4">
+                        {accreditations.map((accreditation) => (
+                            <article key={accreditation.id} className="card border border-base-300 bg-base-100 p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="font-semibold">{accreditation.category?.name ?? ''}</span>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="badge badge-outline badge-sm">
+                                                {accreditationScopeLabel(accreditation.scope, i18n)}
+                                            </span>
+                                            {accreditation.team ? (
+                                                <span className="badge badge-ghost badge-sm">{accreditation.team.name}</span>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span
+                                            className={`badge badge-sm ${
+                                                accreditation.available > 0 ? 'badge-success' : 'badge-warning'
+                                            }`}
+                                        >
+                                            {availabilityLabel(accreditation.available, i18n)}
+                                        </span>
+                                        <ApplyButton accreditationId={accreditation.id} />
+                                    </div>
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                </section>
             ) : null}
         </section>
     );

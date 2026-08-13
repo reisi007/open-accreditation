@@ -72,6 +72,15 @@ class Mandant extends Model
     }
 
     /**
+     * The mandant's accreditations (Akkreditierungen), mandant- and team-level
+     * (P3b).
+     */
+    public function accreditations(): HasMany
+    {
+        return $this->hasMany(Accreditation::class);
+    }
+
+    /**
      * Only mandants that may serve traffic.
      */
     public function scopeActive(Builder $query): Builder

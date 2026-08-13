@@ -1,5 +1,8 @@
 import type {
+    Accreditation,
+    AccreditationScope,
     AdminUser,
+    Application,
     Category,
     Event,
     Mandant,
@@ -258,3 +261,49 @@ export const getPortalEvents = (params?: PortalEventsParams): Promise<PortalEven
     request<PortalEvent[]>(`/api/portal/events${buildQuery(params)}`);
 
 export const getPortalEvent = (id: number): Promise<PortalEventDetail> => request<PortalEventDetail>(`/api/portal/events/${id}`);
+
+export interface AccreditationParams {
+    event_id?: number;
+}
+
+export interface AdminAccreditationParams {
+    team_id?: number;
+    active?: boolean;
+}
+
+export interface AccreditationPayload {
+    category_id: number;
+    scope: AccreditationScope;
+    event_id?: number | null;
+    team_id?: number | null;
+    quota: number;
+    deadline_start?: string | null;
+    deadline_end?: string | null;
+    auto_approve?: boolean;
+    active?: boolean;
+}
+
+export const listAccreditations = (params?: AccreditationParams): Promise<Accreditation[]> =>
+    request<Accreditation[]>(`/api/accreditations${buildQuery(params)}`);
+
+export const getAccreditation = (id: number): Promise<Accreditation> => request<Accreditation>(`/api/accreditations/${id}`);
+
+export const applyAccreditation = (id: number): Promise<Application> =>
+    request<Application>(`/api/accreditations/${id}/apply`, { method: 'POST' });
+
+export const listApplications = (): Promise<Application[]> => request<Application[]>('/api/applications');
+
+export const withdrawApplication = (id: number): Promise<void> =>
+    request<void>(`/api/applications/${id}`, { method: 'DELETE' });
+
+export const listAdminAccreditations = (params?: AdminAccreditationParams): Promise<Accreditation[]> =>
+    request<Accreditation[]>(`/api/admin/accreditations${buildQuery(params)}`);
+
+export const createAccreditation = (payload: AccreditationPayload): Promise<Accreditation> =>
+    request<Accreditation>('/api/admin/accreditations', { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateAccreditation = (id: number, payload: AccreditationPayload): Promise<Accreditation> =>
+    request<Accreditation>(`/api/admin/accreditations/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+
+export const deleteAccreditation = (id: number): Promise<void> =>
+    request<void>(`/api/admin/accreditations/${id}`, { method: 'DELETE' });
