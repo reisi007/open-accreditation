@@ -18,37 +18,66 @@ deployment/  Dockerfile (PHP-FPM, pgsql) + docker-compose (Postgres + Mailpit)
 features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 ```
 
-## Lokales Setup (Backend)
+## Lokales Setup
 
 Voraussetzungen: PHP 8.5 (z. B. via [Laravel Herd](https://herd.laravel.com)),
-Composer, Docker.
+Composer, Docker, Node.js + pnpm (`packageManager`-Pin in `frontend/package.json`).
 
 ```bash
 # 1. Infra starten (Postgres 17 + Mailpit)
 docker compose -f deployment/docker-compose.yml up -d
 
-# 2. Backend installieren
+# 2. Backend-Setup (idempotent; anpassbar via ADMIN_EMAIL/ADMIN_PASSWORD)
+bash scripts/e2e-up.sh
+#    = composer install (falls fehlt) nicht enthalten — einmalig manuell:
+#      cd backend && composer install
+#    Der Script-Teil macht: .env aus .env.example, key:generate (falls leer),
+#    jwt:secret (falls leer), migrate --force, db:seed --force.
+
+# 3. Frontend
+cd frontend && pnpm install && pnpm dev   # http://localhost:5173
+```
+
+Die Einzelschritte aus `scripts/e2e-up.sh` manuell:
+
+```bash
 cd backend
 composer install
 cp .env.example .env
 php artisan key:generate
 php artisan jwt:secret
-
-# 3. DB migrieren (immer seeden — ohne Seed kein Admin-User)
-php artisan migrate --seed
+php artisan migrate --seed   # immer seeden — ohne Seed kein Admin-User
+php artisan serve            # Backend: http://localhost:8000 (Mail-UI: http://localhost:8025)
 ```
 
-Start: `php artisan serve` (Mail-UI: http://localhost:8025).
+### Login-Daten (Dev)
+
+Der `DatabaseSeeder` legt den Admin via `firstOrCreate` mit
+`ADMIN_EMAIL`/`ADMIN_PASSWORD` aus der `.env` an. **Dev-Default** (nur lokal,
+kein echter Wert): `admin@example.com` / `admin`.
+
+### Mandanten-/Domain-Konzept
+
+Jeder Mandant (Verband) besitzt eine **eigene Domain** (Super Admin → Mandant →
+Team → Kategorie → Akkreditierung → Application). Mandanten-Isolation über
+`MandantContext`-Middleware + `forCurrentMandant()`-Scopes — Details/SOLL in
+`features/`.
 
 ## Tests
 
 ```bash
+# Backend (SQLite :memory:, kein DB-Container nötig)
 cd backend && php artisan test
-```
 
-Tests laufen vollständig auf **SQLite `:memory:`** (siehe `phpunit.xml`) —
-kein DB-Container nötig. Parallele Läufe via `php artisan test --parallel`
-(paratest) sind isoliert.
+# Frontend Unit (Vitest)
+cd frontend && pnpm test:run
+
+# Frontend E2E Smoke (Playwright; Backend + `pnpm dev` laufen müssen)
+cd frontend && pnpm test:e2e:smoke
+
+# Frontend Lint + Build
+cd frontend && pnpm lint:fix && pnpm build
+```
 
 ## Stack
 

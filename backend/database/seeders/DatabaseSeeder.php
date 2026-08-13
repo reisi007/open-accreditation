@@ -12,14 +12,20 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     *
+     * Idempotent: the admin user is created via firstOrCreate with
+     * ADMIN_EMAIL/ADMIN_PASSWORD (see .env.example). Re-running the seeder
+     * (e.g. `db:seed --force` in scripts/e2e-up.sh) must not fail.
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::firstOrCreate(
+            ['email' => (string) env('ADMIN_EMAIL', 'admin@example.com')],
+            [
+                'name' => 'Admin',
+                'password' => (string) env('ADMIN_PASSWORD', 'admin'),
+                'email_verified_at' => now(),
+            ],
+        );
     }
 }

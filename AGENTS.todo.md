@@ -50,12 +50,13 @@
 
 ### P0-Fix — Befunde + CI (Delegieren, danach Verifikation)
 
-- [ ] **B1 (LOW):** `frontend/package.json` `pnpm.overrides` → nach `frontend/pnpm-workspace.yaml` migrieren (pnpm 10+), damit Overrides (react-router 7.18.2, nanoid, brace-expansion, svgo, postcss, undici) mit pnpm 11 greifen; danach `pnpm install` + Lockfile-Prüfung
-- [ ] **B2 (LOW):** generierte `src/locales/**/messages.js` per `.eslintignore`/eslint-`ignores`-Config ausnehmen statt Inline-`/*eslint-disable*/`
-- [ ] `.github/workflows/ci.yml`: Jobs `backend` (PHP 8.5, composer, `php artisan test`, pint), `frontend` (pnpm lint/build/test:run), optional `e2e` (Postgres-Service, Playwright `@smoke`); Secrets-Handling wie Portal (E2E nur bei gesetzten Secrets)
-- [ ] `scripts/`: z. B. `scripts/e2e-up.sh` (idempotent: Compose up → DB-Ready-Wait → migrate:fresh --seed), README darauf verweisen
-- [ ] README-Setup-Abschnitt finalisieren (Postgres via Compose, `composer install`, `.env`, `key:generate`, `jwt:secret`, `migrate --seed`, `pnpm dev`), Login-Daten (Admin)
-- [ ] Verifikation (Verifikator): B1-Lockfile aktiv, B2-Lint, CI-YAML valide, README korrekt
+- [x] **B1 (LOW):** `frontend/package.json` `pnpm.overrides` → `frontend/pnpm-workspace.yaml` (pnpm ≥10), `packageManager` auf `pnpm@11.21.0`, `minimumReleaseAge: 0`; Overrides verifiziert aktiv (Lockfile: react-router 7.18.2, nanoid 3.3.17, brace-expansion 5.0.9, svgo 4.0.2, postcss 8.5.23, undici 7.29.0) — Sicherheits-Pins greifen
+- [x] **B2 (LOW):** `frontend/eslint.config.js` `ignores` für `src/locales/**/*.messages.js`
+- [x] `.github/workflows/ci.yml`: Jobs `backend` (PHP 8.5 + Postgres/Mailpit-Service, composer, test, pint), `frontend` (pnpm 11.21.0, lint/build/test:run), `e2e` (nur push/workflow_dispatch, Postgres, serve+dev, `@smoke`, Report-Upload) — keine Secrets
+- [x] `scripts/e2e-up.sh`: idempotent (compose up → pg_isready → .env → key:generate/jwt:secret bei leer → migrate+seed), 2× e2e ausgeführt
+- [x] `DatabaseSeeder` auf `firstOrCreate` (ADMIN_EMAIL/ADMIN_PASSWORD, Fallback `admin@example.com`/`admin`) + `DatabaseSeederTest` (3 Tests); `php artisan test` → 5 passed — Grund: Skeleton-Seeder war nicht idempotent
+- [x] README-Setup finalisiert (scripts/e2e-up.sh, Frontend, Dev-Login, Tests, Mandanten-Konzept)
+- [x] **Verifikation (2026-08-13):** Verdict **APPROVED** — F1–F4 alle `low`. **F3 (Prod-Guard für Default-Admin) → P7 (Env-Hardening) mitnehmen.**
 
 ### P1 — Multi-Tenant + Auth + Rollen 🟡
 
@@ -91,11 +92,33 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-- [ ] Public: Landing (Mandant/Team-Kacheln), Veranstaltungskalender (Filter Verein/Typ, Status aktiv/inaktiv), Event-Detail (Frist, Ort, Kontakt)
-- [ ] Selbstanmeldung: Akkreditierungs-Antrag (Kategorie/Scope) mit Foto/Anhängen, Status requested
-- [ ] **Allocation-Engine** (Service, STRICT unit-getestet): Quota, FCFS nach Fristende, Blacklist (Person+Domäne), VIP-Prio, Massenfreigabe (alle / erste X), auto/manuell
-- [ ] Sub-Akkreditierungen: Park/Sitz nur bei Haupt-Akkreditierung, eigenes Kontingent, Überzeichnung → Ablehnung
-- [ ] Tests: PHPUnit (Engine: Überzeichnung, VIP-Reihenfolge, Frist-Randfälle, Blacklist), Playwright `@feature:accreditation`
+**Vorbereitet (2026-08-13), folgt nach P2.**
+
+**P3a — Öffentliches Portal (Delegieren):**
+- [ ] Landing: Mandant-/Team-Kacheln (wie Altsystem), Sprachumschalter DE/EN
+- [ ] Veranstaltungskalender: Filter Verein/Typ, Event-Status aktiv/inaktiv, Akkreditierungsfrist-Countdown
+- [ ] Event-Detail: Titel, Datum, Ort (Heimstätte/Override), Wettbewerb, Frist (Start/Ende + Countdown), Event-Verwalter-Kontakt
+- [ ] Tests: Playwright `@feature:accreditation` (Kalender-Filter, Detail, Status-Logik)
+
+**P3b — Selbstanmeldung (Delegieren):**
+- [ ] Akkreditierungs-Antrag: Person wählt Kategorie/Scope (Event/Liga/Saison), prüft Verfügbarkeit (Quota offen?), Foto/Presse-ID/Anhänge, Status `requested`
+- [ ] „Meine Akkreditierungen": Statusübersicht der eigenen Anträge
+- [ ] Tests: PHPUnit (Antrag-Logik, Quota-Prüfung beim Antrag), Playwright `@feature:accreditation`
+
+**P3c — Allocation-Engine (Delegieren, STRICT Unit-Tests):**
+- [ ] Service `AllocationService`: Kernregeln — Quota (Limit), FCFS nach Fristende, Blacklist (Person + Domäne) nie freigegeben, VIP-Prio (Person/Domäne) vorgereiht, auto/manual je Akkreditierung
+- [ ] Massenfreigabe: „alle freigeben" + „erste X freigeben" (Respektiert Quota + Blacklist + VIP-Reihenfolge)
+- [ ] Trigger: manuell (Admin), nach Fristende (automatisch, Schedule/Queue)
+- [ ] Tests: PHPUnit ausführlich — Überzeichnung (Quota erschöpft → Ablehnung), VIP-Reihenfolge (vorgereiht), Frist-Randfälle (vor/nach Deadline, exakt am Deadline-Ende), Blacklist (Person+Domäne, auch bei auto-approve), „erste X"-Zuteilung deterministisch, auto/manual-Kombinationen
+
+**P3d — Sub-Akkreditierungen (Delegieren, STRICT Unit-Tests):**
+- [ ] Modell: `sub_accreditations` (Typ Park/Sitz, eigenes Quota, eigene auto/manual-Allokation) + Anträge nur bei vorhandener Haupt-Akkreditierung
+- [ ] Allokation: Haupt-Akkreditierung zuerst, dann Sub-Selektion; Überzeichnung (z. B. 75 Anfragen / 50 Plätze) → 25 Ablehnungen; VIP-Prio auf Sub-Ebene anwendbar
+- [ ] Tests: PHPUnit — Haupt↔Sub-Abhängigkeit, Quota je Sub-Typ, VIP-Reihenfolge, deterministische Zuteilung
+
+**P3e — Admin-Freigabe-Sicht (Delegieren):**
+- [ ] Mandant-/Team-Admin: Antragsliste mit Status, Einzel-Freigabe/Ablehnung (mit Grund), Massenfreigabe-UI (alle / erste X), Blacklist-Verwaltung
+- [ ] Tests: Playwright `@feature:accreditation`
 
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) 🟡
 

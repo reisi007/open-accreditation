@@ -1,0 +1,17 @@
+# pnpm >=9 settings live here (the "pnpm" field in package.json is no longer read).
+# Single-package workspace: empty `packages` scope = root package only.
+packages: []
+
+overrides:
+  react-router: 7.18.2
+  nanoid: 3.3.17
+  brace-expansion: 5.0.9
+  svgo: 4.0.2
+  postcss: 8.5.23
+  undici: 7.29.0
+
+# pnpm >=11 ships a built-in 24h minimumReleaseAge (supply-chain gate). With
+# trustLockfile=false it verifies committed lockfile entries and rejects any
+# package published <24h ago (e.g. fresh transitive vite/rolldown deps).
+# Disabled explicitly so `pnpm install` works on freshly-published versions.
+minimumReleaseAge: 0

@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 import pluginLingui from 'eslint-plugin-lingui';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'coverage', 'playwright-report', 'test-results', 'src/locales', 'lingui.config.ts', 'playwright.config.ts', 'src/**/*.test.ts', 'src/**/*.test.tsx'] },
+  { ignores: ['dist', 'node_modules', 'coverage', 'playwright-report', 'test-results', 'src/locales', 'src/locales/**/*.messages.js', 'lingui.config.ts', 'playwright.config.ts', 'src/**/*.test.ts', 'src/**/*.test.tsx'] },
   pluginLingui.configs['flat/recommended'],
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
