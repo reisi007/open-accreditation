@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: accriditation_db
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+    environment:
+      POSTGRES_DB: accriditation
+      POSTGRES_USER: accriditation
+      POSTGRES_PASSWORD: accriditation
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accriditation -d accriditation"]
+      interval: "10s"
+      timeout: 5s
+      retries: 10
+    networks:
+      - accriditation_internal
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: accriditation_mailpit
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - accriditation_internal
+
+networks:
+  accriditation_internal:
+
+volumes:
+  db_data:
