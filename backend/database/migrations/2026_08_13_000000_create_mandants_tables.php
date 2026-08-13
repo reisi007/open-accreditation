@@ -32,10 +32,14 @@ return new class extends Migration
 
         Schema::create('mandant_domains', function (Blueprint $table) {
             $table->id();
-            // No `->index()` on the FK definition: `ForeignKeyDefinition` is a
-            // Fluent, so `->index()` overwrites its `index` attribute — the
-            // constraint NAME — and Postgres compiles `constraint "1"`.
-            $table->foreignId('mandant_id')->constrained()->cascadeOnDelete();
+            // P2b-F2: `->index()` BEFORE `->constrained()`. On the
+            // ForeignIdColumnDefinition `index()` creates the named column
+            // index (`mandant_domains_mandant_id_index`); `constrained()` then
+            // builds a *separate* ForeignKeyDefinition with a clean constraint
+            // name. The reversed order (`->constrained()->index()`) would set
+            // the FK definition's `index` attribute — the constraint NAME —
+            // and Postgres compiles `constraint "1"`.
+            $table->foreignId('mandant_id')->index()->constrained()->cascadeOnDelete();
             $table->string('hostname')->unique();
             $table->timestamps();
         });

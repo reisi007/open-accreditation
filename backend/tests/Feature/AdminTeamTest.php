@@ -57,16 +57,12 @@ class AdminTeamTest extends TestCase
         $this->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [])->assertStatus(401);
     }
 
-    public function test_team_endpoints_require_super_admin(): void
+    public function test_team_write_endpoints_require_super_admin(): void
     {
         $roles = [UserRole::MANDANT_ADMIN, UserRole::TEAM_ADMIN, UserRole::USER];
 
         foreach ($roles as $role) {
             $user = $this->createUserWithRole($role->value, $this->mandantA->id);
-
-            $this->actingAsApi($user)
-                ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
-                ->assertStatus(403, "expected 403 for {$role->value} on teams index");
 
             $this->actingAsApi($user)
                 ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
@@ -75,6 +71,59 @@ class AdminTeamTest extends TestCase
                 ])
                 ->assertStatus(403, "expected 403 for {$role->value} on teams store");
         }
+    }
+
+    public function test_team_write_update_and_delete_require_super_admin(): void
+    {
+        $team = $this->mandantA->teams()->create(['name' => 'FC Ziel', 'slug' => 'fc-ziel']);
+
+        foreach ([UserRole::MANDANT_ADMIN, UserRole::TEAM_ADMIN, UserRole::USER] as $role) {
+            $user = $this->createUserWithRole($role->value, $this->mandantA->id);
+
+            $this->actingAsApi($user)
+                ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id, ['name' => 'Hack'])
+                ->assertStatus(403, "expected 403 for {$role->value} on teams update");
+
+            $this->actingAsApi($user)
+                ->deleteJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id)
+                ->assertStatus(403, "expected 403 for {$role->value} on teams delete");
+        }
+    }
+
+    public function test_team_index_is_readable_by_mandant_admin(): void
+    {
+        $this->mandantA->teams()->create(['name' => 'ZSKA Verband', 'slug' => 'zska']);
+        $this->mandantB->teams()->create(['name' => 'Fremder', 'slug' => 'fremder']);
+
+        $this->actingAsApi($this->createUserWithRole(UserRole::MANDANT_ADMIN->value, $this->mandantA->id))
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'ZSKA Verband');
+    }
+
+    public function test_team_index_for_team_admin_is_scoped_to_own_team(): void
+    {
+        $teamA = $this->mandantA->teams()->create(['name' => 'Eigenes', 'slug' => 'eigenes']);
+        $this->mandantA->teams()->create(['name' => 'Fremdes Team', 'slug' => 'fremdes-team']);
+
+        $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $teamA->id);
+
+        $this->actingAsApi($teamAdmin)
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Eigenes')
+            ->assertJsonPath('data.0.id', $teamA->id);
+    }
+
+    public function test_team_index_is_forbidden_for_plain_users(): void
+    {
+        $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
+
+        $this->actingAsApi($user)
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertStatus(403);
     }
 
     public function test_super_admin_can_access_team_endpoints(): void

@@ -9,3 +9,7 @@ export function isAdminUser(user: User | null | undefined): boolean {
 export function isSuperAdminUser(user: User | null | undefined): boolean {
     return (user?.roles ?? []).some((role) => role.slug === 'super_admin');
 }
+
+export function isMandantAdminUser(user: User | null | undefined): boolean {
+    return (user?.roles ?? []).some((role) => role.slug === 'mandant_admin');
+}

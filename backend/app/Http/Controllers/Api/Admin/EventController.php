@@ -18,7 +18,7 @@ use Symfony\Component\HttpFoundation\Response;
  * team_admin is restricted to his own team's events for every action
  * (index/store/update/delete); mandant-level events (`team_id = null`) are
  * super_admin/mandant_admin only. A `?team_id` param from a team_admin must
- * match his own team, otherwise 403.
+ * match one of his own teams, otherwise 403.
  */
 class EventController extends Controller
 {
@@ -27,17 +27,17 @@ class EventController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $mandantId = $this->currentMandantId();
-        $teamScope = $this->teamScope($request);
+        $teamIds = $this->teamIds($request);
 
         $query = Event::query()
             ->forMandant($mandantId)
             ->with('team');
 
-        if ($teamScope !== null) {
-            $query->forTeam($teamScope);
+        if ($teamIds !== []) {
+            $query->whereIn('team_id', $teamIds);
 
             if ($request->filled('team_id')) {
-                abort_unless((int) $request->input('team_id') === $teamScope, 403);
+                abort_unless(in_array((int) $request->input('team_id'), $teamIds, true), 403);
             }
         } elseif ($request->filled('team_id')) {
             $teamId = (int) $request->input('team_id');
@@ -55,14 +55,14 @@ class EventController extends Controller
     public function store(Request $request): JsonResponse
     {
         $mandantId = $this->currentMandantId();
-        $teamScope = $this->teamScope($request);
+        $teamIds = $this->teamIds($request);
 
         $validated = $request->validate($this->rules($request, forCreate: true));
 
         $event = Event::create([
             ...$validated,
             'mandant_id' => $mandantId,
-            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamScope),
+            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds),
         ]);
 
         return (new EventResource($event->fresh('team')))
@@ -74,14 +74,14 @@ class EventController extends Controller
     {
         $mandantId = $this->currentMandantId();
         $event = $this->assertMandantScope($event, $mandantId);
-        $teamScope = $this->teamScope($request);
-        $this->assertOwnership($event, $teamScope);
+        $teamIds = $this->teamIds($request);
+        $this->assertOwnership($event, $teamIds);
 
         $validated = $request->validate($this->rules($request, $event));
 
         $event->update([
             ...$validated,
-            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamScope, $event),
+            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds, $event),
         ]);
 
         return new EventResource($event->fresh('team'));
@@ -91,8 +91,8 @@ class EventController extends Controller
     {
         $mandantId = $this->currentMandantId();
         $event = $this->assertMandantScope($event, $mandantId);
-        $teamScope = $this->teamScope($request);
-        $this->assertOwnership($event, $teamScope);
+        $teamIds = $this->teamIds($request);
+        $this->assertOwnership($event, $teamIds);
 
         $event->delete();
 
@@ -117,11 +117,12 @@ class EventController extends Controller
             'active' => ['sometimes', 'boolean'],
         ];
 
-        // `deadline_end` must follow `deadline_start`. Enforced only when both
-        // arrive in the same payload — a partial update touching one of them
-        // cannot be compared without reading the row.
+        // P2b-F3: `deadline_end` must follow `deadline_start` — equal dates
+        // are allowed (a single-day registration window). Enforced only when
+        // both arrive in the same payload — a partial update touching one of
+        // them cannot be compared without reading the row.
         if ($request->filled('deadline_start')) {
-            $rules['deadline_end'][] = 'after:deadline_start';
+            $rules['deadline_end'][] = 'after_or_equal:deadline_start';
         }
 
         return $rules;

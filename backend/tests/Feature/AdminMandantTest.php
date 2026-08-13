@@ -67,7 +67,6 @@ class AdminMandantTest extends TestCase
             'domains index' => ['get', '/api/admin/mandants/{id}/domains'],
             'logo show' => ['get', '/api/admin/mandants/{id}/logo'],
             'header show' => ['get', '/api/admin/mandants/{id}/header'],
-            'teams index' => ['get', '/api/admin/mandants/{id}/teams'],
         ];
     }
 
@@ -87,6 +86,34 @@ class AdminMandantTest extends TestCase
                 ->call($method, $url)
                 ->assertStatus(403, "expected 403 for {$label} on {$method} {$url}");
         }
+    }
+
+    /**
+     * P2b-F1: the teams *read* endpoint is guarded by `can:teams.view` — a
+     * mandant_admin may list all teams, a team_admin only his own team(s). A
+     * plain user stays denied. Write endpoints are covered by the write
+     * provider above (still 403).
+     */
+    public function test_teams_index_read_is_accessible_to_mandant_and_team_admin(): void
+    {
+        $own = $this->mandantA->teams()->create(['name' => 'Eigenes', 'slug' => 'eigenes']);
+        $this->mandantA->teams()->create(['name' => 'Fremdes Team', 'slug' => 'fremdes-team']);
+
+        $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $own->id);
+        $this->actingAsApi($teamAdmin)
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $own->id);
+
+        $this->actingAsApi($this->plainUser($this->mandantA))
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertStatus(403);
     }
 
     public static function adminWriteRoutesProvider(): array

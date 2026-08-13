@@ -31,14 +31,15 @@ return new class extends Migration
     {
         Schema::create('categories', function (Blueprint $table) {
             $table->id();
-            // No `->index()` on the FK definitions: `ForeignKeyDefinition` is a
-            // Fluent, so `->index()` would overwrite its `index` attribute —
-            // that's the constraint NAME. Postgres then compiles
-            // `constraint "1"` (duplicate name for two FKs in one table),
-            // which breaks `migrate:fresh`. `constrained()` creates the FK
-            // only; the index must be a separate command if needed.
-            $table->foreignId('mandant_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('team_id')->nullable()->constrained()->cascadeOnDelete();
+            // P2b-F2: `->index()` BEFORE `->constrained()` on both FKs —
+            // named column indexes (`categories_mandant_id_index`,
+            // `categories_team_id_index`), clean constraint names from
+            // `constrained()`. The reversed order would set the FK definition's
+            // `index` attribute (the constraint NAME) and Postgres compiles
+            // `constraint "1"` for two FKs in one table, breaking
+            // `migrate:fresh`.
+            $table->foreignId('mandant_id')->index()->constrained()->cascadeOnDelete();
+            $table->foreignId('team_id')->nullable()->index()->constrained()->cascadeOnDelete();
             $table->string('name');
             $table->string('slug');
             $table->text('description')->nullable();

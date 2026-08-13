@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import type { ChangeEvent } from 'react';
+import { useEffect, type ChangeEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import type { Event } from '../../api/types';
 import { useAdminTeams } from '../../logic/useAdminTeams';
@@ -17,18 +17,30 @@ interface EventFormProps {
 
 export function EventForm({ initial, submitLabel, submitError, onSubmit, onCancel }: EventFormProps) {
     const { i18n } = useLingui();
-    const { teams } = useAdminTeams();
+    const { teams, currentTeamIds } = useAdminTeams();
     const eventSchema = createEventSchema();
 
     const {
         register,
         handleSubmit,
         setValue,
+        getValues,
         formState: { errors, isSubmitting },
     } = useForm<EventFormValues>({
         resolver: zodResolver(eventSchema),
         defaultValues: eventFormDefaults(initial),
     });
+
+    useEffect(() => {
+        if (initial || currentTeamIds.length === 0 || !teams) return;
+        if (getValues('team_id') !== '') return;
+        const ownTeam = teams.find((team) => currentTeamIds.includes(team.id));
+        if (!ownTeam) return;
+        setValue('team_id', String(ownTeam.id));
+        if (ownTeam.home_venue) {
+            setValue('venue', ownTeam.home_venue);
+        }
+    }, [initial, currentTeamIds, teams, setValue, getValues]);
 
     const showTeamSelect = teams !== undefined;
 

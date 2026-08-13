@@ -1,4 +1,14 @@
-import type { Category, Event, Mandant, MandantDomain, SmtpConfig, Team, User } from './types';
+import type {
+    AdminUser,
+    Category,
+    Event,
+    Mandant,
+    MandantDomain,
+    SmtpConfig,
+    Team,
+    User,
+    UserRoleAssignment,
+} from './types';
 
 export interface ApiErrorInfo {
     message?: string;
@@ -178,6 +188,8 @@ export interface EventPayload {
 export interface QueryParams {
     team_id?: number;
     active?: boolean;
+    search?: string;
+    role?: string;
 }
 
 function buildQuery(params?: QueryParams): string {
@@ -215,3 +227,19 @@ export const updateEvent = (id: number, payload: EventPayload): Promise<Event> =
 
 export const deleteEvent = (id: number): Promise<void> =>
     request<void>(`/api/admin/events/${id}`, { method: 'DELETE' });
+
+export type UserRoleSlug = 'mandant_admin' | 'team_admin' | 'user' | 'verifier';
+
+export interface UserRoleInput {
+    role: UserRoleSlug;
+    team_id?: number | null;
+}
+
+export const listUsers = (params?: QueryParams): Promise<AdminUser[]> =>
+    request<AdminUser[]>(`/api/admin/users${buildQuery(params)}`);
+
+export const updateUserRoles = (userId: number, roles: UserRoleInput[]): Promise<UserRoleAssignment[]> =>
+    request<UserRoleAssignment[]>(`/api/admin/users/${userId}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roles }),
+    });

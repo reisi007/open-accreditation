@@ -4,11 +4,13 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { ApiError, createCategory, deleteCategory, listCategories, updateCategory } from '../../api/client';
 import type { Category } from '../../api/types';
+import { useAdminTeams } from '../../logic/useAdminTeams';
 import { CategoryForm } from './CategoryForm';
 import { buildCategoryPayload, type CategoryFormValues } from './categoryFormUtils';
 
 export function CategoriesPage() {
     const { i18n } = useLingui();
+    const { currentTeamIds } = useAdminTeams();
     const { data: categories, error, isLoading, mutate } = useSWR<Category[]>('/api/admin/categories', () =>
         listCategories(),
     );
@@ -17,6 +19,10 @@ export function CategoriesPage() {
     const [formCategory, setFormCategory] = useState<Category | null>(null);
     const [formError, setFormError] = useState<string | null>(null);
     const [listError, setListError] = useState<string | null>(null);
+
+    const isTeamScoped = currentTeamIds.length > 0;
+    const isReadOnly = (category: Category) =>
+        isTeamScoped && (category.team_id === null || !currentTeamIds.includes(category.team_id));
 
     const openNew = () => {
         setFormCategory(null);
@@ -127,22 +133,24 @@ export function CategoriesPage() {
                                         </div>
                                     </td>
                                     <td>
-                                        <div className="flex gap-2">
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-outline"
-                                                onClick={() => openEdit(category)}
-                                            >
-                                                {i18n._(t`Bearbeiten`)}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-error btn-outline"
-                                                onClick={() => void handleDelete(category)}
-                                            >
-                                                {i18n._(t`Löschen`)}
-                                            </button>
-                                        </div>
+                                        {isReadOnly(category) ? null : (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline"
+                                                    onClick={() => openEdit(category)}
+                                                >
+                                                    {i18n._(t`Bearbeiten`)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-error btn-outline"
+                                                    onClick={() => void handleDelete(category)}
+                                                >
+                                                    {i18n._(t`Löschen`)}
+                                                </button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

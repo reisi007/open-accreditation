@@ -2,7 +2,7 @@ import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
-import { isSuperAdminUser } from '../../logic/adminRoles';
+import { isMandantAdminUser, isSuperAdminUser } from '../../logic/adminRoles';
 import { useAuth } from '../../logic/useAuth';
 
 export function AdminLayout() {
@@ -11,6 +11,7 @@ export function AdminLayout() {
     const navigate = useNavigate();
 
     const isSuperAdmin = isSuperAdminUser(user);
+    const showUsers = isSuperAdmin || isMandantAdminUser(user);
 
     const handleLogout = async () => {
         await logout();
@@ -59,6 +60,13 @@ export function AdminLayout() {
                                 {i18n._(t`Events`)}
                             </NavLink>
                         </li>
+                        {showUsers ? (
+                            <li>
+                                <NavLink to="/admin/users" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
+                                    {i18n._(t`Benutzer`)}
+                                </NavLink>
+                            </li>
+                        ) : null}
                     </ul>
                 </aside>
                 <main className="min-w-0 flex-1">

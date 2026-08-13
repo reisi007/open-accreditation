@@ -16,6 +16,7 @@ msgstr ""
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/TeamForm.tsx
 msgid "Abbrechen"
 msgstr "Cancel"
@@ -40,6 +41,7 @@ msgstr "Accreditation platform"
 
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/UsersPage.tsx
 msgid "Aktionen"
 msgstr "Actions"
 
@@ -69,6 +71,20 @@ msgstr "Login failed. Please try again."
 msgid "Bearbeiten"
 msgstr "Edit"
 
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/RoleForm.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Benutzer"
+msgstr "Users"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Benutzer konnten nicht geladen werden."
+msgstr "Users could not be loaded."
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Benutzer suchen"
+msgstr "Search users"
+
 #: src/pages/admin/CategoryForm.tsx
 msgid "Beschreibung"
 msgstr "Description"
@@ -77,6 +93,10 @@ msgstr "Description"
 msgid "Bild konnte nicht entfernt werden."
 msgstr "The image could not be removed."
 
+#: src/pages/admin/userRoleFormUtils.ts
+msgid "Bitte ein Team auswählen."
+msgstr "Please select a team."
+
 #: src/pages/LoginPage.tsx
 msgid "Bitte eine gültige E-Mail-Adresse eingeben."
 msgstr "Please enter a valid email address."
@@ -84,6 +104,10 @@ msgstr "Please enter a valid email address."
 #: src/pages/admin/mandantFormUtils.ts
 msgid "Bitte eine gültige Portnummer angeben."
 msgstr "Please enter a valid port number."
+
+#: src/pages/admin/RoleForm.tsx
+msgid "Bitte Team auswählen"
+msgstr "Select a team"
 
 #: src/pages/admin/eventFormUtils.ts
 msgid "Das Ende der Frist muss nach dem Beginn liegen."
@@ -97,6 +121,10 @@ msgstr "Privacy policy"
 #: src/pages/admin/EventsPage.tsx
 msgid "Datum"
 msgstr "Date"
+
+#: src/pages/admin/RoleForm.tsx
+msgid "Die Rolle Super Admin wird global über den Seeder vergeben und kann hier nicht zugewiesen werden."
+msgstr "The Super Admin role is granted globally via the seeder and cannot be assigned here."
 
 #: src/pages/admin/CategoryForm.tsx
 msgid "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
@@ -123,9 +151,14 @@ msgstr "The domain could not be added."
 msgid "Domains"
 msgstr "Domains"
 
+#: src/pages/admin/UsersPage.tsx
 #: src/pages/LoginPage.tsx
 msgid "E-Mail"
 msgstr "Email"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "E-Mail oder Name"
+msgstr "E-mail or name"
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Ebene"
@@ -255,6 +288,10 @@ msgstr "No image uploaded."
 msgid "Keine"
 msgstr "None"
 
+#: src/pages/admin/UsersPage.tsx
+msgid "Keine Benutzer gefunden."
+msgstr "No users found."
+
 #: src/pages/admin/MandantForm.tsx
 msgid "Leer = unverändert"
 msgstr "Empty = unchanged"
@@ -301,6 +338,10 @@ msgstr "Delete mandant"
 msgid "Mandant wirklich löschen?"
 msgstr "Really delete this mandant?"
 
+#: src/pages/admin/RoleForm.tsx
+msgid "Mandant-Admin"
+msgstr "Mandant admin"
+
 #: src/pages/admin/AdminLayout.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Mandanten"
@@ -310,10 +351,16 @@ msgstr "Mandants"
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "The mandants could not be loaded."
 
+#: src/pages/admin/RoleForm.tsx
+#: src/pages/admin/userRoleFormUtils.ts
+msgid "Mindestens eine Rolle muss ausgewählt bleiben."
+msgstr "At least one role must remain selected."
+
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/UsersPage.tsx
 msgid "Name"
 msgstr "Name"
 
@@ -373,8 +420,22 @@ msgstr "Password is required."
 msgid "Primär"
 msgstr "Primary"
 
+#: src/pages/admin/RoleForm.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Rollen"
+msgstr "Roles"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Rollen bearbeiten"
+msgstr "Edit roles"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Rollen konnten nicht gespeichert werden."
+msgstr "Roles could not be saved."
+
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
 msgstr "Close"
 
@@ -434,6 +495,7 @@ msgstr "SMTP port"
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/UsersPage.tsx
 msgid "Speichern"
 msgstr "Save"
 
@@ -453,6 +515,7 @@ msgstr "Status"
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/RoleForm.tsx
 msgid "Team"
 msgstr "Team"
 
@@ -471,6 +534,10 @@ msgstr "The team could not be saved."
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Team speichern"
 msgstr "Save team"
+
+#: src/pages/admin/RoleForm.tsx
+msgid "Team-Admin"
+msgstr "Team admin"
 
 #: src/pages/admin/TeamForm.tsx
 msgid "Team-Name"
@@ -519,6 +586,10 @@ msgstr "Association level"
 #: src/pages/admin/EventForm.tsx
 msgid "Verbandsebene (Mandant)"
 msgstr "Association level (Mandant)"
+
+#: src/pages/admin/RoleForm.tsx
+msgid "Verifizierer"
+msgstr "Verifier"
 
 #: src/pages/admin/MandantForm.tsx
 msgid "Verschlüsselung"

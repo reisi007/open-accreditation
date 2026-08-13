@@ -38,6 +38,7 @@ class RolePermissionTest extends TestCase
     {
         $allPermissions = [
             'mandants.manage',
+            'teams.view',
             'teams.manage',
             'categories.manage',
             'events.manage',
@@ -49,6 +50,7 @@ class RolePermissionTest extends TestCase
         ];
 
         $mandantLevel = [
+            'teams.view',
             'categories.manage',
             'events.manage',
             'users.manage',
@@ -88,7 +90,7 @@ class RolePermissionTest extends TestCase
             'team_admin within own mandant and team' => [
                 UserRole::TEAM_ADMIN->value,
                 7,
-                ['teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
+                ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
                 ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify'],
                 'own',
             ],
@@ -103,7 +105,7 @@ class RolePermissionTest extends TestCase
                 UserRole::USER->value,
                 null,
                 ['accreditations.self'],
-                ['mandants.manage', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify'],
                 'own',
             ],
             'user on a foreign mandant' => [
@@ -117,7 +119,7 @@ class RolePermissionTest extends TestCase
                 UserRole::VERIFIER->value,
                 null,
                 ['verification.verify'],
-                ['mandants.manage', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage'],
                 'own',
             ],
             'verifier on a foreign mandant' => [
@@ -168,6 +170,7 @@ class RolePermissionTest extends TestCase
         MandantContext::reset();
 
         $this->assertTrue(Gate::forUser($admin)->allows('mandants.manage'));
+        $this->assertTrue(Gate::forUser($admin)->allows('teams.view'));
         $this->assertTrue(Gate::forUser($admin)->allows('teams.manage'));
         $this->assertTrue(Gate::forUser($admin)->allows('accreditations.view'));
     }
@@ -181,6 +184,7 @@ class RolePermissionTest extends TestCase
 
         // Without an argument the gate falls back to the role's own team.
         $this->assertTrue(Gate::forUser($teamAdmin)->allows('events.manage'));
+        $this->assertTrue(Gate::forUser($teamAdmin)->allows('teams.view'));
         $this->assertTrue(Gate::forUser($teamAdmin)->allows('teams.manage'));
         $this->assertTrue(Gate::forUser($teamAdmin)->allows('accreditations.manage'));
 

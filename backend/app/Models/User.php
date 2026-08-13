@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
 #[Fillable([
@@ -157,7 +158,8 @@ class User extends Authenticatable implements JWTSubject
     /**
      * The (first assigned) role slug within a mandant, or null when the user
      * has no role there. `super_admin` is global and therefore never returned
-     * for a mandant scope.
+     * for a mandant scope. Kept for compatibility — the union-aware
+     * authorization layer uses `roleAssignmentsForMandant()` instead.
      */
     public function roleForMandant(int $mandantId): ?string
     {
@@ -172,9 +174,33 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * All role assignments within one mandant, eager-loaded with `role` and
+     * `team`. Union semantics (P1d-F2): a user may hold several roles per
+     * mandant, and every assignment counts. `null` defaults to the current
+     * mandant from `MandantContext`.
+     *
+     * @return Collection<int, RoleUser>
+     */
+    public function roleAssignmentsForMandant(?int $mandantId = null): Collection
+    {
+        $mandantId ??= MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return collect();
+        }
+
+        return $this->roleUserAssignments()
+            ->forMandant($mandantId)
+            ->with(['role', 'team'])
+            ->orderBy('role_user.id')
+            ->get();
+    }
+
+    /**
      * The first role assignment (role + pivot scope) within a mandant, or null.
-     * Mirrors `roleForMandant()` but also exposes the pivot's `team_id`, which
-     * the authorization layer needs for team_admin scope checks.
+     * Mirrors `roleForMandant()` but also exposes the pivot's `team_id`.
+     * Kept for compatibility — the union-aware authorization layer uses
+     * `roleAssignmentsForMandant()` instead.
      */
     public function roleAssignmentForMandant(int $mandantId): ?RoleUser
     {
@@ -188,10 +214,14 @@ class User extends Authenticatable implements JWTSubject
     /**
      * Whether the user holds a permission within a mandant (defaults to the
      * current mandant from `MandantContext`). super_admin bypasses the matrix
-     * entirely (global, also without a mandant). For team_admin the permission
-     * is additionally scoped to the team of his role assignment — an explicit
-     * `$teamId` must match it, without an argument the own team is used; no
-     * team assignment (P2) → deny.
+     * entirely (global, also without a mandant).
+     *
+     * Union semantics (P1d-F2): ALL role assignments of the user within the
+     * mandant are evaluated — the permission is granted as soon as ANY
+     * assignment holds it. For team_admin the permission is additionally
+     * scoped to the team(s) of his role assignment(s): an explicit `$teamId`
+     * must match one of them, without an argument the own team(s) are used;
+     * a team_admin without any team assignment → deny.
      */
     public function hasPermission(string $permission, ?int $mandantId = null, ?int $teamId = null): bool
     {
@@ -205,29 +235,31 @@ class User extends Authenticatable implements JWTSubject
             return false;
         }
 
-        $assignment = $this->roleAssignmentForMandant($mandantId);
+        $assignments = $this->roleAssignmentsForMandant($mandantId);
 
-        if ($assignment === null) {
-            return false;
+        foreach ($assignments as $assignment) {
+            $roleSlug = $assignment->role->slug;
+
+            if (! in_array($permission, (array) config("permissions.{$roleSlug}"), true)) {
+                continue;
+            }
+
+            if ($roleSlug !== UserRole::TEAM_ADMIN->value) {
+                return true;
+            }
+
+            $roleTeamId = $assignment->team_id === null ? null : (int) $assignment->team_id;
+
+            if ($roleTeamId === null) {
+                continue;
+            }
+
+            if ($teamId === null || (int) $teamId === $roleTeamId) {
+                return true;
+            }
         }
 
-        $roleSlug = $assignment->role->slug;
-
-        if (! in_array($permission, (array) config("permissions.{$roleSlug}"), true)) {
-            return false;
-        }
-
-        if ($roleSlug !== UserRole::TEAM_ADMIN->value) {
-            return true;
-        }
-
-        $roleTeamId = $assignment->team_id === null ? null : (int) $assignment->team_id;
-
-        if ($roleTeamId === null) {
-            return false;
-        }
-
-        return $teamId === null || (int) $teamId === $roleTeamId;
+        return false;
     }
 
     /**

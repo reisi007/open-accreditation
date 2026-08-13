@@ -7,6 +7,7 @@ import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { isAdminUser, isSuperAdminUser } from './logic/adminRoles';
 import { RequireAdmin } from './logic/RequireAdmin';
 import { RequireRole } from './logic/RequireRole';
+import { RequireRoles } from './logic/RequireRoles';
 import { useAuth } from './logic/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { AdminLayout } from './pages/admin/AdminLayout';
@@ -15,6 +16,7 @@ import { EventsPage } from './pages/admin/EventsPage';
 import { MandantDetailPage } from './pages/admin/MandantDetailPage';
 import { MandantFormPage } from './pages/admin/MandantFormPage';
 import { MandantListPage } from './pages/admin/MandantListPage';
+import { UsersPage } from './pages/admin/UsersPage';
 
 function UnauthorizedBridge() {
     const navigate = useNavigate();
@@ -143,6 +145,14 @@ const router = createBrowserRouter([
                     },
                     { path: 'categories', element: <CategoriesPage /> },
                     { path: 'events', element: <EventsPage /> },
+                    {
+                        element: (
+                            <RequireRoles roles={['super_admin', 'mandant_admin']}>
+                                <Outlet />
+                            </RequireRoles>
+                        ),
+                        children: [{ path: 'users', element: <UsersPage /> }],
+                    },
                 ],
             },
         ],

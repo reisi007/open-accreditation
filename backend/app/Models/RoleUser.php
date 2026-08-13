@@ -34,6 +34,11 @@ class RoleUser extends Pivot
         return $this->belongsTo(Mandant::class);
     }
 
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
+    }
+
     /**
      * Scope rows to one mandant (or to the global super_admin rows when null).
      */

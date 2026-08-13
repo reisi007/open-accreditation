@@ -17,10 +17,10 @@ return new class extends Migration
     {
         Schema::create('teams', function (Blueprint $table) {
             $table->id();
-            // No `->index()` on the FK definition: `ForeignKeyDefinition` is a
-            // Fluent, so `->index()` overwrites its `index` attribute — the
-            // constraint NAME — and Postgres compiles `constraint "1"`.
-            $table->foreignId('mandant_id')->constrained()->cascadeOnDelete();
+            // P2b-F2: `->index()` BEFORE `->constrained()` (named column
+            // index `teams_mandant_id_index`); `constrained()` afterwards
+            // creates the FK with a clean constraint name.
+            $table->foreignId('mandant_id')->index()->constrained()->cascadeOnDelete();
             $table->string('slug');
             $table->string('name');
             $table->string('home_venue')->nullable();

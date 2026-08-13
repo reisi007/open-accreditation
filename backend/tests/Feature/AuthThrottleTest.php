@@ -12,7 +12,7 @@ use Tests\TestCase;
  * B2: login and register use separate rate-limit buckets. Before, both routes
  * shared a single `throttle:5,1` bucket, so failed register attempts silently
  * consumed the login quota and vice versa. The named limiters are registered
- * in `bootstrap/app.php`.
+ * in `AppServiceProvider`.
  */
 class AuthThrottleTest extends TestCase
 {

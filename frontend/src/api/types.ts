@@ -51,6 +51,20 @@ export interface Team {
     created_at: string;
 }
 
+export interface UserRoleAssignment {
+    role: { slug: string; name: string };
+    mandant_id: number | null;
+    team_id: number | null;
+    team: { id: number; name: string } | null;
+}
+
+export interface AdminUser {
+    id: number;
+    name: string;
+    email: string;
+    roles: UserRoleAssignment[];
+}
+
 export interface Category {
     id: number;
     mandant_id: number;

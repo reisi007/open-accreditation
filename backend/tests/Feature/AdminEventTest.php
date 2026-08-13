@@ -325,17 +325,41 @@ class AdminEventTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('deadline_end');
 
+        $event = $this->mandantA->events()->create(['title' => 'Update Ziel']);
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, [
+                'deadline_start' => '2026-08-15',
+                'deadline_end' => '2026-08-01',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('deadline_end');
+
+        $this->assertDatabaseMissing('events', ['title' => 'Ungültig']);
+    }
+
+    public function test_deadline_end_equal_to_deadline_start_is_allowed(): void
+    {
+        // P2b-F3: a single-day registration window (equal dates) is valid —
+        // `after_or_equal` instead of `after`.
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/events', [
                 'title' => 'Gleich',
                 'deadline_start' => '2026-08-15',
                 'deadline_end' => '2026-08-15',
             ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('deadline_end');
+            ->assertStatus(201)
+            ->assertJsonPath('data.deadline_start', '2026-08-15')
+            ->assertJsonPath('data.deadline_end', '2026-08-15');
 
-        $this->assertDatabaseMissing('events', ['title' => 'Ungültig']);
-        $this->assertDatabaseMissing('events', ['title' => 'Gleich']);
+        $event = $this->mandantA->events()->create(['title' => 'Update Gleich']);
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, [
+                'deadline_start' => '2026-08-15',
+                'deadline_end' => '2026-08-15',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.deadline_start', '2026-08-15')
+            ->assertJsonPath('data.deadline_end', '2026-08-15');
     }
 
     public function test_deadline_end_without_deadline_start_is_allowed(): void

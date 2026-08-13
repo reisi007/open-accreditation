@@ -30,20 +30,26 @@ class CategoryController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $mandantId = $this->currentMandantId();
-        $teamScope = $this->teamScope($request);
+        $teamIds = $this->teamIds($request);
+
+        if ($request->filled('team_id') && $teamIds === []) {
+            $teamId = (int) $request->input('team_id');
+            $this->assertTeamOfMandant($teamId, $mandantId);
+
+            // P2b-F4: the effective set for that team — the team's own
+            // team-level categories plus the mandant-level ones it does not
+            // override (deduplicated overrides instead of a raw union).
+            return CategoryResource::collection(Category::effectiveForTeam($teamId)->load('team'));
+        }
 
         $query = Category::query()
             ->forMandant($mandantId)
             ->with('team');
 
-        if ($teamScope !== null) {
+        if ($teamIds !== []) {
             // team_admin: own team-level categories plus mandant-level ones
             // (read-only). A `team_id` query param is ignored for him.
-            $query->where(fn (Builder $q) => $q->whereNull('team_id')->orWhere('team_id', $teamScope));
-        } elseif ($request->filled('team_id')) {
-            $teamId = (int) $request->input('team_id');
-            $this->assertTeamOfMandant($teamId, $mandantId);
-            $query->where(fn (Builder $q) => $q->whereNull('team_id')->orWhere('team_id', $teamId));
+            $query->where(fn (Builder $q) => $q->whereNull('team_id')->orWhereIn('team_id', $teamIds));
         }
 
         return CategoryResource::collection($query->orderBy('name')->orderBy('id')->get());
@@ -52,14 +58,14 @@ class CategoryController extends Controller
     public function store(Request $request): JsonResponse
     {
         $mandantId = $this->currentMandantId();
-        $teamScope = $this->teamScope($request);
+        $teamIds = $this->teamIds($request);
 
-        $validated = $request->validate($this->rules($request, $mandantId, $teamScope, forCreate: true));
+        $validated = $request->validate($this->rules($request, $mandantId, $teamIds, forCreate: true));
 
         $category = Category::create([
             ...$validated,
             'mandant_id' => $mandantId,
-            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamScope),
+            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds),
         ]);
 
         return (new CategoryResource($category->load('team')))
@@ -71,14 +77,14 @@ class CategoryController extends Controller
     {
         $mandantId = $this->currentMandantId();
         $category = $this->assertMandantScope($category, $mandantId);
-        $teamScope = $this->teamScope($request);
-        $this->assertOwnership($category, $teamScope);
+        $teamIds = $this->teamIds($request);
+        $this->assertOwnership($category, $teamIds);
 
-        $validated = $request->validate($this->rules($request, $mandantId, $teamScope, $category));
+        $validated = $request->validate($this->rules($request, $mandantId, $teamIds, $category));
 
         $category->update([
             ...$validated,
-            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamScope, $category),
+            'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds, $category),
         ]);
 
         return new CategoryResource($category->fresh('team'));
@@ -88,8 +94,8 @@ class CategoryController extends Controller
     {
         $mandantId = $this->currentMandantId();
         $category = $this->assertMandantScope($category, $mandantId);
-        $teamScope = $this->teamScope($request);
-        $this->assertOwnership($category, $teamScope);
+        $teamIds = $this->teamIds($request);
+        $this->assertOwnership($category, $teamIds);
 
         $category->delete();
 
@@ -99,14 +105,13 @@ class CategoryController extends Controller
     /**
      * @return array<string, array<int, mixed>>
      */
-    private function rules(Request $request, int $mandantId, ?int $teamScope, ?Category $category = null, bool $forCreate = false): array
+    private function rules(Request $request, int $mandantId, array $teamIds, ?Category $category = null, bool $forCreate = false): array
     {
         $main = $forCreate ? 'required' : 'sometimes';
 
         // The level the written row will live on — decides which unique scope
         // the slug must satisfy.
-        $targetTeamId = $teamScope
-            ?? ($request->has('team_id') ? $request->input('team_id') : $category?->team_id);
+        $targetTeamId = $this->targetTeamId($request, $teamIds, $category?->team_id);
 
         return [
             'name' => [$main, 'string', 'max:255'],

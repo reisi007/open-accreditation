@@ -24,9 +24,11 @@ use App\Enums\UserRole;
 |
 | `mandants.manage` and `teams.manage` (tenant/team CRUD) are super_admin-only —
 | mandant admins manage their own mandant's content, not teams (Portal pattern,
-| D2). `categories.manage` is additionally granted to team_admin for his own
-| team's categories (team-scoped by the gate and re-enforced inside the P2b
-| controllers — mandant-level categories stay read-only for him).
+| D2). `teams.view` (P2b-F1) opens the read-only team list for mandant_admin
+| (whole mandant) and team_admin (own teams only — scoped inside the
+| controller). `categories.manage` is additionally granted to team_admin for
+| his own team's categories (team-scoped by the gate and re-enforced inside the
+| P2b controllers — mandant-level categories stay read-only for him).
 | `accreditations.view` for team_admin is the read-only D7 view on the
 | Verband's accreditations of the team's persons (person scope follows in P3).
 |
@@ -39,6 +41,7 @@ return [
     ],
 
     UserRole::MANDANT_ADMIN->value => [
+        'teams.view',
         'categories.manage',
         'events.manage',
         'users.manage',
@@ -47,6 +50,7 @@ return [
     ],
 
     UserRole::TEAM_ADMIN->value => [
+        'teams.view',
         'teams.manage',
         'categories.manage',
         'events.manage',

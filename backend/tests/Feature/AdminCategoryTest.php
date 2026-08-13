@@ -184,7 +184,12 @@ class AdminCategoryTest extends TestCase
 
     public function test_index_with_team_id_filter_returns_effective_set_for_that_team(): void
     {
+        // P2b-F4: the effective set for the team — its own team-level
+        // categories plus the mandant-level ones it does not override. The
+        // team-level "presse" shadows the mandant-level "presse" (dedup, no
+        // raw union), and another team's categories never leak in.
         $this->mandantA->categories()->create(['name' => 'Presse', 'slug' => 'presse']);
+        $this->mandantA->categories()->create(['team_id' => $this->teamA->id, 'name' => 'Presse Override', 'slug' => 'presse']);
         $this->mandantA->categories()->create(['team_id' => $this->teamA->id, 'name' => 'A Spezial', 'slug' => 'a-spezial']);
         $this->mandantA->categories()->create(['team_id' => $this->teamB->id, 'name' => 'B Spezial', 'slug' => 'b-spezial']);
 
@@ -193,7 +198,9 @@ class AdminCategoryTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.slug', 'a-spezial')
-            ->assertJsonPath('data.1.slug', 'presse');
+            ->assertJsonPath('data.1.slug', 'presse')
+            ->assertJsonPath('data.1.name', 'Presse Override')
+            ->assertJsonPath('data.1.team_id', $this->teamA->id);
     }
 
     public function test_index_with_foreign_team_id_is_404(): void

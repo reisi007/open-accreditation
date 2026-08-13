@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
 use App\Http\Controllers\Api\Admin\TeamController;
+use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\UserMediaController;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Route;
 |   GET    /api/auth/me           current user (UserResource)
 |
 | Login and register use their own named throttle buckets (`throttle:login` /
-| `throttle:register`, registered in bootstrap/app.php) — B2: register
+| `throttle:register`, registered in AppServiceProvider) — B2: register
 | attempts must not consume the login quota and vice versa.
 |
 | Profile & media (auth:api):
@@ -55,20 +56,24 @@ Route::middleware('auth:api')->group(function (): void {
 
 /*
 |--------------------------------------------------------------------------
-| Admin REST API (P2a/P2b: Super Admin — Mandanten, Domains, Teams,
-| Kategorien, Events)
+| Admin REST API (P2a/P2b/P2c: Super Admin — Mandanten, Domains, Teams,
+| Kategorien, Events, Benutzer)
 |--------------------------------------------------------------------------
 |
 | All routes sit behind `auth:api` plus a permission gate:
 |   - mandants / domains / logo / header → `can:mandants.manage`
-|   - teams sub-resource                  → `can:teams.manage`
+|   - teams read (index)                  → `can:teams.view` (P2b-F1)
+|   - teams write                         → `can:teams.manage` (super_admin-only)
 |   - categories                          → `can:categories.manage`
 |   - events                              → `can:events.manage`
+|   - users / roles                       → `can:users.manage` (P2c)
 |
 | `mandants.manage`/`teams.manage` are super_admin-only in this tenant-CRUD
-| surface. `categories.manage`/`events.manage` are also held by mandant_admin
+| surface. `teams.view` opens the read-only team list for mandant_admin (all
+| teams) and team_admin (own teams only — enforced inside the controller).
+| `categories.manage`/`events.manage` are also held by mandant_admin
 | (whole mandant) and team_admin (own team only — enforced inside the
-| controllers via the role assignment). Response format: `{data: …}`
+| controllers via the role assignments). Response format: `{data: …}`
 | resources or `{message}` + status; deletes return 204. Logo/header delivery
 | is auth-gated like user media.
 |
@@ -93,8 +98,9 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::delete('/mandants/{mandant}/domains/{domain}', [MandantDomainController::class, 'destroy'])->name('mandants.domains.destroy');
     });
 
+    Route::get('/mandants/{mandant}/teams', [TeamController::class, 'index'])->middleware('can:teams.view')->name('mandants.teams.index');
+
     Route::middleware('can:teams.manage')->group(function (): void {
-        Route::get('/mandants/{mandant}/teams', [TeamController::class, 'index'])->name('mandants.teams.index');
         Route::post('/mandants/{mandant}/teams', [TeamController::class, 'store'])->name('mandants.teams.store');
         Route::put('/mandants/{mandant}/teams/{team}', [TeamController::class, 'update'])->name('mandants.teams.update');
         Route::delete('/mandants/{mandant}/teams/{team}', [TeamController::class, 'destroy'])->name('mandants.teams.destroy');
@@ -112,5 +118,10 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/events', [EventController::class, 'store'])->name('events.store');
         Route::put('/events/{event}', [EventController::class, 'update'])->name('events.update');
         Route::delete('/events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
+    });
+
+    Route::middleware('can:users.manage')->group(function (): void {
+        Route::get('/users', [UserController::class, 'index'])->name('users.index');
+        Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->name('users.roles.update');
     });
 });

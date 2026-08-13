@@ -38,17 +38,17 @@
 
 ### P2 — Admin: Mandant/Team/Kategorie/Event 🟡
 
-**P2b — Kategorien + Events (Delegieren):**
-- [ ] Models + Migrationen: `Category` (mandant_id FK, team_id nullable = Override, name, slug, description, unique je (mandant_id, slug) bzw. (mandant_id, team_id, slug)), `Event` (mandant_id FK, team_id nullable, title, date, venue nullable (Default = Team-Heimstätte, überschreibbar), competition, deadline_start/deadline_end (Mandant-Default überschreibbar), active)
-- [ ] API: `/api/admin/categories` + `/api/admin/events` (CRUD, Gates `categories.manage`/`events.manage`; team_admin nur eigene Team-Events; Scopes `forMandant`/`forTeam`); Team-Admin-Frontend-Zugriff via Team-Scope
-- [ ] Frontend: Kategorie-/Event-CRUD (Mandant-Ebene + Team-Override anlegen/bearbeiten), Frist-Defaults, Übernahme Heimstätte
-- [ ] Tests: PHPUnit (CRUD, Scope-Isolation, Override-Precedence Mandant→Team deterministisch, team_admin-Isolation, event active-Filter), Playwright `@feature:admin:category` / `@feature:admin:event`
-
 **P2c — Benutzer + Freigaben-Basis (Delegieren):**
-- [ ] API: `/api/admin/mandants/{id}/users` (Liste) + Rollen-Zuweisung (Gate `users.manage`; Team-Admin sieht nur eigenes Team); **P1d-F2 hier lösen** (mehrere Rollen je Mandant: Union über Rollen oder Single-Role-Enforcement — Entscheidung dokumentieren)
-- [ ] Frontend: Benutzerliste + Rollen-Edit (mandant_admin/team_admin/user/verifier je Mandant, super_admin nur global)
-- [ ] Team-Admin read-only Sicht auf Verbands-Akkreditierungen eigener Personen (D7): Gate-Semantik in P3e mit echten Ressourcen nutzen (P3c/P3e)
-- [ ] Tests: PHPUnit (Zuweisung, Isolation, P1d-F2-Regression), Playwright `@feature:admin:users`
+- [ ] API Benutzerverwaltung: `GET /api/admin/users` (Liste User des aktuellen Mandants mit Rollen, scoped via MandantContext), `PUT /api/admin/users/{id}/roles` body `{roles: [{role, team_id?}]}` → **ersetzt** den Rollen-Satz des Users für den Mandant (super_admin global unangetastet). Gate `users.manage` (super_admin + mandant_admin; team_admin/user → 403)
+- [ ] **P1d-F2-Entscheidung (Union):** `hasPermission()` gewährt, wenn IRGENDEINE Rollen-Zuweisung die Permission hat (statt nur erste); `teamScope`/`ResolvesAdminTeamScope` nutzt team_admin-Zuweisung(en). Mehrere Rollen je (user, mandant) erlaubt (z. B. team_admin + user). Regressionstests (P1d-F2: multi-role → beide Permission-Sets greifen)
+- [ ] **P2b-F1 (medium):** mandant_admin kann Teams des eigenen Mandants AUFLISTEN (Teams-Read-Endpoint für mandant_admin; `teams.manage` bleibt super_admin-only für Schreiben); Frontend `useAdminTeams` für mandant_admin aktiv
+- [ ] **P2b-F2 (low):** FK-Spalten indizieren: `mandant_id`/`team_id` in `categories`/`events`/`teams`/`mandant_domains` → `->index()->constrained()`-Muster (Migrationen 000000/000002/000003/000004 anpassen, pre-deploy D17)
+- [ ] **P2b-F3 (low):** `deadline_end`-Validierung angleichen (Server `after_or_equal:deadline_start`, Client-Payload konsistent)
+- [ ] **P2b-F4 (low):** `GET /api/admin/categories?team_id=` liefert effektiven Satz (Dedup übernommener Slugs via `effectiveForTeam`) statt roher Union
+- [ ] **P2b-F6 (low):** team_admin Read-only: Edit/Delete-Buttons auf mandant-level Items ausblenden
+- [ ] **P2b-F7 (low):** venue-Default aus `home_venue` auch für team_admin (eigenes Team laden)
+- [ ] Frontend: Benutzerliste + Rollen-Edit (mandant_admin/team_admin/user/verifier je Mandant; Team-Select bei team_admin; super_admin nur global via Seeder)
+- [ ] Tests: PHPUnit (Zuweisung/Ersetzung, Isolation, P1d-F2-Regression, Gate-Matrix users.manage), Playwright `@feature:admin:users`
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
@@ -114,10 +114,12 @@
 - [ ] **F4 (low)** `activation_token` als sha256-Hash statt Klartext speichern → P7-Hardening.
 - [ ] **F5 (low)** Media-Uploads: Kontingent/Rate-Limit (Porträt, Presse-ID, Anhänge) → P7-Hardening.
 - [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
-- [ ] **B2 (low)** Auth-Throttle `5,1` teilt einen Bucket für register+login (inkl. `auth.spec` `@smoke`-Retry-Risiko) — bei CI-Retries 429 möglich; Fix (benannte Limiter `login`/`register`, je 10/min, getrennte Buckets) im **P2b**-Backend-Paket.
 - [ ] **P2a-RL (low)** Admin-Write-Routen (`/api/admin/*`) tragen kein Rate-Limit → für P7-Hardening benannte Limiter vorsehen.
+- [ ] **P2b-F8 (info)** Event-Partial-Update: nur `deadline_start` ODER nur `deadline_end` wird nicht gegen gespeicherten Gegenwert validiert (Rand-Datenkonsistenz, kein Exploit) → P7 oder akzeptiert.
+- [ ] **P2b-F9 (info)** @smoke-Login-Druck: ~7 Login-Calls bei Limit 10/min, Headroom 3; CI-Retries (2) können 429 auslösen → falls Flake: Smoke sequenziell (`--workers=1`) oder Login-Last reduzieren. (B2-Fix greift, Register-Bucket unberührt.)
+- [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
 - [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.
-- [ ] **P1d-F2 (low)** `roleAssignmentForMandant()` (User.php) wertet nur die ERSTE Rollen-Zuweisung je Mandant aus (`orderBy role_user.id`) — bei mehreren Rollen pro Mandant Unter-Granting (fail-closed, keine Escalation). Fix in **P2c** (Rollen-Zuweisung): Union über Rollen oder Single-Role-Enforcement entscheiden; Unique-Index `role_user_scope_unique` erlaubt mehrere Rollen.
+- [ ] **P1d-F2 (low)** `roleAssignmentForMandant()` (User.php) wertet nur die ERSTE Rollen-Zuweisung je Mandant aus (`orderBy role_user.id`) — bei mehreren Rollen pro Mandant Unter-Granting (fail-closed, keine Escalation). Fix in **P2c** (Union): Union über Rollen (mehrere Rollen je (user, mandant) erlaubt, z. B. team_admin + user), `teamScope`/`ResolvesAdminTeamScope` nutzt team_admin-Zuweisung(en).
 - [ ] **P1a-B1 (low)** Unbekannte Hosts nicht negativ cachen (60s-TTL; aktuell bewusst „Unknown hosts are not cached") → Hardening.
 - [ ] **P1a-B2 (low)** Referer-Fallback (aktuell `local`-env-beschränkt, jeder Referer-Host) auf Vite-Origin `localhost:5173` einschränken.
 - [ ] **P1a-B4 (low)** `config/mandants.php`-Kommentar „Primary-Mandant im Cache" vs. `MandantContext::default()` („Not cached") widersprüchlich → Kommentar korrigieren.

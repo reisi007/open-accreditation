@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Concerns;
 
 use App\Enums\UserRole;
+use App\Models\RoleUser;
 use App\Models\Team;
 use App\Support\MandantContext;
 use Illuminate\Database\Eloquent\Model;
@@ -10,14 +11,17 @@ use Illuminate\Http\Request;
 
 /**
  * Shared within-mandant scoping for the P2b admin controllers (categories,
- * events). The route groups are already guarded by the `can:…` permission
- * gates; this trait narrows the team_admin scope to his role-assigned team and
- * keeps every resource operation inside the current mandant:
+ * events, teams). The route groups are already guarded by the `can:…`
+ * permission gates; this trait narrows the team_admin scope to his
+ * role-assigned team(s) and keeps every resource operation inside the current
+ * mandant:
  *
  * - super_admin / mandant_admin → unrestricted within the current mandant
- *   (null team scope; team_id comes from the payload).
- * - team_admin → locked to the team of his role assignment; a foreign
- *   `team_id` never takes effect (categories ignore it, events answer 403).
+ *   (empty team scope; `team_id` comes from the payload).
+ * - team_admin → locked to the team(s) of his role assignment(s). Union
+ *   semantics (P1d-F2): several team_admin assignments may yield several
+ *   teams. A foreign `team_id` never takes effect (categories ignore it,
+ *   events answer 403).
  *
  * Cross-mandant ids are answered with 404 (scoped lookup), ownership
  * violations with 403.
@@ -36,45 +40,62 @@ trait ResolvesAdminTeamScope
     }
 
     /**
-     * The team the current user is restricted to, or null when unrestricted
-     * (super_admin / mandant_admin).
+     * The team ids the current user is restricted to, or an empty array when
+     * unrestricted (super_admin / mandant_admin / any non-team_admin role).
+     * For a team_admin without a single team assignment the request is
+     * rejected with 403 (he has no team to act on).
+     *
+     * @return list<int>
      */
-    protected function teamScope(Request $request): ?int
+    protected function teamIds(Request $request): array
     {
         $user = $request->user();
         abort_if($user === null, 401);
 
-        $mandantId = MandantContext::currentId();
+        $mandantId = $this->currentMandantId();
+        $assignments = $user->roleAssignmentsForMandant($mandantId);
 
-        if ($user->isSuperAdmin()) {
-            return null;
+        $isTeamAdmin = $assignments->contains(
+            static fn (RoleUser $assignment): bool => $assignment->role->slug === UserRole::TEAM_ADMIN->value,
+        );
+
+        if (! $isTeamAdmin) {
+            return [];
         }
 
-        if ($mandantId !== null && $user->isMandantAdmin($mandantId)) {
-            return null;
-        }
+        $teamIds = $assignments
+            ->filter(
+                static fn (RoleUser $assignment): bool => $assignment->role->slug === UserRole::TEAM_ADMIN->value
+                    && $assignment->team_id !== null,
+            )
+            ->map(static fn (RoleUser $assignment): int => (int) $assignment->team_id)
+            ->unique()
+            ->values()
+            ->all();
 
-        $assignment = $user->roleAssignmentForMandant($mandantId);
+        abort_if($teamIds === [], 403, 'A team_admin needs a team assignment.');
 
-        if ($assignment?->role->slug === UserRole::TEAM_ADMIN->value) {
-            $teamId = $assignment->team_id === null ? null : (int) $assignment->team_id;
-            abort_if($teamId === null, 403, 'A team_admin needs a team assignment.');
-
-            return $teamId;
-        }
-
-        return null;
+        return $teamIds;
     }
 
     /**
-     * The team id a written row gets: the team_admin's own team (payload value
-     * ignored/forced), otherwise the validated payload value — keeping the
-     * existing team on partial updates when the key is absent.
+     * The team id a written row gets. For a team_admin the row lands on one of
+     * his own teams: an explicit payload `team_id` inside his scope is honored,
+     * anything else falls back to his first allowed team (the single-team case
+     * keeps the historical "force own team" behavior). Otherwise the validated
+     * payload value wins, keeping the existing team on partial updates when the
+     * key is absent.
      */
-    protected function resolveTeamId(array $validated, int $mandantId, ?int $teamScope, ?Model $model = null): ?int
+    protected function resolveTeamId(array $validated, int $mandantId, array $teamIds, ?Model $model = null): ?int
     {
-        if ($teamScope !== null) {
-            return $teamScope;
+        if ($teamIds !== []) {
+            $payloadTeamId = array_key_exists('team_id', $validated) ? $validated['team_id'] : null;
+
+            if ($payloadTeamId !== null && in_array((int) $payloadTeamId, $teamIds, true)) {
+                return (int) $payloadTeamId;
+            }
+
+            return $teamIds[0];
         }
 
         if (! array_key_exists('team_id', $validated)) {
@@ -88,6 +109,25 @@ trait ResolvesAdminTeamScope
         }
 
         return $teamId === null ? null : (int) $teamId;
+    }
+
+    /**
+     * The team-level slug-uniqueness scope for a written row: mirrors
+     * `resolveTeamId()` without touching the database.
+     */
+    protected function targetTeamId(Request $request, array $teamIds, mixed $existingTeamId): mixed
+    {
+        if ($teamIds !== []) {
+            $payloadTeamId = $request->input('team_id');
+
+            if ($payloadTeamId !== null && in_array((int) $payloadTeamId, $teamIds, true)) {
+                return (int) $payloadTeamId;
+            }
+
+            return $teamIds[0];
+        }
+
+        return $request->has('team_id') ? $request->input('team_id') : $existingTeamId;
     }
 
     /**
@@ -113,19 +153,19 @@ trait ResolvesAdminTeamScope
     }
 
     /**
-     * team_admin may only modify team-level rows of his own team; mandant-level
-     * rows are read-only for him. super_admin / mandant_admin are unrestricted
-     * (null scope).
+     * team_admin may only modify team-level rows of his own team(s); mandant-
+     * level rows are read-only for him. super_admin / mandant_admin are
+     * unrestricted (empty scope).
      */
-    protected function assertOwnership(Model $model, ?int $teamScope): void
+    protected function assertOwnership(Model $model, array $teamIds): void
     {
-        if ($teamScope === null) {
+        if ($teamIds === []) {
             return;
         }
 
         abort_unless(
             $model->getAttribute('team_id') !== null
-                && (int) $model->getAttribute('team_id') === $teamScope,
+                && in_array((int) $model->getAttribute('team_id'), $teamIds, true),
             403,
             'You may only manage items of your own team.',
         );

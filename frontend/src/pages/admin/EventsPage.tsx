@@ -4,6 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { ApiError, createEvent, deleteEvent, listEvents, updateEvent } from '../../api/client';
 import type { Event } from '../../api/types';
+import { useAdminTeams } from '../../logic/useAdminTeams';
 import { EventForm } from './EventForm';
 import { buildEventPayload, type EventFormValues } from './eventFormUtils';
 
@@ -11,6 +12,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
 
 export function EventsPage() {
     const { i18n } = useLingui();
+    const { currentTeamIds } = useAdminTeams();
     const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
 
     const eventsKey = ['/api/admin/events', activeFilter];
@@ -68,6 +70,9 @@ export function EventsPage() {
             setListError(err instanceof ApiError ? err.message : i18n._(t`Event konnte nicht gelöscht werden.`));
         }
     };
+
+    const isTeamScoped = currentTeamIds.length > 0;
+    const isReadOnly = (event: Event) => isTeamScoped && (event.team_id === null || !currentTeamIds.includes(event.team_id));
 
     const formatDeadline = (event: Event) => {
         if (event.deadline_start && event.deadline_end) {
@@ -146,22 +151,24 @@ export function EventsPage() {
                                         )}
                                     </td>
                                     <td>
-                                        <div className="flex gap-2">
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-outline"
-                                                onClick={() => openEdit(event)}
-                                            >
-                                                {i18n._(t`Bearbeiten`)}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-error btn-outline"
-                                                onClick={() => void handleDelete(event)}
-                                            >
-                                                {i18n._(t`Löschen`)}
-                                            </button>
-                                        </div>
+                                        {isReadOnly(event) ? null : (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline"
+                                                    onClick={() => openEdit(event)}
+                                                >
+                                                    {i18n._(t`Bearbeiten`)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-error btn-outline"
+                                                    onClick={() => void handleDelete(event)}
+                                                >
+                                                    {i18n._(t`Löschen`)}
+                                                </button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
