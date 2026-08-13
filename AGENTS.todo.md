@@ -30,6 +30,7 @@
 | D15 | Sprachen | DE + EN (Lingui) |
 | D16 | Fotos | Porträt + Presse-ID + Anhänge (validiert) |
 | D17 | Migrationen | Mit **Erstelldatum** nummerieren (Laravel-Format); bis zum 1. Prod-Deploy erweitern/frei anpassen, danach jede Änderung eigene Migration — in `backend/AGENTS.md` dokumentiert |
+| D18 | Deployment/Proxy | **Caddy NUR remote** (Plan offen): serviert Frontend + `/api`-Proxy zum Backend auf einer Domain (React-Proxy-Muster wie Portal), Mandanten-Routing über Host-Header. **Lokal:** Herd-Backend `https://accreditation.test` + Vite-Dev-Server (Frontend, eigener Port, Proxy auf Backend) — **kein Caddy lokal**. |
 
 ---
 
@@ -64,9 +65,11 @@
 **Vorbereitet (2026-08-13), Delegation startet nach P0-Verifikation.**
 
 **P1a — Mandant-Grundlage (Delegieren):**
-- [ ] Migrationen: `mandants`, `mandant_domains` (hostname unique → mandant_id). Modell `Mandant` (slug, name, logo_path, header_path, impressum/privacy, smtp_config JSON, teams_enabled, is_primary, active)
-- [ ] `MandantContext`-Middleware: Host-Header → Mandant auflösen (Cache), unbekannte Domain → 404; `forCurrentMandant()`-Scope-Muster (wie Portal Brand)
-- [ ] Tests: PHPUnit `MandantContextTest` (Host-Resolution, unbekannt, Cache), Scope-Isolation
+- [x] Migrationen: `mandants`, `mandant_domains` (hostname unique → mandant_id). Modell `Mandant` (slug, name, logo_path, header_path, impressum/privacy, smtp_config JSON, teams_enabled, is_primary, active)
+- [x] `MandantContext`-Middleware: Host-Header → Mandant auflösen (Cache), unbekannte Domain → 404; `forCurrentMandant()`-Scope-Muster (wie Portal Brand)
+- [x] **Primary-Mandant-Domain = `accreditation.test`** (Dev, Herd) — Seeder + `backend/.env.example` (`APP_URL=https://accreditation.test`) + README
+- [x] Tests: PHPUnit `MandantContextTest` (Host-Resolution, unbekannt, Cache), Scope-Isolation → **20 passed, 44 assertions**
+- [x] **Verifikation (2026-08-13):** APPROVED. Follow-ups (alle `low`): B1 Negative-Cache unbekannter Hosts (60s-TTL) · B2 Referer-Fallback auf Vite-Origin (`localhost:5173`) einschränken · B3 Prod `trustHosts()` aus `mandant_domains` (vor P1b-Auth) · B4 Config-Kommentar „Primary gecacht" korrigieren · B5 `/up` von Mandant-Auflösung ausnehmen · B6 `email_verified_at` im Seeder (fillable/info) — B1–B5 als P2/P7-Hardening-Items.
 
 **P1b — Auth + Rollen (Delegieren):**
 - [ ] Registrierung (E-Mail-Aktivierung), Login/Logout via JWT httpOnly-Cookie (jwt-auth), Refresh, `auth('api')`
@@ -156,7 +159,7 @@
 
 ## 📌 Offene Punkte / Risiken
 
-- [ ] **Dependabot #1 (high, nanoid frontend):** Override auf gepatchte Version anheben (Portal-Pin 3.3.17 ist verwundbar) → kleiner Delegations-Task + Verifikation
+- [x] **Dependabot #1 (high, nanoid frontend):** Override auf `3.3.18` (CVE-2026-67213 gepatcht; 5.x wegen postcss-CJS inkompatibel) — verifiziert, Lockfile ohne residuale verwundbare Version
 - [ ] Projektname/Repo-URL festlegen (Verzeichnis heißt `open-accriditation`, Tippfehler)
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)
