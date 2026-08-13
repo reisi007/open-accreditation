@@ -42,6 +42,13 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // JWT API guard — token travels in the httpOnly `accr_jwt` cookie
+        // (jwt.cookie_key_name), never in localStorage.
+        'api' => [
+            'driver' => 'jwt',
+            'provider' => 'users',
+        ],
     ],
 
     /*

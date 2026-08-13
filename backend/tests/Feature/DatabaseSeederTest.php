@@ -30,6 +30,20 @@ class DatabaseSeederTest extends TestCase
         $this->assertDatabaseCount('users', 1);
     }
 
+    public function test_seeder_backfills_email_verified_at_for_pre_p1b_admin(): void
+    {
+        User::firstOrCreate(
+            ['email' => 'admin@example.com'],
+            ['name' => 'Admin', 'password' => Hash::make('admin')],
+        );
+
+        $this->assertNull(User::where('email', 'admin@example.com')->firstOrFail()->email_verified_at);
+
+        $this->seed(DatabaseSeeder::class);
+
+        $this->assertNotNull(User::where('email', 'admin@example.com')->firstOrFail()->email_verified_at);
+    }
+
     public function test_seeder_uses_env_credentials_when_set(): void
     {
         $previousEnvEmail = $_ENV['ADMIN_EMAIL'] ?? null;

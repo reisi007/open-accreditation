@@ -38,6 +38,16 @@ return [
             'report' => false,
         ],
 
+        // Auth-gated user media (portrait, press id, attachments). Files are
+        // never exposed through a public URL — delivery goes through the
+        // authenticated /api/user/media/{id} endpoint only.
+        'private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

@@ -20,23 +20,10 @@ jobs:
       run:
         working-directory: backend
     services:
-      postgres:
-        # Nur für env-Konfiguration/Parität zum Dev-Setup. Die PHPUnit-Suite
-        # läuft via phpunit.xml auf SQLite `:memory:` — kein DB-Zugriff nötig.
-        image: postgres:17-alpine
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_DB: accriditation
-          POSTGRES_USER: accriditation
-          POSTGRES_PASSWORD: accriditation
-        options: >-
-          --health-cmd="pg_isready -U accriditation -d accriditation"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
       mailpit:
-        # phpunit.xml sendet via SMTP auf 127.0.0.1:1025 (Test-Mails landen hier).
+        # phpunit.xml sendet via SMTP auf 127.0.0.1:1025. Die Mailable-Tests
+        # nutzen Mail::fake, aber Mailpit als Real-Backend ist ein Sicherheitsnetz
+        # für nicht-gefakte Mail-Zustellung (und deckt das Dev-Setup ab).
         image: axllent/mailpit
         ports:
           - 1025:1025
@@ -143,8 +130,10 @@ jobs:
       - name: Start backend server
         working-directory: backend
         run: |
-          php artisan serve --host=127.0.0.1 --port=8000 > /tmp/php-serve.log 2>&1 &
-          timeout 60s bash -c 'until curl -sf http://127.0.0.1:8000/ > /dev/null; do sleep 1; done'
+          # --no-reload: ohne den Flag filtert `serve` Env-Vars bei existierender
+          # .env (Portal-Lektion) — mit Flag startet der Server mit allen Vars.
+          php artisan serve --host=127.0.0.1 --port=8000 --no-reload > /tmp/php-serve.log 2>&1 &
+          timeout 60s bash -c 'until curl -sf http://127.0.0.1:8000/up > /dev/null; do sleep 1; done'
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

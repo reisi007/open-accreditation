@@ -75,12 +75,14 @@
 - [ ] Registrierung (E-Mail-Aktivierung), Login/Logout via JWT httpOnly-Cookie (jwt-auth), Refresh, `auth('api')`
 - [ ] `roles` + `role_user` (mandant-scoped): super_admin (global), mandant_admin, team_admin, user, verifier
 - [ ] AuthController/UserResource-Serialisierung (kein Passwort/Token-Leak)
-- [ ] Tests: PHPUnit (Registrierung+Aktivierung, Login/Logout, Rollen-Zuweisung, Mandant-Isolation des Auth), Playwright `@smoke` (Registrierung + Login auf einer Test-Mandant-Domain)
+- [x] Tests: PHPUnit (Registrierung+Aktivierung, Login/Logout, Rollen-Zuweisung, Mandant-Isolation des Auth) → **70 passed gesamt** (mit P1c)
+- [ ] **E2E ausstehend:** Playwright `@smoke` API-basiert (Registrierung + Login gegen Dev-Backend) — Frontend-Auth-UI kommt in P2
 
 **P1c — User-Profil + Fotos (Delegieren):**
-- [ ] Profil-Felder: Titel, Vorname, Nachname, Geschlecht, Geburtsdatum, Straße/PLZ/Ort/Land, Unternehmen, Telefon/Fax, Branche (Print/TV/Online/Radio/Foto/Sonstige), Position, Fotoweste vorhanden/Nr
-- [ ] Foto-Uploads: Porträt (Empfehlung 400×600, Validierung), Presse-ID, Anhänge (MIME/exiftool-Check, auth-gated Delivery)
-- [ ] Tests: PHPUnit (Validierung, Upload-Pflicht, Größenregeln), Playwright `@feature:profile`
+- [x] Profil-Felder: Titel, Vorname, Nachname, Geschlecht, Geburtsdatum, Straße/PLZ/Ort/Land, Unternehmen, Telefon/Fax, Branche (Print/TV/Online/Radio/Foto/Sonstige), Position, Fotoweste vorhanden/Nr
+- [x] Foto-Uploads: Porträt (Empfehlung 400×600, Validierung), Presse-ID, Anhänge (MIME/exiftool-Check, auth-gated Delivery)
+- [x] Tests: PHPUnit (Validierung, Upload-Pflicht, Größenregeln) — `@feature:profile`-Playwright nach Frontend-UI (P2)
+- [x] **Verifikation (2026-08-13):** APPROVED. Befunde: **F1 (medium)** Aktivierungslink nutzt `config('app.url')` statt Mandanten-Domain → Cross-Mandant-Login bricht → Fix-Task · F2 (low) JWT-Parser-Kette auch Header/Query/Form → Cookie-only · F3 (low) `local`-Disk `serve=>true` teilt Root mit `private` · F4 (low) activation_token klartext → sha256 · F5 (low) Uploads ohne Kontingent/Rate-Limit · F6 (info) 403-Texte offenbaren Kontoexistenz (bewusst) · F7 (info) Mandant-Check nur beim Login (P2: Ressourcen scopen). **F2–F5 → P7-Hardening.**
 
 **P1d — Autorisierung (Delegieren):**
 - [ ] Policies/Gates: super_admin / mandant_admin / team_admin / user / verifier; Team-Admin darf Verbands-Akkreditierungen eigener Personen read-only sehen (Vorbereitung P2/P3)
@@ -150,9 +152,15 @@
 
 ---
 
-## 🔧 Workflow (delegieren + verifizieren)
+## 🚨 CI-Analyse 2026-08-13 (Befunde, Fix delegiert nach P1b+P1c)
 
-- Build-Agent: nur diese Datei + `AGENTS.md` (+ referenzierte Doku). Kein Produktiv-Code.
+**Rot:** P1a-Run `31730486061` (E2E-Job) · 2× Dependabot-nanoid-PR · 1× Base-Image beim Initial-Commit (Dockerfile fehlte — seitdem grün).
+
+- [x] **C1 (E2E-Fail, hoch):** Fix umgesetzt — `/up`-Short-Circuit in Middleware, Loopback-Fallback (`localhost`/`127.0.0.1`/`::1`) in local/testing → Primary; Health-Check `/up`; `artisan serve --no-reload`. 8 neue Middleware-Tests.
+- [x] **C2 (Dependabot, mittel):** `.github/dependabot.yml` — composer täglich gebündelt, npm wöchentlich mit `ignore` für pnpm-Overrides (nanoid, react-router(-dom), brace-expansion, svgo, postcss, undici).
+- [x] **C3 (minor):** Postgres-Service aus Backend-Job entfernt; Mailpit begründet behalten.
+
+## 🔧 Workflow (delegieren + verifizieren)- Build-Agent: nur diese Datei + `AGENTS.md` (+ referenzierte Doku). Kein Produktiv-Code.
 - Jeder TODO-Block → ein Implementer-Subagent (isoliert, präzise Anweisungen + Ziel-Dateien).
 - Jede Umsetzung → ein **separater** Verifikator-Subagent (Tests/Lint/Build, Diff-Review **+ Architektur- und Security-Review** nach `AGENTS.md` §5; `critical`/`high` blockieren APPROVED).
 - Visuelle Checks (Template-Editor, Ausweis-Layout, Screenshot-Abgleiche) → `vision`-Subagent.
