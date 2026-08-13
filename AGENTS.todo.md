@@ -29,6 +29,7 @@
 | D14 | E-Mail | Voller Workflow (Aktivierung, Freigabe/Ablehnung, Frist-Reminder, Pass-Versand); SMTP je Mandant |
 | D15 | Sprachen | DE + EN (Lingui) |
 | D16 | Fotos | Porträt + Presse-ID + Anhänge (validiert) |
+| D17 | Migrationen | Mit **Erstelldatum** nummerieren (Laravel-Format); bis zum 1. Prod-Deploy erweitern/frei anpassen, danach jede Änderung eigene Migration — in `backend/AGENTS.md` dokumentiert |
 
 ---
 
@@ -155,6 +156,7 @@
 
 ## 📌 Offene Punkte / Risiken
 
+- [ ] **Dependabot #1 (high, nanoid frontend):** Override auf gepatchte Version anheben (Portal-Pin 3.3.17 ist verwundbar) → kleiner Delegations-Task + Verifikation
 - [ ] Projektname/Repo-URL festlegen (Verzeichnis heißt `open-accriditation`, Tippfehler)
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)

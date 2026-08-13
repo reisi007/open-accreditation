@@ -30,12 +30,13 @@ nur migrieren. `php artisan migrate` (bzw. `migrate:fresh`) allein reicht
 nicht — anschließend IMMER `php artisan db:seed` (oder `--seed` Flag)
 ausführen.
 
-**Migration Policy (CRITICAL):** Bei jeder Migration muss der Agent vorher
-nachfragen, ob die Änderung als **neue, separate Migration** oder als
-**Erweiterung der aktuell letzten Migration** erfolgen soll. Neue
-Schema-Änderungen erfolgen als eigenständige Migrationen ab `V001` (bzw. dem
-nächsthöheren Nummernkreis). **`down()`-Methoden werden nie ausgeführt und
-können als Regel leer gelassen werden.**
+**Migration Policy (CRITICAL, etabliert 2026-08-13):** Migrationen werden mit
+**Erstelldatum** nummeriert (Laravel-Standard `YYYY_MM_DD_HHMMSS_*`). Bis zum
+**ersten Produktions-Deploy** gilt: Schema-Änderungen **erweitern** bestehende
+Migrationen (Dateien dürfen frei angepasst werden — kein Versionsnummern-
+Zeremoniell). **Nach dem nächsten Produktions-Deploy** erhält jede Schema-
+Änderung eine **eigene, neue Migration** (Erstelldatum). **`down()`-Methoden
+werden nie ausgeführt und können als Regel leer gelassen werden.**
 
 ## Parallel Testing (PHP) — SQLite `:memory:`
 
