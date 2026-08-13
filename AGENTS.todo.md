@@ -50,11 +50,27 @@
 
 ### P1 — Multi-Tenant + Auth + Rollen 🟡
 
-- [ ] `mandants` + `domains` Migration/Modell, `MandantContext`-Middleware (Host-Header → Mandant, Forbidden bei unbekannt)
-- [ ] Auth: JWT httpOnly-Cookie, Registrierung (E-Mail-Aktivierung), Login/Logout, 5 Rollen (roles + role_user, mandant-scoped)
-- [ ] User-Profil (Titel, Name, Geschlecht, Geburtsdatum, Adresse, Land, Unternehmen, Telefon/Fax, Branche, Position, Fotoweste) + Foto-Uploads (Porträt, Presse-ID, Anhänge) mit Validierung
-- [ ] Authorization: Policies/Gates für super_admin/mandant_admin/team_admin/user/verifier
-- [ ] Tests: PHPUnit (Kontext-Isolation, Auth-Flows, Rollen), Vitest (Auth-Hooks), Playwright `@smoke` (Login/Registrierung)
+**Vorbereitet (2026-08-13), Delegation startet nach P0-Verifikation.**
+
+**P1a — Mandant-Grundlage (Delegieren):**
+- [ ] Migrationen: `mandants`, `mandant_domains` (hostname unique → mandant_id). Modell `Mandant` (slug, name, logo_path, header_path, impressum/privacy, smtp_config JSON, teams_enabled, is_primary, active)
+- [ ] `MandantContext`-Middleware: Host-Header → Mandant auflösen (Cache), unbekannte Domain → 404; `forCurrentMandant()`-Scope-Muster (wie Portal Brand)
+- [ ] Tests: PHPUnit `MandantContextTest` (Host-Resolution, unbekannt, Cache), Scope-Isolation
+
+**P1b — Auth + Rollen (Delegieren):**
+- [ ] Registrierung (E-Mail-Aktivierung), Login/Logout via JWT httpOnly-Cookie (jwt-auth), Refresh, `auth('api')`
+- [ ] `roles` + `role_user` (mandant-scoped): super_admin (global), mandant_admin, team_admin, user, verifier
+- [ ] AuthController/UserResource-Serialisierung (kein Passwort/Token-Leak)
+- [ ] Tests: PHPUnit (Registrierung+Aktivierung, Login/Logout, Rollen-Zuweisung, Mandant-Isolation des Auth), Playwright `@smoke` (Registrierung + Login auf einer Test-Mandant-Domain)
+
+**P1c — User-Profil + Fotos (Delegieren):**
+- [ ] Profil-Felder: Titel, Vorname, Nachname, Geschlecht, Geburtsdatum, Straße/PLZ/Ort/Land, Unternehmen, Telefon/Fax, Branche (Print/TV/Online/Radio/Foto/Sonstige), Position, Fotoweste vorhanden/Nr
+- [ ] Foto-Uploads: Porträt (Empfehlung 400×600, Validierung), Presse-ID, Anhänge (MIME/exiftool-Check, auth-gated Delivery)
+- [ ] Tests: PHPUnit (Validierung, Upload-Pflicht, Größenregeln), Playwright `@feature:profile`
+
+**P1d — Autorisierung (Delegieren):**
+- [ ] Policies/Gates: super_admin / mandant_admin / team_admin / user / verifier; Team-Admin darf Verbands-Akkreditierungen eigener Personen read-only sehen (Vorbereitung P2/P3)
+- [ ] Tests: PHPUnit RolePermissionTest (Zugriffsmatrix)
 
 ### P2 — Admin: Mandant/Team/Kategorie/Event 🟡
 
@@ -102,7 +118,7 @@
 
 - Build-Agent: nur diese Datei + `AGENTS.md` (+ referenzierte Doku). Kein Produktiv-Code.
 - Jeder TODO-Block → ein Implementer-Subagent (isoliert, präzise Anweisungen + Ziel-Dateien).
-- Jede Umsetzung → ein **separater** Verifikator-Subagent (Tests/Lint/Build, Diff-Review).
+- Jede Umsetzung → ein **separater** Verifikator-Subagent (Tests/Lint/Build, Diff-Review **+ Architektur- und Security-Review** nach `AGENTS.md` §5; `critical`/`high` blockieren APPROVED).
 - Visuelle Checks (Template-Editor, Ausweis-Layout, Screenshot-Abgleiche) → `vision`-Subagent.
 
 ## 📌 Offene Punkte / Risiken

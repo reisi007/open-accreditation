@@ -79,7 +79,11 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
      nutzen.
 - **Implementer (Subagent):** läuft in frischem, isoliertem Kontext; erhält präzise Anweisungen +
   Ziel-Dateien; setzt um und erzeugt Tests.
-- **Verifikator (Subagent):** separat vom Implementer; führt Tests/Lint/Build aus und prüft den Diff.
+- **Verifikator (Subagent):** separat vom Implementer; führt Tests/Lint/Build aus und prüft den Diff. Die Verifikation umfasst ZUSÄTZLICH:
+  1. **Architektur-Review:** Datenmodell-/Service-Grenzen konsistent, Mandanten-Isolation durchgängig (kein Cross-Mandant-Leak), Erweiterbarkeit für spätere Phasen (P2–P6), Einhaltung der Portabilitätsregel (Postgres-Dev vs. SQLite-Tests, §2).
+  2. **Security-Review:** keine Secrets/Keys committed, keine offenen Admin-/Debug-Routen in Prod, Auth-/Autorisierungs-Lücken (IDOR, fehlende Gates/Policies), Input-Validierung/Sanitize (Symfony `HtmlSanitizer` / DOMPurify), JWT-httpOnly-Cookie-Konfiguration, Rate-Limit wo nötig, sichere File-Delivery (auth-gated).
+  3. **Befunde-Bericht:** je Befund `Datei:Zeile` + Schweregrad `critical/high/medium/low`. `critical`/`high` blockieren das Verdict `APPROVED` (→ `CHANGES REQUIRED`).
+- **Build-Agent (Verifikations-Gate):** akzeptiert ein Verdict nur mit vollständigem Befunde-Bericht; `critical`/`high`-Befunde werden als eigene fix-Todos delegiert und erneut verifiziert.
 
 ## 6. AI Operating Rules (STRICT)
 
