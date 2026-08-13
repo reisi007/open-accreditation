@@ -1,0 +1,38 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# PHP / Backend
+backend/vendor/
+backend/.env
+backend/.env.local
+backend/.env.e2e
+backend/.env.testing
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+backend/storage/*.key
+backend/storage/logs/*.log
+backend/public/storage
+backend/.phpunit.result.cache
+
+# Tooling
+.idea/
+.vscode/
+*.iml
+.run/
+
+# Env
+.env
+.env.local
+.env.production
+.env.e2e
+.env.testing
+*.pem
