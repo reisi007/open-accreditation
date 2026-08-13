@@ -13,6 +13,8 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/pages/admin/CategoryForm.tsx
+#: src/pages/admin/EventForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/TeamForm.tsx
 msgid "Abbrechen"
@@ -36,10 +38,21 @@ msgstr "Accreditation"
 msgid "Akkreditierungs-Plattform"
 msgstr "Accreditation platform"
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Aktionen"
+msgstr "Actions"
+
+#: src/pages/admin/EventForm.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Aktiv"
 msgstr "Active"
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Alle"
+msgstr "All"
 
 #: src/App.tsx
 #: src/pages/LoginPage.tsx
@@ -50,9 +63,15 @@ msgstr "Log in"
 msgid "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
 msgstr "Login failed. Please try again."
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Bearbeiten"
 msgstr "Edit"
+
+#: src/pages/admin/CategoryForm.tsx
+msgid "Beschreibung"
+msgstr "Description"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Bild konnte nicht entfernt werden."
@@ -66,9 +85,22 @@ msgstr "Please enter a valid email address."
 msgid "Bitte eine gültige Portnummer angeben."
 msgstr "Please enter a valid port number."
 
+#: src/pages/admin/eventFormUtils.ts
+msgid "Das Ende der Frist muss nach dem Beginn liegen."
+msgstr "The deadline end must come after the deadline start."
+
 #: src/pages/admin/MandantForm.tsx
 msgid "Datenschutzerklärung"
 msgstr "Privacy policy"
+
+#: src/pages/admin/EventForm.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Datum"
+msgstr "Date"
+
+#: src/pages/admin/CategoryForm.tsx
+msgid "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
+msgstr "This category applies only to the selected team and overrides the association level."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Domain"
@@ -95,6 +127,10 @@ msgstr "Domains"
 msgid "E-Mail"
 msgstr "Email"
 
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Ebene"
+msgstr "Level"
+
 #: src/pages/admin/MandantForm.tsx
 #~ msgid "Ein Passwort ist gespeichert. Es kann hier nicht geändert werden."
 #~ msgstr "A password is saved. It cannot be changed here."
@@ -111,9 +147,51 @@ msgstr "Remove"
 msgid "Erlaubt die Verwaltung von Vereinen für diesen Mandanten."
 msgstr "Allows managing teams for this mandant."
 
+#: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 msgid "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
 msgstr "Only lowercase letters, numbers and hyphens are allowed."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Event bearbeiten"
+msgstr "Edit event"
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Event erstellen"
+msgstr "Create event"
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Event konnte nicht gelöscht werden."
+msgstr "The event could not be deleted."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Event konnte nicht gespeichert werden."
+msgstr "The event could not be saved."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Event wirklich löschen?"
+msgstr "Really delete this event?"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Events"
+msgstr "Events"
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Events konnten nicht geladen werden."
+msgstr "The events could not be loaded."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Frist"
+msgstr "Deadline"
+
+#: src/pages/admin/EventForm.tsx
+msgid "Frist Beginn"
+msgstr "Deadline start"
+
+#: src/pages/admin/EventForm.tsx
+msgid "Frist Ende"
+msgstr "Deadline end"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Header"
@@ -131,9 +209,39 @@ msgstr "Upload"
 msgid "Impressum"
 msgstr "Imprint"
 
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Inaktiv"
 msgstr "Inactive"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorie bearbeiten"
+msgstr "Edit category"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorie erstellen"
+msgstr "Create category"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorie konnte nicht gelöscht werden."
+msgstr "The category could not be deleted."
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorie konnte nicht gespeichert werden."
+msgstr "The category could not be saved."
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorie wirklich löschen?"
+msgstr "Really delete this category?"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorien"
+msgstr "Categories"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Kategorien konnten nicht geladen werden."
+msgstr "The categories could not be loaded."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Kein Bild hinterlegt."
@@ -159,6 +267,8 @@ msgstr "Logo"
 msgid "Logo & Header"
 msgstr "Logo & Header"
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Löschen"
 msgstr "Delete"
@@ -200,27 +310,48 @@ msgstr "Mandants"
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "The mandants could not be loaded."
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Name"
 msgstr "Name"
 
+#: src/pages/admin/categoryFormUtils.ts
 #: src/pages/admin/mandantFormUtils.ts
 #: src/pages/admin/teamFormUtils.ts
 msgid "Name ist erforderlich."
 msgstr "Name is required."
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Neu"
 msgstr "New"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Neue Kategorie"
+msgstr "New category"
 
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Neuer Mandant"
 msgstr "New mandant"
 
+#: src/pages/admin/EventsPage.tsx
+msgid "Neues Event"
+msgstr "New event"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Domains vorhanden."
 msgstr "No domains yet."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Noch keine Events vorhanden."
+msgstr "No events yet."
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Noch keine Kategorien vorhanden."
+msgstr "No categories yet."
 
 #: src/pages/admin/MandantListPage.tsx
 msgid "Noch keine Mandanten vorhanden."
@@ -242,6 +373,13 @@ msgstr "Password is required."
 msgid "Primär"
 msgstr "Primary"
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Schließen"
+msgstr "Close"
+
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Slug"
@@ -255,6 +393,11 @@ msgstr "The slug may only contain lowercase letters, numbers and hyphens (e.g. \
 msgid "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten (z. B. \"mein-verein\")."
 msgstr "The slug may only contain lowercase letters, numbers and hyphens (e.g. \"my-club\")."
 
+#: src/pages/admin/categoryFormUtils.ts
+msgid "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten (z. B. \"presse\")."
+msgstr "The slug may only contain lowercase letters, numbers and hyphens (e.g. \"press\")."
+
+#: src/pages/admin/categoryFormUtils.ts
 #: src/pages/admin/mandantFormUtils.ts
 #: src/pages/admin/teamFormUtils.ts
 msgid "Slug ist erforderlich."
@@ -288,17 +431,30 @@ msgstr "SMTP password"
 msgid "SMTP-Port"
 msgstr "SMTP port"
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Speichern"
 msgstr "Save"
+
+#: src/pages/admin/EventForm.tsx
+msgid "Spielort"
+msgstr "Venue"
 
 #: src/components/LanguageSwitcher.tsx
 msgid "Sprache"
 msgstr "Language"
 
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Status"
 msgstr "Status"
+
+#: src/pages/admin/CategoryForm.tsx
+#: src/pages/admin/EventForm.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Team"
+msgstr "Team"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Team hinzufügen"
@@ -320,6 +476,10 @@ msgstr "Save team"
 msgid "Team-Name"
 msgstr "Team name"
 
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Team-Override"
+msgstr "Team override"
+
 #: src/pages/admin/TeamForm.tsx
 msgid "Team-Slug"
 msgstr "Team slug"
@@ -337,13 +497,36 @@ msgstr "Enable teams"
 msgid "Teams deaktiviert"
 msgstr "Teams disabled"
 
+#: src/pages/admin/EventForm.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Titel"
+msgstr "Title"
+
+#: src/pages/admin/eventFormUtils.ts
+msgid "Titel ist erforderlich."
+msgstr "Title is required."
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Upload fehlgeschlagen."
 msgstr "Upload failed."
 
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
+msgid "Verbandsebene"
+msgstr "Association level"
+
+#: src/pages/admin/CategoryForm.tsx
+#: src/pages/admin/EventForm.tsx
+msgid "Verbandsebene (Mandant)"
+msgstr "Association level (Mandant)"
+
 #: src/pages/admin/MandantForm.tsx
 msgid "Verschlüsselung"
 msgstr "Encryption"
+
+#: src/pages/admin/EventForm.tsx
+msgid "Wettbewerb"
+msgstr "Competition"
 
 #: src/App.tsx
 msgid "Willkommen bei der Akkreditierungs-Plattform."

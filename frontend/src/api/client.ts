@@ -1,4 +1,4 @@
-import type { Mandant, MandantDomain, SmtpConfig, Team, User } from './types';
+import type { Category, Event, Mandant, MandantDomain, SmtpConfig, Team, User } from './types';
 
 export interface ApiErrorInfo {
     message?: string;
@@ -156,3 +156,62 @@ export const updateTeam = (mandantId: number, teamId: number, payload: TeamPaylo
 
 export const deleteTeam = (mandantId: number, teamId: number): Promise<void> =>
     request<void>(`/api/admin/mandants/${mandantId}/teams/${teamId}`, { method: 'DELETE' });
+
+export interface CategoryPayload {
+    name: string;
+    slug: string;
+    description?: string | null;
+    team_id?: number | null;
+}
+
+export interface EventPayload {
+    title: string;
+    team_id?: number | null;
+    date?: string | null;
+    venue?: string | null;
+    competition?: string | null;
+    deadline_start?: string | null;
+    deadline_end?: string | null;
+    active?: boolean;
+}
+
+export interface QueryParams {
+    team_id?: number;
+    active?: boolean;
+}
+
+function buildQuery(params?: QueryParams): string {
+    const searchParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(params ?? {})) {
+        if (value !== undefined) {
+            searchParams.set(key, String(value));
+        }
+    }
+    const query = searchParams.toString();
+
+    return query === '' ? '' : `?${query}`;
+}
+
+export const listCategories = (params?: QueryParams): Promise<Category[]> =>
+    request<Category[]>(`/api/admin/categories${buildQuery(params)}`);
+
+export const createCategory = (payload: CategoryPayload): Promise<Category> =>
+    request<Category>('/api/admin/categories', { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateCategory = (id: number, payload: CategoryPayload): Promise<Category> =>
+    request<Category>(`/api/admin/categories/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+
+export const deleteCategory = (id: number): Promise<void> =>
+    request<void>(`/api/admin/categories/${id}`, { method: 'DELETE' });
+
+export const listEvents = (params?: QueryParams): Promise<Event[]> =>
+    request<Event[]>(`/api/admin/events${buildQuery(params)}`);
+
+export const createEvent = (payload: EventPayload): Promise<Event> =>
+    request<Event>('/api/admin/events', { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateEvent = (id: number, payload: EventPayload): Promise<Event> =>
+    request<Event>(`/api/admin/events/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+
+export const deleteEvent = (id: number): Promise<void> =>
+    request<void>(`/api/admin/events/${id}`, { method: 'DELETE' });

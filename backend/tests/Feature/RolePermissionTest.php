@@ -88,8 +88,8 @@ class RolePermissionTest extends TestCase
             'team_admin within own mandant and team' => [
                 UserRole::TEAM_ADMIN->value,
                 7,
-                ['teams.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
-                ['mandants.manage', 'categories.manage', 'users.manage', 'accreditations.self', 'verification.verify'],
+                ['teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
+                ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify'],
                 'own',
             ],
             'team_admin on a foreign mandant' => [

@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\CategoryController;
+use App\Http\Controllers\Api\Admin\EventController;
 use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
@@ -21,6 +23,10 @@ use Illuminate\Support\Facades\Route;
 |   POST   /api/auth/logout       invalidate JWT + clear cookie
 |   GET    /api/auth/me           current user (UserResource)
 |
+| Login and register use their own named throttle buckets (`throttle:login` /
+| `throttle:register`, registered in bootstrap/app.php) — B2: register
+| attempts must not consume the login quota and vice versa.
+|
 | Profile & media (auth:api):
 |   PUT    /api/user/profile      update own accreditation profile
 |   GET    /api/user/media        list own media
@@ -30,10 +36,8 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('throttle:5,1')->group(function (): void {
-    Route::post('/auth/register', [AuthController::class, 'register'])->name('api.auth.register');
-    Route::post('/auth/login', [AuthController::class, 'login'])->name('api.auth.login');
-});
+Route::middleware('throttle:register')->post('/auth/register', [AuthController::class, 'register'])->name('api.auth.register');
+Route::middleware('throttle:login')->post('/auth/login', [AuthController::class, 'login'])->name('api.auth.login');
 
 Route::middleware('throttle:20,1')->get('/auth/activate/{token}', [AuthController::class, 'activate'])->name('api.auth.activate');
 
@@ -51,18 +55,22 @@ Route::middleware('auth:api')->group(function (): void {
 
 /*
 |--------------------------------------------------------------------------
-| Admin REST API (P2a: Super Admin — Mandanten, Domains, Teams)
+| Admin REST API (P2a/P2b: Super Admin — Mandanten, Domains, Teams,
+| Kategorien, Events)
 |--------------------------------------------------------------------------
 |
 | All routes sit behind `auth:api` plus a permission gate:
 |   - mandants / domains / logo / header → `can:mandants.manage`
 |   - teams sub-resource                  → `can:teams.manage`
+|   - categories                          → `can:categories.manage`
+|   - events                              → `can:events.manage`
 |
-| Both permissions are super_admin-only in this tenant-CRUD surface (the
-| team_admin entry in the matrix is scoped to his own team via the gate's
-| team argument; TeamController additionally requires the global super admin
-| role). Response format: `{data: …}` resources or `{message}` + status;
-| deletes return 204. Logo/header delivery is auth-gated like user media.
+| `mandants.manage`/`teams.manage` are super_admin-only in this tenant-CRUD
+| surface. `categories.manage`/`events.manage` are also held by mandant_admin
+| (whole mandant) and team_admin (own team only — enforced inside the
+| controllers via the role assignment). Response format: `{data: …}`
+| resources or `{message}` + status; deletes return 204. Logo/header delivery
+| is auth-gated like user media.
 |
 */
 Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(function (): void {
@@ -90,5 +98,19 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/mandants/{mandant}/teams', [TeamController::class, 'store'])->name('mandants.teams.store');
         Route::put('/mandants/{mandant}/teams/{team}', [TeamController::class, 'update'])->name('mandants.teams.update');
         Route::delete('/mandants/{mandant}/teams/{team}', [TeamController::class, 'destroy'])->name('mandants.teams.destroy');
+    });
+
+    Route::middleware('can:categories.manage')->group(function (): void {
+        Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
+        Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
+        Route::put('/categories/{category}', [CategoryController::class, 'update'])->name('categories.update');
+        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+    });
+
+    Route::middleware('can:events.manage')->group(function (): void {
+        Route::get('/events', [EventController::class, 'index'])->name('events.index');
+        Route::post('/events', [EventController::class, 'store'])->name('events.store');
+        Route::put('/events/{event}', [EventController::class, 'update'])->name('events.update');
+        Route::delete('/events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
     });
 });

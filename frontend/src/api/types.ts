@@ -50,3 +50,28 @@ export interface Team {
     home_venue: string | null;
     created_at: string;
 }
+
+export interface Category {
+    id: number;
+    mandant_id: number;
+    team_id: number | null;
+    name: string;
+    slug: string;
+    description: string | null;
+    is_team_override: boolean;
+    team: { id: number; name: string } | null;
+}
+
+export interface Event {
+    id: number;
+    mandant_id: number;
+    team_id: number | null;
+    title: string;
+    date: string | null;
+    venue: string | null;
+    competition: string | null;
+    deadline_start: string | null;
+    deadline_end: string | null;
+    active: boolean;
+    team: { id: number; name: string } | null;
+}

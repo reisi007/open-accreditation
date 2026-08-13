@@ -38,21 +38,6 @@
 
 ### P2 — Admin: Mandant/Team/Kategorie/Event 🟡
 
-**P2a-Fixes (CHANGES REQUIRED 2026-08-13, Verifikator F1–F7):**
-- [ ] **F1 (high)** SMTP-Passwort wird beim Frontend-Edit still gelöscht (`password: null` merged). Fix: Backend-Merge nur bei nicht-leerem String; Frontend sendet `password` nur wenn geändert (Placeholder „Leer = unverändert"); Regression-Test „password: null löscht nicht".
-- [ ] **F2 (medium)** `smtp_config` `nullable` akzeptieren + expliziter Clear-Vertrag: `smtp_config: null` = Config leeren (UI: „SMTP löschen"-Button). Test: null → clear, fehlend → no-op, Teil-Array → Merge.
-- [ ] **F3 (low)** Logo/Header-Extension aus validiertem MIME ableiten (nicht `getClientOriginalExtension`).
-- [ ] **F4 (low)** Mandant-Delete: Host-Cache aller Domains verwerfen (`MandantContext::forgetHost()`).
-- [ ] **F5 (low)** AdminMandantTest: Access-Matrix um POST/PUT/DELETE-Routen erweitern (403 für Nicht-SA).
-- [ ] **F6 (low)** `teams_enabled` erzwingen: Team-Anlage bei `false` → 422 + Test; Frontend blendet Teams-Sektion aus/deaktiviert.
-- [ ] (F7 info akzeptiert: Throttle-Bucket-Interplay, B2-Hardening bleibt.)
-
-**P2a — Super Admin: Mandanten + Teams (Verifiziert 2026-08-13, Verdict CHANGES REQUIRED → Fixes oben):**
-- [ ] Models: `Mandant` erweitern (logo, header_image, imprint, privacy_policy, smtp_*, teams_enabled), `Team` (mandant_id, slug unique, name, home_venue), `MandantDomain`-CRUD (hostname unique, Re-Registration validieren)
-- [ ] API: `/api/admin/mandants` (CRUD, Gate `mandants.manage`), `/api/admin/mandants/{id}/teams` (CRUD, Gate `teams.manage`); Logo/Header-Upload validiert (mimes, ≤2 MB, private Disk), Slug-Sicherheit
-- [ ] Super-Admin-Frontend: Mandanten-Liste + Formular (Logo/Header, Impressum/Datenschutz, SMTP, teams_enabled-Toggle), Teams je Mandant
-- [ ] Tests: PHPUnit (CRUD, Upload-Validierung, Domain-Constraints, teams_enabled-Auswirkung, IDOR via Gates), Playwright `@feature:admin:mandant`
-
 **P2b — Kategorien + Events (Delegieren):**
 - [ ] Models + Migrationen: `Category` (mandant_id FK, team_id nullable = Override, name, slug, description, unique je (mandant_id, slug) bzw. (mandant_id, team_id, slug)), `Event` (mandant_id FK, team_id nullable, title, date, venue nullable (Default = Team-Heimstätte, überschreibbar), competition, deadline_start/deadline_end (Mandant-Default überschreibbar), active)
 - [ ] API: `/api/admin/categories` + `/api/admin/events` (CRUD, Gates `categories.manage`/`events.manage`; team_admin nur eigene Team-Events; Scopes `forMandant`/`forTeam`); Team-Admin-Frontend-Zugriff via Team-Scope
@@ -129,7 +114,8 @@
 - [ ] **F4 (low)** `activation_token` als sha256-Hash statt Klartext speichern → P7-Hardening.
 - [ ] **F5 (low)** Media-Uploads: Kontingent/Rate-Limit (Porträt, Presse-ID, Anhänge) → P7-Hardening.
 - [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
-- [ ] **B2 (low)** Auth-Throttle `5,1` teilt einen Bucket für register+login (inkl. `auth.spec` `@smoke`-Retry-Risiko) — bei CI-Retries 429 möglich; falls erneut auftritt: benannte Limiter trennen. (CI aktuell grün, kein Flake.)
+- [ ] **B2 (low)** Auth-Throttle `5,1` teilt einen Bucket für register+login (inkl. `auth.spec` `@smoke`-Retry-Risiko) — bei CI-Retries 429 möglich; Fix (benannte Limiter `login`/`register`, je 10/min, getrennte Buckets) im **P2b**-Backend-Paket.
+- [ ] **P2a-RL (low)** Admin-Write-Routen (`/api/admin/*`) tragen kein Rate-Limit → für P7-Hardening benannte Limiter vorsehen.
 - [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.
 - [ ] **P1d-F2 (low)** `roleAssignmentForMandant()` (User.php) wertet nur die ERSTE Rollen-Zuweisung je Mandant aus (`orderBy role_user.id`) — bei mehreren Rollen pro Mandant Unter-Granting (fail-closed, keine Escalation). Fix in **P2c** (Rollen-Zuweisung): Union über Rollen oder Single-Role-Enforcement entscheiden; Unique-Index `role_user_scope_unique` erlaubt mehrere Rollen.
 - [ ] **P1a-B1 (low)** Unbekannte Hosts nicht negativ cachen (60s-TTL; aktuell bewusst „Unknown hosts are not cached") → Hardening.

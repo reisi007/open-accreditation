@@ -2,12 +2,15 @@ import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { isSuperAdminUser } from '../../logic/adminRoles';
 import { useAuth } from '../../logic/useAuth';
 
 export function AdminLayout() {
     const { i18n } = useLingui();
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+
+    const isSuperAdmin = isSuperAdminUser(user);
 
     const handleLogout = async () => {
         await logout();
@@ -35,13 +38,25 @@ export function AdminLayout() {
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:flex-row">
                 <aside className="w-full md:w-48">
                     <ul className="menu rounded-box bg-base-200 p-2 md:sticky md:top-8">
+                        {isSuperAdmin ? (
+                            <li>
+                                <NavLink
+                                    to="/admin/mandants"
+                                    end
+                                    className={({ isActive }) => (isActive ? 'menu-active' : '')}
+                                >
+                                    {i18n._(t`Mandanten`)}
+                                </NavLink>
+                            </li>
+                        ) : null}
                         <li>
-                            <NavLink
-                                to="/admin/mandants"
-                                end
-                                className={({ isActive }) => (isActive ? 'menu-active' : '')}
-                            >
-                                {i18n._(t`Mandanten`)}
+                            <NavLink to="/admin/categories" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
+                                {i18n._(t`Kategorien`)}
+                            </NavLink>
+                        </li>
+                        <li>
+                            <NavLink to="/admin/events" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
+                                {i18n._(t`Events`)}
                             </NavLink>
                         </li>
                     </ul>

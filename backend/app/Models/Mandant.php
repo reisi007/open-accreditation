@@ -56,6 +56,22 @@ class Mandant extends Model
     }
 
     /**
+     * The mandant's categories (Kategorien), mandant- and team-level (P2b).
+     */
+    public function categories(): HasMany
+    {
+        return $this->hasMany(Category::class);
+    }
+
+    /**
+     * The mandant's events (Events/Spiele), mandant- and team-level (P2b).
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
+    /**
      * Only mandants that may serve traffic.
      */
     public function scopeActive(Builder $query): Builder
