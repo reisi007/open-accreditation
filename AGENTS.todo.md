@@ -39,14 +39,23 @@
 - [x] `git init` (Branch `master`) + öffentliches Repo **`reisi007/open-accreditation`** angelegt (2026-08-13)
 - [x] `.github/workflows/base-image.yml`: Base-Image-Build (Cron `0 1 * * *` + push master, `DB_EXT=pgsql`, ghcr.io `accriditation-base:8.5/latest`)
 - [x] Referenz-Screenshots des Altsystems auf Wunsch entfernt
-- [ ] Root-Struktur: `backend/`, `frontend/`, `deployment/`, `features/`, `scripts/`
+- [ ] Root-Struktur: `scripts/` (backend/ frontend/ deployment/ features/ vorhanden)
 - [x] `backend/AGENTS.md` + `frontend/AGENTS.md` (Regeln aus Portal übernommen, Brand→Mandant)
 - [x] `deployment/docker-compose.yml` **Postgres** (+ Mailpit) statt MariaDB; `deployment/Dockerfile` mit `DB_EXT=pgsql`
 - [x] `backend/`: Laravel 13 Skeleton (composer.json = neueste Portal-Deps, minus Stripe/Scout/Meili/zipstream wenn ungenutzt), `phpunit.xml` SQLite `:memory:`, JWT-Config, `config/mandants.php`-Basis
 - [x] `frontend/`: Vite-React-TS + Tailwind v4 + daisyUI v5 + Lingui (DE+EN) + Vitest + Playwright; `package.json` = neueste Portal-Deps (minus Stripe/Tiptap/Photoswipe/Recharts wenn ungenutzt)
-- [ ] `.github/workflows/ci.yml` (backend/frontend/e2e) + `README.md` (Setup: Postgres, Seed, Login)
+- [ ] `.github/workflows/ci.yml` (backend/frontend/e2e) + README-Setup-Abschnitt (Postgres, Seed, Login)
 - [x] `features/` Basis (`README.md`, `01-multi-tenancy.md`, `02-domain-model.md` Skizze)
-- [ ] Verifikation: `composer install` + `php artisan test` (Skeleton), `pnpm install && pnpm lint:fix && pnpm build`, Compose `up -d` Postgres-Healthcheck
+- [x] **Verifikation P0 (2026-08-13):** Verdict **APPROVED** — Backend/Frontend/Infra/Hygiene/Architektur+Security grün. Befunde siehe unten.
+
+### P0-Fix — Befunde + CI (Delegieren, danach Verifikation)
+
+- [ ] **B1 (LOW):** `frontend/package.json` `pnpm.overrides` → nach `frontend/pnpm-workspace.yaml` migrieren (pnpm 10+), damit Overrides (react-router 7.18.2, nanoid, brace-expansion, svgo, postcss, undici) mit pnpm 11 greifen; danach `pnpm install` + Lockfile-Prüfung
+- [ ] **B2 (LOW):** generierte `src/locales/**/messages.js` per `.eslintignore`/eslint-`ignores`-Config ausnehmen statt Inline-`/*eslint-disable*/`
+- [ ] `.github/workflows/ci.yml`: Jobs `backend` (PHP 8.5, composer, `php artisan test`, pint), `frontend` (pnpm lint/build/test:run), optional `e2e` (Postgres-Service, Playwright `@smoke`); Secrets-Handling wie Portal (E2E nur bei gesetzten Secrets)
+- [ ] `scripts/`: z. B. `scripts/e2e-up.sh` (idempotent: Compose up → DB-Ready-Wait → migrate:fresh --seed), README darauf verweisen
+- [ ] README-Setup-Abschnitt finalisieren (Postgres via Compose, `composer install`, `.env`, `key:generate`, `jwt:secret`, `migrate --seed`, `pnpm dev`), Login-Daten (Admin)
+- [ ] Verifikation (Verifikator): B1-Lockfile aktiv, B2-Lint, CI-YAML valide, README korrekt
 
 ### P1 — Multi-Tenant + Auth + Rollen 🟡
 
