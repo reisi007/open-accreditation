@@ -36,65 +36,24 @@
 
 ## 📋 Phasen & offene TODOs
 
-### P0 — Scaffold (Repo, Compose, CI, Doku) 🟢 AKTIV
-
-- [x] `git init` (Branch `master`) + öffentliches Repo **`reisi007/open-accreditation`** angelegt (2026-08-13)
-- [x] `.github/workflows/base-image.yml`: Base-Image-Build (Cron `0 1 * * *` + push master, `DB_EXT=pgsql`, ghcr.io `accriditation-base:8.5/latest`)
-- [x] Referenz-Screenshots des Altsystems auf Wunsch entfernt
-- [ ] Root-Struktur: `scripts/` (backend/ frontend/ deployment/ features/ vorhanden)
-- [x] `backend/AGENTS.md` + `frontend/AGENTS.md` (Regeln aus Portal übernommen, Brand→Mandant)
-- [x] `deployment/docker-compose.yml` **Postgres** (+ Mailpit) statt MariaDB; `deployment/Dockerfile` mit `DB_EXT=pgsql`
-- [x] `backend/`: Laravel 13 Skeleton (composer.json = neueste Portal-Deps, minus Stripe/Scout/Meili/zipstream wenn ungenutzt), `phpunit.xml` SQLite `:memory:`, JWT-Config, `config/mandants.php`-Basis
-- [x] `frontend/`: Vite-React-TS + Tailwind v4 + daisyUI v5 + Lingui (DE+EN) + Vitest + Playwright; `package.json` = neueste Portal-Deps (minus Stripe/Tiptap/Photoswipe/Recharts wenn ungenutzt)
-- [ ] `.github/workflows/ci.yml` (backend/frontend/e2e) + README-Setup-Abschnitt (Postgres, Seed, Login)
-- [x] `features/` Basis (`README.md`, `01-multi-tenancy.md`, `02-domain-model.md` Skizze)
-- [x] **Verifikation P0 (2026-08-13):** Verdict **APPROVED** — Backend/Frontend/Infra/Hygiene/Architektur+Security grün. Befunde siehe unten.
-
-### P0-Fix — Befunde + CI (Delegieren, danach Verifikation)
-
-- [x] **B1 (LOW):** `frontend/package.json` `pnpm.overrides` → `frontend/pnpm-workspace.yaml` (pnpm ≥10), `packageManager` auf `pnpm@11.21.0`, `minimumReleaseAge: 0`; Overrides verifiziert aktiv (Lockfile: react-router 7.18.2, nanoid 3.3.17, brace-expansion 5.0.9, svgo 4.0.2, postcss 8.5.23, undici 7.29.0) — Sicherheits-Pins greifen
-- [x] **B2 (LOW):** `frontend/eslint.config.js` `ignores` für `src/locales/**/*.messages.js`
-- [x] `.github/workflows/ci.yml`: Jobs `backend` (PHP 8.5 + Postgres/Mailpit-Service, composer, test, pint), `frontend` (pnpm 11.21.0, lint/build/test:run), `e2e` (nur push/workflow_dispatch, Postgres, serve+dev, `@smoke`, Report-Upload) — keine Secrets
-- [x] `scripts/e2e-up.sh`: idempotent (compose up → pg_isready → .env → key:generate/jwt:secret bei leer → migrate+seed), 2× e2e ausgeführt
-- [x] `DatabaseSeeder` auf `firstOrCreate` (ADMIN_EMAIL/ADMIN_PASSWORD, Fallback `admin@example.com`/`admin`) + `DatabaseSeederTest` (3 Tests); `php artisan test` → 5 passed — Grund: Skeleton-Seeder war nicht idempotent
-- [x] README-Setup finalisiert (scripts/e2e-up.sh, Frontend, Dev-Login, Tests, Mandanten-Konzept)
-- [x] **Verifikation (2026-08-13):** Verdict **APPROVED** — F1–F4 alle `low`. **F3 (Prod-Guard für Default-Admin) → P7 (Env-Hardening) mitnehmen.**
-
-### P1 — Multi-Tenant + Auth + Rollen 🟡
-
-**Vorbereitet (2026-08-13), Delegation startet nach P0-Verifikation.**
-
-**P1a — Mandant-Grundlage (Delegieren):**
-- [x] Migrationen: `mandants`, `mandant_domains` (hostname unique → mandant_id). Modell `Mandant` (slug, name, logo_path, header_path, impressum/privacy, smtp_config JSON, teams_enabled, is_primary, active)
-- [x] `MandantContext`-Middleware: Host-Header → Mandant auflösen (Cache), unbekannte Domain → 404; `forCurrentMandant()`-Scope-Muster (wie Portal Brand)
-- [x] **Primary-Mandant-Domain = `accreditation.test`** (Dev, Herd) — Seeder + `backend/.env.example` (`APP_URL=https://accreditation.test`) + README
-- [x] Tests: PHPUnit `MandantContextTest` (Host-Resolution, unbekannt, Cache), Scope-Isolation → **20 passed, 44 assertions**
-- [x] **Verifikation (2026-08-13):** APPROVED. Follow-ups (alle `low`): B1 Negative-Cache unbekannter Hosts (60s-TTL) · B2 Referer-Fallback auf Vite-Origin (`localhost:5173`) einschränken · B3 Prod `trustHosts()` aus `mandant_domains` (vor P1b-Auth) · B4 Config-Kommentar „Primary gecacht" korrigieren · B5 `/up` von Mandant-Auflösung ausnehmen · B6 `email_verified_at` im Seeder (fillable/info) — B1–B5 als P2/P7-Hardening-Items.
-
-**P1b — Auth + Rollen (Delegieren):**
-- [ ] Registrierung (E-Mail-Aktivierung), Login/Logout via JWT httpOnly-Cookie (jwt-auth), Refresh, `auth('api')`
-- [ ] `roles` + `role_user` (mandant-scoped): super_admin (global), mandant_admin, team_admin, user, verifier
-- [ ] AuthController/UserResource-Serialisierung (kein Passwort/Token-Leak)
-- [x] Tests: PHPUnit (Registrierung+Aktivierung, Login/Logout, Rollen-Zuweisung, Mandant-Isolation des Auth) → **70 passed gesamt** (mit P1c)
-- [x] **E2E ausstehend:** Playwright `@smoke` API-basiert (Registrierung + Login gegen Dev-Backend) — `tests/e2e/auth.spec.ts` + `helpers/mailpit.ts`, Mailpit-Service im E2E-Job. **Hinweis:** `throttle:5,1` auf Auth-Routen (Domain+IP) — register+login teilen 5/min; CI-Retry-Risiko dokumentiert, aktuell ok.
-
-**P1c — User-Profil + Fotos (Delegieren):**
-- [x] Profil-Felder: Titel, Vorname, Nachname, Geschlecht, Geburtsdatum, Straße/PLZ/Ort/Land, Unternehmen, Telefon/Fax, Branche (Print/TV/Online/Radio/Foto/Sonstige), Position, Fotoweste vorhanden/Nr
-- [x] Foto-Uploads: Porträt (Empfehlung 400×600, Validierung), Presse-ID, Anhänge (MIME/exiftool-Check, auth-gated Delivery)
-- [x] Tests: PHPUnit (Validierung, Upload-Pflicht, Größenregeln) — `@feature:profile`-Playwright nach Frontend-UI (P2)
-- [x] **Verifikation (2026-08-13):** APPROVED. Befunde: **F1 (medium) → GEFIXT** (Aktivierungslink nutzt Mandanten-Domain, 2 Regressionstests) · F2 (low) JWT-Parser-Kette auch Header/Query/Form → Cookie-only · F3 (low) `local`-Disk `serve=>true` teilt Root mit `private` · F4 (low) activation_token klartext → sha256 · F5 (low) Uploads ohne Kontingent/Rate-Limit · F6 (info) 403-Texte offenbaren Kontoexistenz (bewusst) · F7 (info) Mandant-Check nur beim Login (P2: Ressourcen scopen). **F2–F5 → P7-Hardening.**
-
-**P1d — Autorisierung (Delegieren):**
-- [ ] Policies/Gates: super_admin / mandant_admin / team_admin / user / verifier; Team-Admin darf Verbands-Akkreditierungen eigener Personen read-only sehen (Vorbereitung P2/P3)
-- [ ] Tests: PHPUnit RolePermissionTest (Zugriffsmatrix)
-
 ### P2 — Admin: Mandant/Team/Kategorie/Event 🟡
 
-- [ ] Super Admin: Mandanten-CRUD inkl. Domain, Logo, Header-Bild, Impressum/Datenschutz, SMTP, `teams_enabled`
-- [ ] Mandant-Admin: Kategorien (Basis), Events, Benutzer, Freigaben
-- [ ] Team-Admin: eigene Events + Akkreditierungen, Kategorie-Override, Heimstätte; **read-only Sicht auf Verbands-Akkreditierungen eigener Personen**
-- [ ] Events: Titel/Datum/Ort(Override)/Wettbewerb/Frist(Default+Override); Ebene Mandant vs. Team
-- [ ] Tests: PHPUnit (CRUD, Scopes, Override-Precedence), Playwright `@feature:admin:*`
+**P2a — Super Admin: Mandanten + Teams (Delegieren, nach P1d):**
+- [ ] Models: `Mandant` erweitern (logo, header_image, imprint, privacy_policy, smtp_*, teams_enabled), `Team` (mandant_id, slug unique, name, home_venue), `MandantDomain`-CRUD (hostname unique, Re-Registration validieren)
+- [ ] API: `/api/admin/mandants` (CRUD, Gate `mandants.manage`), `/api/admin/mandants/{id}/teams` (CRUD, Gate `teams.manage`); Logo/Header-Upload validiert (mimes, ≤2 MB, private Disk), Slug-Sicherheit
+- [ ] Super-Admin-Frontend: Mandanten-Liste + Formular (Logo/Header, Impressum/Datenschutz, SMTP, teams_enabled-Toggle), Teams je Mandant
+- [ ] Tests: PHPUnit (CRUD, Upload-Validierung, Domain-Constraints, teams_enabled-Auswirkung, IDOR via Gates), Playwright `@feature:admin:mandant`
+
+**P2b — Kategorien + Events (Delegieren):**
+- [ ] `Category` (mandant_id, team_id nullable = Override, name, slug, description, erbt vom Mandant, Team überschreibt), `Event` (mandant_id, team_id nullable, title, date, venue override, competition, deadline default+override, active)
+- [ ] API: `/api/categories`, `/api/events` (Gate `categories.manage`/`events.manage`; team_admin nur eigene Team-Events); Scopes `forMandant`/`forTeam`
+- [ ] Mandant-/Team-Admin-Frontend: Kategorie-/Event-CRUD mit Override-Logik (Team überschreibt Mandant)
+- [ ] Tests: PHPUnit (CRUD, Scope-Isolation, Override-Precedence Mandant→Team deterministisch), Playwright `@feature:admin:category` / `@feature:admin:event`
+
+**P2c — Benutzer + Freigaben-Basis (Delegieren):**
+- [ ] Mandant-Admin: Benutzerliste + Rollen-Zuweisung je Mandant (Gate `users.manage`), Team-Admin sieht nur eigenes Team
+- [ ] Team-Admin **read-only Sicht auf Verbands-Akkreditierungen eigener Personen** (D7, Gate `accreditations.view` — Ressourcen in P3)
+- [ ] Tests: PHPUnit (Zuweisung, Isolation), Playwright `@feature:admin:users`
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
@@ -150,15 +109,23 @@
 - [ ] Caddy/Reverse-Proxy-Konfig (multi-Domain), Env-Hardening (APP_KEY/JWT_SECRET-Guards)
 - [ ] Vollsuite grün (PHPUnit + Vitest + Playwright), `@smoke` nach jedem Schritt
 
+## 🔍 Open Follow-ups (verifiziert, aber offen)
+
+- [ ] **F2 (low)** JWT-Parser-Kette auf Cookie-only beschränken (Header/Query/Form deaktivieren) → P7-Hardening.
+- [ ] **F3 (low)** `local`-Disk `serve => true` teilt Root mit `private` → P7-Hardening.
+- [ ] **F4 (low)** `activation_token` als sha256-Hash statt Klartext speichern → P7-Hardening.
+- [ ] **F5 (low)** Media-Uploads: Kontingent/Rate-Limit (Porträt, Presse-ID, Anhänge) → P7-Hardening.
+- [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
+- [ ] **B2 (low)** Auth-Throttle `5,1` teilt einen Bucket für register+login (inkl. `auth.spec` `@smoke`-Retry-Risiko) — bei CI-Retries 429 möglich; falls erneut auftritt: benannte Limiter trennen. (CI aktuell grün, kein Flake.)
+- [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.
+- [ ] **P1d-F2 (low)** `roleAssignmentForMandant()` (User.php) wertet nur die ERSTE Rollen-Zuweisung je Mandant aus (`orderBy role_user.id`) — bei mehreren Rollen pro Mandant Unter-Granting (fail-closed, keine Escalation). Fix in **P2c** (Rollen-Zuweisung): Union über Rollen oder Single-Role-Enforcement entscheiden; Unique-Index `role_user_scope_unique` erlaubt mehrere Rollen.
+- [ ] **P1a-B1 (low)** Unbekannte Hosts nicht negativ cachen (60s-TTL; aktuell bewusst „Unknown hosts are not cached") → Hardening.
+- [ ] **P1a-B2 (low)** Referer-Fallback (aktuell `local`-env-beschränkt, jeder Referer-Host) auf Vite-Origin `localhost:5173` einschränken.
+- [ ] **P1a-B4 (low)** `config/mandants.php`-Kommentar „Primary-Mandant im Cache" vs. `MandantContext::default()` („Not cached") widersprüchlich → Kommentar korrigieren.
+- [ ] **P0-Fix-F3 (low)** Prod-Guard für Default-Admin (Seeder-Admin nur außerhalb von Prod) → P7 Env-Hardening.
+- [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
+
 ---
-
-## 🚨 CI-Analyse 2026-08-13 (Befunde, Fix delegiert nach P1b+P1c)
-
-**Rot:** P1a-Run `31730486061` (E2E-Job) · 2× Dependabot-nanoid-PR · 1× Base-Image beim Initial-Commit (Dockerfile fehlte — seitdem grün).
-
-- [x] **C1 (E2E-Fail, hoch):** Fix umgesetzt — `/up`-Short-Circuit in Middleware, Loopback-Fallback (`localhost`/`127.0.0.1`/`::1`) in local/testing → Primary; Health-Check `/up`; `artisan serve --no-reload`. 8 neue Middleware-Tests.
-- [x] **C2 (Dependabot, mittel):** `.github/dependabot.yml` — composer täglich gebündelt, npm wöchentlich mit `ignore` für pnpm-Overrides (nanoid, react-router(-dom), brace-expansion, svgo, postcss, undici).
-- [x] **C3 (minor):** Postgres-Service aus Backend-Job entfernt; Mailpit begründet behalten.
 
 ## 🔧 Workflow (delegieren + verifizieren)- Build-Agent: nur diese Datei + `AGENTS.md` (+ referenzierte Doku). Kein Produktiv-Code.
 - Jeder TODO-Block → ein Implementer-Subagent (isoliert, präzise Anweisungen + Ziel-Dateien).
@@ -167,7 +134,6 @@
 
 ## 📌 Offene Punkte / Risiken
 
-- [x] **Dependabot #1 (high, nanoid frontend):** Override auf `3.3.18` (CVE-2026-67213 gepatcht; 5.x wegen postcss-CJS inkompatibel) — verifiziert, Lockfile ohne residuale verwundbare Version
 - [ ] Projektname/Repo-URL festlegen (Verzeichnis heißt `open-accriditation`, Tippfehler)
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)

@@ -61,7 +61,7 @@ Fünf Rollen, `roles.slug` als Source of Truth
 | Rolle | Scope | Bemerkung |
 |---|---|---|
 | `super_admin` | **global** (`mandant_id = NULL`, `team_id = NULL`) | Plattform-Admin, darf sich auf jeder Mandanten-Domain anmelden |
-| `mandant_admin` | ein Mandant (Verband) | verwalten von Mandant/Teams/Kategorien |
+| `mandant_admin` | ein Mandant (Verband) | verwaltet Kategorien, Events, Benutzer und Akkreditierungen innerhalb seines Mandants (Mandant/Teams selbst: super_admin-only) |
 | `team_admin` | Mandant + Team (`team_id`) | **team_id-FK folgt P2**; read-only-Sicht auf Verbands-Akkreditierungen eigener Personen (D7, P2/P3) |
 | `user` | ein Mandant | regulärer Akkreditierter (Default-Rolle bei Registrierung) |
 | `verifier` | ein Mandant | Ordner/Check-in an Events |
