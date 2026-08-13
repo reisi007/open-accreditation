@@ -99,6 +99,14 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
+      mailpit:
+        # Aktivierungsmail aus dem E2E-Auth-Flow (@smoke). .env.example sendet
+        # bereits via SMTP auf 127.0.0.1:1025 — kein env-Override nötig. API
+        # (8025) wird vom MailpitHelper im E2E-Test abgefragt.
+        image: axllent/mailpit
+        ports:
+          - 1025:1025
+          - 8025:8025
     steps:
       - uses: actions/checkout@v4
       - name: Setup PHP

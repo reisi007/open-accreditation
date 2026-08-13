@@ -48,7 +48,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        return DB::transaction(function () use ($validated, $mandant): JsonResponse {
+        return DB::transaction(function () use ($validated, $mandant, $request): JsonResponse {
             $user = User::create([
                 'name' => $validated['name'],
                 'email' => strtolower($validated['email']),
@@ -69,7 +69,7 @@ class AuthController extends Controller
 
             Mail::to($user->email)->send(new ActivationMail(
                 name: $user->name,
-                activationUrl: $this->activationUrl($user->activation_token),
+                activationUrl: $this->activationUrl($user->activation_token, $request),
             ));
 
             return response()->json([
@@ -195,8 +195,31 @@ class AuthController extends Controller
         return $user->roleUserAssignments()->forMandant($mandantId)->exists();
     }
 
-    private function activationUrl(string $token): string
+    /**
+     * Build the activation link for the activation mail.
+     *
+     * The host must come from the current mandant's own domain, not the static
+     * `config('app.url')`: in the multi-tenant setup every mandant runs on its
+     * own domain (D3/D6), so a link pointing at the primary domain would land
+     * the user on the wrong tenant and activation/login fails with a
+     * Cross-Mandant 403.
+     *
+     * Fallback chain: current mandant's first domain host → `config('app.url')`
+     * host → request host. The scheme always follows `config('app.url')`
+     * (https in prod, http in local).
+     */
+    private function activationUrl(string $token, ?Request $request = null): string
     {
-        return rtrim(config('app.url'), '/').'/api/auth/activate/'.$token;
+        $baseUrl = (string) config('app.url');
+        $scheme = parse_url($baseUrl, PHP_URL_SCHEME) ?: 'https';
+
+        $host = MandantContext::current()?->domains()->first()?->hostname
+            ?? parse_url($baseUrl, PHP_URL_HOST);
+
+        if ($host === null || $host === '') {
+            $host = ($request ?? request())->getHost();
+        }
+
+        return $scheme.'://'.$host.'/api/auth/activate/'.$token;
     }
 }

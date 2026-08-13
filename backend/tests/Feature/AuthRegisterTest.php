@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Api\AuthController;
 use App\Mail\ActivationMail;
 use App\Models\Mandant;
+use App\Models\MandantDomain;
 use App\Models\User;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
@@ -65,6 +67,46 @@ class AuthRegisterTest extends TestCase
             return $mail->hasTo($user->email)
                 && str_contains($mail->activationUrl, $user->activation_token);
         });
+    }
+
+    public function test_register_builds_activation_url_from_current_mandant_domain(): void
+    {
+        Mail::fake();
+
+        $bundesliga = Mandant::factory()->create(['slug' => 'bundesliga']);
+        MandantDomain::factory()->for($bundesliga)->create(['hostname' => 'bundesliga.test']);
+        MandantContext::set($bundesliga);
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Max Mustermann',
+            'email' => 'max@example.com',
+            'password' => 'secret-pass-123',
+            'password_confirmation' => 'secret-pass-123',
+        ])->assertCreated();
+
+        $user = User::where('email', 'max@example.com')->firstOrFail();
+
+        $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?: 'https';
+
+        Mail::assertSent(ActivationMail::class, function (ActivationMail $mail) use ($user, $scheme) {
+            return $mail->hasTo($user->email)
+                && str_starts_with($mail->activationUrl, $scheme.'://bundesliga.test/api/auth/activate/')
+                && str_contains($mail->activationUrl, $user->activation_token);
+        });
+    }
+
+    public function test_activation_url_falls_back_to_config_host_without_mandant(): void
+    {
+        MandantContext::reset();
+
+        $method = new \ReflectionMethod(AuthController::class, 'activationUrl');
+        $url = $method->invoke(new AuthController, 'abc123');
+
+        $configHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        $this->assertNotNull($configHost);
+        $this->assertStringContainsString($configHost, $url);
+        $this->assertStringContainsString('/api/auth/activate/abc123', $url);
     }
 
     public function test_register_requires_a_current_mandant(): void

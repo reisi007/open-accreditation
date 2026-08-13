@@ -76,13 +76,13 @@
 - [ ] `roles` + `role_user` (mandant-scoped): super_admin (global), mandant_admin, team_admin, user, verifier
 - [ ] AuthController/UserResource-Serialisierung (kein Passwort/Token-Leak)
 - [x] Tests: PHPUnit (Registrierung+Aktivierung, Login/Logout, Rollen-Zuweisung, Mandant-Isolation des Auth) → **70 passed gesamt** (mit P1c)
-- [ ] **E2E ausstehend:** Playwright `@smoke` API-basiert (Registrierung + Login gegen Dev-Backend) — Frontend-Auth-UI kommt in P2
+- [x] **E2E ausstehend:** Playwright `@smoke` API-basiert (Registrierung + Login gegen Dev-Backend) — `tests/e2e/auth.spec.ts` + `helpers/mailpit.ts`, Mailpit-Service im E2E-Job. **Hinweis:** `throttle:5,1` auf Auth-Routen (Domain+IP) — register+login teilen 5/min; CI-Retry-Risiko dokumentiert, aktuell ok.
 
 **P1c — User-Profil + Fotos (Delegieren):**
 - [x] Profil-Felder: Titel, Vorname, Nachname, Geschlecht, Geburtsdatum, Straße/PLZ/Ort/Land, Unternehmen, Telefon/Fax, Branche (Print/TV/Online/Radio/Foto/Sonstige), Position, Fotoweste vorhanden/Nr
 - [x] Foto-Uploads: Porträt (Empfehlung 400×600, Validierung), Presse-ID, Anhänge (MIME/exiftool-Check, auth-gated Delivery)
 - [x] Tests: PHPUnit (Validierung, Upload-Pflicht, Größenregeln) — `@feature:profile`-Playwright nach Frontend-UI (P2)
-- [x] **Verifikation (2026-08-13):** APPROVED. Befunde: **F1 (medium)** Aktivierungslink nutzt `config('app.url')` statt Mandanten-Domain → Cross-Mandant-Login bricht → Fix-Task · F2 (low) JWT-Parser-Kette auch Header/Query/Form → Cookie-only · F3 (low) `local`-Disk `serve=>true` teilt Root mit `private` · F4 (low) activation_token klartext → sha256 · F5 (low) Uploads ohne Kontingent/Rate-Limit · F6 (info) 403-Texte offenbaren Kontoexistenz (bewusst) · F7 (info) Mandant-Check nur beim Login (P2: Ressourcen scopen). **F2–F5 → P7-Hardening.**
+- [x] **Verifikation (2026-08-13):** APPROVED. Befunde: **F1 (medium) → GEFIXT** (Aktivierungslink nutzt Mandanten-Domain, 2 Regressionstests) · F2 (low) JWT-Parser-Kette auch Header/Query/Form → Cookie-only · F3 (low) `local`-Disk `serve=>true` teilt Root mit `private` · F4 (low) activation_token klartext → sha256 · F5 (low) Uploads ohne Kontingent/Rate-Limit · F6 (info) 403-Texte offenbaren Kontoexistenz (bewusst) · F7 (info) Mandant-Check nur beim Login (P2: Ressourcen scopen). **F2–F5 → P7-Hardening.**
 
 **P1d — Autorisierung (Delegieren):**
 - [ ] Policies/Gates: super_admin / mandant_admin / team_admin / user / verifier; Team-Admin darf Verbands-Akkreditierungen eigener Personen read-only sehen (Vorbereitung P2/P3)
