@@ -2,7 +2,10 @@
 
 namespace Database\Seeders;
 
+use App\Enums\UserRole;
 use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -14,13 +17,15 @@ class DatabaseSeeder extends Seeder
     /**
      * Seed the application's database.
      *
-     * Idempotent: admin user and mandants are created via firstOrCreate, so
-     * re-running the seeder (e.g. `db:seed --force` in scripts/e2e-up.sh)
-     * must not fail or duplicate rows.
+     * Idempotent: admin user, roles, role assignments and mandants are created
+     * via firstOrCreate, so re-running the seeder (e.g. `db:seed --force` in
+     * scripts/e2e-up.sh) must not fail or duplicate rows.
      */
     public function run(): void
     {
-        User::firstOrCreate(
+        $this->call(RoleSeeder::class);
+
+        $admin = User::firstOrCreate(
             ['email' => (string) env('ADMIN_EMAIL', 'admin@example.com')],
             [
                 'name' => 'Admin',
@@ -28,6 +33,20 @@ class DatabaseSeeder extends Seeder
                 'email_verified_at' => now(),
             ],
         );
+
+        // B6 backfill: pre-P1b seeders could not set email_verified_at (it was
+        // not fillable), so an existing admin row may still be unverified.
+        if ($admin->email_verified_at === null) {
+            $admin->update(['email_verified_at' => now()]);
+        }
+
+        // The bootstrap admin is the global super admin (mandant_id = null).
+        RoleUser::firstOrCreate([
+            'user_id' => $admin->id,
+            'role_id' => Role::query()->where('slug', UserRole::SUPER_ADMIN->value)->value('id'),
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
 
         $main = Mandant::firstOrCreate(
             ['slug' => 'main'],

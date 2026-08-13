@@ -17,6 +17,27 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+
+            // P1b profile fields (accreditation application data).
+            $table->string('title')->nullable();
+            $table->string('gender')->nullable();
+            $table->date('birth_date')->nullable();
+            $table->string('street')->nullable();
+            $table->string('zip')->nullable();
+            $table->string('city')->nullable();
+            $table->string('country')->nullable();
+            $table->string('company')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('fax')->nullable();
+            $table->string('branch')->nullable();
+            $table->string('position')->nullable();
+            $table->boolean('vest_available')->default(false);
+            $table->string('vest_number')->nullable();
+
+            // Self-registration activation flow (activation mail link).
+            $table->string('activation_token', 64)->nullable()->unique();
+            $table->timestamp('activation_token_expires_at')->nullable();
+
             $table->rememberToken();
             $table->timestamps();
         });

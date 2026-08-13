@@ -164,6 +164,78 @@ class MandantContextTest extends TestCase
         $this->assertCount(0, MandantDomain::forCurrentMandant()->get());
     }
 
+    public function test_health_endpoint_returns_200_without_mandant_in_production(): void
+    {
+        app()->detectEnvironment(fn () => 'production');
+        $this->setRunningInConsole(false);
+
+        $this->get('http://127.0.0.1/up')->assertOk();
+
+        $this->assertNull(MandantContext::current());
+    }
+
+    public function test_health_endpoint_skips_loopback_fallback_in_testing(): void
+    {
+        Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://127.0.0.1/up')->assertOk();
+
+        $this->assertNull(MandantContext::current());
+    }
+
+    public function test_loopback_host_sets_primary_mandant_in_testing(): void
+    {
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://127.0.0.1/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_loopback_host_with_port_sets_primary_mandant_in_testing(): void
+    {
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://127.0.0.1:8000/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_localhost_host_sets_primary_mandant_in_testing(): void
+    {
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://localhost/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_loopback_host_without_primary_continues_without_mandant_in_testing(): void
+    {
+        $this->get('http://127.0.0.1/')->assertOk();
+
+        $this->assertNull(MandantContext::current());
+    }
+
+    public function test_loopback_host_returns_404_in_production(): void
+    {
+        app()->detectEnvironment(fn () => 'production');
+        $this->setRunningInConsole(false);
+
+        $this->get('http://127.0.0.1/')->assertNotFound();
+    }
+
+    public function test_loopback_host_sets_primary_mandant_in_local(): void
+    {
+        app()->detectEnvironment(fn () => 'local');
+
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://127.0.0.1/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
     private function setRunningInConsole(bool $value): void
     {
         $reflection = new \ReflectionClass($this->app);

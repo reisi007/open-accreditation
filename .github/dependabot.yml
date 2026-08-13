@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: composer
+    directory: "/backend"
+    schedule: {interval: "daily"}
+    open-pull-requests-limit: 8
+    labels: ["dependencies"]
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule: {interval: "weekly"}
+    open-pull-requests-limit: 8
+    labels: ["dependencies"]
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    ignore:
+      # Versions sind bewusst via frontend/pnpm-workspace.yaml gepinnt
+      # (Overrides) — Dependabot-Updates würden dort gegen den Workspace laufen.
+      - dependency-name: "nanoid"
+      - dependency-name: "react-router"
+      - dependency-name: "react-router-dom"
+      - dependency-name: "brace-expansion"
+      - dependency-name: "svgo"
+      - dependency-name: "postcss"
+      - dependency-name: "undici"
