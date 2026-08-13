@@ -5,7 +5,10 @@ test('App loads and shows the header', { tag: '@smoke' }, async ({ page }) => {
 
     const banner = page.getByRole('banner');
     await expect(banner.getByRole('link', { name: 'Akkreditierung' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Akkreditierungs-Plattform');
+
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'Veranstaltungskalender' })).toBeVisible();
 });
 
 test('Language switcher switches the UI to English', { tag: '@smoke' }, async ({ page }) => {
@@ -13,6 +16,6 @@ test('Language switcher switches the UI to English', { tag: '@smoke' }, async ({
 
     await page.getByRole('combobox', { name: 'Sprache' }).selectOption('en');
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Accreditation platform');
+    await expect(page.getByRole('heading', { level: 2, name: 'Event calendar' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Accreditation' })).toBeVisible();
 });

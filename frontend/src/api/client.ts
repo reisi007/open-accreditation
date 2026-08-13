@@ -4,6 +4,9 @@ import type {
     Event,
     Mandant,
     MandantDomain,
+    PortalEvent,
+    PortalEventDetail,
+    PortalOverview,
     SmtpConfig,
     Team,
     User,
@@ -192,10 +195,10 @@ export interface QueryParams {
     role?: string;
 }
 
-function buildQuery(params?: QueryParams): string {
+function buildQuery<T extends object>(params?: T): string {
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params ?? {})) {
-        if (value !== undefined) {
+        if (value !== undefined && value !== null) {
             searchParams.set(key, String(value));
         }
     }
@@ -243,3 +246,15 @@ export const updateUserRoles = (userId: number, roles: UserRoleInput[]): Promise
         method: 'PUT',
         body: JSON.stringify({ roles }),
     });
+
+export interface PortalEventsParams {
+    team_id?: number | null;
+    competition?: string;
+}
+
+export const getPortalOverview = (): Promise<PortalOverview> => request<PortalOverview>('/api/portal/overview');
+
+export const getPortalEvents = (params?: PortalEventsParams): Promise<PortalEvent[]> =>
+    request<PortalEvent[]>(`/api/portal/events${buildQuery(params)}`);
+
+export const getPortalEvent = (id: number): Promise<PortalEventDetail> => request<PortalEventDetail>(`/api/portal/events/${id}`);

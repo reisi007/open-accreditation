@@ -304,6 +304,21 @@ class AdminUserTest extends TestCase
         $this->assertSame(1, RoleUser::query()->where('user_id', $user->id)->where('mandant_id', $this->mandantA->id)->count());
     }
 
+    public function test_update_roles_rejects_empty_roles_array(): void
+    {
+        // P2c-F1: an empty `roles: []` payload must be rejected by the
+        // `required` rule — a user can never be left without a role set via
+        // this endpoint.
+        $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->putJson('/api/admin/users/'.$user->id.'/roles', ['roles' => []])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('roles');
+
+        $this->assertSame(1, RoleUser::query()->where('user_id', $user->id)->where('mandant_id', $this->mandantA->id)->count());
+    }
+
     public function test_update_roles_rejects_super_admin_in_payload(): void
     {
         $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);

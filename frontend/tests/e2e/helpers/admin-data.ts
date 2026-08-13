@@ -74,3 +74,92 @@ export async function ensurePrimaryMandantHasTeam() {
         await api.dispose();
     }
 }
+
+/**
+ * ISO date string (Y-m-d) `days` days from today in local time.
+ *
+ * @param {number} days
+ */
+function isoDateInDays(days = 0) {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * Creates a unique active portal event (team-scoped, future date + deadline)
+ * so the public portal calendar has deterministic content. Returns the event,
+ * its team and the mandant name shown as the portal heading.
+ *
+ * @returns {Promise<{ event: object; team: object; mandantName: string }>}
+ */
+export async function ensurePrimaryMandantActivePortalEvent() {
+    const api = await loginAdminApi();
+    try {
+        const mandantsBody = await (await api.get('/api/admin/mandants')).json();
+        const mandants = mandantsBody.data ?? [];
+        let primary = null;
+        for (const mandant of mandants) {
+            if (mandant.is_primary) {
+                primary = mandant;
+                break;
+            }
+        }
+        if (primary === null) {
+            primary = mandants[0] ?? null;
+        }
+        if (!primary) {
+            throw new Error('No mandant found for portal event setup');
+        }
+
+        if (!primary.teams_enabled) {
+            const enable = await api.put(`/api/admin/mandants/${primary.id}`, { data: { teams_enabled: true } });
+            if (enable.status() !== 200) {
+                throw new Error(`Enabling teams failed with status ${enable.status()}`);
+            }
+        }
+
+        const teamsBody = await (await api.get(`/api/admin/mandants/${primary.id}/teams`)).json();
+        const teamsList = teamsBody.data ?? [];
+        let team = teamsList[0];
+        if (!team) {
+            const suffix = Date.now();
+            const teamCreate = await api.post(`/api/admin/mandants/${primary.id}/teams`, {
+                data: {
+                    name: `E2E Heimverein ${suffix}`,
+                    slug: `e2e-heimverein-${suffix}`,
+                    home_venue: 'E2E Heimstadion',
+                },
+            });
+            if (teamCreate.status() !== 201) {
+                throw new Error(`Creating the setup team failed with status ${teamCreate.status()}`);
+            }
+            team = (await teamCreate.json()).data;
+        }
+
+        const title = `Portal-Test ${Date.now()}`;
+        const create = await api.post('/api/admin/events', {
+            data: {
+                title,
+                team_id: team.id,
+                date: isoDateInDays(60),
+                venue: 'E2E Portal Arena',
+                competition: 'E2E Wettbewerb',
+                deadline_start: isoDateInDays(20),
+                deadline_end: isoDateInDays(30),
+                active: true,
+            },
+        });
+        if (create.status() !== 201) {
+            throw new Error(`Creating the portal event failed with status ${create.status()}`);
+        }
+        const createdBody = await create.json();
+
+        return { event: createdBody.data, team, mandantName: primary.name };
+    } finally {
+        await api.dispose();
+    }
+}

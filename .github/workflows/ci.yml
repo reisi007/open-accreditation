@@ -166,7 +166,10 @@ jobs:
           VITE_API_PROXY: http://127.0.0.1:8000
       - name: Run E2E smoke tests
         working-directory: frontend
-        run: pnpm test:e2e:smoke
+        # Serial (--workers=1): Backend-Login-Limiter (RateLimiter::for('login'),
+        # 10/min pro IP) → parallel workers teilen sich die CI-IP und erzeugen
+        # 429 "Too Many Attempts"-Flakes (P2b-F9). Serial läuft grün.
+        run: pnpm exec playwright test --grep @smoke --workers=1
         env:
           CI: '1'
       - name: Upload Playwright report

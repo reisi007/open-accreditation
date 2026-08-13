@@ -89,3 +89,42 @@ export interface Event {
     active: boolean;
     team: { id: number; name: string } | null;
 }
+
+export interface PortalTeam {
+    id: number;
+    name: string;
+    home_venue: string | null;
+}
+
+export interface PortalMandant {
+    id: number;
+    name: string;
+    logo_url: string | null;
+    header_url: string | null;
+    impressum_text: string | null;
+    privacy_text: string | null;
+    teams_enabled: boolean;
+}
+
+export interface PortalOverview {
+    mandant: PortalMandant;
+    teams: PortalTeam[];
+}
+
+export interface PortalEvent {
+    id: number;
+    team_id: number | null;
+    title: string;
+    date: string | null;
+    venue: string | null;
+    competition: string | null;
+    deadline_end: string | null;
+    active: boolean;
+    team: { id: number; name: string } | null;
+}
+
+export interface PortalEventDetail extends PortalEvent {
+    venue_effective: string | null;
+    deadline_effective: string | null;
+    contact: { name: string; email: string } | null;
+}

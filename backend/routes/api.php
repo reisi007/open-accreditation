@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\Admin\MandantMediaController;
 use App\Http\Controllers\Api\Admin\TeamController;
 use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\Portal\PortalController;
+use App\Http\Controllers\Api\Portal\PortalMediaController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\UserMediaController;
 use Illuminate\Support\Facades\Route;
@@ -124,4 +126,34 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->name('users.roles.update');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public portal API (P3a: Mandant-Übersicht, Event-Kalender, Event-Detail)
+|--------------------------------------------------------------------------
+|
+| Auth-free by design — the portal is the public landing surface (the D12
+| public verification page arrives in P4). Every route is scoped to the
+| current mandant from MandantContext; an unknown/absent mandant is a 404
+| (MandantContextMiddleware in production). Read-only, hence only a light
+| `throttle:60,1` keeps scraping in check. Responses: `{data: …}` (media
+| delivery streams the file; 404 `{message}` without an image).
+|
+|   GET /api/portal/overview        mandant + teams (teams only when
+|                                   `teams_enabled` and mandant active)
+|   GET /api/portal/events          active events, date ASC; filters
+|                                   `team_id` (foreign → 422), `competition`
+|   GET /api/portal/events/{event}  active event detail (+ venue_effective,
+|                                   deadline_effective, contact)
+|   GET /api/portal/mandant/logo    public logo delivery (inline)
+|   GET /api/portal/mandant/header  public header delivery (inline)
+|
+*/
+Route::prefix('portal')->middleware('throttle:60,1')->name('api.portal.')->group(function (): void {
+    Route::get('/overview', [PortalController::class, 'overview'])->name('overview');
+    Route::get('/events', [PortalController::class, 'events'])->name('events');
+    Route::get('/events/{event}', [PortalController::class, 'show'])->name('events.show');
+    Route::get('/mandant/logo', [PortalMediaController::class, 'logo'])->name('mandant.logo');
+    Route::get('/mandant/header', [PortalMediaController::class, 'header'])->name('mandant.header');
 });

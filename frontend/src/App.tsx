@@ -10,6 +10,8 @@ import { RequireRole } from './logic/RequireRole';
 import { RequireRoles } from './logic/RequireRoles';
 import { useAuth } from './logic/useAuth';
 import { LoginPage } from './pages/LoginPage';
+import { EventDetailPage } from './pages/portal/EventDetailPage';
+import { PortalHomePage } from './pages/portal/PortalHomePage';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { CategoriesPage } from './pages/admin/CategoriesPage';
 import { EventsPage } from './pages/admin/EventsPage';
@@ -93,17 +95,6 @@ function RootLayout() {
     );
 }
 
-function HomePage() {
-    const { i18n } = useLingui();
-
-    return (
-        <section className="flex flex-col gap-4">
-            <h1 className="text-3xl font-bold">{i18n._(t`Akkreditierungs-Plattform`)}</h1>
-            <p className="text-base-content/80">{i18n._(t`Willkommen bei der Akkreditierungs-Plattform.`)}</p>
-        </section>
-    );
-}
-
 function AdminIndexRedirect() {
     const { user } = useAuth();
 
@@ -118,7 +109,8 @@ const router = createBrowserRouter([
                 path: '/',
                 element: <RootLayout />,
                 children: [
-                    { index: true, element: <HomePage /> },
+                    { index: true, element: <PortalHomePage /> },
+                    { path: 'events/:id', element: <EventDetailPage /> },
                     { path: 'login', element: <LoginPage /> },
                 ],
             },

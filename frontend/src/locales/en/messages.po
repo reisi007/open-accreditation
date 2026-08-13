@@ -36,8 +36,8 @@ msgid "Akkreditierung"
 msgstr "Accreditation"
 
 #: src/App.tsx
-msgid "Akkreditierungs-Plattform"
-msgstr "Accreditation platform"
+#~ msgid "Akkreditierungs-Plattform"
+#~ msgstr "Accreditation platform"
 
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
@@ -55,6 +55,14 @@ msgstr "Active"
 #: src/pages/admin/EventsPage.tsx
 msgid "Alle"
 msgstr "All"
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Alle Teams"
+msgstr "All teams"
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Alle Wettbewerbe"
+msgstr "All competitions"
 
 #: src/App.tsx
 #: src/pages/LoginPage.tsx
@@ -114,11 +122,14 @@ msgid "Das Ende der Frist muss nach dem Beginn liegen."
 msgstr "The deadline end must come after the deadline start."
 
 #: src/pages/admin/MandantForm.tsx
+#: src/pages/portal/PortalHomePage.tsx
 msgid "Datenschutzerklärung"
 msgstr "Privacy policy"
 
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/portal/EventDetailPage.tsx
+#: src/pages/portal/PortalHomePage.tsx
 msgid "Datum"
 msgstr "Date"
 
@@ -218,6 +229,10 @@ msgstr "The events could not be loaded."
 msgid "Frist"
 msgstr "Deadline"
 
+#: src/components/DeadlineCountdown.tsx
+msgid "Frist abgelaufen"
+msgstr "Deadline expired"
+
 #: src/pages/admin/EventForm.tsx
 msgid "Frist Beginn"
 msgstr "Deadline start"
@@ -239,6 +254,7 @@ msgid "Hochladen"
 msgstr "Upload"
 
 #: src/pages/admin/MandantForm.tsx
+#: src/pages/portal/PortalHomePage.tsx
 msgid "Impressum"
 msgstr "Imprint"
 
@@ -291,6 +307,14 @@ msgstr "None"
 #: src/pages/admin/UsersPage.tsx
 msgid "Keine Benutzer gefunden."
 msgstr "No users found."
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Keine Veranstaltungen"
+msgstr "No events"
+
+#: src/pages/portal/EventDetailPage.tsx
+msgid "Kontakt"
+msgstr "Contact"
 
 #: src/pages/admin/MandantForm.tsx
 msgid "Leer = unverändert"
@@ -388,6 +412,10 @@ msgstr "New mandant"
 msgid "Neues Event"
 msgstr "New event"
 
+#: src/components/DeadlineCountdown.tsx
+msgid "Noch {count} {noun}"
+msgstr "Only {count} {noun} left"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Domains vorhanden."
 msgstr "No domains yet."
@@ -408,6 +436,11 @@ msgstr "No mandants yet."
 msgid "Noch keine Teams vorhanden."
 msgstr "No teams yet."
 
+#: src/pages/portal/EventDetailPage.tsx
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Ort"
+msgstr "Venue"
+
 #: src/pages/LoginPage.tsx
 msgid "Passwort"
 msgstr "Password"
@@ -415,6 +448,10 @@ msgstr "Password"
 #: src/pages/LoginPage.tsx
 msgid "Passwort ist erforderlich."
 msgstr "Password is required."
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Portal konnte nicht geladen werden."
+msgstr "The portal could not be loaded."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Primär"
@@ -512,10 +549,27 @@ msgstr "Language"
 msgid "Status"
 msgstr "Status"
 
+#: src/components/DeadlineCountdown.tsx
+msgid "Stunde"
+msgstr "hour"
+
+#: src/components/DeadlineCountdown.tsx
+msgid "Stunden"
+msgstr "hours"
+
+#: src/components/DeadlineCountdown.tsx
+msgid "Tag"
+msgstr "day"
+
+#: src/components/DeadlineCountdown.tsx
+msgid "Tage"
+msgstr "days"
+
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/RoleForm.tsx
+#: src/pages/portal/PortalHomePage.tsx
 msgid "Team"
 msgstr "Team"
 
@@ -577,6 +631,18 @@ msgstr "Title is required."
 msgid "Upload fehlgeschlagen."
 msgstr "Upload failed."
 
+#: src/pages/portal/EventDetailPage.tsx
+msgid "Veranstaltung konnte nicht geladen werden."
+msgstr "The event could not be loaded."
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Veranstaltungen konnten nicht geladen werden."
+msgstr "The events could not be loaded."
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Veranstaltungskalender"
+msgstr "Event calendar"
+
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Verbandsebene"
@@ -587,6 +653,10 @@ msgstr "Association level"
 msgid "Verbandsebene (Mandant)"
 msgstr "Association level (Mandant)"
 
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Vereine"
+msgstr "Clubs"
+
 #: src/pages/admin/RoleForm.tsx
 msgid "Verifizierer"
 msgstr "Verifier"
@@ -596,13 +666,19 @@ msgid "Verschlüsselung"
 msgstr "Encryption"
 
 #: src/pages/admin/EventForm.tsx
+#: src/pages/portal/EventDetailPage.tsx
+#: src/pages/portal/PortalHomePage.tsx
 msgid "Wettbewerb"
 msgstr "Competition"
 
 #: src/App.tsx
-msgid "Willkommen bei der Akkreditierungs-Plattform."
-msgstr "Welcome to the accreditation platform."
+#~ msgid "Willkommen bei der Akkreditierungs-Plattform."
+#~ msgstr "Welcome to the accreditation platform."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Zurück zur Mandantenliste"
 msgstr "Back to mandant list"
+
+#: src/pages/portal/EventDetailPage.tsx
+msgid "Zurück zur Startseite"
+msgstr "Back to home"
