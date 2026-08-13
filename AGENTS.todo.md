@@ -36,12 +36,15 @@
 
 ### P0 — Scaffold (Repo, Compose, CI, Doku) 🟢 AKTIV
 
-- [ ] `git init` + Root-Struktur: `backend/`, `frontend/`, `deployment/`, `features/`, `scripts/`, `reference/` (Screenshots verschieben)
+- [x] `git init` (Branch `master`) + öffentliches Repo **`reisi007/open-accreditation`** angelegt (2026-08-13)
+- [x] `.github/workflows/base-image.yml`: Base-Image-Build (Cron `0 1 * * *` + push master, `DB_EXT=pgsql`, ghcr.io `accriditation-base:8.5/latest`)
+- [x] Referenz-Screenshots des Altsystems auf Wunsch entfernt
+- [ ] Root-Struktur: `backend/`, `frontend/`, `deployment/`, `features/`, `scripts/`
 - [ ] `backend/AGENTS.md` + `frontend/AGENTS.md` (Regeln aus Portal übernommen, Brand→Mandant)
 - [ ] `deployment/docker-compose.yml` **Postgres** (+ Mailpit) statt MariaDB; `deployment/Dockerfile` mit `DB_EXT=pgsql`
 - [ ] `backend/`: Laravel 13 Skeleton (composer.json = neueste Portal-Deps, minus Stripe/Scout/Meili/zipstream wenn ungenutzt), `phpunit.xml` SQLite `:memory:`, JWT-Config, `config/mandants.php`-Basis
 - [ ] `frontend/`: Vite-React-TS + Tailwind v4 + daisyUI v5 + Lingui (DE+EN) + Vitest + Playwright; `package.json` = neueste Portal-Deps (minus Stripe/Tiptap/Photoswipe/Recharts wenn ungenutzt)
-- [ ] `.github/workflows/ci.yml` (backend/frontend/e2e) + `.gitignore` + `README.md` (Setup: Postgres, Seed, Login)
+- [ ] `.github/workflows/ci.yml` (backend/frontend/e2e) + `README.md` (Setup: Postgres, Seed, Login)
 - [ ] `features/` Basis (`README.md`, `01-multi-tenancy.md`, `02-domain-model.md` Skizze)
 - [ ] Verifikation: `composer install` + `php artisan test` (Skeleton), `pnpm install && pnpm lint:fix && pnpm build`, Compose `up -d` Postgres-Healthcheck
 
