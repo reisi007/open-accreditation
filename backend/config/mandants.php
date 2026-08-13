@@ -2,43 +2,59 @@
 
 /*
 |--------------------------------------------------------------------------
-| Mandant Definitions
+| Mandant (Multi-Tenancy) Configuration
 |--------------------------------------------------------------------------
 |
-| Mandanten (Verbände) werden über ihre Domain (Host-Header) dem aktuellen
-| Request zugeordnet — gleiches Muster wie `brands.php` im Portal-Projekt,
-| aber OHNE Themes: es gibt nur Logo/Header-Bilder und Legal-Texte.
+| Mandant = Verband mit eigener Domain; kein Theme, nur Logo/Header-Bilder
+| und Legal-Texte (Impressum/Datenschutz). Mandanten selbst liegen in der
+| Datenbank (siehe Migration `create_mandants_tables`); diese Datei hält nur
+| die Basis-Konfiguration für die Auflösung.
 |
-| Platzhalter-Struktur. Pro Mandant:
-|   - domain → Mandant-Zuordnung (Host-Header → Mandant)
-|   - slug/name → Identität (URL-Segmente, UI-Labels)
-|   - logo_path/header_path → Branding-Bilder
-|   - legal → Impressum/Datenschutz/AGB (Text oder URL)
-|
-| Die echten Mandanten kommen in P1 (Migration/Modell + MandantContext-
-| Middleware). Diese Datei bleibt die statische Fallback-/Dev-Konfiguration.
+| Der Host-Header des Requests wird über `mandant_domains.hostname` auf einen
+| Mandant gemappt (gleiches Muster wie `brands.php` im Portal-Projekt, aber
+| DB-gestützt und themenfrei).
 |
 */
 
 return [
-    'default' => 'accriditation',
 
-    'mandants' => [
-        'accriditation' => [
-            'slug' => 'accriditation',
-            'name' => 'Open Accriditation',
-            'domain' => 'localhost',
-            'logo_path' => null,
-            'header_path' => null,
-            'legal' => [
-                'impressum' => null,
-                'privacy' => null,
-                'terms' => null,
-            ],
-            'features' => [
-                'teams_enabled' => false,
-            ],
-            'is_active' => true,
-        ],
+    /*
+    |--------------------------------------------------------------------------
+    | Cache TTL (seconds)
+    |--------------------------------------------------------------------------
+    |
+    | Wie lange eine Host→Mandant-Auflösung (sowie der Primary-Mandant) im
+    | Cache gehalten wird, bevor erneut aus der Datenbank gelesen wird.
+    |
+    */
+
+    'cache_ttl' => (int) env('MANDANTS_CACHE_TTL', 3600),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fallback Mandant (nullable slug)
+    |--------------------------------------------------------------------------
+    |
+    | Wird als Fallback verwendet, wenn kein Primary-Mandant (`is_primary`)
+    | existiert. Gilt NICHT für die Host-Auflösung: ein unbekannter Host
+    | liefert weiterhin 404.
+    |
+    */
+
+    'fallback_mandant' => env('MANDANTS_FALLBACK_MANDANT'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Defaults for new mandants (P2 admin UI)
+    |--------------------------------------------------------------------------
+    |
+    | Werte, mit denen in späteren Phasen neu angelegte Mandanten initialisiert
+    | werden (Teams-Support, Aktivierung).
+    |
+    */
+
+    'defaults' => [
+        'teams_enabled' => false,
+        'is_active' => true,
     ],
 ];

@@ -23,6 +23,16 @@ features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 Voraussetzungen: PHP 8.5 (z. B. via [Laravel Herd](https://herd.laravel.com)),
 Composer, Docker, Node.js + pnpm (`packageManager`-Pin in `frontend/package.json`).
 
+Das Backend ist lokal über **Laravel Herd unter `https://accreditation.test/`**
+erreichbar (Herd als Site auf das `backend/`-Verzeichnis zeigen; `APP_URL` ist
+entsprechend gesetzt). Alternativ läuft es via `php artisan serve` unter
+`http://localhost:8000` (Vite-Proxy in Schritt 3 bleibt gültig).
+
+Mandanten-Domains (z. B. `bundesliga.test`) werden über den Host aufgelöst —
+die entsprechenden Einträge müssen in `/etc/hosts` bzw. in Herd hinterlegt
+werden, sonst 404t die `MandantContext`-Middleware. Der Primary-Mandant
+`main` ist auf `accreditation.test` (+ `www`) und `localhost` gemappt.
+
 ```bash
 # 1. Infra starten (Postgres 17 + Mailpit)
 docker compose -f deployment/docker-compose.yml up -d
