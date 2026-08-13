@@ -13,7 +13,22 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/TeamForm.tsx
+msgid "Abbrechen"
+msgstr "Cancel"
+
 #: src/App.tsx
+#: src/pages/admin/AdminLayout.tsx
+msgid "Abmelden"
+msgstr "Log out"
+
+#: src/App.tsx
+msgid "Admin"
+msgstr "Admin"
+
+#: src/App.tsx
+#: src/pages/admin/AdminLayout.tsx
 msgid "Akkreditierung"
 msgstr "Accreditation"
 
@@ -21,10 +36,319 @@ msgstr "Accreditation"
 msgid "Akkreditierungs-Plattform"
 msgstr "Accreditation platform"
 
+#: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Aktiv"
+msgstr "Active"
+
 #: src/App.tsx
+#: src/pages/LoginPage.tsx
+msgid "Anmelden"
+msgstr "Log in"
+
+#: src/pages/LoginPage.tsx
+msgid "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
+msgstr "Login failed. Please try again."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Bearbeiten"
+msgstr "Edit"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Bild konnte nicht entfernt werden."
+msgstr "The image could not be removed."
+
+#: src/pages/LoginPage.tsx
+msgid "Bitte eine gültige E-Mail-Adresse eingeben."
+msgstr "Please enter a valid email address."
+
+#: src/pages/admin/mandantFormUtils.ts
+msgid "Bitte eine gültige Portnummer angeben."
+msgstr "Please enter a valid port number."
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Datenschutzerklärung"
+msgstr "Privacy policy"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Domain"
+msgstr "Domain"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Domain hinzufügen"
+msgstr "Add domain"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Domain konnte nicht entfernt werden."
+msgstr "The domain could not be removed."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Domain konnte nicht hinzugefügt werden."
+msgstr "The domain could not be added."
+
+#: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Domains"
+msgstr "Domains"
+
+#: src/pages/LoginPage.tsx
+msgid "E-Mail"
+msgstr "Email"
+
+#: src/pages/admin/MandantForm.tsx
+#~ msgid "Ein Passwort ist gespeichert. Es kann hier nicht geändert werden."
+#~ msgstr "A password is saved. It cannot be changed here."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Einstellungen"
+msgstr "Settings"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Entfernen"
+msgstr "Remove"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Erlaubt die Verwaltung von Vereinen für diesen Mandanten."
+msgstr "Allows managing teams for this mandant."
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
+msgstr "Only lowercase letters, numbers and hyphens are allowed."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Header"
+msgstr "Header"
+
+#: src/pages/admin/TeamForm.tsx
+msgid "Heimstätte"
+msgstr "Home venue"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Hochladen"
+msgstr "Upload"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Impressum"
+msgstr "Imprint"
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "Inaktiv"
+msgstr "Inactive"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Kein Bild hinterlegt."
+msgstr "No image uploaded."
+
+#: src/pages/admin/MandantForm.tsx
+#~ msgid "Kein Passwort gespeichert."
+#~ msgstr "No password saved."
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Keine"
+msgstr "None"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Leer = unverändert"
+msgstr "Empty = unchanged"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Logo"
+msgstr "Logo"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Logo & Header"
+msgstr "Logo & Header"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Löschen"
+msgstr "Delete"
+
+#: src/pages/admin/MandantFormPage.tsx
+msgid "Mandant erstellen"
+msgstr "Create mandant"
+
+#: src/pages/admin/MandantFormPage.tsx
+msgid "Mandant konnte nicht erstellt werden."
+msgstr "The mandant could not be created."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Mandant konnte nicht geladen werden."
+msgstr "The mandant could not be loaded."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Mandant konnte nicht gelöscht werden."
+msgstr "The mandant could not be deleted."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Mandant konnte nicht gespeichert werden."
+msgstr "The mandant could not be saved."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Mandant löschen"
+msgstr "Delete mandant"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Mandant wirklich löschen?"
+msgstr "Really delete this mandant?"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Mandanten"
+msgstr "Mandants"
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "Mandanten konnten nicht geladen werden."
+msgstr "The mandants could not be loaded."
+
+#: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Name"
+msgstr "Name"
+
+#: src/pages/admin/mandantFormUtils.ts
+#: src/pages/admin/teamFormUtils.ts
+msgid "Name ist erforderlich."
+msgstr "Name is required."
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "Neu"
+msgstr "New"
+
+#: src/pages/admin/MandantFormPage.tsx
+msgid "Neuer Mandant"
+msgstr "New mandant"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Noch keine Domains vorhanden."
+msgstr "No domains yet."
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "Noch keine Mandanten vorhanden."
+msgstr "No mandants yet."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Noch keine Teams vorhanden."
+msgstr "No teams yet."
+
+#: src/pages/LoginPage.tsx
+msgid "Passwort"
+msgstr "Password"
+
+#: src/pages/LoginPage.tsx
+msgid "Passwort ist erforderlich."
+msgstr "Password is required."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Primär"
+msgstr "Primary"
+
+#: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Slug"
+msgstr "Slug"
+
+#: src/pages/admin/mandantFormUtils.ts
+msgid "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten (z. B. \"mein-verband\")."
+msgstr "The slug may only contain lowercase letters, numbers and hyphens (e.g. \"my-federation\")."
+
+#: src/pages/admin/teamFormUtils.ts
+msgid "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten (z. B. \"mein-verein\")."
+msgstr "The slug may only contain lowercase letters, numbers and hyphens (e.g. \"my-club\")."
+
+#: src/pages/admin/mandantFormUtils.ts
+#: src/pages/admin/teamFormUtils.ts
+msgid "Slug ist erforderlich."
+msgstr "Slug is required."
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP"
+msgstr "SMTP"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP löschen"
+msgstr "Delete SMTP"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP-Benutzername"
+msgstr "SMTP username"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP-Host"
+msgstr "SMTP host"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP-Konfiguration wirklich löschen?"
+msgstr "Delete SMTP configuration?"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP-Passwort"
+msgstr "SMTP password"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "SMTP-Port"
+msgstr "SMTP port"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Speichern"
+msgstr "Save"
+
+#: src/components/LanguageSwitcher.tsx
 msgid "Sprache"
 msgstr "Language"
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "Status"
+msgstr "Status"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Team hinzufügen"
+msgstr "Add team"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Team konnte nicht gelöscht werden."
+msgstr "The team could not be deleted."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Team konnte nicht gespeichert werden."
+msgstr "The team could not be saved."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Team speichern"
+msgstr "Save team"
+
+#: src/pages/admin/TeamForm.tsx
+msgid "Team-Name"
+msgstr "Team name"
+
+#: src/pages/admin/TeamForm.tsx
+msgid "Team-Slug"
+msgstr "Team slug"
+
+#: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Teams"
+msgstr "Teams"
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Teams aktivieren"
+msgstr "Enable teams"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Teams deaktiviert"
+msgstr "Teams disabled"
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Upload fehlgeschlagen."
+msgstr "Upload failed."
+
+#: src/pages/admin/MandantForm.tsx
+msgid "Verschlüsselung"
+msgstr "Encryption"
 
 #: src/App.tsx
 msgid "Willkommen bei der Akkreditierungs-Plattform."
 msgstr "Welcome to the accreditation platform."
+
+#: src/pages/admin/MandantDetailPage.tsx
+msgid "Zurück zur Mandantenliste"
+msgstr "Back to mandant list"

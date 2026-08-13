@@ -38,37 +38,47 @@
 
 ### P2 — Admin: Mandant/Team/Kategorie/Event 🟡
 
-**P2a — Super Admin: Mandanten + Teams (Delegieren, nach P1d):**
+**P2a-Fixes (CHANGES REQUIRED 2026-08-13, Verifikator F1–F7):**
+- [ ] **F1 (high)** SMTP-Passwort wird beim Frontend-Edit still gelöscht (`password: null` merged). Fix: Backend-Merge nur bei nicht-leerem String; Frontend sendet `password` nur wenn geändert (Placeholder „Leer = unverändert"); Regression-Test „password: null löscht nicht".
+- [ ] **F2 (medium)** `smtp_config` `nullable` akzeptieren + expliziter Clear-Vertrag: `smtp_config: null` = Config leeren (UI: „SMTP löschen"-Button). Test: null → clear, fehlend → no-op, Teil-Array → Merge.
+- [ ] **F3 (low)** Logo/Header-Extension aus validiertem MIME ableiten (nicht `getClientOriginalExtension`).
+- [ ] **F4 (low)** Mandant-Delete: Host-Cache aller Domains verwerfen (`MandantContext::forgetHost()`).
+- [ ] **F5 (low)** AdminMandantTest: Access-Matrix um POST/PUT/DELETE-Routen erweitern (403 für Nicht-SA).
+- [ ] **F6 (low)** `teams_enabled` erzwingen: Team-Anlage bei `false` → 422 + Test; Frontend blendet Teams-Sektion aus/deaktiviert.
+- [ ] (F7 info akzeptiert: Throttle-Bucket-Interplay, B2-Hardening bleibt.)
+
+**P2a — Super Admin: Mandanten + Teams (Verifiziert 2026-08-13, Verdict CHANGES REQUIRED → Fixes oben):**
 - [ ] Models: `Mandant` erweitern (logo, header_image, imprint, privacy_policy, smtp_*, teams_enabled), `Team` (mandant_id, slug unique, name, home_venue), `MandantDomain`-CRUD (hostname unique, Re-Registration validieren)
 - [ ] API: `/api/admin/mandants` (CRUD, Gate `mandants.manage`), `/api/admin/mandants/{id}/teams` (CRUD, Gate `teams.manage`); Logo/Header-Upload validiert (mimes, ≤2 MB, private Disk), Slug-Sicherheit
 - [ ] Super-Admin-Frontend: Mandanten-Liste + Formular (Logo/Header, Impressum/Datenschutz, SMTP, teams_enabled-Toggle), Teams je Mandant
 - [ ] Tests: PHPUnit (CRUD, Upload-Validierung, Domain-Constraints, teams_enabled-Auswirkung, IDOR via Gates), Playwright `@feature:admin:mandant`
 
 **P2b — Kategorien + Events (Delegieren):**
-- [ ] `Category` (mandant_id, team_id nullable = Override, name, slug, description, erbt vom Mandant, Team überschreibt), `Event` (mandant_id, team_id nullable, title, date, venue override, competition, deadline default+override, active)
-- [ ] API: `/api/categories`, `/api/events` (Gate `categories.manage`/`events.manage`; team_admin nur eigene Team-Events); Scopes `forMandant`/`forTeam`
-- [ ] Mandant-/Team-Admin-Frontend: Kategorie-/Event-CRUD mit Override-Logik (Team überschreibt Mandant)
-- [ ] Tests: PHPUnit (CRUD, Scope-Isolation, Override-Precedence Mandant→Team deterministisch), Playwright `@feature:admin:category` / `@feature:admin:event`
+- [ ] Models + Migrationen: `Category` (mandant_id FK, team_id nullable = Override, name, slug, description, unique je (mandant_id, slug) bzw. (mandant_id, team_id, slug)), `Event` (mandant_id FK, team_id nullable, title, date, venue nullable (Default = Team-Heimstätte, überschreibbar), competition, deadline_start/deadline_end (Mandant-Default überschreibbar), active)
+- [ ] API: `/api/admin/categories` + `/api/admin/events` (CRUD, Gates `categories.manage`/`events.manage`; team_admin nur eigene Team-Events; Scopes `forMandant`/`forTeam`); Team-Admin-Frontend-Zugriff via Team-Scope
+- [ ] Frontend: Kategorie-/Event-CRUD (Mandant-Ebene + Team-Override anlegen/bearbeiten), Frist-Defaults, Übernahme Heimstätte
+- [ ] Tests: PHPUnit (CRUD, Scope-Isolation, Override-Precedence Mandant→Team deterministisch, team_admin-Isolation, event active-Filter), Playwright `@feature:admin:category` / `@feature:admin:event`
 
 **P2c — Benutzer + Freigaben-Basis (Delegieren):**
-- [ ] Mandant-Admin: Benutzerliste + Rollen-Zuweisung je Mandant (Gate `users.manage`), Team-Admin sieht nur eigenes Team
-- [ ] Team-Admin **read-only Sicht auf Verbands-Akkreditierungen eigener Personen** (D7, Gate `accreditations.view` — Ressourcen in P3)
-- [ ] Tests: PHPUnit (Zuweisung, Isolation), Playwright `@feature:admin:users`
+- [ ] API: `/api/admin/mandants/{id}/users` (Liste) + Rollen-Zuweisung (Gate `users.manage`; Team-Admin sieht nur eigenes Team); **P1d-F2 hier lösen** (mehrere Rollen je Mandant: Union über Rollen oder Single-Role-Enforcement — Entscheidung dokumentieren)
+- [ ] Frontend: Benutzerliste + Rollen-Edit (mandant_admin/team_admin/user/verifier je Mandant, super_admin nur global)
+- [ ] Team-Admin read-only Sicht auf Verbands-Akkreditierungen eigener Personen (D7): Gate-Semantik in P3e mit echten Ressourcen nutzen (P3c/P3e)
+- [ ] Tests: PHPUnit (Zuweisung, Isolation, P1d-F2-Regression), Playwright `@feature:admin:users`
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**Vorbereitet (2026-08-13), folgt nach P2.**
-
 **P3a — Öffentliches Portal (Delegieren):**
-- [ ] Landing: Mandant-/Team-Kacheln (wie Altsystem), Sprachumschalter DE/EN
-- [ ] Veranstaltungskalender: Filter Verein/Typ, Event-Status aktiv/inaktiv, Akkreditierungsfrist-Countdown
-- [ ] Event-Detail: Titel, Datum, Ort (Heimstätte/Override), Wettbewerb, Frist (Start/Ende + Countdown), Event-Verwalter-Kontakt
-- [ ] Tests: Playwright `@feature:accreditation` (Kalender-Filter, Detail, Status-Logik)
+- [ ] Landing: Mandant-/Team-Kacheln (aus `is_active` + `teams_enabled`), Sprachumschalter DE/EN (bestehend)
+- [ ] Veranstaltungskalender: Filter Team/Typ (Wettbewerb), nur aktive Events, Akkreditierungsfrist-Countdown
+- [ ] Event-Detail: Titel, Datum, Ort (Heimstätte/Override), Wettbewerb, Frist (Start/Ende + Countdown), Event-Verwalter-Kontakt (mandant/team-admin E-Mail)
+- [ ] Öffentliche API: `GET /api/portal/mandants` (Kacheln), `GET /api/portal/events` (Kalender-Filter), `GET /api/portal/events/{id}` — auth-frei, mandant-scoped
+- [ ] Tests: PHPUnit (Kalender-Filter, active-Filter, Frist-Logik), Playwright `@feature:accreditation`
 
 **P3b — Selbstanmeldung (Delegieren):**
-- [ ] Akkreditierungs-Antrag: Person wählt Kategorie/Scope (Event/Liga/Saison), prüft Verfügbarkeit (Quota offen?), Foto/Presse-ID/Anhänge, Status `requested`
-- [ ] „Meine Akkreditierungen": Statusübersicht der eigenen Anträge
-- [ ] Tests: PHPUnit (Antrag-Logik, Quota-Prüfung beim Antrag), Playwright `@feature:accreditation`
+- [ ] Models + Migrationen: `accreditations` (mandant_id, team_id nullable, category_id, scope enum event|league|season, event_id nullable, quota int, deadline_start/end, auto_approve bool), `applications` (accreditation_id, user_id, status enum requested|approved|denied|blacklisted, applied_at, priority bool, reason nullable), `blacklists` (mandant_id, email nullable, domain nullable, note)
+- [ ] API: `GET /api/accreditations` (öffentliche Verfügbarkeit je Event), `POST /api/accreditations/{id}/apply` (Antrag, Quota offen + Frist-Check, Status `requested`, Photo/Presse-ID/Anhänge aus Profil), `GET /api/applications` („Meine Akkreditierungen")
+- [ ] Frontend: Antrag-Seite (Kategorie/Scope wählen, Verfügbarkeitsanzeige, Absenden), „Meine Akkreditierungen"-Übersicht mit Status
+- [ ] Tests: PHPUnit (Antrag-Logik, Quota/Frist-Prüfung beim Antrag, Doppel-Antrag verhindert, Mandant-Scoping), Playwright `@feature:accreditation`
 
 **P3c — Allocation-Engine (Delegieren, STRICT Unit-Tests):**
 - [ ] Service `AllocationService`: Kernregeln — Quota (Limit), FCFS nach Fristende, Blacklist (Person + Domäne) nie freigegeben, VIP-Prio (Person/Domäne) vorgereiht, auto/manual je Akkreditierung
@@ -82,31 +92,34 @@
 - [ ] Tests: PHPUnit — Haupt↔Sub-Abhängigkeit, Quota je Sub-Typ, VIP-Reihenfolge, deterministische Zuteilung
 
 **P3e — Admin-Freigabe-Sicht (Delegieren):**
-- [ ] Mandant-/Team-Admin: Antragsliste mit Status, Einzel-Freigabe/Ablehnung (mit Grund), Massenfreigabe-UI (alle / erste X), Blacklist-Verwaltung
-- [ ] Tests: Playwright `@feature:accreditation`
+- [ ] Mandant-/Team-Admin: Antragsliste mit Status, Einzel-Freigabe/Ablehnung (mit Grund), Massenfreigabe-UI (alle / erste X), Blacklist-Verwaltung (Team-Admin read-only Sicht D7 hier mit echten Ressourcen)
+- [ ] Tests: PHPUnit (Freigabe-Aktionen, Status-Übergänge, Blacklist-CRUD), Playwright `@feature:accreditation`
 
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) 🟡
 
-- [ ] `badge_templates` (Layout-JSON: Felder/Logo/Header/Farben) + Feld-Editor-UI (MVP: Feld-Set + Positionen)
-- [ ] PDF-Export (dompdf/Chromium) + CSV/Excel-Export (Serienbrief)
-- [ ] QR-Code (signed Token) + öffentliche Prüfseite (Foto/Status) + Ordner-Scan-View
-- [ ] Tests: PHPUnit (Token-Signatur/Verifikation, Template-Render), Playwright `@feature:badge`
+- [ ] `badge_templates` (Layout-JSON: Felder/Logo/Header/Farben) + Feld-Editor-UI (MVP: Feld-Set + Positionen, drag-frei per Koordinaten/Grid), Preview
+- [ ] PDF-Export (dompdf/Chromium) + CSV/Excel-Export (Serienbrief) — auth-gated Download
+- [ ] QR-Code (signed Token, HMAC/App-Key) + öffentliche Prüfseite (Foto/Status) + Ordner-Scan-View (mobile-friendly)
+- [ ] Tests: PHPUnit (Token-Signatur/Verifikation inkl. Manipulation, Template-Render, Export-Dateien), Playwright `@feature:badge`
 
 ### P5 — E-Mail-Workflow 🟡
 
-- [ ] Mailables: Aktivierung, Freigabe/Ablehnung, Frist-Reminder, Pass-Versand (PDF/Wallet)
-- [ ] SMTP je Mandant (settings-Overlay), Queue
-- [ ] Tests: PHPUnit (Mailables, SMTP-Config-Override), Mailpit-Assertions
+- [ ] Mailables: Aktivierung (besteht), Freigabe/Ablehnung (mit Grund), Frist-Reminder (vor Fristende), Pass-Versand (PDF/Wallet-Link)
+- [ ] SMTP je Mandant (settings-Overlay, `smtp_config` aus P2a; Mailer-Service pro Mandant), Queue
+- [ ] Tests: PHPUnit (Mailables inkl. Inhalt, SMTP-Config-Override, Queue-Jobs, Reminder-Zeitpunkt), Mailpit-Assertions
 
 ### P6 — Wallets (PKPASS) + Sub-Karten 🟡
 
 - [ ] Apple Wallet (.pkpass) + Google Wallet: Generierung/Signierung, Ausgabe via E-Mail/Link
 - [ ] Park-/Sitzkarten als eigene Ausweis-Typen mit eigener Vorlage
-- [ ] Tests: PHPUnit (Pass-Generierung/Validierung), Playwright `@feature:wallet`
+- [ ] Tests: PHPUnit (Pass-Generierung/Validierung, Signierung), Playwright `@feature:wallet`
 
-### P7 — Polish + Deploy 🟡
+### P7 — Polish + Deploy 🟡 **AUF HALT — Go-Live wartet auf Benutzer-Freigabe**
+> Alles bis einschließlich P6 wird umgesetzt. P7 (Caddy multi-Domain, Env-Hardening, Prod-Deploy)
+> erst nach expliziter Freigabe des Benutzers.
 
-- [ ] Caddy/Reverse-Proxy-Konfig (multi-Domain), Env-Hardening (APP_KEY/JWT_SECRET-Guards)
+- [ ] Caddy/Reverse-Proxy-Konfig (multi-Domain), Env-Hardening (APP_KEY/JWT_SECRET-Guards, P0-Fix-F3 Default-Admin)
+- [ ] Hardening-Follow-ups: F2 (JWT-Parser cookie-only), F3 (Disk-serve), F4 (activation_token hash), F5 (Upload-Kontingent), B2 (Auth-Throttle trennen), B3 (trustHosts), P1a-B1/B2/B4
 - [ ] Vollsuite grün (PHPUnit + Vitest + Playwright), `@smoke` nach jedem Schritt
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)

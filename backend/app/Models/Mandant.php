@@ -48,6 +48,14 @@ class Mandant extends Model
     }
 
     /**
+     * The mandant's teams (Vereine), optional per mandant.
+     */
+    public function teams(): HasMany
+    {
+        return $this->hasMany(Team::class);
+    }
+
+    /**
      * Only mandants that may serve traffic.
      */
     public function scopeActive(Builder $query): Builder
