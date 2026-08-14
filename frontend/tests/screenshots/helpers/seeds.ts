@@ -1,5 +1,6 @@
 import {
     ensurePrimaryMandantAccreditation,
+    ensurePrimaryMandantActivePortalEvent,
     ensurePrimaryMandantApprovedApplication,
     loginAdminApi,
     registerAndActivateUser,
@@ -11,7 +12,30 @@ import {
  * makes the primary mandant's data deterministic via the existing E2E data
  * helpers and returns the ids/credentials the spec needs (dynamic route
  * params, UI-scoped clicks, user logins).
+ *
+ * Login budget: the backend throttles logins per IP (40/min in local), and
+ * every seed + browser login counts against it. Seeds that authenticate as
+ * admin (or a seeded user) are therefore wrapped in `cachedSeed` — one login
+ * per worker process instead of one per test. Data-creation seeds without a
+ * login (registration only) stay per-test.
  */
+
+type SeedFn = () => Promise<Record<string, unknown>>;
+
+const seedCache = new Map<string, Promise<Record<string, unknown>>>();
+
+function cachedSeed<T extends SeedFn>(key: string, fn: T): T {
+    const memoized = (() => {
+        const existing = seedCache.get(key);
+        if (existing !== undefined) {
+            return existing;
+        }
+        const promise = fn();
+        seedCache.set(key, promise);
+        return promise;
+    }) as unknown as T;
+    return memoized;
+}
 
 export type CredentialsSeedResult = {
     email: string;
@@ -23,16 +47,31 @@ export type ApplySeedResult = CredentialsSeedResult & {
     categoryName: string;
 };
 
-/** One active event-scoped accreditation + one applicant user (requested application). */
+/** One active event-scoped accreditation (cached per worker). */
+export const seedAccreditation = cachedSeed('accreditation', () => ensurePrimaryMandantAccreditation());
+
+/** One active portal event + team (cached per worker). */
+export const seedPortalEvent = cachedSeed('portal-event', () => ensurePrimaryMandantActivePortalEvent());
+
+/** The primary mandant's id (cached per worker). */
+export const seedPrimaryMandant = cachedSeed('primary-mandant', () => seedPrimaryMandantId());
+
+/** One badge template (cached per worker). */
+export const seedBadgeTemplate = cachedSeed('badge-template', () => seedBadgeTemplatesFilled());
+
+/** One approved application with a real QR token (cached per worker). */
+export const seedApprovedApplicationCached = cachedSeed('approved-application', () => seedApprovedApplication());
+
+/** One accreditation + one applicant user (requested application) — apply page. */
 export async function seedApplyFilled(): Promise<ApplySeedResult> {
-    const { accreditation, categoryName } = await ensurePrimaryMandantAccreditation();
+    const { accreditation, categoryName } = await seedAccreditation();
     const user = await registerAndApplyForAccreditation(accreditation.id, 'E2E Bewerber Screenshot');
     return { accreditationId: accreditation.id, categoryName, ...user };
 }
 
 /** A user with one requested application — "Meine Akkreditierungen" filled. */
 export async function seedMyAccreditationsFilled(): Promise<CredentialsSeedResult> {
-    const { accreditation } = await ensurePrimaryMandantAccreditation();
+    const { accreditation } = await seedAccreditation();
     return registerAndApplyForAccreditation(accreditation.id, 'E2E Antragsteller Screenshot');
 }
 
@@ -43,7 +82,7 @@ export async function seedUsersFilled(): Promise<CredentialsSeedResult> {
 
 /** One accreditation + one requested application — the approvals view filled. */
 export async function seedFreigabenFilled(): Promise<CredentialsSeedResult> {
-    const { accreditation } = await ensurePrimaryMandantAccreditation();
+    const { accreditation } = await seedAccreditation();
     return registerAndApplyForAccreditation(accreditation.id, 'E2E Freigaben Antrag');
 }
 

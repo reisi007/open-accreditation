@@ -40,11 +40,16 @@ Template: `templates/ui-review-manifest.ts.example`
 Create `tests/screenshots/ui-screenshots.spec.ts`. For every route × state ×
 viewport it:
 
-1. seeds deterministic data (filled states) via the route's `seed`,
-2. logs in through the UI when the route requires auth,
+1. seeds deterministic data (filled states) via the route's per-state `seed`,
+2. logs in through the UI when the route requires auth (the login page itself
+   is reached by a justified direct URL — route-guard/deep-link semantics; a
+   real mobile user cannot always reach a login button that overflows the
+   header),
 3. navigates via the route's `nav` steps (UI clicks; `page.goto` only for
    justified direct-URL/deep-link routes — document why in the manifest),
-4. waits for the page to settle (network idle + key UI),
+4. waits for the page to settle (network idle + key UI) **after login the
+   auth redirect chain must finish before any nav step runs** (a regular user
+   lands on `/`, an admin on `/admin/*`),
 5. saves a full-page PNG at `<outputDir>/<state>/<viewport>/<name>.png`.
 
 Screenshot path resolution: **`page.screenshot({ path })` resolves relative
@@ -53,6 +58,18 @@ the path with `path.resolve(process.cwd(), outputDir, state, viewport, name)`.
 
 Tag every test (e.g. `{ tag: ['@screenshot'] }`) so it is groupable and clearly
 separate from functional E2E tags.
+
+### Login budget (throttle)
+
+Every seed that authenticates AND every UI login counts against the backend's
+per-IP login throttle. Two mitigations keep a parallel run green:
+
+- **Per-worker seed caching**: wrap login-bearing seeds in a module-level cache
+  so one worker logs in once instead of once per test (the data persists in the
+  DB across tests). Pure data-creation seeds (registration via API) need no
+  cache.
+- **Modest concurrency**: 2 workers is a safe default; raise only when the
+  backend's login budget allows it.
 
 Template: `templates/ui-screenshots.spec.ts.example`
 
@@ -77,14 +94,19 @@ empty database:
   `empty.localhost`) that resolves via the host/Referer, so public pages and
   admin pages render with zero data. A globally-scoped super-admin login works
   on that tenant without per-tenant user setup.
+- **Per-state tenant override**: some pages' "empty" does not come from the
+  tenant at all (e.g. a user's own application list — a fresh user shows
+  "empty" on any tenant). The manifest lets a route override the empty-state
+  tenant back to primary and seed a fresh user instead.
 - Single-tenant: reset/blank the domain data the pages read (or point the dev
   environment at an empty fixture database).
 - Where a truly empty environment is infeasible for a specific page, restrict
   that page to the filled state and document it in the manifest `note` — do not
   fake the empty state.
 
-The fixture must be **idempotent** (find-or-create by slug) so parallel runs and
-re-runs are safe, and must **never touch** the primary tenant's data.
+The fixture must be **idempotent** (find-or-create by slug, cached once per
+worker so it logs in once, not per test) so parallel runs and re-runs are safe,
+and must **never touch** the primary tenant's data.
 
 ## Reference templates
 

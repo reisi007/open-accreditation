@@ -15,7 +15,10 @@ export default defineConfig({
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 4 : 4,
+    // 2 workers keep the suite under the backend's per-IP login throttle
+    // (40/min in local): every test seeds data AND logs in through the UI, so
+    // a higher concurrency bursts past the budget (429) in the full run.
+    workers: process.env.CI ? 2 : 2,
     timeout: 120000,
     reporter: [
         ['html', { open: 'never', outputFolder: 'playwright-report/ui-screenshots' }],

@@ -15,7 +15,10 @@ export default defineConfig({
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 4 : 4,
+    // A modest worker count keeps the screenshot set under the backend's
+    // per-IP login throttle: every test seeds data AND logs in through the
+    // UI, so high concurrency bursts past the budget (HTTP 429).
+    workers: process.env.CI ? 2 : 2,
     timeout: 120000,
     reporter: [
         ['html', { open: 'never', outputFolder: 'playwright-report/ui-screenshots' }],

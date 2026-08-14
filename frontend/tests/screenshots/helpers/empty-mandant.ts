@@ -19,6 +19,9 @@ export const EMPTY_MANDANT_NAME = 'Leerer Mandant';
 export const EMPTY_MANDANT_DOMAIN = 'empty.localhost';
 export const EMPTY_MANDANT_ORIGIN = 'http://empty.localhost:5173';
 
+/** Per-worker cache so the fixture setup logs in once per worker, not per test. */
+let emptyMandantEnsured = false;
+
 interface MandantRow {
     id: number;
     slug: string;
@@ -49,6 +52,10 @@ async function findDomain(api: APIRequestContext, mandantId: number, hostname: s
  * re-reading the list). Never touches the primary mandant.
  */
 export async function ensureEmptyMandant(): Promise<void> {
+    if (emptyMandantEnsured) {
+        return;
+    }
+
     const api = await loginAdminApi();
     try {
         let mandant = await findMandantBySlug(api, EMPTY_MANDANT_SLUG);
@@ -86,6 +93,8 @@ export async function ensureEmptyMandant(): Promise<void> {
                 // Parallel-worker race → another run already added the domain.
             }
         }
+
+        emptyMandantEnsured = true;
     } finally {
         await api.dispose();
     }

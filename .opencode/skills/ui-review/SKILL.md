@@ -98,8 +98,10 @@ separate verifier). After a change:
 Edit the manifest (`tests/screenshots/ui-review.config.ts`): add one entry per
 route to the `routes` array. Each entry declares the route pattern, the states
 (`filled`/`empty`), the required auth, the viewports, and — for dynamic params —
-a `seed` that resolves real ids from the seeded data at runtime. The generic
-spec picks the new route up automatically; nothing else changes.
+a `seeds` map (per state) that resolves real ids/credentials from the seeded
+data at runtime. The generic spec picks the new route up automatically; nothing
+else changes. Keep login-bearing seeds per-worker-cached (see
+`references/harness.md`) so the backend login throttle is not exhausted.
 
 ### The Caddy-per-mandant static-file fallback idea
 

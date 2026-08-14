@@ -1,14 +1,15 @@
 import {
-    ensurePrimaryMandantAccreditation,
-    ensurePrimaryMandantActivePortalEvent,
+    registerAndActivateUser,
 } from '../e2e/helpers/admin-data';
 import {
+    seedAccreditation,
     seedApplyFilled,
-    seedApprovedApplication,
-    seedBadgeTemplatesFilled,
+    seedApprovedApplicationCached,
+    seedBadgeTemplate,
     seedFreigabenFilled,
     seedMyAccreditationsFilled,
-    seedPrimaryMandantId,
+    seedPortalEvent,
+    seedPrimaryMandant,
     seedUsersFilled,
 } from './helpers/seeds';
 
@@ -18,18 +19,21 @@ import {
  * generic spec (`ui-screenshots.spec.ts`) picks the changes up automatically.
  *
  * State semantics:
- * - `filled` — the primary mandant with deterministic seeded data (via the
- *   route's `seed`, reusing the E2E admin-data helpers).
+ * - `filled` — deterministic seeded data via the route's `seeds.filled`
+ *   (reusing the E2E admin-data helpers on the primary mandant).
  * - `empty`  — the fixture tenant (`empty.localhost`, see
  *   `helpers/empty-mandant.ts`) that resolves to a data-less mandant. A global
  *   super_admin login grants admin-page access there, so no per-tenant user is
- *   needed. Routes whose empty state is not meaningful (forms, global
- *   super-admin surfaces) document that in `note`.
+ *   needed. Routes whose empty state needs the PRIMARY tenant instead (pages
+ *   whose "empty" comes from the logged-in user's own data) override `tenant`.
+ *   Routes whose empty state is not meaningful (forms, global super-admin
+ *   surfaces) document that in `note`.
  */
 
 export type UiReviewState = 'filled' | 'empty';
 export type UiReviewViewport = 'desktop' | 'mobile';
 export type UiReviewAuth = 'guest' | 'admin' | 'user' | 'none';
+export type UiReviewTenant = 'primary' | 'empty';
 
 export interface UiReviewClickStep {
     kind: 'click';
@@ -61,8 +65,11 @@ export interface UiReviewRoute {
     states: UiReviewState[];
     auth?: UiReviewAuth;
     viewports?: UiReviewViewport[];
+    /** Tenant per state; default: filled → primary, empty → empty. */
+    tenant?: Partial<Record<UiReviewState, UiReviewTenant>>;
     note?: string;
-    seed?: UiReviewSeed;
+    /** Seed per state — only states that need deterministic data define one. */
+    seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
     nav?: UiReviewNavStep[];
 }
 
@@ -81,7 +88,7 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/',
             states: ['filled', 'empty'],
             auth: 'guest',
-            seed: () => ensurePrimaryMandantActivePortalEvent(),
+            seeds: { filled: seedPortalEvent },
         },
         {
             name: 'akkreditierungen',
@@ -89,7 +96,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'guest',
             nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Akkreditierungen' }],
-            seed: () => ensurePrimaryMandantAccreditation(),
+            seeds: { filled: seedAccreditation },
         },
         {
             name: 'login',
@@ -119,7 +126,7 @@ export const uiReviewConfig: UiReviewConfig = {
                     reason: 'Approved-application QR links have no UI entry point — the token comes from the seeded approved application (P4 badge flow), a justified direct-URL load.',
                 },
             ],
-            seed: () => seedApprovedApplication(),
+            seeds: { filled: seedApprovedApplicationCached },
         },
         {
             name: 'events-detail',
@@ -127,7 +134,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled'],
             auth: 'guest',
             nav: [{ kind: 'click', scope: 'main', role: 'link' }],
-            seed: () => ensurePrimaryMandantActivePortalEvent(),
+            seeds: { filled: seedPortalEvent },
         },
 
         // ── Authenticated user ──────────────────────────────────────────────
@@ -136,9 +143,13 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/meine-akkreditierungen',
             states: ['filled', 'empty'],
             auth: 'user',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Meine Akkreditierungen' }],
-            note: 'Empty = a freshly activated user without applications (mandant-independent — the list shows only the user’s own applications).',
-            seed: () => seedMyAccreditationsFilled(),
+            note: 'The page shows only the logged-in user’s own applications — "empty" is a freshly activated user without applications on the primary mandant (no tenant with data is involved).',
+            seeds: {
+                filled: () => seedMyAccreditationsFilled(),
+                empty: () => registerAndActivateUser(),
+            },
         },
         {
             name: 'apply',
@@ -149,7 +160,7 @@ export const uiReviewConfig: UiReviewConfig = {
                 { kind: 'click', scope: 'banner', role: 'link', name: 'Akkreditierungen' },
                 { kind: 'click', scope: 'main', role: 'link', name: 'Beantragen', within: 'categoryName' },
             ],
-            seed: () => seedApplyFilled(),
+            seeds: { filled: () => seedApplyFilled() },
         },
 
         // ── Admin ───────────────────────────────────────────────────────────
@@ -180,7 +191,7 @@ export const uiReviewConfig: UiReviewConfig = {
                     reason: 'The detail page id is dynamic and seeded at runtime — deep-link semantics (a user arrives here from the list row link).',
                 },
             ],
-            seed: () => seedPrimaryMandantId(),
+            seeds: { filled: seedPrimaryMandant },
         },
         {
             name: 'admin-categories',
@@ -188,7 +199,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Kategorien' }],
-            seed: () => ensurePrimaryMandantAccreditation(),
+            seeds: { filled: seedAccreditation },
         },
         {
             name: 'admin-events',
@@ -196,7 +207,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Events' }],
-            seed: () => ensurePrimaryMandantActivePortalEvent(),
+            seeds: { filled: seedPortalEvent },
         },
         {
             name: 'admin-accreditations',
@@ -204,7 +215,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Akkreditierungen' }],
-            seed: () => ensurePrimaryMandantAccreditation(),
+            seeds: { filled: seedAccreditation },
         },
         {
             name: 'admin-freigaben',
@@ -212,7 +223,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Freigaben' }],
-            seed: () => seedFreigabenFilled(),
+            seeds: { filled: () => seedFreigabenFilled() },
         },
         {
             name: 'admin-users',
@@ -220,7 +231,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Benutzer' }],
-            seed: () => seedUsersFilled(),
+            seeds: { filled: () => seedUsersFilled() },
         },
         {
             name: 'admin-badge-templates',
@@ -228,7 +239,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Ausweis-Templates' }],
-            seed: () => seedBadgeTemplatesFilled(),
+            seeds: { filled: seedBadgeTemplate },
         },
     ],
 };

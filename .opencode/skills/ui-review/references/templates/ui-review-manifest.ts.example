@@ -5,12 +5,16 @@
 // `<outputDir>` — mirror the value in playwright.screenshots.config.ts (the
 //                 spec builds absolute screenshot paths from process.cwd()).
 //
-// Seed functions resolve dynamic ids / credentials from seeded data at runtime
-// so routes with `:params` never hard-code ids.
+// Seeds resolve dynamic ids / credentials from seeded data at runtime so
+// routes with `:params` never hard-code ids. Seeds that authenticate
+// (admin logins) should be wrapped in a per-worker cache — the backend
+// throttles logins per IP, so "one login per worker" keeps parallel runs
+// under the budget.
 
 export type UiReviewState = 'filled' | 'empty';
 export type UiReviewViewport = 'desktop' | 'mobile';
-export type UiReviewAuth = 'guest' | 'admin' | 'user';
+export type UiReviewAuth = 'guest' | 'admin' | 'user' | 'none';
+export type UiReviewTenant = 'primary' | 'empty';
 
 export interface UiReviewClickStep {
     kind: 'click';
@@ -37,13 +41,16 @@ export type UiReviewSeed = () => Promise<Record<string, unknown>>;
 
 export interface UiReviewRoute {
     name: string;
-    /** Route pattern; `:param` tokens are resolved from the seed result. */
+    /** Route pattern; `:param` tokens are resolved from the seed result where used. */
     path: string;
     states: UiReviewState[];
     auth?: UiReviewAuth;
     viewports?: UiReviewViewport[];
+    /** Tenant per state; default: filled → primary, empty → empty. */
+    tenant?: Partial<Record<UiReviewState, UiReviewTenant>>;
     note?: string;
-    seed?: UiReviewSeed;
+    /** Seed per state — only states that need deterministic data define one. */
+    seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
     nav?: UiReviewNavStep[];
 }
 
@@ -61,7 +68,7 @@ export const uiReviewConfig: UiReviewConfig = {
         //     path: '/',
         //     states: ['filled', 'empty'],
         //     auth: 'guest',
-        //     seed: () => seedHomeFilled(),
+        //     seeds: { filled: () => seedHomeFilled() },
         // },
         // {
         //     name: 'admin-users',
@@ -69,7 +76,7 @@ export const uiReviewConfig: UiReviewConfig = {
         //     states: ['filled', 'empty'],
         //     auth: 'admin',
         //     nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Users' }],
-        //     seed: () => seedAdminUsersFilled(),
+        //     seeds: { filled: () => seedAdminUsersFilled() },
         //     note: 'Empty state rendered on the fixture tenant with no users.',
         // },
     ],
