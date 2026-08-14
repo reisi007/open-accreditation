@@ -40,28 +40,16 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-### P4 — Ausweis (Template, PDF, CSV/Excel, QR) 🟡
-
-**P4a — Badge-Templates + Feld-Editor (Delegieren):**
-- [ ] Migration `badge_templates` (mandant_id FK, name, `layout_json` (Laravel json-cast, portabel): Felder [{field, x, y, w, h, size, align}], is_default), Model + Admin-CRUD `GET/POST/PUT/DELETE /api/admin/badge-templates` (can:accreditations.manage; super_admin+mandant_admin; team_admin read-only eigene)
-- [ ] Feld-Editor-UI (MVP, kein Drag): Template-Liste + Formular mit Feld-Tabelle (Name, Feld-Select [Name, Kategorie, Event, Datum, Foto, Status], x/y/w/h, Fontgröße, Alignment) + Live-Preview (CSS-basiert)
-- [ ] Tests: PHPUnit (CRUD, layout_json-Validierung, is_default, Scoping), Playwright `@feature:badge`
-
-**P4b — PDF/CSV-Export (Delegieren):**
-- [ ] Backend-Export `POST /api/admin/accreditations/{id}/badges/export` `{format: 'pdf'|'csv', template_id?}` → auth-gated File-Download; PDF via `dompdf` (composer-Dependency ergänzen), Template-Render aus layout_json + Application/User-Daten inkl. Foto (private Disk) + **QR-Code** (endroid/qr-code); CSV (fputcsv-Serienbrief: Name, E-Mail, Kategorie, Event, Status)
-- [ ] Frontend: Export-Buttons in der Freigabe-Sicht (PDF/CSV) + Download-Handling (Blob, Auth-Cookie)
-- [ ] Tests: PHPUnit (PDF generiert + enthält Felder, CSV-Inhalt, Auth-Gate, Template-Render, Foto-Einbettung), Playwright `@feature:badge`
-
-**P4c — QR-Verifikation (Delegieren):**
-- [ ] QR-Token: signiert (HMAC-SHA256 app-Secret, `base64url(appId.signature)`), Spalte `qr_token` auf applications (bei Freigabe generiert), Token in Badge-PDF als `https://{domain}/verify/{token}`
-- [ ] Öffentliche Prüfseite `GET /api/verify/{token}` → Foto (Porträt) + Status (approved zeigt Foto, sonst nur Status); Manipulation → 404; Frontend `/verify` (öffentlich) + **Ordner-Scan-View** (mobile-friendly, Token-Input, Rolle verifier `verification.verify`)
-- [ ] Tests: PHPUnit (Signatur/Verifikation inkl. Manipulation, Status-Sichtbarkeit, Foto nur bei approved, Rate-Limit), Playwright `@feature:badge`
+### P4 — Ausweis (Template, PDF, CSV/Excel, QR) ✅
 
 ### P5 — E-Mail-Workflow 🟡
 
-- [ ] Mailables: Aktivierung (besteht), Freigabe/Ablehnung (mit Grund), Frist-Reminder (vor Fristende), Pass-Versand (PDF/Wallet-Link)
-- [ ] SMTP je Mandant (settings-Overlay, `smtp_config` aus P2a; Mailer-Service pro Mandant), Queue
-- [ ] Tests: PHPUnit (Mailables inkl. Inhalt, SMTP-Config-Override, Queue-Jobs, Reminder-Zeitpunkt), Mailpit-Assertions
+**P5 — E-Mail-Workflow (Delegieren):**
+- [ ] Mailables (DE, bestehende Aktivierung unverändert): `ApplicationApprovedMail` (Kategorie/Event + Verify-Link), `ApplicationDeniedMail` (reason), `DeadlineReminderMail` (Frist läuft ab), `PassMail` (Verify-Link/QR) — alle mit mandant-scoped Domain-URLs
+- [ ] `MandantMailerService`: Symfony-Transport aus `mandant.smtp_config` (host/port/username/password/encryption), Fallback Default/Mailpit; **MVP-Entscheidung: synchroner Versand** (Queue-Integration → Follow-up); `from` aus config
+- [ ] Dispatch in `AllocationService` (approveApplication → ApprovedMail, denyApplication → DeniedMail inkl. reason); Command `reminders:send` (daily, deadline_end ≤ 3 Tage → Reminder an Antragsteller mit requested), Schedule; Admin `POST /api/admin/applications/{id}/resend` (status-passend: approved → PassMail, denied → DeniedMail)
+- [ ] Frontend: „E-Mail erneut senden"-Button in der Freigabe-Sicht (approved/denied) + i18n
+- [ ] Tests: PHPUnit (Mailable-Inhalte, SMTP-Transport-Override, Dispatch approve/deny via Mail::fake, Reminder-Timing via setTestNow, resend-Endpoint Auth/Scoping), Mailpit-Integration (real SMTP 1025 → Mailpit-API-Assertion, optional), Playwright `@feature:badge` bzw. `@feature:accreditation` (resend-Button)
 
 ### P6 — Wallets (PKPASS) + Sub-Karten 🟡
 
@@ -104,6 +92,11 @@
 - [ ] **P1a-B4 (low)** `config/mandants.php`-Kommentar „Primary-Mandant im Cache" vs. `MandantContext::default()` („Not cached") widersprüchlich → Kommentar korrigieren.
 - [ ] **P0-Fix-F3 (low)** Prod-Guard für Default-Admin (Seeder-Admin nur außerhalb von Prod) → P7 Env-Hardening.
 - [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
+- [ ] **P4-F1 (low)** CSV-Export: Formel-Injection (Zellen beginnend mit `=`, `+`, `-`), die in Excel ausgeführt werden → Zellen säubern/präfixen (P7-Hardening).
+- [ ] **P4-F2 (low)** `AdminApplicationResource` macht Write-on-Read (lazy qr_token-Backfill während Serialisierung) → besser im Approval-Flow oder explizit (P7).
+- [ ] **P4-F3 (low)** Verify nutzt `throttle:public` (geteilter Bucket mit Portal/Akkreditierungen) → eigener benannter Limiter (P7).
+- [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
+- [ ] **P4-F5 (info)** `features/`-SOLL-Doku für Badges/QR fehlt → im nächsten Doku-Batch erstellen.
 
 ---
 

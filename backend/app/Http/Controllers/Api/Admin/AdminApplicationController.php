@@ -5,10 +5,16 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminApplicationResource;
+use App\Mail\ApplicationDeniedMail;
+use App\Mail\PassMail;
 use App\Models\Accreditation;
 use App\Models\Application;
 use App\Services\AllocationService;
+use App\Services\MandantMailerService;
+use App\Services\QrTokenService;
+use App\Support\VerifyLink;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
@@ -31,7 +37,11 @@ class AdminApplicationController extends Controller
 {
     use ResolvesAdminTeamScope;
 
-    public function __construct(private readonly AllocationService $allocationService) {}
+    public function __construct(
+        private readonly AllocationService $allocationService,
+        private readonly MandantMailerService $mandantMailer,
+        private readonly QrTokenService $qrTokenService,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -118,6 +128,57 @@ class AdminApplicationController extends Controller
                     ->withCount(['applications as approved_count' => fn (Builder $q2) => $q2->where('status', 'approved')]),
             ]),
         );
+    }
+
+    /**
+     * POST /api/admin/applications/{id}/resend
+     *
+     * P5: re-send the status-passing notification mail to the applicant
+     * (approved → pass mail, denied → denial mail). `requested`/`blacklisted`
+     * applications have no mailable status (422); a denied application
+     * without a reason cannot be mailed (422). The route is guarded by
+     * `can:accreditations.manage` like the other application actions; the
+     * mandant/team scope is resolved identically to `update` (foreign mandant
+     * 404, foreign team 403).
+     */
+    public function resend(Request $request, Application $application): JsonResponse
+    {
+        $application = $this->assertApplicationAccessible(
+            $application,
+            $this->currentMandantId(),
+            $this->teamIds($request),
+        );
+
+        $application->loadMissing('accreditation.mandant');
+        $mandant = $application->accreditation->mandant;
+
+        if ($application->status === 'approved') {
+            $this->qrTokenService->make($application);
+
+            $this->mandantMailer->send(
+                $mandant,
+                new PassMail($application, VerifyLink::for($application)),
+            );
+
+            return response()->json(['message' => 'E-Mail wurde erneut gesendet.']);
+        }
+
+        if ($application->status === 'denied') {
+            $reason = $application->reason;
+
+            if ($reason === null || trim($reason) === '') {
+                return response()->json(['message' => 'Application has no mailable reason.'], 422);
+            }
+
+            $this->mandantMailer->send(
+                $mandant,
+                new ApplicationDeniedMail($application, $reason),
+            );
+
+            return response()->json(['message' => 'E-Mail wurde erneut gesendet.']);
+        }
+
+        return response()->json(['message' => 'Application has no mailable status.'], 422);
     }
 
     /**

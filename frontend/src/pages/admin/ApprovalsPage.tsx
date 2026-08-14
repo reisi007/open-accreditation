@@ -16,6 +16,7 @@ import {
     listAdminSubApplications,
     listBadgeTemplates,
     listBlacklists,
+    resendApplicationMail,
     updateAdminApplication,
     updateAdminSubApplication,
 } from '../../api/client';
@@ -36,6 +37,7 @@ import { downloadBlob } from '../../logic/downloadBlob';
 import { BlacklistForm } from './BlacklistForm';
 import { DenyModal } from './DenyModal';
 import { buildAllocationPayload, buildApplicationAction, buildBlacklistPayload, type BlacklistFormValues } from './approvalFormUtils';
+import { resendMailErrorMessage } from './resendMailUtils';
 
 type ApprovalsTab = 'applications' | 'subapplications' | 'blacklist';
 
@@ -103,6 +105,8 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
     const [priority, setPriority] = useState(application.priority);
     const [actionError, setActionError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+    const [resendBusy, setResendBusy] = useState(false);
 
     const { data: media, isLoading: mediaLoading } = useSWR<AdminMedia[]>(
         `/api/admin/applications/${application.id}/media`,
@@ -134,8 +138,23 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
         }
     };
 
+    const handleResendMail = async () => {
+        setActionError(null);
+        setResendSuccess(null);
+        setResendBusy(true);
+        try {
+            await resendApplicationMail(application.id);
+            setResendSuccess(i18n._(t`E-Mail wurde erneut gesendet.`));
+        } catch (err) {
+            setActionError(resendMailErrorMessage(err, i18n));
+        } finally {
+            setResendBusy(false);
+        }
+    };
+
     const canApprove = application.status === 'requested' || application.status === 'denied';
     const canDeny = application.status === 'requested' || application.status === 'approved';
+    const canResendMail = application.status === 'approved' || application.status === 'denied';
 
     return (
         <tr>
@@ -211,6 +230,11 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                         {actionError}
                     </p>
                 ) : null}
+                {resendSuccess ? (
+                    <p role="status" className="mb-2 max-w-48 text-sm text-success">
+                        {resendSuccess}
+                    </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                     {canApprove ? (
                         <button type="button" className="btn btn-sm btn-success" disabled={busy} onClick={() => void handleApprove()}>
@@ -225,6 +249,17 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     {canDeny ? (
                         <button type="button" className="btn btn-sm btn-error btn-outline" onClick={() => onDeny(application)}>
                             {i18n._(t`Ablehnen`)}
+                        </button>
+                    ) : null}
+                    {canResendMail ? (
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            disabled={resendBusy}
+                            onClick={() => void handleResendMail()}
+                        >
+                            {resendBusy ? <span className="loading loading-spinner loading-xs"></span> : null}
+                            {i18n._(t`E-Mail erneut senden`)}
                         </button>
                     ) : null}
                 </div>

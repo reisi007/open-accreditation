@@ -376,6 +376,9 @@ export const updateAdminApplication = (id: number, action: ApplicationAction): P
 export const listAdminApplicationMedia = (id: number): Promise<AdminMedia[]> =>
     request<AdminMedia[]>(`/api/admin/applications/${id}/media`);
 
+export const resendApplicationMail = (applicationId: number): Promise<void> =>
+    request<void>(`/api/admin/applications/${applicationId}/resend`, { method: 'POST' });
+
 export interface AdminSubApplicationsParams {
     sub_accreditation_id?: number;
     status?: string;

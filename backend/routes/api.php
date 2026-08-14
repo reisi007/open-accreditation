@@ -176,6 +176,7 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
 
         Route::get('/applications', [AdminApplicationController::class, 'index'])->name('applications.index');
         Route::put('/applications/{application}', [AdminApplicationController::class, 'update'])->name('applications.update');
+        Route::post('/applications/{application}/resend', [AdminApplicationController::class, 'resend'])->name('applications.resend');
         Route::get('/applications/{application}/media', [AdminMediaController::class, 'index'])->name('applications.media');
 
         Route::get('/sub-applications', [AdminSubApplicationController::class, 'index'])->name('sub-applications.index');

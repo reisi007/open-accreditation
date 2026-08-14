@@ -395,9 +395,21 @@ msgstr "Domain"
 msgid "E-Mail"
 msgstr "Email"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "E-Mail erneut senden"
+msgstr "Resend email"
+
+#: src/pages/admin/resendMailUtils.ts
+msgid "E-Mail konnte nicht gesendet werden."
+msgstr "Email could not be sent."
+
 #: src/pages/admin/UsersPage.tsx
 msgid "E-Mail oder Name"
 msgstr "E-mail or name"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "E-Mail wurde erneut gesendet."
+msgstr "Email sent again."
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Ebene"
@@ -547,6 +559,10 @@ msgstr "Deadline start"
 msgid "Frist Ende"
 msgstr "Deadline end"
 
+#: src/pages/admin/resendMailUtils.ts
+msgid "Für diesen Antrag kann keine E-Mail gesendet werden."
+msgstr "No email can be sent for this application."
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/ApplyPage.tsx
@@ -664,6 +680,10 @@ msgstr "No applications."
 #: src/pages/admin/UsersPage.tsx
 msgid "Keine Benutzer gefunden."
 msgstr "No users found."
+
+#: src/pages/admin/resendMailUtils.ts
+msgid "Keine Berechtigung für diesen Antrag."
+msgstr "No permission for this application."
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Blacklist-Einträge vorhanden."

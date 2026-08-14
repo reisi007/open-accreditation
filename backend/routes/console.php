@@ -14,3 +14,9 @@ Artisan::command('inspire', function () {
 // every environment (dev included — an expired accreditation must be
 // allocated regardless of the environment).
 Schedule::command('allocation:run')->hourly()->withoutOverlapping();
+
+// P5: daily deadline reminders — `requested` applications of active
+// accreditations whose deadline ends within the next 3 days (dedup per
+// application+deadline, see `SendReminders`). Runs daily so applicants get
+// one reminder per day in the window.
+Schedule::command('reminders:send')->daily()->withoutOverlapping();

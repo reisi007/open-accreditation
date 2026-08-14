@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Mail\ApplicationApprovedMail;
+use App\Mail\ApplicationDeniedMail;
 use App\Models\Accreditation;
 use App\Models\Application;
+use App\Support\VerifyLink;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -28,7 +31,10 @@ use Illuminate\Validation\ValidationException;
  */
 final class AllocationService
 {
-    public function __construct(private readonly QrTokenService $qrTokenService) {}
+    public function __construct(
+        private readonly QrTokenService $qrTokenService,
+        private readonly MandantMailerService $mandantMailer,
+    ) {}
 
     /**
      * Approve the "first X" eligible requested applications (manual mode).
@@ -56,6 +62,7 @@ final class AllocationService
 
         AllocationRules::markApproved(Application::class, $plan['approve']);
         $this->issueQrTokens($plan['approve']);
+        $this->dispatchApprovedMails($plan['approve']);
 
         return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
     }
@@ -83,6 +90,8 @@ final class AllocationService
         $this->issueQrTokens($plan['approve']);
         AllocationRules::markDenied(Application::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
         AllocationRules::markDenied(Application::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
+        $this->dispatchApprovedMails($plan['approve']);
+        $this->dispatchDeniedMails(array_merge($plan['deny_quota'], $plan['deny_blacklist']));
 
         return new AllocationResult(
             count($plan['approve']),
@@ -110,7 +119,16 @@ final class AllocationService
      */
     public function approveApplication(Application $application): Application
     {
-        $application->loadMissing(['accreditation:id,mandant_id,quota', 'user:id,email']);
+        // The full accreditation context is loaded for the P5 notification
+        // mail (category/event/team/mandant domain feed the mailable and the
+        // verify link); the guard only needs the mandant and the quota.
+        $application->loadMissing([
+            'accreditation.category',
+            'accreditation.event',
+            'accreditation.team',
+            'accreditation.mandant.domains',
+            'user:id,email,name',
+        ]);
 
         if (AllocationRules::isBlacklisted(
             $application->user,
@@ -143,6 +161,13 @@ final class AllocationService
         // the same token).
         $this->qrTokenService->make($application);
 
+        // P5: notify the applicant — only after the status write, so a failed
+        // mail delivery never rolls back the approval (see the service).
+        $this->mandantMailer->send(
+            $application->accreditation->mandant,
+            new ApplicationApprovedMail($application, VerifyLink::for($application)),
+        );
+
         return $application;
     }
 
@@ -168,10 +193,26 @@ final class AllocationService
             ]);
         }
 
+        // Full accreditation context for the P5 denial mail (reason, category/
+        // event/team, mandant).
+        $application->loadMissing([
+            'accreditation.category',
+            'accreditation.event',
+            'accreditation.team',
+            'accreditation.mandant.domains',
+            'user:id,email,name',
+        ]);
+
         $application->update([
             'status' => 'denied',
             'reason' => $reason,
         ]);
+
+        // P5: notify the applicant — only after the status write.
+        $this->mandantMailer->send(
+            $application->accreditation->mandant,
+            new ApplicationDeniedMail($application, $reason),
+        );
 
         return $application;
     }
@@ -270,5 +311,70 @@ final class AllocationService
             ->whereNull('qr_token')
             ->get()
             ->each(fn (Application $application) => $this->qrTokenService->make($application));
+    }
+
+    /**
+     * P5: notify every newly approved application of a bulk allocation. The
+     * `status = approved` filter mirrors the idempotent status write — only
+     * rows that actually changed are mailed, so a repeated allocation run
+     * never re-sends.
+     *
+     * @param  list<int>  $ids
+     */
+    private function dispatchApprovedMails(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        Application::query()
+            ->whereIn('id', $ids)
+            ->where('status', 'approved')
+            ->with([
+                'user:id,email,name',
+                'accreditation.category',
+                'accreditation.event',
+                'accreditation.team',
+                'accreditation.mandant.domains',
+            ])
+            ->get()
+            ->each(function (Application $application): void {
+                $this->mandantMailer->send(
+                    $application->accreditation->mandant,
+                    new ApplicationApprovedMail($application, VerifyLink::for($application)),
+                );
+            });
+    }
+
+    /**
+     * P5: notify every newly denied application of a bulk allocation (quota
+     * surplus and blacklist denials), same idempotency semantics as
+     * `dispatchApprovedMails`.
+     *
+     * @param  list<int>  $ids
+     */
+    private function dispatchDeniedMails(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        Application::query()
+            ->whereIn('id', $ids)
+            ->where('status', 'denied')
+            ->with([
+                'user:id,email,name',
+                'accreditation.category',
+                'accreditation.event',
+                'accreditation.team',
+                'accreditation.mandant.domains',
+            ])
+            ->get()
+            ->each(function (Application $application): void {
+                $this->mandantMailer->send(
+                    $application->accreditation->mandant,
+                    new ApplicationDeniedMail($application, (string) $application->reason),
+                );
+            });
     }
 }
