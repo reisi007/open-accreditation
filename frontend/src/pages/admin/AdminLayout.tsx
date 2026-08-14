@@ -12,6 +12,7 @@ export function AdminLayout() {
 
     const isSuperAdmin = isSuperAdminUser(user);
     const showUsers = isSuperAdmin || isMandantAdminUser(user);
+    const showTemplates = isSuperAdmin || isMandantAdminUser(user);
 
     const handleLogout = async () => {
         await logout();
@@ -74,6 +75,16 @@ export function AdminLayout() {
                             <li>
                                 <NavLink to="/admin/users" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
                                     {i18n._(t`Benutzer`)}
+                                </NavLink>
+                            </li>
+                        ) : null}
+                        {showTemplates ? (
+                            <li>
+                                <NavLink
+                                    to="/admin/badge-templates"
+                                    className={({ isActive }) => (isActive ? 'menu-active' : '')}
+                                >
+                                    {i18n._(t`Ausweis-Templates`)}
                                 </NavLink>
                             </li>
                         ) : null}

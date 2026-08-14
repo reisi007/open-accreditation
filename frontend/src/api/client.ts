@@ -8,6 +8,8 @@ import type {
     AllocationResult,
     Application,
     ApplicationAction,
+    BadgeField,
+    BadgeTemplate,
     Blacklist,
     Category,
     Event,
@@ -23,6 +25,7 @@ import type {
     Team,
     User,
     UserRoleAssignment,
+    VerifyResult,
 } from './types';
 
 export interface ApiErrorInfo {
@@ -412,3 +415,69 @@ export const allocateAccreditation = (id: number, payload: AllocationPayload): P
         method: 'POST',
         body: JSON.stringify(payload),
     });
+
+export interface BadgeTemplatePayload {
+    name: string;
+    layout: BadgeField[];
+    is_default?: boolean;
+}
+
+export interface BadgeExportPayload {
+    format: 'pdf' | 'csv';
+    template_id?: number;
+}
+
+export const listBadgeTemplates = (): Promise<BadgeTemplate[]> => request<BadgeTemplate[]>('/api/admin/badge-templates');
+
+export const createBadgeTemplate = (payload: BadgeTemplatePayload): Promise<BadgeTemplate> =>
+    request<BadgeTemplate>('/api/admin/badge-templates', { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateBadgeTemplate = (id: number, payload: BadgeTemplatePayload): Promise<BadgeTemplate> =>
+    request<BadgeTemplate>(`/api/admin/badge-templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+
+export const deleteBadgeTemplate = (id: number): Promise<void> =>
+    request<void>(`/api/admin/badge-templates/${id}`, { method: 'DELETE' });
+
+/**
+ * Streams the badge export (PDF/CSV). The `request` helper only unwraps JSON
+ * envelopes — this endpoint answers binary, so the fetch is done here directly.
+ * JSON `{message}` error bodies (e.g. the 422 "no default template") are still
+ * surfaced as ApiError for the caller.
+ */
+export async function exportBadges(accreditationId: number, payload: BadgeExportPayload): Promise<Blob> {
+    let response: Response;
+    try {
+        response = await fetch(`/api/admin/accreditations/${accreditationId}/badges/export`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/pdf, text/csv' },
+            body: JSON.stringify(payload),
+            credentials: 'include',
+        });
+    } catch {
+        throw new ApiError(0, 'Netzwerkfehler: Keine Verbindung zum Server.', {});
+    }
+
+    if (response.status === 401) {
+        unauthorizedHandler?.();
+    }
+
+    if (!response.ok) {
+        let info: ApiErrorInfo = {};
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('application/json')) {
+            try {
+                info = (await response.json()) as ApiErrorInfo;
+            } catch {
+                // Non-JSON error body — keep the fallback message.
+            }
+        }
+        const message =
+            typeof info.message === 'string' && info.message !== '' ? info.message : `HTTP ${response.status}`;
+        throw new ApiError(response.status, message, info);
+    }
+
+    return response.blob();
+}
+
+export const verifyToken = (token: string): Promise<VerifyResult> =>
+    request<VerifyResult>(`/api/verify/${encodeURIComponent(token)}`);

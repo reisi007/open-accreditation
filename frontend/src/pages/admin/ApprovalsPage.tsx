@@ -8,11 +8,13 @@ import {
     allocateAccreditation,
     createBlacklist,
     deleteBlacklist,
+    exportBadges,
     listAdminAccreditations,
     listAdminApplicationMedia,
     listAdminApplications,
     listAdminSubAccreditations,
     listAdminSubApplications,
+    listBadgeTemplates,
     listBlacklists,
     updateAdminApplication,
     updateAdminSubApplication,
@@ -24,11 +26,13 @@ import type {
     AdminSubApplication,
     AllocationResult,
     ApplicationStatus,
+    BadgeTemplate,
     Blacklist,
     SubAccreditation,
     SubApplicationStatus,
 } from '../../api/types';
 import { applicationStatusLabel, subTypeLabel } from '../../logic/accreditationLabels';
+import { downloadBlob } from '../../logic/downloadBlob';
 import { BlacklistForm } from './BlacklistForm';
 import { DenyModal } from './DenyModal';
 import { buildAllocationPayload, buildApplicationAction, buildBlacklistPayload, type BlacklistFormValues } from './approvalFormUtils';
@@ -242,9 +246,17 @@ function ApplicationsTab() {
     const [denyError, setDenyError] = useState<string | null>(null);
     const [denyBusy, setDenyBusy] = useState(false);
 
+    const [exportTemplateId, setExportTemplateId] = useState('');
+    const [exportError, setExportError] = useState<string | null>(null);
+    const [exportBusy, setExportBusy] = useState(false);
+
     const { data: accreditations, mutate: mutateAccreditations } = useSWR<Accreditation[]>(
         '/api/admin/accreditations',
         () => listAdminAccreditations(),
+    );
+
+    const { data: badgeTemplates } = useSWR<BadgeTemplate[]>('/api/admin/badge-templates', () =>
+        listBadgeTemplates(),
     );
 
     const { data, error, isLoading, mutate } = useSWR<AdminApplication[]>(
@@ -276,6 +288,25 @@ function ApplicationsTab() {
             setAllocationError(firstErrorMessage(err, i18n._(t`Massenfreigabe fehlgeschlagen.`)));
         } finally {
             setAllocationBusy(false);
+        }
+    };
+
+    const handleExport = async (format: 'pdf' | 'csv') => {
+        if (accreditationFilter === '') return;
+        setExportError(null);
+        setExportBusy(true);
+        try {
+            const accreditationId = Number(accreditationFilter);
+            const payload =
+                badgeTemplates && badgeTemplates.length > 0
+                    ? { format, template_id: exportTemplateId === '' ? undefined : Number(exportTemplateId) }
+                    : { format };
+            const blob = await exportBadges(accreditationId, payload);
+            downloadBlob(blob, format === 'pdf' ? `badges-${accreditationId}.pdf` : 'badges.csv');
+        } catch (err) {
+            setExportError(firstErrorMessage(err, i18n._(t`Export fehlgeschlagen.`)));
+        } finally {
+            setExportBusy(false);
         }
     };
 
@@ -393,6 +424,53 @@ function ApplicationsTab() {
                             >
                                 {i18n._(t`Erste X freigeben`)}
                             </button>
+                        </div>
+                        <div className="mt-4 border-t border-base-300 pt-4">
+                            <h3 className="text-sm font-semibold">{i18n._(t`Ausweis-Export`)}</h3>
+                            {exportError ? (
+                                <div role="alert" className="alert alert-error mt-2">
+                                    <span>{exportError}</span>
+                                </div>
+                            ) : null}
+                            <div className="mt-2 flex flex-wrap items-end gap-4">
+                                {badgeTemplates && badgeTemplates.length > 0 ? (
+                                    <div className="form-control">
+                                        <label className="label" htmlFor="approval-export-template">
+                                            <span className="label-text">{i18n._(t`Template`)}</span>
+                                        </label>
+                                        <select
+                                            id="approval-export-template"
+                                            className="select select-sm"
+                                            value={exportTemplateId}
+                                            onChange={(event) => setExportTemplateId(event.target.value)}
+                                        >
+                                            <option value="">{i18n._(t`Standard`)}</option>
+                                            {badgeTemplates.map((template) => (
+                                                <option key={template.id} value={String(template.id)}>
+                                                    {template.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline"
+                                    disabled={exportBusy}
+                                    onClick={() => void handleExport('pdf')}
+                                >
+                                    {exportBusy ? <span className="loading loading-spinner loading-xs"></span> : null}
+                                    PDF
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline"
+                                    disabled={exportBusy}
+                                    onClick={() => void handleExport('csv')}
+                                >
+                                    CSV
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

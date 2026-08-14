@@ -25,6 +25,8 @@ import { MandantDetailPage } from './pages/admin/MandantDetailPage';
 import { MandantFormPage } from './pages/admin/MandantFormPage';
 import { MandantListPage } from './pages/admin/MandantListPage';
 import { UsersPage } from './pages/admin/UsersPage';
+import { BadgeTemplatesPage } from './pages/admin/BadgeTemplatesPage';
+import { VerifyPage } from './pages/VerifyPage';
 
 function UnauthorizedBridge() {
     const navigate = useNavigate();
@@ -97,6 +99,9 @@ function RootLayout() {
                     <Link to="/akkreditierungen" className="btn btn-ghost btn-sm">
                         {i18n._(t`Akkreditierungen`)}
                     </Link>
+                    <Link to="/verify" className="btn btn-ghost btn-sm">
+                        {i18n._(t`Verifizieren`)}
+                    </Link>
                     {isAuthenticated ? (
                         <Link to="/meine-akkreditierungen" className="btn btn-ghost btn-sm">
                             {i18n._(t`Meine Akkreditierungen`)}
@@ -145,6 +150,8 @@ const router = createBrowserRouter([
                             </RequireAuth>
                         ),
                     },
+                    { path: 'verify', element: <VerifyPage /> },
+                    { path: 'verify/:token', element: <VerifyPage /> },
                     { path: 'login', element: <LoginPage /> },
                 ],
             },
@@ -179,7 +186,10 @@ const router = createBrowserRouter([
                                 <Outlet />
                             </RequireRoles>
                         ),
-                        children: [{ path: 'users', element: <UsersPage /> }],
+                        children: [
+                            { path: 'users', element: <UsersPage /> },
+                            { path: 'badge-templates', element: <BadgeTemplatesPage /> },
+                        ],
                     },
                 ],
             },

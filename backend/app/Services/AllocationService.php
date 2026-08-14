@@ -28,6 +28,8 @@ use Illuminate\Validation\ValidationException;
  */
 final class AllocationService
 {
+    public function __construct(private readonly QrTokenService $qrTokenService) {}
+
     /**
      * Approve the "first X" eligible requested applications (manual mode).
      * Approves at most `min(limit, quota - approved)` candidates, skipping
@@ -53,6 +55,7 @@ final class AllocationService
         $plan = AllocationRules::distributeSelection($applications, $remaining, $blacklist);
 
         AllocationRules::markApproved(Application::class, $plan['approve']);
+        $this->issueQrTokens($plan['approve']);
 
         return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
     }
@@ -77,6 +80,7 @@ final class AllocationService
         );
 
         AllocationRules::markApproved(Application::class, $plan['approve']);
+        $this->issueQrTokens($plan['approve']);
         AllocationRules::markDenied(Application::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
         AllocationRules::markDenied(Application::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
 
@@ -133,6 +137,11 @@ final class AllocationService
             'status' => 'approved',
             'reason' => null,
         ]);
+
+        // P4: every newly approved application receives its deterministic QR
+        // verification token (idempotent — a re-approval after a revoke keeps
+        // the same token).
+        $this->qrTokenService->make($application);
 
         return $application;
     }
@@ -241,5 +250,25 @@ final class AllocationService
             ->where('accreditation_id', $accreditation->id)
             ->where('status', 'approved')
             ->count();
+    }
+
+    /**
+     * Issue the P4 QR verification token for every application that was just
+     * marked approved by a bulk allocation (skip rows that already carry one —
+     * deterministic tokens make the whole call idempotent).
+     *
+     * @param  list<int>  $ids
+     */
+    private function issueQrTokens(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        Application::query()
+            ->whereIn('id', $ids)
+            ->whereNull('qr_token')
+            ->get()
+            ->each(fn (Application $application) => $this->qrTokenService->make($application));
     }
 }

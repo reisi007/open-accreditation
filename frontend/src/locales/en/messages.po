@@ -13,11 +13,21 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#. placeholder {0}: template.layout.length
+#: src/pages/admin/BadgeTemplatesPage.tsx
+#~ msgid "{0} Felder"
+#~ msgstr "{0} fields"
+
 #: src/logic/accreditationLabels.ts
 msgid "{available} Plätze frei"
 msgstr "{available} slots available"
 
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "{fieldCount} Felder"
+msgstr "{fieldCount} fields"
+
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/BadgeTemplateForm.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventForm.tsx
@@ -30,6 +40,7 @@ msgstr "Cancel"
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Abgelehnt"
 msgstr "Denied"
 
@@ -50,6 +61,10 @@ msgstr "Log out"
 #: src/App.tsx
 msgid "Admin"
 msgstr "Admin"
+
+#: src/pages/VerifyPage.tsx
+msgid "Akkreditiert"
+msgstr "Accredited"
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
@@ -107,6 +122,7 @@ msgstr "Accreditations could not be loaded."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -191,6 +207,19 @@ msgstr "Applicant"
 msgid "Anzahl"
 msgstr "Count"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Ausrichtung"
+msgstr "Alignment"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Ausweis-Export"
+msgstr "Badge export"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Ausweis-Templates"
+msgstr "Badge templates"
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -203,10 +232,12 @@ msgid "Beantragen"
 msgstr "Apply"
 
 #: src/logic/accreditationLabels.ts
+#: src/pages/VerifyPage.tsx
 msgid "Beantragt"
 msgstr "Requested"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -291,6 +322,18 @@ msgstr "The blacklist entry could not be deleted."
 msgid "Blacklist-Eintrag wirklich löschen?"
 msgstr "Really delete this blacklist entry?"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Breite (mm)"
+msgstr "Width (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Breite muss 0 oder größer sein."
+msgstr "Width must be 0 or greater."
+
+#: src/pages/VerifyPage.tsx
+msgid "Code"
+msgstr "Code"
+
 #: src/pages/admin/accreditationFormUtils.ts
 #: src/pages/admin/accreditationSubFormUtils.ts
 #: src/pages/admin/eventFormUtils.ts
@@ -302,10 +345,12 @@ msgstr "The deadline end must come after the deadline start."
 msgid "Datenschutzerklärung"
 msgstr "Privacy policy"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/portal/EventDetailPage.tsx
 #: src/pages/portal/PortalHomePage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Datum"
 msgstr "Date"
 
@@ -388,7 +433,9 @@ msgid "Erstellt"
 msgstr "Created"
 
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/ApplyPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Event"
 msgstr "Event"
 
@@ -424,6 +471,35 @@ msgstr "Events"
 #: src/pages/admin/EventsPage.tsx
 msgid "Events konnten nicht geladen werden."
 msgstr "The events could not be loaded."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Export fehlgeschlagen."
+msgstr "Export failed."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld"
+msgstr "Field"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld entfernen"
+msgstr "Remove field"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld hinzufügen"
+msgstr "Add field"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld Typ"
+msgstr "Field type"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Felder"
+msgstr "Fields"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/VerifyPage.tsx
+msgid "Foto"
+msgstr "Photo"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Freigabe entziehen"
@@ -478,8 +554,13 @@ msgid "Geltungsbereich"
 msgstr "Scope"
 
 #: src/logic/accreditationLabels.ts
+#: src/pages/VerifyPage.tsx
 msgid "Gesperrt"
 msgstr "Blacklisted"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Größe"
+msgstr "Size"
 
 #: src/pages/admin/DenyModal.tsx
 msgid "Grund für die Ablehnung"
@@ -501,6 +582,14 @@ msgstr "Home venue"
 msgid "Hochladen"
 msgstr "Upload"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Höhe (mm)"
+msgstr "Height (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Höhe muss 0 oder größer sein."
+msgstr "Height must be 0 or greater."
+
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Impressum"
@@ -514,6 +603,8 @@ msgstr "Inactive"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/VerifyPage.tsx
 msgid "Kategorie"
 msgstr "Category"
 
@@ -599,6 +690,14 @@ msgstr "Empty = unchanged"
 msgid "Liga"
 msgstr "League"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Links"
+msgstr "Left"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Live-Vorschau (A6, Maße in mm)"
+msgstr "Live preview (A6, dimensions in mm)"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Logo"
 msgstr "Logo"
@@ -609,6 +708,7 @@ msgstr "Logo & Header"
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -678,19 +778,28 @@ msgstr "My accreditations"
 msgid "Mindestens E-Mail oder Domäne ist erforderlich."
 msgstr "At least an email or a domain is required."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Mindestens ein Feld ist erforderlich."
+msgstr "At least one field is required."
+
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/userRoleFormUtils.ts
 msgid "Mindestens eine Rolle muss ausgewählt bleiben."
 msgstr "At least one role must remain selected."
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Name"
 msgstr "Name"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/categoryFormUtils.ts
 #: src/pages/admin/mandantFormUtils.ts
 #: src/pages/admin/teamFormUtils.ts
@@ -698,6 +807,7 @@ msgid "Name ist erforderlich."
 msgstr "Name is required."
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
@@ -727,6 +837,10 @@ msgstr "New mandant"
 #: src/pages/admin/EventsPage.tsx
 msgid "Neues Event"
 msgstr "New event"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Neues Template"
+msgstr "New template"
 
 #: src/logic/accreditationLabels.ts
 msgid "Noch {available} frei"
@@ -767,6 +881,10 @@ msgstr "No sub-accreditations yet."
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Teams vorhanden."
 msgstr "No teams yet."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Noch keine Templates vorhanden."
+msgstr "No templates yet."
 
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BlacklistForm.tsx
@@ -811,6 +929,14 @@ msgstr "Press ID"
 msgid "Primär"
 msgstr "Primary"
 
+#: src/pages/VerifyPage.tsx
+msgid "Prüfen"
+msgstr "Check"
+
+#: src/pages/VerifyPage.tsx
+msgid "Prüfung fehlgeschlagen."
+msgstr "Verification failed."
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
@@ -822,6 +948,10 @@ msgstr "Quota"
 #: src/pages/admin/accreditationSubFormUtils.ts
 msgid "Quota muss mindestens 1 sein."
 msgstr "Quota must be at least 1."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Rechts"
+msgstr "Right"
 
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -842,12 +972,21 @@ msgid "Saison"
 msgstr "Season"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
 msgstr "Close"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Schriftgröße (pt)"
+msgstr "Font size (pt)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Schriftgröße muss mindestens 1 sein."
+msgstr "Font size must be at least 1."
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -908,6 +1047,7 @@ msgid "SMTP-Port"
 msgstr "SMTP port"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -928,8 +1068,18 @@ msgstr "Venue"
 msgid "Sprache"
 msgstr "Language"
 
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Standard"
+msgstr "Default"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Standard-Template"
+msgstr "Default template"
+
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Status"
@@ -1063,6 +1213,34 @@ msgstr "Enable teams"
 msgid "Teams deaktiviert"
 msgstr "Teams disabled"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Template"
+msgstr "Template"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template bearbeiten"
+msgstr "Edit template"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template erstellen"
+msgstr "Create template"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template konnte nicht gelöscht werden."
+msgstr "Template could not be deleted."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template konnte nicht gespeichert werden."
+msgstr "Template could not be saved."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template wirklich löschen?"
+msgstr "Really delete template?"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Templates konnten nicht geladen werden."
+msgstr "Templates could not be loaded."
+
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Titel"
@@ -1083,6 +1261,10 @@ msgstr "Skipped (blacklist)"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
 msgstr "Skipped applications are on the blacklist and remain requested."
+
+#: src/pages/VerifyPage.tsx
+msgid "Ungültiger Code."
+msgstr "Invalid code."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Upload fehlgeschlagen."
@@ -1125,6 +1307,11 @@ msgstr "Available"
 msgid "Verfügbarkeit"
 msgstr "Availability"
 
+#: src/App.tsx
+#: src/pages/VerifyPage.tsx
+msgid "Verifizieren"
+msgstr "Verify"
+
 #: src/pages/admin/RoleForm.tsx
 msgid "Verifizierer"
 msgstr "Verifier"
@@ -1154,6 +1341,26 @@ msgstr "Competition"
 #: src/App.tsx
 #~ msgid "Willkommen bei der Akkreditierungs-Plattform."
 #~ msgstr "Welcome to the accreditation platform."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "X (mm)"
+msgstr "X (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "X muss 0 oder größer sein."
+msgstr "X must be 0 or greater."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Y (mm)"
+msgstr "Y (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Y muss 0 oder größer sein."
+msgstr "Y must be 0 or greater."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Zentriert"
+msgstr "Centered"
 
 #: src/pages/ApplyPage.tsx
 msgid "Zurück zu Akkreditierungen"

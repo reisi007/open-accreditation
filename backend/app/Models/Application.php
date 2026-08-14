@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'status',
     'priority',
     'reason',
+    'qr_token',
 ])]
 class Application extends Model
 {

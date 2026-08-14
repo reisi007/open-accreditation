@@ -45,6 +45,11 @@
     prefixes: mdi, material-symbols;
 }
 
+/* A6 badge card ratio (105×148) for the template live preview. */
+@utility aspect-a6 {
+    aspect-ratio: 105 / 148;
+}
+
 @layer base {
     [class*="mdi--"],
     [class*="material-symbols--"] {

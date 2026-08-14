@@ -1,6 +1,6 @@
 # Task Board — open-accriditation
 
-> Stand: 2026-08-13. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
+> Stand: 2026-08-14. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
 > Umsetzung nach `features/`. Referenz: Sportdata „Accreditation Services" + Screenshots des
 > Altsystems (Bundesliga/ÖFB) in `reference/`.
 >
@@ -40,21 +40,22 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**P3e — Admin-Freigabe-Sicht (Delegieren):**
-- [ ] Backend: Blacklist-CRUD `GET/POST/PUT/DELETE /api/admin/blacklists` (mandant-scoped, `can:accreditations.manage`; super_admin+mandant_admin; `email` ODER `domain` valid, mind. eins; Unique `(mandant_id,email)` + `(mandant_id,domain)` via Migration 000007). Blacklist wirkt nur auf Allokation (nicht retrospektiv)
-- [ ] Backend: Admin-Applications `GET /api/admin/applications?accreditation_id=&status=&search=` (mandant-scoped, team_admin eigene Teams, mit User + Referenz) + Einzel-Aktionen `PUT /api/admin/applications/{id}` `{status: approved|denied, reason?, priority?}` über neue `AllocationService`-Methoden (`approveApplication`/`denyApplication`, **Blacklist-Guard beim Approve**, reason Pflicht bei deny); Massenfreigabe via bestehendem allocate-Endpoint; **VIP-Setzung** (priority)
-- [ ] Backend: Admin-Sub-Applications (Liste + Einzel approve/deny) via `SubAllocationService`-Methoden; Medien-Endpoint `GET /api/admin/applications/{id}/media` (Porträt/Presse-ID des Antragstellers, auth-gated) — **P3b-F3-Entscheidung: Live-Abruf statt Snapshot** (dokumentieren)
-- [ ] Backend-Fixes: **P3d-F3** (Meldungssprache harmonisieren EN), **P3d-F4** (Sub-Apply prüft `active` des Haupts)
-- [ ] Frontend: Freigabe-Seite `/admin/freigaben` (Filter, Liste mit Status/VIP/Medien, Einzel Freigeben/Ablehnen+reason-Modal, Massenfreigabe „alle"/„erste X" mit Ergebnis-Zähler inkl. `skipped_blacklist`-Semantik P3c-F1, Sub-Tab) + Blacklist-Tab (Liste/Add/Delete)
-- [ ] Tests: PHPUnit (Blacklist-CRUD+Unique, Einzel-Aktionen inkl. Blacklist-Guard + reason-Pflicht, Status-Übergänge, team_scoping, Medien-Endpoint, Sub-Aktionen, P3d-F3/F4-Regression), Playwright `@feature:accreditation` (Admin-Freigabe-Flow + Blacklist + **Admin-Sub-Modal E2E = P3d-F1**)
-- [ ] Doku: features/-Sektion **P3d-SOLL** (Sub-Allokation) + **P3e-SOLL** (Freigabe/Blacklist/VIP) — schließt P3d-F5
-
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) 🟡
 
-- [ ] `badge_templates` (Layout-JSON: Felder/Logo/Header/Farben) + Feld-Editor-UI (MVP: Feld-Set + Positionen, drag-frei per Koordinaten/Grid), Preview
-- [ ] PDF-Export (dompdf/Chromium) + CSV/Excel-Export (Serienbrief) — auth-gated Download
-- [ ] QR-Code (signed Token, HMAC/App-Key) + öffentliche Prüfseite (Foto/Status) + Ordner-Scan-View (mobile-friendly)
-- [ ] Tests: PHPUnit (Token-Signatur/Verifikation inkl. Manipulation, Template-Render, Export-Dateien), Playwright `@feature:badge`
+**P4a — Badge-Templates + Feld-Editor (Delegieren):**
+- [ ] Migration `badge_templates` (mandant_id FK, name, `layout_json` (Laravel json-cast, portabel): Felder [{field, x, y, w, h, size, align}], is_default), Model + Admin-CRUD `GET/POST/PUT/DELETE /api/admin/badge-templates` (can:accreditations.manage; super_admin+mandant_admin; team_admin read-only eigene)
+- [ ] Feld-Editor-UI (MVP, kein Drag): Template-Liste + Formular mit Feld-Tabelle (Name, Feld-Select [Name, Kategorie, Event, Datum, Foto, Status], x/y/w/h, Fontgröße, Alignment) + Live-Preview (CSS-basiert)
+- [ ] Tests: PHPUnit (CRUD, layout_json-Validierung, is_default, Scoping), Playwright `@feature:badge`
+
+**P4b — PDF/CSV-Export (Delegieren):**
+- [ ] Backend-Export `POST /api/admin/accreditations/{id}/badges/export` `{format: 'pdf'|'csv', template_id?}` → auth-gated File-Download; PDF via `dompdf` (composer-Dependency ergänzen), Template-Render aus layout_json + Application/User-Daten inkl. Foto (private Disk) + **QR-Code** (endroid/qr-code); CSV (fputcsv-Serienbrief: Name, E-Mail, Kategorie, Event, Status)
+- [ ] Frontend: Export-Buttons in der Freigabe-Sicht (PDF/CSV) + Download-Handling (Blob, Auth-Cookie)
+- [ ] Tests: PHPUnit (PDF generiert + enthält Felder, CSV-Inhalt, Auth-Gate, Template-Render, Foto-Einbettung), Playwright `@feature:badge`
+
+**P4c — QR-Verifikation (Delegieren):**
+- [ ] QR-Token: signiert (HMAC-SHA256 app-Secret, `base64url(appId.signature)`), Spalte `qr_token` auf applications (bei Freigabe generiert), Token in Badge-PDF als `https://{domain}/verify/{token}`
+- [ ] Öffentliche Prüfseite `GET /api/verify/{token}` → Foto (Porträt) + Status (approved zeigt Foto, sonst nur Status); Manipulation → 404; Frontend `/verify` (öffentlich) + **Ordner-Scan-View** (mobile-friendly, Token-Input, Rolle verifier `verification.verify`)
+- [ ] Tests: PHPUnit (Signatur/Verifikation inkl. Manipulation, Status-Sichtbarkeit, Foto nur bei approved, Rate-Limit), Playwright `@feature:badge`
 
 ### P5 — E-Mail-Workflow 🟡
 
@@ -87,17 +88,13 @@
 - [ ] **P2b-F8 (info)** Event-Partial-Update: nur `deadline_start` ODER nur `deadline_end` wird nicht gegen gespeicherten Gegenwert validiert (Rand-Datenkonsistenz, kein Exploit) → P7 oder akzeptiert.
 - [ ] **P3a-F1 (info)** Countdown-Plural-Workaround in `DeadlineCountdown.tsx` (String-Interpolation statt Lingui-ICU-Plural) → akzeptiert.
 - [ ] **P3a-F2 (info)** E2E-Daten-Ansammlung: `ensurePrimaryMandantActivePortalEvent` erzeugt Events ohne Cleanup → lokale Kosmetik, akzeptiert.
-- [ ] **P3c-F1 (info)** `skipped_blacklist` modusabhängige Semantik: Selection („erste X") → bleibt `requested`; approveAll → `denied` → in P3e-UI-Zähler klären.
-- [ ] **P3c-F2 (info)** Blacklist-Verwaltung: nur Tabelle/Modell, **keine CRUD-Routen** → P3e (mandant-scoped CRUD + Tests; Unique-Constraint fehlt).
-- [ ] **P3c-F3 (info)** VIP-Setzung: `priority` wird beim Apply hart auf false gesetzt → P3e braucht Admin-Weg (Person/Domäne laut D8).
 - [ ] **P3c-F4 (info)** Test-Coverage-Nuancen (Blacklist+VIP-Kombi, case-insensitiv, approveAll mit bestehenden approved, `mode` fehlt/non-int limit, Exakt-Fit Quota) → optional nachziehen (P3e-Paket oder später).
-- [ ] **P3d-F1 (medium)** Admin-Sub-Modal ohne Playwright-E2E (DoD-Lücke) → E2E für Sub-CRUD-Modal wird im P3e-Frontend-Paket ergänzt.
 - [ ] **P3d-F2 (low)** `'UNIQUE'`-Match case-sensitiv schlägt auf Postgres fehl (SQLSTATE 23505; P3b-Muster gespiegelt) → treiber-agnostischer Check → P7-Hardening.
-- [ ] **P3d-F3 (info)** gemischte Meldungssprache (`Zuerst eine freigegebene Akkreditierung.` DE vs. englische Schwester-422er) → in P3e harmonisieren.
-- [ ] **P3d-F4 (info)** Apply prüft nicht `active` des Haupt-Accreditations → Rand-Konsistenz (kein Exploit), in P3e beheben.
-- [ ] **P3d-F5 (info)** keine P3d-SOLL-Doku → features/-Sektion Sub-Allokation (schließt sich im P3e-Doku-Schritt).
+- [ ] **P3d-F5 (info)** keine P3d-SOLL-Doku → Doku-Abschnitt (Sub-Allokation + Freigabe/Blacklist SOLL) wird im P4-Batch erstellt.
+- [ ] **P3e-B3 (info)** Controller-Scope-/`EscapeLike`-Duplikation (4 Admin-Controller) → Refactoring-Kandidat (P7).
+- [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
+- [ ] **P3e-B5 (info)** E2E-Rate-Limiter-State: 7-Tage-TTL im DB-Cache → `php artisan cache:clear` vor E2E-Läufen in `e2e-up.sh`/CI-Doku aufnehmen (Determinismus).
 - [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
-- [ ] **P3b-F3 (info)** Medien-Snapshot beim Antrag (Foto/Presse-ID/Anhänge): Entscheidung in P3e — Freigabe-Sicht bezieht Medien des Antragstellers.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
 - [ ] **P2c-F3 (low)** `role_user.team_id` hat keine FK/Cascade auf `teams` → verwaiste team_admin-Zuweisungen bei Team-Delete (kein Escalation, nur Datenhygiene) → bei P3e (Team-Lösch-Flow) Cleanup/Cascade vorsehen.
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.

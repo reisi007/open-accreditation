@@ -5,6 +5,8 @@ use App\Http\Controllers\Api\Admin\AccreditationController as AdminAccreditation
 use App\Http\Controllers\Api\Admin\AdminApplicationController;
 use App\Http\Controllers\Api\Admin\AdminMediaController;
 use App\Http\Controllers\Api\Admin\AdminSubApplicationController;
+use App\Http\Controllers\Api\Admin\BadgeExportController;
+use App\Http\Controllers\Api\Admin\BadgeTemplateController;
 use App\Http\Controllers\Api\Admin\BlacklistController;
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
@@ -22,6 +24,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SubAccreditationController;
 use App\Http\Controllers\Api\SubApplicationController;
 use App\Http\Controllers\Api\UserMediaController;
+use App\Http\Controllers\Api\VerifyController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -179,6 +182,16 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::put('/sub-applications/{subApplication}', [AdminSubApplicationController::class, 'update'])->name('sub-applications.update');
 
         Route::get('/user-media/{media}', [AdminMediaController::class, 'show'])->name('user-media.show');
+
+        // P4: badge templates (CRUD — team_admin read-only, writes are 403 in
+        // the controller) and the badge export (PDF/CSV stream). Both live on
+        // the accreditations.manage surface.
+        Route::get('/badge-templates', [BadgeTemplateController::class, 'index'])->name('badge-templates.index');
+        Route::post('/badge-templates', [BadgeTemplateController::class, 'store'])->name('badge-templates.store');
+        Route::put('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'update'])->name('badge-templates.update');
+        Route::delete('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'destroy'])->name('badge-templates.destroy');
+
+        Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->name('accreditations.badges.export');
     });
 
     Route::middleware('can:users.manage')->group(function (): void {
@@ -236,4 +249,22 @@ Route::prefix('accreditations')->middleware('throttle:public')->name('api.accred
     // main accreditation. Inactive/foreign main → 404 (same semantics as the
     // accreditation detail route).
     Route::get('/{accreditation}/sub-accreditations', [SubAccreditationController::class, 'index'])->name('sub-accreditations.index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public QR verification (P4: D12 — Ausweis-Verifikation)
+|--------------------------------------------------------------------------
+|
+| Auth-free like the portal; the signed `{token}` is the access credential.
+| `GET /api/verify/{token}` answers `{data: {status, …}}` (identity only for
+| `approved` applications) and `GET /api/verify/{token}/photo` streams the
+| approved applicant's portrait inline. A light `throttle:public` keeps
+| scanning in check (shared per-ip bucket with the portal/accreditation
+| reads).
+|
+*/
+Route::prefix('verify')->middleware('throttle:public')->name('api.verify.')->group(function (): void {
+    Route::get('/{token}/photo', [VerifyController::class, 'photo'])->name('photo');
+    Route::get('/{token}', [VerifyController::class, 'verify'])->name('show');
 });

@@ -342,6 +342,104 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
 }
 
 /**
+ * Registers a throwaway user via the API, activates it through the Mailpit
+ * activation link, logs in via the API, uploads a portrait (so the public
+ * verify page can stream a real photo), applies for the given accreditation
+ * and logs out again. Each call is a fresh, disposable account.
+ *
+ * @returns {Promise<{ email: string; password: string }>}
+ */
+export async function registerUploadPortraitAndApply(accreditationId = 0, name = 'E2E Badge Inhaber') {
+    const email = `badge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
+    const password = 'SecurePassw0rd!';
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    try {
+        const register = await api.post('/api/auth/register', {
+            data: { name, email, password, password_confirmation: password },
+        });
+        if (register.status() !== 201) {
+            throw new Error(`User registration failed with status ${register.status()}`);
+        }
+
+        const mailpit = new MailpitHelper();
+        const activationPath = await mailpit.extractActivationPath(email);
+        const activation = await api.get(new URL(activationPath, FRONTEND_BASE_URL).toString());
+        if (activation.status() !== 200) {
+            throw new Error(`User activation failed with status ${activation.status()}`);
+        }
+
+        const login = await api.post('/api/auth/login', { data: { email, password } });
+        if (login.status() !== 200) {
+            throw new Error(`User login failed with status ${login.status()}`);
+        }
+
+        // 1×1 PNG — small enough for a throwaway portrait, passes the backend's
+        // image/dimension validation (max 2000px, no minimum).
+        const portrait = await api.post('/api/user/media', {
+            multipart: {
+                type: 'portrait',
+                file: {
+                    name: 'portrait.png',
+                    mimeType: 'image/png',
+                    buffer: Buffer.from(
+                        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+                        'base64',
+                    ),
+                },
+            },
+        });
+        if (portrait.status() !== 201) {
+            throw new Error(`Portrait upload failed with status ${portrait.status()}`);
+        }
+
+        const apply = await api.post(`/api/accreditations/${accreditationId}/apply`);
+        if (apply.status() !== 200 && apply.status() !== 201) {
+            throw new Error(`Apply failed with status ${apply.status()}`);
+        }
+
+        const logout = await api.post('/api/auth/logout');
+        if (logout.status() !== 200) {
+            throw new Error(`Logout failed with status ${logout.status()}`);
+        }
+
+        return { email, password };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
+ * P4 badge E2E setup: ensures a fresh event-scoped accreditation, creates one
+ * applicant with a portrait + approved application (apply + allocate via API),
+ * and returns the approved application including its `qr_url` (relative
+ * `/verify/<token>`).
+ */
+export async function ensurePrimaryMandantApprovedApplication() {
+    const { accreditation, categoryName, eventTitle } = await ensurePrimaryMandantAccreditation();
+    await registerUploadPortraitAndApply(accreditation.id, 'E2E Badge Inhaber');
+    await allocateAccreditationApi(accreditation.id, 'all');
+
+    const api = await loginAdminApi();
+    try {
+        const body = await (await api.get(`/api/admin/applications?accreditation_id=${accreditation.id}`)).json();
+        const applications = body.data ?? [];
+        let approved = null;
+        for (const entry of applications) {
+            if (entry.status === 'approved') {
+                approved = entry;
+                break;
+            }
+        }
+        if (!approved || typeof approved.qr_url !== 'string') {
+            throw new Error('No approved application with qr_url after allocation');
+        }
+        return { accreditation, categoryName, eventTitle, application: approved };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Creates a mandant-scoped blacklist entry via the admin API (super admin /
  * mandant_admin only). Returns the created entry.
  *

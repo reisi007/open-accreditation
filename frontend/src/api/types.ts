@@ -246,6 +246,7 @@ export interface AdminApplication {
     priority: boolean;
     reason: string | null;
     created_at: string;
+    qr_url: string | null;
 }
 
 export interface AdminSubApplicationSubAccreditation {
@@ -291,4 +292,35 @@ export interface AllocationResult {
     approved: number;
     denied: number;
     skipped_blacklist: number;
+}
+
+export type BadgeFieldKey = 'name' | 'category' | 'event' | 'date' | 'photo' | 'status';
+
+export type BadgeAlign = 'left' | 'center' | 'right';
+
+export interface BadgeField {
+    field: BadgeFieldKey;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    size: number;
+    align: BadgeAlign;
+}
+
+export interface BadgeTemplate {
+    id: number;
+    name: string;
+    layout: BadgeField[];
+    is_default: boolean;
+    updated_at: string | null;
+}
+
+export interface VerifyResult {
+    status: ApplicationStatus;
+    name?: string | null;
+    category?: string | null;
+    event?: string | null;
+    date?: string | null;
+    photo_url?: string | null;
 }

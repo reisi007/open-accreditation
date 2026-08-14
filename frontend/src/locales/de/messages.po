@@ -13,11 +13,21 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#. placeholder {0}: template.layout.length
+#: src/pages/admin/BadgeTemplatesPage.tsx
+#~ msgid "{0} Felder"
+#~ msgstr "{0} Felder"
+
 #: src/logic/accreditationLabels.ts
 msgid "{available} Plätze frei"
 msgstr "{available} Plätze frei"
 
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "{fieldCount} Felder"
+msgstr "{fieldCount} Felder"
+
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/BadgeTemplateForm.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventForm.tsx
@@ -30,6 +40,7 @@ msgstr "Abbrechen"
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Abgelehnt"
 msgstr "Abgelehnt"
 
@@ -50,6 +61,10 @@ msgstr "Abmelden"
 #: src/App.tsx
 msgid "Admin"
 msgstr "Admin"
+
+#: src/pages/VerifyPage.tsx
+msgid "Akkreditiert"
+msgstr "Akkreditiert"
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
@@ -107,6 +122,7 @@ msgstr "Akkreditierungen konnten nicht geladen werden."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -191,6 +207,19 @@ msgstr "Antragsteller"
 msgid "Anzahl"
 msgstr "Anzahl"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Ausrichtung"
+msgstr "Ausrichtung"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Ausweis-Export"
+msgstr "Ausweis-Export"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Ausweis-Templates"
+msgstr "Ausweis-Templates"
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -203,10 +232,12 @@ msgid "Beantragen"
 msgstr "Beantragen"
 
 #: src/logic/accreditationLabels.ts
+#: src/pages/VerifyPage.tsx
 msgid "Beantragt"
 msgstr "Beantragt"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -291,6 +322,18 @@ msgstr "Blacklist-Eintrag konnte nicht gelöscht werden."
 msgid "Blacklist-Eintrag wirklich löschen?"
 msgstr "Blacklist-Eintrag wirklich löschen?"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Breite (mm)"
+msgstr "Breite (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Breite muss 0 oder größer sein."
+msgstr "Breite muss 0 oder größer sein."
+
+#: src/pages/VerifyPage.tsx
+msgid "Code"
+msgstr "Code"
+
 #: src/pages/admin/accreditationFormUtils.ts
 #: src/pages/admin/accreditationSubFormUtils.ts
 #: src/pages/admin/eventFormUtils.ts
@@ -302,10 +345,12 @@ msgstr "Das Ende der Frist muss nach dem Beginn liegen."
 msgid "Datenschutzerklärung"
 msgstr "Datenschutzerklärung"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/portal/EventDetailPage.tsx
 #: src/pages/portal/PortalHomePage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Datum"
 msgstr "Datum"
 
@@ -388,7 +433,9 @@ msgid "Erstellt"
 msgstr "Erstellt"
 
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/ApplyPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Event"
 msgstr "Event"
 
@@ -424,6 +471,35 @@ msgstr "Events"
 #: src/pages/admin/EventsPage.tsx
 msgid "Events konnten nicht geladen werden."
 msgstr "Events konnten nicht geladen werden."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Export fehlgeschlagen."
+msgstr "Export fehlgeschlagen."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld"
+msgstr "Feld"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld entfernen"
+msgstr "Feld entfernen"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld hinzufügen"
+msgstr "Feld hinzufügen"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Feld Typ"
+msgstr "Feld Typ"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Felder"
+msgstr "Felder"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/VerifyPage.tsx
+msgid "Foto"
+msgstr "Foto"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Freigabe entziehen"
@@ -478,8 +554,13 @@ msgid "Geltungsbereich"
 msgstr "Geltungsbereich"
 
 #: src/logic/accreditationLabels.ts
+#: src/pages/VerifyPage.tsx
 msgid "Gesperrt"
 msgstr "Gesperrt"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Größe"
+msgstr "Größe"
 
 #: src/pages/admin/DenyModal.tsx
 msgid "Grund für die Ablehnung"
@@ -501,6 +582,14 @@ msgstr "Heimstätte"
 msgid "Hochladen"
 msgstr "Hochladen"
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Höhe (mm)"
+msgstr "Höhe (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Höhe muss 0 oder größer sein."
+msgstr "Höhe muss 0 oder größer sein."
+
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Impressum"
@@ -514,6 +603,8 @@ msgstr "Inaktiv"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/VerifyPage.tsx
 msgid "Kategorie"
 msgstr "Kategorie"
 
@@ -599,6 +690,14 @@ msgstr "Leer = unverändert"
 msgid "Liga"
 msgstr "Liga"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Links"
+msgstr "Links"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Live-Vorschau (A6, Maße in mm)"
+msgstr "Live-Vorschau (A6, Maße in mm)"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Logo"
 msgstr "Logo"
@@ -609,6 +708,7 @@ msgstr "Logo & Header"
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -678,19 +778,28 @@ msgstr "Meine Akkreditierungen"
 msgid "Mindestens E-Mail oder Domäne ist erforderlich."
 msgstr "Mindestens E-Mail oder Domäne ist erforderlich."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Mindestens ein Feld ist erforderlich."
+msgstr "Mindestens ein Feld ist erforderlich."
+
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/userRoleFormUtils.ts
 msgid "Mindestens eine Rolle muss ausgewählt bleiben."
 msgstr "Mindestens eine Rolle muss ausgewählt bleiben."
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/VerifyPage.tsx
 msgid "Name"
 msgstr "Name"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/categoryFormUtils.ts
 #: src/pages/admin/mandantFormUtils.ts
 #: src/pages/admin/teamFormUtils.ts
@@ -698,6 +807,7 @@ msgid "Name ist erforderlich."
 msgstr "Name ist erforderlich."
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
@@ -727,6 +837,10 @@ msgstr "Neuer Mandant"
 #: src/pages/admin/EventsPage.tsx
 msgid "Neues Event"
 msgstr "Neues Event"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Neues Template"
+msgstr "Neues Template"
 
 #: src/logic/accreditationLabels.ts
 msgid "Noch {available} frei"
@@ -767,6 +881,10 @@ msgstr "Noch keine Sub-Akkreditierungen vorhanden."
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Teams vorhanden."
 msgstr "Noch keine Teams vorhanden."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Noch keine Templates vorhanden."
+msgstr "Noch keine Templates vorhanden."
 
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BlacklistForm.tsx
@@ -811,6 +929,14 @@ msgstr "Presse-ID"
 msgid "Primär"
 msgstr "Primär"
 
+#: src/pages/VerifyPage.tsx
+msgid "Prüfen"
+msgstr "Prüfen"
+
+#: src/pages/VerifyPage.tsx
+msgid "Prüfung fehlgeschlagen."
+msgstr "Prüfung fehlgeschlagen."
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
@@ -822,6 +948,10 @@ msgstr "Quota"
 #: src/pages/admin/accreditationSubFormUtils.ts
 msgid "Quota muss mindestens 1 sein."
 msgstr "Quota muss mindestens 1 sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Rechts"
+msgstr "Rechts"
 
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -842,12 +972,21 @@ msgid "Saison"
 msgstr "Saison"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
 msgstr "Schließen"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Schriftgröße (pt)"
+msgstr "Schriftgröße (pt)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Schriftgröße muss mindestens 1 sein."
+msgstr "Schriftgröße muss mindestens 1 sein."
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -908,6 +1047,7 @@ msgid "SMTP-Port"
 msgstr "SMTP-Port"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -928,8 +1068,18 @@ msgstr "Spielort"
 msgid "Sprache"
 msgstr "Sprache"
 
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Standard"
+msgstr "Standard"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Standard-Template"
+msgstr "Standard-Template"
+
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Status"
@@ -1063,6 +1213,34 @@ msgstr "Teams aktivieren"
 msgid "Teams deaktiviert"
 msgstr "Teams deaktiviert"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Template"
+msgstr "Template"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template bearbeiten"
+msgstr "Template bearbeiten"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template erstellen"
+msgstr "Template erstellen"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template konnte nicht gelöscht werden."
+msgstr "Template konnte nicht gelöscht werden."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template konnte nicht gespeichert werden."
+msgstr "Template konnte nicht gespeichert werden."
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Template wirklich löschen?"
+msgstr "Template wirklich löschen?"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Templates konnten nicht geladen werden."
+msgstr "Templates konnten nicht geladen werden."
+
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Titel"
@@ -1083,6 +1261,10 @@ msgstr "Übersprungen (Blacklist)"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
 msgstr "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
+
+#: src/pages/VerifyPage.tsx
+msgid "Ungültiger Code."
+msgstr "Ungültiger Code."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Upload fehlgeschlagen."
@@ -1125,6 +1307,11 @@ msgstr "Verfügbar"
 msgid "Verfügbarkeit"
 msgstr "Verfügbarkeit"
 
+#: src/App.tsx
+#: src/pages/VerifyPage.tsx
+msgid "Verifizieren"
+msgstr "Verifizieren"
+
 #: src/pages/admin/RoleForm.tsx
 msgid "Verifizierer"
 msgstr "Verifizierer"
@@ -1154,6 +1341,26 @@ msgstr "Wettbewerb"
 #: src/App.tsx
 #~ msgid "Willkommen bei der Akkreditierungs-Plattform."
 #~ msgstr "Willkommen bei der Akkreditierungs-Plattform."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "X (mm)"
+msgstr "X (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "X muss 0 oder größer sein."
+msgstr "X muss 0 oder größer sein."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Y (mm)"
+msgstr "Y (mm)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Y muss 0 oder größer sein."
+msgstr "Y muss 0 oder größer sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Zentriert"
+msgstr "Zentriert"
 
 #: src/pages/ApplyPage.tsx
 msgid "Zurück zu Akkreditierungen"

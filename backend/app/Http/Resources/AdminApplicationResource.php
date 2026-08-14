@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\QrTokenService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -30,6 +31,13 @@ class AdminApplicationResource extends JsonResource
             'priority' => $this->priority,
             'reason' => $this->reason,
             'created_at' => $this->created_at?->toISOString(),
+            // P4: the verification URL (relative — the frontend prefixes its
+            // own origin), only for approved applications. Approved rows that
+            // predate P4 get their deterministic token backfilled lazily here
+            // (`QrTokenService::make` persists it on the row).
+            'qr_url' => $this->status === 'approved'
+                ? '/verify/'.($this->qr_token ?? app(QrTokenService::class)->make($this->resource))
+                : null,
         ];
     }
 
