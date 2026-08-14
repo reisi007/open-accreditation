@@ -21,6 +21,7 @@ class MandantPublicResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'slug' => $this->slug,
             'name' => $this->name,
             'logo_url' => $this->logo_path !== null ? route('api.portal.mandant.logo') : null,
             'header_url' => $this->header_path !== null ? route('api.portal.mandant.header') : null,

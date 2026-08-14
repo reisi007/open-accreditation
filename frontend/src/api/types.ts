@@ -98,6 +98,7 @@ export interface PortalTeam {
 
 export interface PortalMandant {
     id: number;
+    slug: string;
     name: string;
     logo_url: string | null;
     header_url: string | null;

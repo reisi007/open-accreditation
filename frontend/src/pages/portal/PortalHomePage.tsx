@@ -7,6 +7,7 @@ import { getPortalEvents, getPortalOverview } from '../../api/client';
 import type { PortalEvent, PortalOverview } from '../../api/types';
 import { DeadlineCountdown } from '../../components/DeadlineCountdown';
 import { formatDate } from '../../logic/formatDate';
+import { getHomepageLogo } from '../../logic/homepageLogo';
 
 export function PortalHomePage() {
     const { i18n } = useLingui();
@@ -74,14 +75,12 @@ export function PortalHomePage() {
                     ) : null}
 
                     <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-                        {mandant.logo_url && !logoFailed ? (
-                            <img
-                                src={mandant.logo_url}
-                                alt={mandant.name}
-                                className="h-20 w-20 rounded-box object-cover"
-                                onError={() => setLogoFailed(true)}
-                            />
-                        ) : null}
+                        <img
+                            src={getHomepageLogo(mandant, logoFailed)}
+                            alt={mandant.name}
+                            className="h-20 w-20 rounded-box object-cover"
+                            onError={mandant.logo_url !== null && !logoFailed ? () => setLogoFailed(true) : undefined}
+                        />
                         <h1 className="text-3xl font-bold">{mandant.name}</h1>
                     </div>
 

@@ -12,6 +12,7 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 |---|---|
 | `01-multi-tenancy.md` | Mandanten (Verbände), Host-Resolution über `mandant_domains`, MandantContext-Middleware, Team-Hierarchie |
 | `02-domain-model.md` | Entity-Übersicht: P1-Tabellen (mandants, users, roles, user_media) + P2/P3-Ausblick |
+| `03-caddy-brand-files.md` | Statische Brand-/Logo-Dateien im React-Projekt (Fallback), Caddy per-Mandant Datei-Overrides (SOLL) |
 | `accreditation/01-allocation-engine.md` | Allocation-Engine (P3c): deterministische Freigabe (VIP → FCFS), Quota, Blacklist, manuell + automatisch |
 | `auth/01-auth-and-roles.md` | Auth-Flow (Registrierung → Aktivierung → Login-Cookie → Logout → `/me`), Rollen-Matrix, Profil/Media-Vertrag |
 

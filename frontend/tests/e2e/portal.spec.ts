@@ -2,6 +2,17 @@ import { expect, test } from '@playwright/test';
 import { ensurePrimaryMandantActivePortalEvent } from './helpers/admin-data';
 
 test.describe('Portal (P3a)', () => {
+    test('landing shows the static fallback logo when the mandant has no uploaded logo', { tag: ['@smoke', '@feature:portal'] }, async ({ page }) => {
+        // Initial guest load is the only allowed page.goto.
+        await page.goto('/');
+
+        const main = page.getByRole('main');
+
+        // The seeded primary mandant has no uploaded logo → the homepage shows
+        // the static React fallback (root asset, e.g. later overridden by Caddy).
+        await expect(main.getByRole('img', { name: 'Hauptseite' })).toHaveAttribute('src', '/logo.svg');
+    });
+
     test('landing shows mandant, event list, team filter and event detail', { tag: ['@smoke', '@feature:accreditation'] }, async ({ page }) => {
         const { event, team, mandantName } = await ensurePrimaryMandantActivePortalEvent();
 

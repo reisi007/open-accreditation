@@ -7,6 +7,7 @@ import { renderWithProviders } from './test-setup';
 const overviewPayload = {
     mandant: {
         id: 1,
+        slug: 'main',
         name: 'Hauptseite',
         logo_url: null,
         header_url: null,

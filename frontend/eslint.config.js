@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
-import tseslint from 'typescript-eslint';
+import tseslint, { parser as tsParser } from 'typescript-eslint';
 import pluginLingui from 'eslint-plugin-lingui';
 
 export default tseslint.config(
@@ -48,6 +48,17 @@ export default tseslint.config(
           message: 'Strict QA Enforcement: Do not use page.setViewportSize(). Use Playwright projects/devices in playwright.config.ts instead.'
         }
       ]
+    },
+  },
+  {
+    // The ui-review screenshot harness lives in `tests/screenshots` and is a
+    // typed manifest + generic spec (TS syntax), so it needs the TS parser —
+    // tests/e2e deliberately keeps plain-ES2020 files for the default parser.
+    files: ['tests/screenshots/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      ecmaVersion: 2020,
+      globals: globals.node,
     },
   }
 );

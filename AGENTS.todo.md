@@ -51,6 +51,81 @@
 - [ ] Hardening-Follow-ups: F2 (JWT-Parser cookie-only), F3 (Disk-serve), F4 (activation_token hash), F5 (Upload-Kontingent), B2 (Auth-Throttle trennen), B3 (trustHosts), P1a-B1/B2/B4
 - [ ] Vollsuite grün (PHPUnit + Vitest + Playwright), `@smoke` nach jedem Schritt
 
+### P8 — UI-Review-Skill + Branding-Erweiterung 🟡 (2026-08-14)
+> **Ziel:** (1) Wiederholbarer `ui-review`-Skill (Playwright-Screenshots aller Seiten leer/gefüllt → Vision-Analyse),
+> global registriert via `~/.config/opencode/opencode.jsonc`, Quelle in `.opencode/skills/ui-review/`.
+> (2) Mandanten-Logo-Varianten **direkt in `frontend/public/`** (keine `brands/`-Struktur) im React-Projekt als
+> Fallback + Einbindung auf der Startseite; Caddy liefert später pro Mandant auf Datei-Basis, React-Dateien
+> dienen als Fallback (SOLL: `features/03-caddy-brand-files.md`).
+> **Kein Commit** bis Benutzer-Freigabe.
+
+- [ ] Skill `ui-review`: `.opencode/skills/ui-review/` mit `SKILL.md` (Workflow), `references/` (Checkliste, Befund-Report, Harness-Anleitung) + generische Templates → DoD
+- [ ] Global registrieren: `~/.config/opencode/opencode.jsonc` → `"skills": ["/Users/florianreisinger/dev/open-accreditation/.opencode/skills"]`
+- [ ] Projekt-Harness: `frontend/playwright.screenshots.config.ts` (eigenes `testDir: tests/screenshots`, eigener outputDir), `frontend/tests/screenshots/ui-review.config.ts` (Routen-Matrix filled/empty, Desktop+Mobile), `ui-screenshots.spec.ts` (Tag `@screenshot`), Helper `empty-mandant.ts` (eigener leerer Mandant, Domain `empty.localhost`)
+- [ ] npm-Script `test:screenshots` (eigenständig, NICHT in Standard-E2E); Output gitignored (`test-results/ui-screenshots/`)
+- [ ] Erstlauf `pnpm test:screenshots` (Screenshots aller Seiten leer/gefüllt, Desktop+Mobile)
+- [ ] **Vision-Analyse** der Screenshots (Batches ≤10 Bilder) → Issues mit Severity + Datei:Zeile identifizieren und in `AGENTS.todo.md` vermerken (Umsetzung der gefundenen Fehler ist NICHT Ziel — nur Doku)
+- [ ] Logo-Varianten (Portal-Muster) erstellen → `frontend/public/` (ROOT, KEIN `brands/`-Ordner) als Fallback
+- [ ] Startseite (PortalHomePage) bindet Logo korrekt ein: Mandant-Logo aus API, Fallback auf `/logo.svg` (React-Asset)
+- [ ] Caddy-SOLL: pro Mandant Datei-Basis-Auslieferung dokumentieren (React-`frontend/public/` als Fallback; Caddy serviert per Host einfach andere Dateien für `/favicon-*`, `/logo.svg`, `/site.webmanifest`) → `features/03-caddy-brand-files.md`
+
+### P8b — Mandant-Bilder: Self-Service + Super-Admin-Übersicht (aus GAP-Analyse 2026-08-14)
+> **Ziel:** (a) Mandant-Admin kann eigene Logo/Header-Bilder anpassen; (b) Super-Admin sieht/steuert Bilder aller Mandanten/Subdomains.
+> **Befund:** (a) kompletter GAP (keine Permission, keine selbstgescopten Routen, keine UI, keine Tests); (b) größtenteils da — fehlen Logo-Thumbnail in Liste + Subdomain-Preview.
+
+- [ ] **Backend (a):** neue Permission `mandant.media.manage` in `config/permissions.php` zur `mandant_admin`-Zeile; AuthServiceProvider registriert Gate automatisch
+- [ ] **Backend (a):** selbstgescopte Routen + Controller-Methoden (eigenes Mandant via `MandantContext::currentId()`/`role_user`), z. B. `POST/GET/DELETE /api/mandant/logo|header` (nicht `mandants.manage`, sondern neue Gate)
+- [ ] **Backend (b):** Logo-Thumbnail im `MandantListPage`-Payload vorhanden (kein Backend-Change nötig, `logo_url` wird bereits serialisiert)
+- [ ] **Frontend (a):** Route/Seite für `mandant_admin` (RequireRoles super_admin+mandant_admin), `MediaField` wiederverwenden → Admin-Menüpunkt „Logo & Header" (nur mandant_admin+super_admin)
+- [ ] **Frontend (b):** `MandantListPage` um Logo-Thumbnail-Spalte erweitern; „Open portal"-Link pro Domain (externer Tab) prüfen
+- [ ] **Tests:** PHPUnit (Self-Service-Flow mandant_admin upload/del + 403 für team_admin/user; super_admin weiterhin alle Mandanten) + Playwright-E2E `@feature:admin:mandant` (Thumbnail, Self-Service-Upload) + `RolePermissionTest`-Matrix erweitern
+- [ ] **Doku:** `features/`-SOLL (Rollen-Modell: mandant_admin darf eigene Bilder, super_admin alle)
+
+### 🖼️ UI-Review-Befunde (Vision-Analyse 2026-08-14, Screenshot-Erstlauf)
+> **Ziel:** Screenshots mit Vision-Agent analysieren → Issues in `AGENTS.todo.md` vermerken. **Umsetzung ist KEIN Ziel** (nur Doku; Fixes später als eigene Tasks).
+> **Basis:** 7 Screenshots aus `test-results/ui-screenshots/` (Erstlauf unvollständig/flaky — siehe Flakiness-Untersuchung). Kein Commit.
+
+- [ ] **high** `admin-freigaben` (filled): extrem lange Tabelle ohne Pagination/Virtualisierung, Sticky-Header, Ergebnisanzahl → Übersicht/Navigation fehlt.
+- [ ] **high** `admin-freigaben` (filled): sehr dichte Zeilen + winzige Status-/Action-Controls im Full-Page-Screenshot schwer lesbar.
+- [ ] **high** `admin-users` (filled): extrem hohe Tabelle ohne Pagination/Sticky-Header/Result-Count.
+- [ ] **high** `admin-users` (filled): „Rolle bearbeiten"-Buttons wickeln um (Action-Spalte zu schmal).
+- [ ] **medium** `admin-badge-templates` (empty): leere Liste = nackte Tabellenmeldung ohne Illustration/CTA (Button `+ Neu` visuell abgetrennt).
+- [ ] **medium** `admin-freigaben` (empty): leeres Ergebnis nur als Fließtext unter der Tabellenüberschrift, kein Filter-Empty-State.
+- [ ] **medium** `admin-users` (empty): kein Unterschied „keine Benutzer" vs. „Suchtreffer leer"; kein Invite-/Create-CTA.
+- [ ] **medium** `admin-freigaben` (filled): Antragsteller-/Akkreditierungs-Labels wickeln mehrzeilig um, uneinheitliche Zeilenhöhen.
+- [ ] **medium** `admin-freigaben` (filled): mehrere Status-Farben ähnlich/teils nur Farbcodierung → explizite Text-/Icon-Semantik prüfen.
+- [ ] **medium** `admin-freigaben` (filled): Action-Controls stapeln je Zeile unterschiedlich → konsistentes Action-Group-Muster.
+- [ ] **medium** `admin-users` (filled): lange E-Mails wickeln stark um → Clamp/Truncate + Tooltip/Detail.
+- [ ] **medium** `admin-users` (filled): Tabellenbreite zu schmal für E-Mail-/Action-Spalten.
+- [ ] **medium** `meine-akkreditierungen` (filled): Single-Row-Card-Layout kann bei schmaleren Viewports eng werden → responsive Stapel-Layout.
+- [ ] **low** `admin-badge-templates` (filled): „Standard"-Spalte leer bei Nicht-Default → Platzhalter `—`.
+- [ ] **low** `admin-badge-templates` (filled): lange generierte Template-Namen schwer scanbar → Truncate/Tooltip, sprechende Namen.
+- [ ] **low** `meine-akkreditierungen` (filled): generierte IDs dominieren Card → lesbarer Name, ID als Sekundär-Metadaten.
+- [ ] **low** Empty-States allgemein: viel ungenutzter Weißraum → zentrierte Empty-State-Panels.
+- [ ] **low** `admin-freigaben` (empty): Filter vertikal gestapelt trotz horizontalem Platz → kompaktes Filter-Grid.
+- [ ] **low** `admin-users`: Suchfeld proportional zu schmal → Toolbar-Layout.
+- [ ] **info** Branding (grünes Akkreditierungs-Icon + „Akkreditierung") überall korrekt; keine kaputten Bilder, keine gemischten Sprachen.
+
+### 🧪 Screenshot-Suite: Flakiness-Befunde (Untersuchung 2026-08-14, kein Fix)
+> **Ursache der unvollständigen Erstläufe (nur 4–7 PNGs von 58 erwarteten):** 9 Fehler + 16 Skips; Artefakte stammen aus einem grep-gefilterten Debug-Subset, nicht der vollen Matrix. Kein Fix (Umsetzung kein Ziel).
+
+- [ ] **high (R1)** Mobile-Navbar-Overlap: `navbar-center` (`App.tsx:64-111`) überlappt `Anmelden` bei 360px (Galaxy A55) → ALLE Mobile-Tests schlagen mit 120s-Timeout fehl (`Verifizieren` interceptet). Fix: responsive Collapse/Drawer + `@mobile`-Assertion.
+- [ ] **high (R2)** Empty-State-Login: Seeds legen User auf **Primary-Mandant** an (`seeds.ts:34-37`, `admin-data.ts:4`), Login läuft aber auf `empty.localhost` → 403 „nicht registriert" (Konten sind pro Mandant). Fix: Seeds für `empty`-States via `empty.localhost`-API-Kontext anlegen, ohne Application; irreführende `note` in `ui-review.config.ts:140` korrigieren.
+- [ ] **medium (R3)** Volle Matrix wurde nie gefahren; `tests/screenshots/debug.spec.ts` (Scratch, „Too many arguments") bricht jede Suite (testMatch `**/*.spec.ts`). Fix: debug-Spec löschen/umbenennen, vollen Lauf `--grep @screenshot` (58 Instanzen).
+- [ ] **low/medium (R4)** Login-Rate-Limit (`throttle:login` 40/min/IP, `AppServiceProvider.php:42-45`) → 429-Risiko bei ~60+ Logins im Parallellauf; `settleAndCapture` fixed 250ms (`ui-screenshots.spec.ts:75-80`) fragil unter Vite-HMR; `ensureEmptyMandant` (`empty-mandant.ts:81-87`) schluckt alle Nicht-201-Domain-Antworten still; PNG-Existenz nach `page.screenshot` wird nicht assertiert.
+- [ ] **Hinweis:** Screenshot-Erstlauf hat `test-results/ui-screenshots/` mehrfach überschrieben (Vision-Basis von 7 PNGs stammt aus 1. Lauf); Wiederholung erst nach Fixes der Suite.
+
+### 📐 Formular-Abstände: Audit (Code + Vision, 2026-08-14)
+> **Verdikt:** Field-Stack konsistent (`flex flex-col gap-4` in 13/13 Formularen, `form-control` + daisyUI-label), **aber Abstand zum Submit-Button inkonsistent**. Kein Fix (Doku).
+
+- [ ] **high** Submit-Abstand abweichend: `LoginPage.tsx:99` `mt-2` auf Button (24px statt 16px); `VerifyPage.tsx:92` ohne Wrapper/`mt`; `MandantDetailPage.tsx:315` Domain-Form `gap-2` (8px); `BlacklistForm.tsx:85-86` plain `<div>` + `btn btn-sm`
+- [ ] **medium** Submit-Wrapper fehlt in 4 Formen (LoginPage, VerifyPage, BlacklistForm, Domain-Form) — Standard ist `flex flex-wrap items-center gap-2` + `btn btn-primary` (9/13)
+- [ ] **low** `BadgeTemplateForm.tsx:89` `grid gap-6` statt `gap-4` (einziges abweichendes Grid)
+- [ ] **low** Error-Hint ohne `mt-1`: `EventForm.tsx:148`, `AccreditationForm.tsx:173`, `SubAccreditationForm.tsx:106`
+- [ ] **low** `TeamForm.tsx:31` styled sich selbst als Card (`rounded-box bg-base-100 p-4`) — alle anderen Formulare bekommen Container vom Parent
+- [ ] **low** `BlacklistForm.tsx` `input-sm`/`btn-sm` — einzige Small-Variante
+- [ ] **info** Vision (apply.png): Zeilen-Rhythmus konsistent, Submit-Button im Screenshot nicht sichtbar (Form läuft weiter) → Abstand oben/unten nicht verifizierbar
+
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
 - [ ] **F2 (low)** JWT-Parser-Kette auf Cookie-only beschränken (Header/Query/Form deaktivieren) → P7-Hardening.

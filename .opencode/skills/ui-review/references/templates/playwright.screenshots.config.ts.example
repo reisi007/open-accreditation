@@ -1,0 +1,33 @@
+// Playwright config for the UI-review screenshot set.
+//
+// Deliberately SEPARATE from the standard playwright.config.ts: this set only
+// captures screenshots and must never run inside the normal E2E suite.
+//
+// `<project>`   — your project's frontend directory (e.g. `frontend`)
+// `<baseURL>`   — the local dev server URL (e.g. `http://localhost:5173`)
+// `<outputDir>` — where screenshots and artifacts land (e.g. `test-results/ui-screenshots`)
+// `<testsDir>`  — the folder holding the harness (e.g. `./tests/screenshots`)
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+    testDir: './<testsDir>',
+    testMatch: '**/*.spec.ts',
+    fullyParallel: true,
+    forbidOnly: !!process.env.CI,
+    retries: process.env.CI ? 2 : 0,
+    workers: process.env.CI ? 4 : 4,
+    timeout: 120000,
+    reporter: [
+        ['html', { open: 'never', outputFolder: 'playwright-report/ui-screenshots' }],
+    ],
+    use: {
+        baseURL: '<baseURL>',
+        trace: 'off',
+        video: 'off',
+    },
+    outputDir: '<outputDir>',
+    projects: [
+        { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 950 } } },
+        { name: 'Mobile Chrome', use: { ...devices['Galaxy A55'] } },
+    ],
+});
