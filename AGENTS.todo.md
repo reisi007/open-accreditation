@@ -42,18 +42,10 @@
 
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) ✅
 
-### P6 — Wallets (PKPASS) + Sub-Karten 🟡
-
-**P6 — Wallets (PKPASS) + Sub-Karten (Delegieren):**
-- [ ] `config/wallet.php` (env-optional: PASS_TYPE_ID, CERT/KEY/WWDR-Pfade, GOOGLE_* Service-Account); **keine neuen Composer-Deps** (PHP zip/GD/openssl + endroid/qr-code vorhanden)
-- [ ] `WalletPassService`: **Apple .pkpass** (pass.json EventTicket mit barcode=verify-QR, icons als GD-PNG, manifest.json SHA256, `openssl_pkcs7_sign` mit konfigurierten Zertifikaten; ohne Zertifikate → unsigned-bundle dokumentiert); **Google Wallet** (EventTicket-Object + JWT RS256 via openssl wenn Service-Account, sonst strukturvalides JSON); Sub-Karten park/seat als eigene Pass-Typen
-- [ ] Endpoints (auth:api, eigene approved App): `GET /api/applications/{id}/wallet` → .pkpass-Download, `GET /api/applications/{id}/wallet/google` → JWT/JSON, `GET /api/sub-applications/{id}/wallet` (approved Sub)
-- [ ] Frontend: Apple-/Google-Wallet-Download-Buttons in „Meine Akkreditierungen" (approved, auch Sub-Sektion) + i18n
-- [ ] Tests: PHPUnit (pass.json-Struktur/Felder, manifest-SHA256, barcode=verify-URL, Google-JWT/JSON, Sub-Pass, Auth-Gating, Signatur-Pfad mit Test-Zertifikat optional), Playwright `@feature:wallet`
-
 ### P7 — Polish + Deploy 🟡 **AUF HALT — Go-Live wartet auf Benutzer-Freigabe**
-> Alles bis einschließlich P6 wird umgesetzt. P7 (Caddy multi-Domain, Env-Hardening, Prod-Deploy)
-> erst nach expliziter Freigabe des Benutzers.
+> **Einziger verbleibender Block:** Alle Umsetzungsphasen P1–P6 sind abgeschlossen (verifiziert, APPROVED).
+> P7 (Caddy multi-Domain, Env-Hardening, Prod-Deploy) wird erst nach expliziter Freigabe des Benutzers
+> umgesetzt — dieser Block wartet auf die Benutzer-Freigabe.
 
 - [ ] Caddy/Reverse-Proxy-Konfig (multi-Domain), Env-Hardening (APP_KEY/JWT_SECRET-Guards, P0-Fix-F3 Default-Admin)
 - [ ] Hardening-Follow-ups: F2 (JWT-Parser cookie-only), F3 (Disk-serve), F4 (activation_token hash), F5 (Upload-Kontingent), B2 (Auth-Throttle trennen), B3 (trustHosts), P1a-B1/B2/B4
@@ -90,11 +82,12 @@
 - [ ] **P4-F2 (low)** `AdminApplicationResource` macht Write-on-Read (lazy qr_token-Backfill während Serialisierung) → besser im Approval-Flow oder explizit (P7).
 - [ ] **P4-F3 (low)** Verify nutzt `throttle:public` (geteilter Bucket mit Portal/Akkreditierungen) → eigener benannter Limiter (P7).
 - [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
-- [ ] **P4-F5 (info)** `features/`-SOLL-Doku für Badges/QR fehlt → im nächsten Doku-Batch erstellen.
-- [ ] **P5-F1 (medium)** DoD-Gap: kein Playwright-E2E für den Resend-Button → E2E im P6-Frontend-Paket ergänzen (`@feature:accreditation` oder `@feature:wallet`).
+- [ ] **P4-F5 (info)** `features/`-SOLL-Doku: P6-Wallet-Vertrag (PKPASS) + Badges/QR-SOLL fehlen → kommen in **einem Doku-Batch** (P7-Vorbereitung).
 - [ ] **P5-F2 (low)** Resend-Route ohne Rate-Limit (deckt sich mit P2a-RL; Admin-Vektor → Mail-Spam) → P7.
 - [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
 - [ ] **P5-F4 (info)** Queue-Integration (synchroner Versand als MVP-Entscheidung) → später/Post-MVP.
+- [ ] **P6-B1 (info)** `relevantDate`-Semantik: nutzt `deadline_end` statt Event-Datum → mit Benutzer abstimmen (P7/Produkt).
+- [ ] **P6-B2 (info)** ohne `GOOGLE_ISSUER_ID` leeres id-Präfix im Preview-Modus → dokumentiert, kein Risiko.
 
 ---
 
