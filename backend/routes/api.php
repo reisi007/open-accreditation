@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\EventController;
 use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
+use App\Http\Controllers\Api\Admin\SubAccreditationController as AdminSubAccreditationController;
 use App\Http\Controllers\Api\Admin\TeamController;
 use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\ApplicationController;
@@ -14,6 +15,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Portal\PortalController;
 use App\Http\Controllers\Api\Portal\PortalMediaController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\SubAccreditationController;
+use App\Http\Controllers\Api\SubApplicationController;
 use App\Http\Controllers\Api\UserMediaController;
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +67,15 @@ Route::middleware('auth:api')->group(function (): void {
     Route::post('/accreditations/{accreditation}/apply', [AccreditationController::class, 'apply'])->middleware('throttle:apply')->name('api.accreditations.apply');
     Route::get('/applications', [ApplicationController::class, 'index'])->name('api.applications.index');
     Route::delete('/applications/{application}', [ApplicationController::class, 'destroy'])->name('api.applications.destroy');
+
+    // P3d: sub-accreditation (Park-/Sitzkarte) apply + "Meine
+    // Sub-Akkreditierungen". Apply reuses the same per-user `apply` limiter
+    // as the main apply (auth-gated, so the shared bucket only ever holds
+    // authenticated users; the unique (sub_accreditation_id, application_id)
+    // constraint already blocks scripted duplicates).
+    Route::post('/sub-accreditations/{sub}/apply', [SubAccreditationController::class, 'apply'])->middleware('throttle:apply')->name('api.sub-accreditations.apply');
+    Route::get('/sub-applications', [SubApplicationController::class, 'index'])->name('api.sub-applications.index');
+    Route::delete('/sub-applications/{subApplication}', [SubApplicationController::class, 'destroy'])->name('api.sub-applications.destroy');
 });
 
 /*
@@ -139,6 +151,13 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::delete('/accreditations/{accreditation}', [AdminAccreditationController::class, 'destroy'])->name('accreditations.destroy');
         // P3c: manual allocation trigger (mode=all | mode=first).
         Route::post('/accreditations/{accreditation}/allocate', [AdminAccreditationController::class, 'allocate'])->name('accreditations.allocate');
+        // P3d: sub-accreditation (Park-/Sitzkarte) CRUD + manual allocation
+        // trigger (mode=all | mode=first, identical contract to P3c).
+        Route::get('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'index'])->name('accreditations.sub-accreditations.index');
+        Route::post('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'store'])->name('accreditations.sub-accreditations.store');
+        Route::put('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'update'])->name('sub-accreditations.update');
+        Route::delete('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'destroy'])->name('sub-accreditations.destroy');
+        Route::post('/sub-accreditations/{sub}/allocate', [AdminSubAccreditationController::class, 'allocate'])->name('sub-accreditations.allocate');
     });
 
     Route::middleware('can:users.manage')->group(function (): void {
@@ -192,4 +211,8 @@ Route::prefix('portal')->middleware('throttle:60,1')->name('api.portal.')->group
 Route::prefix('accreditations')->middleware('throttle:60,1')->name('api.accreditations.')->group(function (): void {
     Route::get('/', [AccreditationController::class, 'index'])->name('index');
     Route::get('/{accreditation}', [AccreditationController::class, 'show'])->name('show');
+    // P3d: public sub-accreditation list (Park-/Sitzkarten) of one active
+    // main accreditation. Inactive/foreign main → 404 (same semantics as the
+    // accreditation detail route).
+    Route::get('/{accreditation}/sub-accreditations', [SubAccreditationController::class, 'index'])->name('sub-accreditations.index');
 });

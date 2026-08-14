@@ -32,10 +32,10 @@ Akkreditierung (Quota + Frist) → Application → Sub-Akkreditierung.**
 | `categories` | z. B. Presse, Fotograf, Delegation; erbt vom Mandant, Team überschreibt |
 | `events` | Titel, Datum, Ort (Default = Heimstätte, überschreibbar), Wettbewerb, Frist (Default/Override); Ebene Mandant oder Team |
 | `accreditations` | Kategorie + Event/Scope, Quota, Frist, VIP/Blacklist-Konfiguration |
-| `applications` | Antrag: Kategorie/Scope, Status `requested/approved/denied/blacklisted`, Foto/Anhänge |
+| `applications` | Antrag: Kategorie/Scope, Status `requested/approved/denied/blacklisted`, Foto/Anhänge. Status-Set dauerhaft: die Engine setzt **nie** `blacklisted` (nutzt `denied` + `reason`; der `blacklisted`-Status ist für die Blacklist-Verwaltung in P3e reserviert) — Details `accreditation/01-allocation-engine.md` |
 | `sub_accreditations` | Park-/Sitzkarte, nur bei Haupt-Akkreditierung, eigenes Kontingent, auto/manuell |
 | `badge_templates` | Ausweis-Layout (Feld-Set, Positionen, Logo/Header/Farben) |
-| `blacklist` | Gesperrte Personen + Domänen (Block auf Mandant-Ebene) |
+| `blacklists` | Gesperrte Personen + Domänen (Block auf Mandant-Ebene); Enforcement in `accreditation/01-allocation-engine.md` |
 | `wallet_passes` | Apple/Google Wallet (PKPASS) je Akkreditierung |
 
 ## Anmelde-Scopes

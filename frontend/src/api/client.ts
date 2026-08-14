@@ -11,6 +11,9 @@ import type {
     PortalEventDetail,
     PortalOverview,
     SmtpConfig,
+    SubAccreditation,
+    SubApplication,
+    SubType,
     Team,
     User,
     UserRoleAssignment,
@@ -307,3 +310,41 @@ export const updateAccreditation = (id: number, payload: AccreditationPayload): 
 
 export const deleteAccreditation = (id: number): Promise<void> =>
     request<void>(`/api/admin/accreditations/${id}`, { method: 'DELETE' });
+
+export interface SubAccreditationPayload {
+    type: SubType;
+    quota: number;
+    deadline_start?: string | null;
+    deadline_end?: string | null;
+    auto_approve?: boolean;
+    active?: boolean;
+}
+
+export const listSubAccreditations = (accreditationId: number): Promise<SubAccreditation[]> =>
+    request<SubAccreditation[]>(`/api/accreditations/${accreditationId}/sub-accreditations`);
+
+export const listAdminSubAccreditations = (accreditationId: number): Promise<SubAccreditation[]> =>
+    request<SubAccreditation[]>(`/api/admin/accreditations/${accreditationId}/sub-accreditations`);
+
+export const createSubAccreditation = (accreditationId: number, payload: SubAccreditationPayload): Promise<SubAccreditation> =>
+    request<SubAccreditation>(`/api/admin/accreditations/${accreditationId}/sub-accreditations`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+
+export const updateSubAccreditation = (id: number, payload: SubAccreditationPayload): Promise<SubAccreditation> =>
+    request<SubAccreditation>(`/api/admin/sub-accreditations/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+
+export const deleteSubAccreditation = (id: number): Promise<void> =>
+    request<void>(`/api/admin/sub-accreditations/${id}`, { method: 'DELETE' });
+
+export const applySubAccreditation = (id: number): Promise<SubApplication> =>
+    request<SubApplication>(`/api/sub-accreditations/${id}/apply`, { method: 'POST' });
+
+export const listSubApplications = (): Promise<SubApplication[]> => request<SubApplication[]>('/api/sub-applications');
+
+export const withdrawSubApplication = (id: number): Promise<void> =>
+    request<void>(`/api/sub-applications/${id}`, { method: 'DELETE' });

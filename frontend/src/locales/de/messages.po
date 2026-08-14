@@ -22,6 +22,7 @@ msgstr "{available} Plätze frei"
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/RoleForm.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 #: src/pages/admin/TeamForm.tsx
 msgid "Abbrechen"
 msgstr "Abbrechen"
@@ -105,6 +106,7 @@ msgstr "Aktionen"
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 msgid "Aktiv"
 msgstr "Aktiv"
 
@@ -147,10 +149,13 @@ msgid "Anträge konnten nicht geladen werden."
 msgstr "Anträge konnten nicht geladen werden."
 
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 msgid "Automatische Freigabe"
 msgstr "Automatische Freigabe"
 
 #: src/components/ApplyButton.tsx
+#: src/pages/MyAccreditationsPage.tsx
 msgid "Beantragen"
 msgstr "Beantragen"
 
@@ -212,6 +217,7 @@ msgid "Bitte Team auswählen"
 msgstr "Bitte Team auswählen"
 
 #: src/pages/admin/accreditationFormUtils.ts
+#: src/pages/admin/accreditationSubFormUtils.ts
 #: src/pages/admin/eventFormUtils.ts
 msgid "Das Ende der Frist muss nach dem Beginn liegen."
 msgstr "Das Ende der Frist muss nach dem Beginn liegen."
@@ -337,6 +343,7 @@ msgstr "Freigegeben"
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/ApplyPage.tsx
+#: src/pages/MyAccreditationsPage.tsx
 msgid "Frist"
 msgstr "Frist"
 
@@ -346,11 +353,13 @@ msgstr "Frist abgelaufen"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/EventForm.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 msgid "Frist Beginn"
 msgstr "Frist Beginn"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/EventForm.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 msgid "Frist Ende"
 msgstr "Frist Ende"
 
@@ -558,6 +567,10 @@ msgstr "Neue Akkreditierung"
 msgid "Neue Kategorie"
 msgstr "Neue Kategorie"
 
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Neue Sub-Akkreditierung"
+msgstr "Neue Sub-Akkreditierung"
+
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Neuer Mandant"
 msgstr "Neuer Mandant"
@@ -565,6 +578,10 @@ msgstr "Neuer Mandant"
 #: src/pages/admin/EventsPage.tsx
 msgid "Neues Event"
 msgstr "Neues Event"
+
+#: src/logic/accreditationLabels.ts
+msgid "Noch {available} frei"
+msgstr "Noch {available} frei"
 
 #: src/components/DeadlineCountdown.tsx
 msgid "Noch {count} {noun}"
@@ -594,6 +611,10 @@ msgstr "Noch keine Kategorien vorhanden."
 msgid "Noch keine Mandanten vorhanden."
 msgstr "Noch keine Mandanten vorhanden."
 
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Noch keine Sub-Akkreditierungen vorhanden."
+msgstr "Noch keine Sub-Akkreditierungen vorhanden."
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Teams vorhanden."
 msgstr "Noch keine Teams vorhanden."
@@ -602,6 +623,11 @@ msgstr "Noch keine Teams vorhanden."
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Ort"
 msgstr "Ort"
+
+#: src/logic/accreditationLabels.ts
+#: src/pages/admin/SubAccreditationForm.tsx
+msgid "Parkkarte"
+msgstr "Parkkarte"
 
 #: src/pages/LoginPage.tsx
 msgid "Passwort"
@@ -621,10 +647,12 @@ msgstr "Primär"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/SubAccreditationForm.tsx
 msgid "Quota"
 msgstr "Quota"
 
 #: src/pages/admin/accreditationFormUtils.ts
+#: src/pages/admin/accreditationSubFormUtils.ts
 msgid "Quota muss mindestens 1 sein."
 msgstr "Quota muss mindestens 1 sein."
 
@@ -652,6 +680,11 @@ msgstr "Saison"
 #: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
 msgstr "Schließen"
+
+#: src/logic/accreditationLabels.ts
+#: src/pages/admin/SubAccreditationForm.tsx
+msgid "Sitzkarte"
+msgstr "Sitzkarte"
 
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/CategoryForm.tsx
@@ -741,6 +774,51 @@ msgstr "Stunde"
 msgid "Stunden"
 msgstr "Stunden"
 
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierung bearbeiten"
+msgstr "Sub-Akkreditierung bearbeiten"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierung erstellen"
+msgstr "Sub-Akkreditierung erstellen"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierung konnte nicht gelöscht werden."
+msgstr "Sub-Akkreditierung konnte nicht gelöscht werden."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierung konnte nicht gespeichert werden."
+msgstr "Sub-Akkreditierung konnte nicht gespeichert werden."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierung wirklich löschen?"
+msgstr "Sub-Akkreditierung wirklich löschen?"
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Sub-Akkreditierungen"
+msgstr "Sub-Akkreditierungen"
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sub-Akkreditierungen (Park/Sitz)"
+msgstr "Sub-Akkreditierungen (Park/Sitz)"
+
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sub-Akkreditierungen konnten nicht geladen werden."
+msgstr "Sub-Akkreditierungen konnten nicht geladen werden."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sub-Antrag konnte nicht gesendet werden."
+msgstr "Sub-Antrag konnte nicht gesendet werden."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sub-Antrag konnte nicht zurückgezogen werden."
+msgstr "Sub-Antrag konnte nicht zurückgezogen werden."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sub-Anträge konnten nicht geladen werden."
+msgstr "Sub-Anträge konnten nicht geladen werden."
+
 #: src/components/DeadlineCountdown.tsx
 msgid "Tag"
 msgstr "Tag"
@@ -811,6 +889,10 @@ msgstr "Titel"
 #: src/pages/admin/eventFormUtils.ts
 msgid "Titel ist erforderlich."
 msgstr "Titel ist erforderlich."
+
+#: src/pages/admin/SubAccreditationForm.tsx
+msgid "Typ"
+msgstr "Typ"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Upload fehlgeschlagen."

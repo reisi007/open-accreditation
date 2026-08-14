@@ -40,12 +40,6 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**P3c — Allocation-Engine (Delegieren, STRICT Unit-Tests):**
-- [ ] Service `AllocationService` (backend-only, keine UI): `approveSelection(accreditation, limit)` = „erste X" (manual) + `approveAllEligible(accreditation)` = „alle freigeben"/Auto. **Reihenfolge deterministisch:** VIP (`priority`) zuerst, dann FCFS `(created_at, id)`; **Blacklist nie freigegeben** (email + domain, mandant-scoped; auto → denied mit reason 'Blacklist'); Überzeichnung → denied 'Quota erschöpft' (nur auto); Quota wird nie überschritten; idempotent (2. Lauf ändert nichts)
-- [ ] Trigger: manuell `POST /api/admin/accreditations/{id}/allocate` body `{mode: 'all'|'first', limit?}` (Gate accreditations.manage, team_admin eigene Teams); automatisch `php artisan allocation:run` (Schedule, stündlich/minütlich): aktive `auto_approve`-Accreditations mit `deadline_end < now` → `approveAllEligible`
-- [ ] **P3b-Fix:** benannter Rate-Limiter `apply` für `POST /api/accreditations/{id}/apply` (z. B. 30/min) + Test
-- [ ] Tests: PHPUnit ausführlich — Überzeichnung (Quota erschöpft → Ablehnung), VIP-Reihenfolge (vorgereiht, auch bei späterem Antrag), Frist-Randfälle (vor/nach Deadline, exakt am Deadline-Ende via Carbon setTestNow; auto nur nach Fristende), Blacklist (Person+Domäne, auch bei auto-approve), „erste X"-Zuteilung deterministisch (id-Tiebreak bei gleichem created_at), auto/manual-Kombinationen, Idempotenz, Cross-Mandant-Isolation, Quota nie überschritten
-
 **P3d — Sub-Akkreditierungen (Delegieren, STRICT Unit-Tests):**
 - [ ] Modell: `sub_accreditations` (Typ Park/Sitz, eigenes Quota, eigene auto/manual-Allokation) + Anträge nur bei vorhandener Haupt-Akkreditierung
 - [ ] Allokation: Haupt-Akkreditierung zuerst, dann Sub-Selektion; Überzeichnung (z. B. 75 Anfragen / 50 Plätze) → 25 Ablehnungen; VIP-Prio auf Sub-Ebene anwendbar
@@ -93,7 +87,10 @@
 - [ ] **P2b-F8 (info)** Event-Partial-Update: nur `deadline_start` ODER nur `deadline_end` wird nicht gegen gespeicherten Gegenwert validiert (Rand-Datenkonsistenz, kein Exploit) → P7 oder akzeptiert.
 - [ ] **P3a-F1 (info)** Countdown-Plural-Workaround in `DeadlineCountdown.tsx` (String-Interpolation statt Lingui-ICU-Plural) → akzeptiert.
 - [ ] **P3a-F2 (info)** E2E-Daten-Ansammlung: `ensurePrimaryMandantActivePortalEvent` erzeugt Events ohne Cleanup → lokale Kosmetik, akzeptiert.
-- [ ] **P3b-F1 (low)** Rate-Limit für `POST /api/accreditations/{id}/apply` fehlt → Fix in P3c (benannter Limiter `apply`, z. B. 30/min) + Test.
+- [ ] **P3c-F1 (info)** `skipped_blacklist` modusabhängige Semantik: Selection („erste X") → bleibt `requested`; approveAll → `denied` → in P3e-UI-Zähler klären.
+- [ ] **P3c-F2 (info)** Blacklist-Verwaltung: nur Tabelle/Modell, **keine CRUD-Routen** → P3e (mandant-scoped CRUD + Tests; Unique-Constraint fehlt).
+- [ ] **P3c-F3 (info)** VIP-Setzung: `priority` wird beim Apply hart auf false gesetzt → P3e braucht Admin-Weg (Person/Domäne laut D8).
+- [ ] **P3c-F4 (info)** Test-Coverage-Nuancen (Blacklist+VIP-Kombi, case-insensitiv, approveAll mit bestehenden approved, `mode` fehlt/non-int limit, Exakt-Fit Quota) → optional nachziehen (P3e-Paket oder später).
 - [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
 - [ ] **P3b-F3 (info)** Medien-Snapshot beim Antrag (Foto/Presse-ID/Anhänge): Entscheidung in P3e — Freigabe-Sicht bezieht Medien des Antragstellers.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.

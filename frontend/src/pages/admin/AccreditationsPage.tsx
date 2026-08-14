@@ -5,15 +5,21 @@ import useSWR from 'swr';
 import {
     ApiError,
     createAccreditation,
+    createSubAccreditation,
     deleteAccreditation,
+    deleteSubAccreditation,
     listAdminAccreditations,
+    listAdminSubAccreditations,
     updateAccreditation,
+    updateSubAccreditation,
 } from '../../api/client';
-import type { Accreditation } from '../../api/types';
-import { accreditationScopeLabel } from '../../logic/accreditationLabels';
+import type { Accreditation, SubAccreditation } from '../../api/types';
+import { accreditationScopeLabel, subTypeLabel } from '../../logic/accreditationLabels';
 import { useAdminTeams } from '../../logic/useAdminTeams';
 import { AccreditationForm } from './AccreditationForm';
 import { buildAccreditationPayload, type AccreditationFormValues } from './accreditationFormUtils';
+import { SubAccreditationForm } from './SubAccreditationForm';
+import { buildSubAccreditationPayload, type SubAccreditationFormValues } from './accreditationSubFormUtils';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
@@ -30,6 +36,22 @@ export function AccreditationsPage() {
     const [formAccreditation, setFormAccreditation] = useState<Accreditation | null>(null);
     const [formError, setFormError] = useState<string | null>(null);
     const [listError, setListError] = useState<string | null>(null);
+
+    const [subAccreditation, setSubAccreditation] = useState<Accreditation | null>(null);
+    const [showSubForm, setShowSubForm] = useState(false);
+    const [subFormItem, setSubFormItem] = useState<SubAccreditation | null>(null);
+    const [subFormError, setSubFormError] = useState<string | null>(null);
+    const [subListError, setSubListError] = useState<string | null>(null);
+
+    const {
+        data: subs,
+        error: subsError,
+        isLoading: subsLoading,
+        mutate: mutateSubs,
+    } = useSWR<SubAccreditation[]>(
+        subAccreditation ? ['/api/admin/accreditations', subAccreditation.id, 'sub-accreditations'] : null,
+        () => (subAccreditation ? listAdminSubAccreditations(subAccreditation.id) : Promise.resolve([])),
+    );
 
     const isTeamScoped = currentTeamIds.length > 0;
     const isReadOnly = (accreditation: Accreditation) =>
@@ -86,11 +108,75 @@ export function AccreditationsPage() {
         }
     };
 
+    const openSubs = (accreditation: Accreditation) => {
+        setSubAccreditation(accreditation);
+        setShowSubForm(false);
+        setSubFormItem(null);
+        setSubFormError(null);
+        setSubListError(null);
+    };
+
+    const closeSubs = () => {
+        setSubAccreditation(null);
+        setShowSubForm(false);
+        setSubFormItem(null);
+        setSubFormError(null);
+    };
+
+    const openSubForm = (item: SubAccreditation | null) => {
+        setSubFormItem(item);
+        setSubFormError(null);
+        setShowSubForm(true);
+    };
+
+    const closeSubForm = () => {
+        setShowSubForm(false);
+        setSubFormItem(null);
+        setSubFormError(null);
+    };
+
+    const handleSubSave = async (values: SubAccreditationFormValues) => {
+        setSubFormError(null);
+        try {
+            if (subFormItem) {
+                await updateSubAccreditation(subFormItem.id, buildSubAccreditationPayload(values));
+            } else if (subAccreditation) {
+                await createSubAccreditation(subAccreditation.id, buildSubAccreditationPayload(values));
+            }
+            await mutateSubs();
+            closeSubForm();
+        } catch (err) {
+            setSubFormError(
+                err instanceof ApiError ? err.message : i18n._(t`Sub-Akkreditierung konnte nicht gespeichert werden.`),
+            );
+        }
+    };
+
+    const handleSubDelete = async (sub: SubAccreditation) => {
+        if (!window.confirm(i18n._(t`Sub-Akkreditierung wirklich löschen?`))) return;
+        setSubListError(null);
+        try {
+            await deleteSubAccreditation(sub.id);
+            await mutateSubs();
+        } catch (err) {
+            setSubListError(
+                err instanceof ApiError ? err.message : i18n._(t`Sub-Akkreditierung konnte nicht gelöscht werden.`),
+            );
+        }
+    };
+
     const formatDeadline = (accreditation: Accreditation) => {
         if (accreditation.deadline_start && accreditation.deadline_end) {
             return `${accreditation.deadline_start} – ${accreditation.deadline_end}`;
         }
         return accreditation.deadline_start ?? accreditation.deadline_end ?? '';
+    };
+
+    const formatSubDeadline = (sub: SubAccreditation) => {
+        if (sub.deadline_start && sub.deadline_end) {
+            return `${sub.deadline_start} – ${sub.deadline_end}`;
+        }
+        return sub.deadline_start ?? sub.deadline_end ?? '';
     };
 
     return (
@@ -187,6 +273,13 @@ export function AccreditationsPage() {
                                                 <button
                                                     type="button"
                                                     className="btn btn-sm btn-outline"
+                                                    onClick={() => openSubs(accreditation)}
+                                                >
+                                                    {i18n._(t`Sub-Akkreditierungen`)}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline"
                                                     onClick={() => openEdit(accreditation)}
                                                 >
                                                     {i18n._(t`Bearbeiten`)}
@@ -230,6 +323,126 @@ export function AccreditationsPage() {
                     </div>
                     <form method="dialog" className="modal-backdrop">
                         <button type="button" onClick={closeForm}>
+                            {i18n._(t`Schließen`)}
+                        </button>
+                    </form>
+                </dialog>
+            ) : null}
+
+            {subAccreditation ? (
+                <dialog className="modal modal-open">
+                    <div className="modal-box">
+                        <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-lg font-bold">{i18n._(t`Sub-Akkreditierungen`)}</h3>
+                            <button type="button" className="btn btn-sm btn-primary" onClick={() => openSubForm(null)}>
+                                <span className="iconify mdi--plus text-xl"></span>
+                                {i18n._(t`Neu`)}
+                            </button>
+                        </div>
+
+                        {subsLoading ? <span className="loading loading-spinner loading-lg"></span> : null}
+
+                        {subsError ? (
+                            <div role="alert" className="alert alert-error mt-2">
+                                <span>{i18n._(t`Sub-Akkreditierungen konnten nicht geladen werden.`)}</span>
+                            </div>
+                        ) : null}
+
+                        {subListError ? (
+                            <div role="alert" className="alert alert-error mt-2">
+                                <span>{subListError}</span>
+                            </div>
+                        ) : null}
+
+                        {subs && subs.length === 0 && !subsLoading && !subsError ? (
+                            <p className="mt-4 text-base-content/70">
+                                {i18n._(t`Noch keine Sub-Akkreditierungen vorhanden.`)}
+                            </p>
+                        ) : null}
+
+                        {subs && subs.length > 0 && !subsLoading && !subsError ? (
+                            <div className="mt-4 flex flex-col gap-2">
+                                {subs.map((sub) => (
+                                    <article
+                                        key={sub.id}
+                                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 p-3"
+                                    >
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="badge badge-outline badge-sm">{subTypeLabel(sub.type, i18n)}</span>
+                                            <span
+                                                className={`badge badge-sm ${
+                                                    sub.available > 0 ? 'badge-success' : 'badge-warning'
+                                                }`}
+                                            >
+                                                {i18n._(t`Quota`)} {sub.quota} · {i18n._(t`Verfügbar`)} {sub.available}
+                                            </span>
+                                            <span className="badge badge-warning badge-sm">{formatSubDeadline(sub)}</span>
+                                            {sub.auto_approve ? (
+                                                <span className="badge badge-info badge-sm">
+                                                    {i18n._(t`Automatische Freigabe`)}
+                                                </span>
+                                            ) : null}
+                                            {sub.active ? (
+                                                <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>
+                                            ) : (
+                                                <span className="badge badge-ghost badge-sm">{i18n._(t`Inaktiv`)}</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-outline"
+                                                onClick={() => openSubForm(sub)}
+                                            >
+                                                {i18n._(t`Bearbeiten`)}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-error btn-outline"
+                                                onClick={() => void handleSubDelete(sub)}
+                                            >
+                                                {i18n._(t`Löschen`)}
+                                            </button>
+                                        </div>
+                                    </article>
+                                ))}
+                            </div>
+                        ) : null}
+
+                        <div className="mt-4 flex justify-end">
+                            <button type="button" className="btn" onClick={closeSubs}>
+                                {i18n._(t`Schließen`)}
+                            </button>
+                        </div>
+                    </div>
+                    <form method="dialog" className="modal-backdrop">
+                        <button type="button" onClick={closeSubs}>
+                            {i18n._(t`Schließen`)}
+                        </button>
+                    </form>
+                </dialog>
+            ) : null}
+
+            {showSubForm && subAccreditation ? (
+                <dialog className="modal modal-open">
+                    <div className="modal-box">
+                        <h3 className="text-lg font-bold">
+                            {subFormItem ? i18n._(t`Sub-Akkreditierung bearbeiten`) : i18n._(t`Neue Sub-Akkreditierung`)}
+                        </h3>
+                        <div className="mt-4">
+                            <SubAccreditationForm
+                                initial={subFormItem}
+                                submitLabel={
+                                    subFormItem ? i18n._(t`Speichern`) : i18n._(t`Sub-Akkreditierung erstellen`)
+                                }
+                                submitError={subFormError}
+                                onSubmit={handleSubSave}
+                                onCancel={closeSubForm}
+                            />
+                        </div>
+                    </div>
+                    <form method="dialog" className="modal-backdrop">
+                        <button type="button" onClick={closeSubForm}>
                             {i18n._(t`Schließen`)}
                         </button>
                     </form>

@@ -181,3 +181,43 @@ export interface Application {
     reason: string | null;
     created_at: string;
 }
+
+export type SubType = 'park' | 'seat';
+
+export type SubApplicationStatus = 'requested' | 'approved' | 'denied';
+
+export interface SubAccreditation {
+    id: number;
+    accreditation_id: number;
+    type: SubType;
+    quota: number;
+    applications_count: number;
+    available: number;
+    deadline_start: string | null;
+    deadline_end: string | null;
+    auto_approve: boolean;
+    active: boolean;
+}
+
+export interface SubApplicationSubAccreditation {
+    id: number;
+    type: SubType;
+    quota: number;
+    deadline_end: string | null;
+}
+
+export interface SubApplicationAccreditation {
+    id: number;
+    category: { id: number; name: string } | null;
+    event: { id: number; title: string; date: string | null } | null;
+}
+
+export interface SubApplication {
+    id: number;
+    sub_accreditation: SubApplicationSubAccreditation | null;
+    accreditation: SubApplicationAccreditation | null;
+    status: SubApplicationStatus;
+    priority: boolean;
+    reason: string | null;
+    created_at: string;
+}

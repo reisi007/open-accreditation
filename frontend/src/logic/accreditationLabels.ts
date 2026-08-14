@@ -1,6 +1,6 @@
 import type { I18n } from '@lingui/core';
 import { t } from '@lingui/core/macro';
-import type { AccreditationScope, ApplicationStatus } from '../api/types';
+import type { AccreditationScope, ApplicationStatus, SubType } from '../api/types';
 
 export function accreditationScopeLabel(scope: AccreditationScope, i18n: I18n): string {
     switch (scope) {
@@ -29,6 +29,23 @@ export function applicationStatusLabel(status: ApplicationStatus, i18n: I18n): s
 export function availabilityLabel(available: number, i18n: I18n): string {
     if (available > 0) {
         return i18n._(t`${available} Plätze frei`);
+    }
+
+    return i18n._(t`Warteliste`);
+}
+
+export function subTypeLabel(type: SubType, i18n: I18n): string {
+    switch (type) {
+        case 'park':
+            return i18n._(t`Parkkarte`);
+        case 'seat':
+            return i18n._(t`Sitzkarte`);
+    }
+}
+
+export function subAvailabilityLabel(available: number, i18n: I18n): string {
+    if (available > 0) {
+        return i18n._(t`Noch ${available} frei`);
     }
 
     return i18n._(t`Warteliste`);

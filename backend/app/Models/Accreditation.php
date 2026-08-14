@@ -55,6 +55,15 @@ class Accreditation extends Model
     }
 
     /**
+     * The sub-accreditations (Park-/Sitzkarten, P3d/D9) attached to this
+     * accreditation.
+     */
+    public function subAccreditations(): HasMany
+    {
+        return $this->hasMany(SubAccreditation::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

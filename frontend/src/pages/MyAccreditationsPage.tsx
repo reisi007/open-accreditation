@@ -1,10 +1,23 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
-import useSWR from 'swr';
-import { ApiError, listApplications, withdrawApplication } from '../api/client';
-import type { Application, ApplicationStatus } from '../api/types';
-import { accreditationScopeLabel, applicationStatusLabel } from '../logic/accreditationLabels';
+import useSWR, { useSWRConfig } from 'swr';
+import {
+    ApiError,
+    applySubAccreditation,
+    listApplications,
+    listSubAccreditations,
+    listSubApplications,
+    withdrawApplication,
+    withdrawSubApplication,
+} from '../api/client';
+import type { Application, ApplicationStatus, SubAccreditation, SubApplication } from '../api/types';
+import {
+    accreditationScopeLabel,
+    applicationStatusLabel,
+    subAvailabilityLabel,
+    subTypeLabel,
+} from '../logic/accreditationLabels';
 import { formatDate } from '../logic/formatDate';
 
 const STATUS_BADGE_CLASS: Record<ApplicationStatus, string> = {
@@ -14,9 +27,142 @@ const STATUS_BADGE_CLASS: Record<ApplicationStatus, string> = {
     blacklisted: 'badge-warning',
 };
 
+interface SubAccreditationSectionProps {
+    accreditationId: number;
+    subApplications: SubApplication[] | undefined;
+}
+
+function SubAccreditationSection({ accreditationId, subApplications }: SubAccreditationSectionProps) {
+    const { i18n } = useLingui();
+    const { mutate: globalMutate } = useSWRConfig();
+    const { data, error, isLoading, mutate } = useSWR<SubAccreditation[]>(
+        ['/api/accreditations', accreditationId, 'sub-accreditations'],
+        () => listSubAccreditations(accreditationId),
+    );
+    const [actionError, setActionError] = useState<string | null>(null);
+
+    const mySubApplications = (subApplications ?? []).filter(
+        (subApplication) => subApplication.accreditation?.id === accreditationId,
+    );
+
+    const refreshAll = async () => {
+        await mutate();
+        await globalMutate('/api/sub-applications');
+    };
+
+    const handleApply = async (sub: SubAccreditation) => {
+        setActionError(null);
+        try {
+            await applySubAccreditation(sub.id);
+            await refreshAll();
+        } catch (err) {
+            setActionError(
+                err instanceof ApiError ? err.message : i18n._(t`Sub-Antrag konnte nicht gesendet werden.`),
+            );
+        }
+    };
+
+    const handleWithdraw = async (subApplication: SubApplication) => {
+        setActionError(null);
+        try {
+            await withdrawSubApplication(subApplication.id);
+            await refreshAll();
+        } catch (err) {
+            setActionError(
+                err instanceof ApiError ? err.message : i18n._(t`Sub-Antrag konnte nicht zurückgezogen werden.`),
+            );
+        }
+    };
+
+    if (isLoading) {
+        return <span className="loading loading-spinner loading-sm"></span>;
+    }
+
+    if (error) {
+        return (
+            <div role="alert" className="alert alert-error">
+                <span>{i18n._(t`Sub-Akkreditierungen konnten nicht geladen werden.`)}</span>
+            </div>
+        );
+    }
+
+    if (!data || data.length === 0) {
+        return null;
+    }
+
+    return (
+        <section className="mt-4 rounded-lg border border-base-300 bg-base-200/50 p-3">
+            <h3 className="text-base font-semibold">{i18n._(t`Sub-Akkreditierungen (Park/Sitz)`)}</h3>
+
+            {actionError ? (
+                <div role="alert" className="alert alert-error mt-2">
+                    <span>{actionError}</span>
+                </div>
+            ) : null}
+
+            <div className="mt-2 flex flex-col gap-2">
+                {data.map((sub) => {
+                    const mine = mySubApplications.find(
+                        (subApplication) => subApplication.sub_accreditation?.id === sub.id,
+                    );
+                    const deadlineText =
+                        sub.deadline_end !== null
+                            ? `${i18n._(t`Frist`)}: ${formatDate(sub.deadline_end, i18n.locale)}`
+                            : '';
+                    return (
+                        <article key={sub.id} className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="badge badge-outline badge-sm">{subTypeLabel(sub.type, i18n)}</span>
+                                <span
+                                    className={`badge badge-sm ${
+                                        sub.available > 0 ? 'badge-success' : 'badge-warning'
+                                    }`}
+                                >
+                                    {subAvailabilityLabel(sub.available, i18n)}
+                                </span>
+                                {deadlineText !== '' ? (
+                                    <span className="badge badge-warning badge-sm">{deadlineText}</span>
+                                ) : null}
+                                {mine ? (
+                                    <span className={`badge badge-sm ${STATUS_BADGE_CLASS[mine.status]}`}>
+                                        {applicationStatusLabel(mine.status, i18n)}
+                                    </span>
+                                ) : null}
+                            </div>
+                            {mine ? (
+                                mine.status === 'requested' ? (
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline btn-sm"
+                                        onClick={() => void handleWithdraw(mine)}
+                                    >
+                                        {i18n._(t`Zurückziehen`)}
+                                    </button>
+                                ) : null
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={() => void handleApply(sub)}
+                                >
+                                    {i18n._(t`Beantragen`)}
+                                </button>
+                            )}
+                        </article>
+                    );
+                })}
+            </div>
+        </section>
+    );
+}
+
 export function MyAccreditationsPage() {
     const { i18n } = useLingui();
     const { data, error, isLoading, mutate } = useSWR<Application[]>('/api/applications', () => listApplications());
+    const { data: subApplications, error: subApplicationsError } = useSWR<SubApplication[]>(
+        '/api/sub-applications',
+        () => listSubApplications(),
+    );
     const [listError, setListError] = useState<string | null>(null);
 
     const handleWithdraw = async (application: Application) => {
@@ -40,6 +186,12 @@ export function MyAccreditationsPage() {
             {error ? (
                 <div role="alert" className="alert alert-error">
                     <span>{i18n._(t`Anträge konnten nicht geladen werden.`)}</span>
+                </div>
+            ) : null}
+
+            {subApplicationsError ? (
+                <div role="alert" className="alert alert-error">
+                    <span>{i18n._(t`Sub-Anträge konnten nicht geladen werden.`)}</span>
                 </div>
             ) : null}
 
@@ -94,6 +246,12 @@ export function MyAccreditationsPage() {
                                         ) : null}
                                     </div>
                                 </div>
+                                {application.status === 'approved' && accreditation ? (
+                                    <SubAccreditationSection
+                                        accreditationId={accreditation.id}
+                                        subApplications={subApplications}
+                                    />
+                                ) : null}
                             </article>
                         );
                     })}

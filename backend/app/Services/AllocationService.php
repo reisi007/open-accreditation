@@ -4,11 +4,8 @@ namespace App\Services;
 
 use App\Models\Accreditation;
 use App\Models\Application;
-use App\Models\Blacklist;
-use App\Models\User;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 /**
  * P3c allocation engine — the authoritative "who gets a quota slot" decision.
@@ -24,7 +21,9 @@ use Illuminate\Support\Str;
  * at apply time (P3b), not here; the automatic trigger
  * (`runAutoAllocations`) fires only after `deadline_end` (end of day
  * 23:59:59) has passed. All queries stay portable between Postgres (dev) and
- * SQLite :memory: (tests).
+ * SQLite :memory: (tests). The shared rules (ordering, blacklist, deadline
+ * math, partitioning) live in `AllocationRules` and are reused verbatim by
+ * the P3d sub-allocation engine.
  */
 final class AllocationService
 {
@@ -42,7 +41,7 @@ final class AllocationService
         }
 
         $applications = $this->eligibleRequested($accreditation);
-        $blacklist = $this->blacklistFor($accreditation);
+        $blacklist = AllocationRules::blacklistFor((int) $accreditation->mandant_id);
 
         $remaining = min($limit, $accreditation->quota - $this->approvedCount($accreditation));
 
@@ -50,28 +49,11 @@ final class AllocationService
             return AllocationResult::none();
         }
 
-        $approve = [];
-        $skippedBlacklist = 0;
+        $plan = AllocationRules::distributeSelection($applications, $remaining, $blacklist);
 
-        foreach ($applications as $application) {
-            if (count($approve) >= $remaining) {
-                break;
-            }
+        AllocationRules::markApproved(Application::class, $plan['approve']);
 
-            if ($this->isBlacklisted($application->user, $blacklist)) {
-                $skippedBlacklist++;
-
-                continue;
-            }
-
-            $approve[] = $application->id;
-        }
-
-        if ($approve !== []) {
-            $this->markApproved($approve);
-        }
-
-        return new AllocationResult(count($approve), 0, $skippedBlacklist);
+        return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
     }
 
     /**
@@ -84,45 +66,23 @@ final class AllocationService
     public function approveAllEligible(Accreditation $accreditation): AllocationResult
     {
         $applications = $this->eligibleRequested($accreditation);
-        $blacklist = $this->blacklistFor($accreditation);
+        $blacklist = AllocationRules::blacklistFor((int) $accreditation->mandant_id);
 
-        $approvedCount = $this->approvedCount($accreditation);
+        $plan = AllocationRules::distributeAll(
+            $applications,
+            $accreditation->quota,
+            $this->approvedCount($accreditation),
+            $blacklist,
+        );
 
-        $approve = [];
-        $denyQuota = [];
-        $denyBlacklist = [];
-
-        foreach ($applications as $application) {
-            if ($this->isBlacklisted($application->user, $blacklist)) {
-                $denyBlacklist[] = $application->id;
-
-                continue;
-            }
-
-            if ($approvedCount < $accreditation->quota) {
-                $approve[] = $application->id;
-                $approvedCount++;
-            } else {
-                $denyQuota[] = $application->id;
-            }
-        }
-
-        if ($approve !== []) {
-            $this->markApproved($approve);
-        }
-
-        if ($denyQuota !== []) {
-            $this->markDenied($denyQuota, 'Quota erschöpft');
-        }
-
-        if ($denyBlacklist !== []) {
-            $this->markDenied($denyBlacklist, 'Blacklist');
-        }
+        AllocationRules::markApproved(Application::class, $plan['approve']);
+        AllocationRules::markDenied(Application::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
+        AllocationRules::markDenied(Application::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
 
         return new AllocationResult(
-            count($approve),
-            count($denyQuota) + count($denyBlacklist),
-            count($denyBlacklist),
+            count($plan['approve']),
+            count($plan['deny_quota']) + count($plan['deny_blacklist']),
+            count($plan['deny_blacklist']),
         );
     }
 
@@ -141,7 +101,7 @@ final class AllocationService
         $results = [];
 
         foreach ($this->autoEligibleAccreditations() as $accreditation) {
-            if (! $this->hasDeadlinePassed($accreditation, $now)) {
+            if (! AllocationRules::hasDeadlinePassed($accreditation->deadline_end, $now)) {
                 continue;
             }
 
@@ -175,14 +135,12 @@ final class AllocationService
      */
     private function eligibleRequested(Accreditation $accreditation): Collection
     {
-        return Application::query()
-            ->where('accreditation_id', $accreditation->id)
-            ->where('status', 'requested')
-            ->with('user:id,email')
-            ->orderByDesc('priority')
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get();
+        return AllocationRules::orderEligible(
+            Application::query()
+                ->where('accreditation_id', $accreditation->id)
+                ->where('status', 'requested')
+                ->with('user:id,email'),
+        )->get();
     }
 
     private function approvedCount(Accreditation $accreditation): int
@@ -191,89 +149,5 @@ final class AllocationService
             ->where('accreditation_id', $accreditation->id)
             ->where('status', 'approved')
             ->count();
-    }
-
-    /**
-     * The mandant-scoped blacklist rows that apply to this accreditation.
-     */
-    private function blacklistFor(Accreditation $accreditation): Collection
-    {
-        return Blacklist::query()
-            ->where('mandant_id', $accreditation->mandant_id)
-            ->get();
-    }
-
-    /**
-     * A user is blacklisted when the mandant's blacklist contains his exact
-     * email or the domain of his email address (e. g. `example.com` for
-     * `user@example.com`). Matching is case-insensitive.
-     */
-    private function isBlacklisted(?User $user, Collection $blacklist): bool
-    {
-        if ($user === null || $user->email === null || trim($user->email) === '') {
-            return false;
-        }
-
-        $email = Str::lower(trim($user->email));
-        $domain = Str::lower(Str::after($email, '@'));
-
-        foreach ($blacklist as $entry) {
-            if ($entry->email !== null && Str::lower(trim($entry->email)) === $email) {
-                return true;
-            }
-
-            if ($domain !== '' && $entry->domain !== null && Str::lower(trim($entry->domain)) === $domain) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether `now` has reached the end of the accreditation's deadline day.
-     * The deadline is the last full second of the day (23:59:59);
-     * `endOfDay()` carries microseconds, so both sides are normalized to
-     * whole seconds — at exactly 23:59:59 of the deadline day the run fires.
-     */
-    private function hasDeadlinePassed(Accreditation $accreditation, DateTimeInterface $now): bool
-    {
-        if ($accreditation->deadline_end === null) {
-            return false;
-        }
-
-        $deadlineEnd = $accreditation->deadline_end->copy()->endOfDay()->setMicrosecond(0);
-
-        return $now >= $deadlineEnd;
-    }
-
-    /**
-     * @param  list<int>  $ids
-     */
-    private function markApproved(array $ids): void
-    {
-        Application::query()
-            ->whereIn('id', $ids)
-            ->where('status', 'requested')
-            ->update([
-                'status' => 'approved',
-                'reason' => null,
-                'updated_at' => now(),
-            ]);
-    }
-
-    /**
-     * @param  list<int>  $ids
-     */
-    private function markDenied(array $ids, string $reason): void
-    {
-        Application::query()
-            ->whereIn('id', $ids)
-            ->where('status', 'requested')
-            ->update([
-                'status' => 'denied',
-                'reason' => $reason,
-                'updated_at' => now(),
-            ]);
     }
 }
