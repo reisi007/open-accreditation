@@ -4,6 +4,14 @@
 > Umsetzung nach `features/`. Referenz: Sportdata „Accreditation Services" + Screenshots des
 > Altsystems (Bundesliga/ÖFB) in `reference/`.
 >
+> **Scope-Entscheidung (Benutzer, 2026-08-14):** ALLE offenen Verbesserungen werden JETZT umgesetzt:
+> (1) UI-Review-Befunde (alle Severities) + Formular-Abstände-Audit → implementieren,
+> (2) P8b Mandant-Bilder Self-Service + P8-Rest → implementieren (ausgenommen Release/Deploy und
+> Caddy-Änderungen; Caddy-SOLL-Doku wird basierend auf realem `~/dev/caddyfile/Caddyfile` erstellt),
+> (3) P7-Hardening-Follow-ups (F2–F5, B2/B3, P2a-RL, P4-F1, P5-F2, P1a-B1/B2/B4, P0-Fix-F3, P3d-F2,
+> P2c-F3, P4-F4) → mitnehmen. Abschluss = erneute visuelle Überprüfung (Screenshot-Suite + Vision),
+> KEIN finaler User-Test. Git-Commits zwischendurch.
+>
 > Test-Regel (DoD): Backend → PHPUnit (SQLite `:memory:`), Allocation-Logik → eigene PHPUnit-Tests,
 > Frontend-Logik → Vitest, UI/Formulare → Playwright-E2E (getaggt).
 
@@ -84,6 +92,8 @@
 ### 🖼️ UI-Review-Befunde (Vision-Analyse 2026-08-14, Screenshot-Erstlauf)
 > **Ziel:** Screenshots mit Vision-Agent analysieren → Issues in `AGENTS.todo.md` vermerken. **Umsetzung ist KEIN Ziel** (nur Doku; Fixes später als eigene Tasks).
 > **Basis:** 7 Screenshots aus `test-results/ui-screenshots/` (Erstlauf unvollständig/flaky — siehe Flakiness-Untersuchung). Kein Commit.
+>
+> **Status (Scope-Entscheidung 2026-08-14):** Befunde werden JETZT als Fixes implementiert (alle Severities). Umsetzung über Implementer-Subagenten, danach erneute Screenshot-Suite + Vision-Verifikation.
 
 - [ ] **high** `admin-freigaben` (filled): extrem lange Tabelle ohne Pagination/Virtualisierung, Sticky-Header, Ergebnisanzahl → Übersicht/Navigation fehlt.
 - [ ] **high** `admin-freigaben` (filled): sehr dichte Zeilen + winzige Status-/Action-Controls im Full-Page-Screenshot schwer lesbar.
@@ -117,6 +127,8 @@
 
 ### 📐 Formular-Abstände: Audit (Code + Vision, 2026-08-14)
 > **Verdikt:** Field-Stack konsistent (`flex flex-col gap-4` in 13/13 Formularen, `form-control` + daisyUI-label), **aber Abstand zum Submit-Button inkonsistent**. Kein Fix (Doku).
+>
+> **Status (Scope-Entscheidung 2026-08-14):** Befunde werden JETZT als Fixes implementiert.
 
 - [ ] **high** Submit-Abstand abweichend: `LoginPage.tsx:99` `mt-2` auf Button (24px statt 16px); `VerifyPage.tsx:92` ohne Wrapper/`mt`; `MandantDetailPage.tsx:315` Domain-Form `gap-2` (8px); `BlacklistForm.tsx:85-86` plain `<div>` + `btn btn-sm`
 - [ ] **medium** Submit-Wrapper fehlt in 4 Formen (LoginPage, VerifyPage, BlacklistForm, Domain-Form) — Standard ist `flex flex-wrap items-center gap-2` + `btn btn-primary` (9/13)
@@ -170,6 +182,22 @@
 - Jeder TODO-Block → ein Implementer-Subagent (isoliert, präzise Anweisungen + Ziel-Dateien).
 - Jede Umsetzung → ein **separater** Verifikator-Subagent (Tests/Lint/Build, Diff-Review **+ Architektur- und Security-Review** nach `AGENTS.md` §5; `critical`/`high` blockieren APPROVED).
 - Visuelle Checks (Template-Editor, Ausweis-Layout, Screenshot-Abgleiche) → `vision`-Subagent.
+
+## 🚀 Delegationsplan (Scope-Entscheidung 2026-08-14)
+
+| Batch | Inhalt | Implementer | Verifikator |
+|---|---|---|---|
+| A | **UI-Befunde admin-freigaben** (Pagination/Sticky/Result-Count, Action-Group-Muster, Status-Semantik, Zeilendichte, Filter-Empty-State, Filter-Grid) | ⏳ läuft (ses_ffe20c34bffeR1S5u01Q56uVIj) | — |
+| B | **UI-Befunde admin-users** (Pagination/Sticky/Result-Count, Action-Spalte, E-Mail-Truncate, Tabellenbreite, Empty-State-Differenzierung, Toolbar) | ⏳ läuft (ses_ffe20c34affeInW1ED1cxrr6j5) | — |
+| C | **UI-Befunde badge-templates + meine-akkreditierungen + Empty-State-Panels** (`—`-Platzhalter, Truncate, responsives Card-Layout, ID als Sekundär-Metadaten, zentrierte Empty-States) | ✅ fertig (ses_ffe20c349ffeppDRj0oDqU9q2H) | — |
+| D | **Formular-Abstände** (Submit-Wrapper in Login/Verify/Blacklist/Domain-Form, `grid gap-4`, Error-Hint `mt-1`, TeamForm-Card, BlacklistForm-Klassen) | ✅ fertig (ses_ffe20c34cffeJScqTyU6tBfssw) | — |
+| E | **P8b Backend** (Permission `mandant.media.manage`, self-scoped Routen/Controller, Gate, PHPUnit + RolePermissionTest-Matrix) | ⏳ läuft (ses_ffe1d666cffeoyILV8jfWDMg1P) | — |
+| F | **P8b Frontend** (Route/Seite mandant_admin + MediaField, Admin-Menüpunkt, MandantListPage-Thumbnail + Open-Portal-Link, Playwright-E2E `@feature:admin:mandant`) | ⏳ läuft (ses_ffe20c34cffeJScqTyU6tBfssw) | — |
+| G1 | **P7-Hardening Backend (Config/Auth)** — F2 JWT-cookie-only, F3 Disk-serve, F4 activation_token-Hash, F5 Upload-Kontingent, B2 Auth-Throttle, B3 trustHosts, P2a-RL, P5-F2 Resend-RL, P1a-B1/B2/B4, P0-Fix-F3 | ⏸ wartet auf E (routes/api.php-Konflikt) | — |
+| G2 | **P7-Hardening Backend (Daten/Export)** — P4-F1 CSV-Formel-Injection, P3d-F2 Blacklist case-insensitiv, P2c-F3 role_user.team_id-FK, P2b-F8 Event-Partial-Update | ⏳ läuft (ses_ffe1d666bffepfyqopg7UxQhx8) | — |
+| H | **Verifikation + Screenshot-Suite + Vision** (je Batch separater Verifikator; danach `pnpm test:screenshots` + Vision-Analyse; Commits je Batch) | — | — |
+
+Reihenfolge: E+F (P8b) und G2 (P7-Daten) laufen parallel zum Frontend (A–D); G1 (P7-Config) startet nach E (routes/api.php). Danach H (Screenshots + Vision). Commits je Batch.
 
 ## 📌 Offene Punkte / Risiken
 

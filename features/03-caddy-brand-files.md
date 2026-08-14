@@ -29,20 +29,99 @@
   `/logo.svg` zurück (immer sichtbar). Header-Bild verhält sich unverändert
   (nur wenn hochgeladen).
 
-## Caddy (Produktion, geplant)
+## Caddy (Produktion, geplant — Plan auf Basis `~/dev/caddyfile/Caddyfile`)
 
-- **Caddy serviert pro Mandant Datei-Basis-Overrides auf Host-Ebene** — nicht
-  im React-Build, sondern als Datei-Fallback auf dem Server:
-  - Host-basierte Overrides für z. B. `/favicon-32x32.png`,
-    `/android-chrome-192x192.png`, `/logo.svg`, `/site.webmanifest`,
-    `/apple-touch-icon.png`.
-  - Fehlt eine mandantenspezifische Datei → **Fallback auf die Dateien aus dem
-    React-Projekt** (`dist/` / `frontend/public/`).
-  - Root-relative Pfade in `index.html`/`site.webmanifest` (ohne `brands/`-
-    Präfix) sind die Voraussetzung dafür, dass Caddy die Dateien auf Datei-Basis
-    überschreiben kann.
+Referenz-Infrastruktur: die zentrale `Caddyfile` (`~/dev/caddyfile/`, siehe deren
+`README.md`) verwaltet alle Subdomains über Snippets. Für `open-accreditation`
+kommen die bestehenden Snippets zur Anwendung; das Caddyfile des Repos bleibt
+bis zur Go-Live-Freigabe unverändert (dieser Abschnitt ist SOLL-Doku).
+
+### Snippets (aus der Referenz-Caddyfile)
+
+| Snippet | Zweck | Einsatz hier |
+|---|---|---|
+| `(security_headers)` | HSTS, X-Content-Type-Options, Referrer-/Permissions-Policy | alle Mandant-Sites + API |
+| `(compress)` | `encode zstd gzip` | alle Mandant-Sites + API |
+| `(spa)` | SPA: gehashte Assets immutable (1 Jahr), Rest no-cache + `try_files {path} /index.html` | Frontend-Auslieferung pro Mandant |
+| `(proxy_site)` | einfacher Reverse-Proxy | `/api*` → Backend (Fallback-Variante) |
+
+### Multi-Domain-Muster (SOLL)
+
+Pro Mandant eine Site-Block mit `import spa` + `/api*`-Proxy zum Backend:
+
+```caddyfile
+# Mandant A (Verband): eigene Domain
+verband-a.example {
+	import security_headers
+	import compress
+
+	handle /api* {
+		reverse_proxy accreditation_backend:9000 {
+			transport fastcgi {
+				env SCRIPT_FILENAME /var/www/html/public/index.php
+				resolve_root_symlink
+			}
+		}
+	}
+
+	# Brand-Files: mandantenspezifische Overrides vor dem SPA-Fallback
+	import brand_overrides /srv/websites/accreditation.mandant-a
+
+	handle {
+		import spa /srv/websites/accreditation.mandant-a
+	}
+}
+```
+
+### Brand-File-Overrides pro Mandant (SOLL)
+
+Muster analog zum Portal-Block (`portal.reisinger.pictures`, Zeilen 234–256 der
+Referenz-Caddyfile), aber **ohne** `brands/<id>/`-Pfad-Umweg: die Dateien liegen
+direkt im Mandanten-Dist-Ordner, Root-Pfade in `index.html`/`site.webmanifest`
+bleiben unverändert. Der Fallback auf die React-Fallback-Dateien
+(`frontend/public/` → `dist/`) erfolgt über die SPA-`try_files`-Kette, falls
+ein Mandant eine Datei nicht überschreibt:
+
+```caddyfile
+(brand_overrides) {
+	@brand_files {
+		path /logo.svg
+		path /logo-mono.svg
+		path /favicon.ico
+		path /favicon-16x16.png
+		path /favicon-32x32.png
+		path /apple-touch-icon.png
+		path /android-chrome-192x192.png
+		path /android-chrome-512x512.png
+	}
+	handle @brand_files {
+		root * {args[0]}
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	@brand_manifest {
+		path /site.webmanifest
+	}
+	handle @brand_manifest {
+		root * {args[0]}
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		file_server
+	}
+}
+```
+
+- Fehlt eine mandantenspezifische Datei → SPA-Fallback liefert die Datei aus dem
+  React-Dist (gleicher Root-Pfad, `try_files {path} /index.html` greift nur für
+  nicht-existente Dateien; hier existiert die Datei im Fallback-Dist).
 - Der Mandanten-`slug` ist über `GET /api/portal/overview` (`MandantPublicResource`)
-  öffentlich verfügbar — als Keying-Basis für die Caddy-Overrides gedacht.
-- **Ist-Stand:** Keine Caddy-Konfiguration im Repo. Lokale Entwicklung nutzt den
-  Vite-Dev-Server (serviert `frontend/public/`). Caddy kommt mit P7
-  (Reverse-Proxy, multi-Domain) — siehe `AGENTS.todo.md`.
+  öffentlich verfügbar — als Keying-Basis für die Verzeichnis-Struktur
+  (`/srv/websites/accreditation.<slug>`).
+- Deployment-Mechanik wie in der Referenz: `sync.sh` (Config hochladen,
+  `caddy reload`), Validierung vorab via `caddy validate` in Docker.
+
+### Ist-Stand
+
+- Keine Caddy-Änderungen im Repo; lokale Entwicklung nutzt den Vite-Dev-Server
+  (serviert `frontend/public/`). Caddy kommt mit P7 (Reverse-Proxy, multi-Domain)
+  — siehe `AGENTS.todo.md` (Go-Live wartet auf Benutzer-Freigabe).
