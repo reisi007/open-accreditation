@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\SubAccreditationController;
 use App\Http\Controllers\Api\SubApplicationController;
 use App\Http\Controllers\Api\UserMediaController;
 use App\Http\Controllers\Api\VerifyController;
+use App\Http\Controllers\Api\WalletController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -83,6 +84,14 @@ Route::middleware('auth:api')->group(function (): void {
     Route::post('/sub-accreditations/{sub}/apply', [SubAccreditationController::class, 'apply'])->middleware('throttle:apply')->name('api.sub-accreditations.apply');
     Route::get('/sub-applications', [SubApplicationController::class, 'index'])->name('api.sub-applications.index');
     Route::delete('/sub-applications/{subApplication}', [SubApplicationController::class, 'destroy'])->name('api.sub-applications.destroy');
+
+    // P6: wallet passes. Apple .pkpass download (and the Google payload) of
+    // an own approved application / sub-application — ownership + mandant
+    // scope + `approved` status are enforced in WalletController (foreign
+    // 404, not approved 422).
+    Route::get('/applications/{application}/wallet', [WalletController::class, 'apple'])->name('api.applications.wallet');
+    Route::get('/applications/{application}/wallet/google', [WalletController::class, 'google'])->name('api.applications.wallet.google');
+    Route::get('/sub-applications/{subApplication}/wallet', [WalletController::class, 'subApple'])->name('api.sub-applications.wallet');
 });
 
 /*

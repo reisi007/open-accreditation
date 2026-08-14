@@ -42,20 +42,14 @@
 
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) ✅
 
-### P5 — E-Mail-Workflow 🟡
-
-**P5 — E-Mail-Workflow (Delegieren):**
-- [ ] Mailables (DE, bestehende Aktivierung unverändert): `ApplicationApprovedMail` (Kategorie/Event + Verify-Link), `ApplicationDeniedMail` (reason), `DeadlineReminderMail` (Frist läuft ab), `PassMail` (Verify-Link/QR) — alle mit mandant-scoped Domain-URLs
-- [ ] `MandantMailerService`: Symfony-Transport aus `mandant.smtp_config` (host/port/username/password/encryption), Fallback Default/Mailpit; **MVP-Entscheidung: synchroner Versand** (Queue-Integration → Follow-up); `from` aus config
-- [ ] Dispatch in `AllocationService` (approveApplication → ApprovedMail, denyApplication → DeniedMail inkl. reason); Command `reminders:send` (daily, deadline_end ≤ 3 Tage → Reminder an Antragsteller mit requested), Schedule; Admin `POST /api/admin/applications/{id}/resend` (status-passend: approved → PassMail, denied → DeniedMail)
-- [ ] Frontend: „E-Mail erneut senden"-Button in der Freigabe-Sicht (approved/denied) + i18n
-- [ ] Tests: PHPUnit (Mailable-Inhalte, SMTP-Transport-Override, Dispatch approve/deny via Mail::fake, Reminder-Timing via setTestNow, resend-Endpoint Auth/Scoping), Mailpit-Integration (real SMTP 1025 → Mailpit-API-Assertion, optional), Playwright `@feature:badge` bzw. `@feature:accreditation` (resend-Button)
-
 ### P6 — Wallets (PKPASS) + Sub-Karten 🟡
 
-- [ ] Apple Wallet (.pkpass) + Google Wallet: Generierung/Signierung, Ausgabe via E-Mail/Link
-- [ ] Park-/Sitzkarten als eigene Ausweis-Typen mit eigener Vorlage
-- [ ] Tests: PHPUnit (Pass-Generierung/Validierung, Signierung), Playwright `@feature:wallet`
+**P6 — Wallets (PKPASS) + Sub-Karten (Delegieren):**
+- [ ] `config/wallet.php` (env-optional: PASS_TYPE_ID, CERT/KEY/WWDR-Pfade, GOOGLE_* Service-Account); **keine neuen Composer-Deps** (PHP zip/GD/openssl + endroid/qr-code vorhanden)
+- [ ] `WalletPassService`: **Apple .pkpass** (pass.json EventTicket mit barcode=verify-QR, icons als GD-PNG, manifest.json SHA256, `openssl_pkcs7_sign` mit konfigurierten Zertifikaten; ohne Zertifikate → unsigned-bundle dokumentiert); **Google Wallet** (EventTicket-Object + JWT RS256 via openssl wenn Service-Account, sonst strukturvalides JSON); Sub-Karten park/seat als eigene Pass-Typen
+- [ ] Endpoints (auth:api, eigene approved App): `GET /api/applications/{id}/wallet` → .pkpass-Download, `GET /api/applications/{id}/wallet/google` → JWT/JSON, `GET /api/sub-applications/{id}/wallet` (approved Sub)
+- [ ] Frontend: Apple-/Google-Wallet-Download-Buttons in „Meine Akkreditierungen" (approved, auch Sub-Sektion) + i18n
+- [ ] Tests: PHPUnit (pass.json-Struktur/Felder, manifest-SHA256, barcode=verify-URL, Google-JWT/JSON, Sub-Pass, Auth-Gating, Signatur-Pfad mit Test-Zertifikat optional), Playwright `@feature:wallet`
 
 ### P7 — Polish + Deploy 🟡 **AUF HALT — Go-Live wartet auf Benutzer-Freigabe**
 > Alles bis einschließlich P6 wird umgesetzt. P7 (Caddy multi-Domain, Env-Hardening, Prod-Deploy)
@@ -97,6 +91,10 @@
 - [ ] **P4-F3 (low)** Verify nutzt `throttle:public` (geteilter Bucket mit Portal/Akkreditierungen) → eigener benannter Limiter (P7).
 - [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
 - [ ] **P4-F5 (info)** `features/`-SOLL-Doku für Badges/QR fehlt → im nächsten Doku-Batch erstellen.
+- [ ] **P5-F1 (medium)** DoD-Gap: kein Playwright-E2E für den Resend-Button → E2E im P6-Frontend-Paket ergänzen (`@feature:accreditation` oder `@feature:wallet`).
+- [ ] **P5-F2 (low)** Resend-Route ohne Rate-Limit (deckt sich mit P2a-RL; Admin-Vektor → Mail-Spam) → P7.
+- [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
+- [ ] **P5-F4 (info)** Queue-Integration (synchroner Versand als MVP-Entscheidung) → später/Post-MVP.
 
 ---
 

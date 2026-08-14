@@ -138,6 +138,14 @@ function SubAccreditationSection({ accreditationId, subApplications }: SubAccred
                                     >
                                         {i18n._(t`Zurückziehen`)}
                                     </button>
+                                ) : mine.status === 'approved' ? (
+                                    <a
+                                        href={`/api/sub-applications/${mine.id}/wallet`}
+                                        download="wallet.pkpass"
+                                        className="btn btn-outline btn-sm"
+                                    >
+                                        {i18n._(t`Apple Wallet`)}
+                                    </a>
                                 ) : null
                             ) : (
                                 <button
@@ -246,6 +254,33 @@ export function MyAccreditationsPage() {
                                         ) : null}
                                     </div>
                                 </div>
+                                {application.status === 'approved' ? (
+                                    <div className="mt-3 border-t border-base-300 pt-3">
+                                        <div
+                                            role="group"
+                                            aria-label={i18n._(t`Wallet-Downloads`)}
+                                            className="flex flex-wrap items-center gap-2"
+                                        >
+                                            <a
+                                                href={`/api/applications/${application.id}/wallet`}
+                                                download="wallet.pkpass"
+                                                className="btn btn-outline btn-sm"
+                                            >
+                                                {i18n._(t`Apple Wallet`)}
+                                            </a>
+                                            <a
+                                                href={`/api/applications/${application.id}/wallet/google`}
+                                                download="wallet.json"
+                                                className="btn btn-outline btn-sm"
+                                            >
+                                                {i18n._(t`Google Wallet`)}
+                                            </a>
+                                        </div>
+                                        <p className="mt-2 text-sm text-base-content/60">
+                                            {i18n._(t`Pass wird im Apple/Google-Wallet-Format heruntergeladen.`)}
+                                        </p>
+                                    </div>
+                                ) : null}
                                 {application.status === 'approved' && accreditation ? (
                                     <SubAccreditationSection
                                         accreditationId={accreditation.id}

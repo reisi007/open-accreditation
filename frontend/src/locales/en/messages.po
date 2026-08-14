@@ -207,6 +207,10 @@ msgstr "Applicant"
 msgid "Anzahl"
 msgstr "Count"
 
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Apple Wallet"
+msgstr "Apple Wallet"
+
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Ausrichtung"
 msgstr "Alignment"
@@ -574,6 +578,10 @@ msgstr "Scope"
 msgid "Gesperrt"
 msgstr "Blacklisted"
 
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Google Wallet"
+msgstr "Google Wallet"
+
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Größe"
 msgstr "Size"
@@ -920,6 +928,10 @@ msgstr "Venue"
 #: src/pages/admin/SubAccreditationForm.tsx
 msgid "Parkkarte"
 msgstr "Parking pass"
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Pass wird im Apple/Google-Wallet-Format heruntergeladen."
+msgstr "The pass is downloaded in Apple/Google Wallet format."
 
 #: src/pages/LoginPage.tsx
 msgid "Passwort"
@@ -1347,6 +1359,10 @@ msgstr "VIP"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "VIP-Status konnte nicht geändert werden."
 msgstr "The VIP status could not be changed."
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Wallet-Downloads"
+msgstr "Wallet downloads"
 
 #: src/logic/accreditationLabels.ts
 msgid "Warteliste"

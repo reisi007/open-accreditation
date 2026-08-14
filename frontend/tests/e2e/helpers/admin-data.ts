@@ -440,6 +440,102 @@ export async function ensurePrimaryMandantApprovedApplication() {
 }
 
 /**
+ * P6 wallet E2E setup: creates a fresh event-scoped accreditation with an
+ * active park sub-accreditation (quota 1), one throwaway user with an
+ * approved main application AND an approved park sub-application (apply +
+ * allocate via API, in the contract order the sub-apply requires an approved
+ * main first). Returns the created resources and the user credentials.
+ */
+export async function ensurePrimaryMandantWalletSetup() {
+    const { accreditation, subAccreditation, categoryName } = await ensurePrimaryMandantSubAccreditation();
+    const user = await registerAndActivateUser();
+    const password = user.password;
+
+    // Main application (requested) as the user.
+    const userApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    try {
+        const login = await userApi.post('/api/auth/login', { data: { email: user.email, password: user.password } });
+        if (login.status() !== 200) {
+            throw new Error(`Wallet setup user login failed with status ${login.status()}`);
+        }
+        const apply = await userApi.post(`/api/accreditations/${accreditation.id}/apply`);
+        if (apply.status() !== 200 && apply.status() !== 201) {
+            throw new Error(`Wallet setup main apply failed with status ${apply.status()}`);
+        }
+        await userApi.post('/api/auth/logout');
+    } finally {
+        await userApi.dispose();
+    }
+
+    // Approve the main application (allocation mode=all).
+    const allocation = await allocateAccreditationApi(accreditation.id, 'all');
+    if (allocation.approved < 1) {
+        throw new Error('Wallet setup main allocation approved nobody');
+    }
+
+    // Sub-application (requested) — requires the approved main first.
+    const subApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    try {
+        const login = await subApi.post('/api/auth/login', { data: { email: user.email, password: user.password } });
+        if (login.status() !== 200) {
+            throw new Error(`Wallet setup sub login failed with status ${login.status()}`);
+        }
+        const apply = await subApi.post(`/api/sub-accreditations/${subAccreditation.id}/apply`);
+        if (apply.status() !== 201) {
+            throw new Error(`Wallet setup sub apply failed with status ${apply.status()}`);
+        }
+        await subApi.post('/api/auth/logout');
+    } finally {
+        await subApi.dispose();
+    }
+
+    // Resolve the approved main application (id decides the .pkpass filename)
+    // and approve the sub-application — one admin session for both.
+    const adminApi = await loginAdminApi();
+    let application = null;
+    let subApplication = null;
+    try {
+        const body = await (await adminApi.get(`/api/admin/applications?accreditation_id=${accreditation.id}`)).json();
+        const applications = body.data ?? [];
+        for (const entry of applications) {
+            if (entry.status === 'approved') {
+                application = entry;
+                break;
+            }
+        }
+        if (!application) {
+            throw new Error('Wallet setup found no approved main application');
+        }
+
+        const listBody = await (
+            await adminApi.get(`/api/admin/sub-applications?sub_accreditation_id=${subAccreditation.id}`)
+        ).json();
+        const subApplications = listBody.data ?? [];
+        if (subApplications.length !== 1) {
+            throw new Error(`Wallet setup expected 1 sub-application, got ${subApplications.length}`);
+        }
+        subApplication = subApplications[0];
+        const approve = await adminApi.put(`/api/admin/sub-applications/${subApplication.id}`, {
+            data: { status: 'approved' },
+        });
+        if (approve.status() !== 200) {
+            throw new Error(`Wallet setup sub approve failed with status ${approve.status()}`);
+        }
+    } finally {
+        await adminApi.dispose();
+    }
+
+    return {
+        accreditation,
+        application,
+        subAccreditation,
+        subApplication,
+        categoryName,
+        user: { email: user.email, password },
+    };
+}
+
+/**
  * Creates a mandant-scoped blacklist entry via the admin API (super admin /
  * mandant_admin only). Returns the created entry.
  *
@@ -534,13 +630,14 @@ export async function ensurePrimaryMandantActivePortalEvent() {
         }
 
         const title = `Portal-Test ${Date.now()}`;
+        const competition = `E2E Wettbewerb ${Date.now()}`;
         const create = await api.post('/api/admin/events', {
             data: {
                 title,
                 team_id: team.id,
                 date: isoDateInDays(60),
                 venue: 'E2E Portal Arena',
-                competition: 'E2E Wettbewerb',
+                competition,
                 deadline_start: isoDateInDays(20),
                 deadline_end: isoDateInDays(30),
                 active: true,

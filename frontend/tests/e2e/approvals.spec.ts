@@ -57,6 +57,9 @@ test.describe('Admin Freigaben (P3e)', () => {
         await expect(rowC).toBeVisible();
         await expect(rowD).toBeVisible();
 
+        // 2b) P5-F1 negative: a requested application has no resend button.
+        await expect(rowC.getByRole('button', { name: 'E-Mail erneut senden' })).toHaveCount(0);
+
         // 3) Mark applicant A as VIP.
         await rowA.getByLabel('VIP').check();
         await expect(rowA.getByLabel('VIP')).toBeChecked();
@@ -75,11 +78,24 @@ test.describe('Admin Freigaben (P3e)', () => {
         await expect(rowA.getByText('Freigegeben')).toBeVisible();
         await expect(rowA.getByRole('button', { name: 'Freigabe entziehen' })).toBeVisible();
 
+        // 5b) P5-F1: resend the approval e-mail → role=status success message
+        //     (mail delivery itself is Mailpit-side; the UI contract is the
+        //     success status after POST /api/admin/applications/{id}/resend).
+        const resendButton = rowA.getByRole('button', { name: 'E-Mail erneut senden' });
+        await expect(resendButton).toBeVisible();
+        await resendButton.click();
+        const resendStatus = rowA.getByRole('status');
+        await expect(resendStatus).toBeVisible();
+        await expect(resendStatus).toContainText('E-Mail wurde erneut gesendet.');
+
         // 6) Mass allocation "Alle freigeben": A is already approved and B is
         //    denied, C is eligible and D is blacklisted → 1 approved / 1
-        //    denied / 1 skipped.
+        //    denied / 1 skipped. (Scoped to the allocation card's status — a
+        //    row-level role=status (resend success) may also be present.)
         await main.getByRole('button', { name: 'Alle freigeben' }).click();
-        const resultStatus = main.getByRole('status');
+        const resultStatus = main
+            .getByRole('status')
+            .filter({ hasText: 'Übersprungene Anträge sind auf der Blacklist und bleiben beantragt.' });
         await expect(resultStatus).toContainText('Freigegeben: 1');
         await expect(resultStatus).toContainText('Abgelehnt: 1');
         await expect(resultStatus).toContainText('Übersprungen (Blacklist): 1');

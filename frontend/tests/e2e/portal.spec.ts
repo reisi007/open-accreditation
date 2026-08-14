@@ -24,6 +24,17 @@ test.describe('Portal (P3a)', () => {
         await expect(main.getByRole('combobox', { name: 'Team' })).toHaveValue(String(team.id));
         await expect(eventLink).toBeVisible();
 
+        // Isolate the test's own event via the (unique per run) competition
+        // filter: the shared dev DB accumulates active events from parallel
+        // @feature:accreditation specs, and a long, still-growing calendar
+        // breaks the auto-scroll click hit-test on the mobile viewport. With
+        // exactly one card left the click is stable.
+        await main.getByRole('combobox', { name: 'Wettbewerb' }).selectOption(String(event.competition));
+        await expect(eventLink).toBeVisible();
+        await expect(
+            main.getByRole('link', { name: /Portal-Test/ }).filter({ hasText: 'E2E Wettbewerb' }),
+        ).toHaveCount(1);
+
         // Open the event detail.
         await eventLink.click();
         await expect(page).toHaveURL(new RegExp(`/events/${event.id}$`));
@@ -31,7 +42,7 @@ test.describe('Portal (P3a)', () => {
         const detailMain = page.getByRole('main');
         await expect(detailMain.getByRole('heading', { level: 1 })).toHaveText(event.title);
         await expect(detailMain.getByText('E2E Portal Arena')).toBeVisible();
-        await expect(detailMain.getByText('E2E Wettbewerb')).toBeVisible();
+        await expect(detailMain.getByText(event.competition)).toBeVisible();
         await expect(detailMain.getByText(/Noch \d+ Tage/)).toBeVisible();
 
         // Back to the calendar.
