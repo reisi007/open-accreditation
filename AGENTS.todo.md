@@ -40,14 +40,14 @@
 
 ### P3 — Öffentliches Portal + Anmeldung + Allocation-Engine 🟡
 
-**P3d — Sub-Akkreditierungen (Delegieren, STRICT Unit-Tests):**
-- [ ] Modell: `sub_accreditations` (Typ Park/Sitz, eigenes Quota, eigene auto/manual-Allokation) + Anträge nur bei vorhandener Haupt-Akkreditierung
-- [ ] Allokation: Haupt-Akkreditierung zuerst, dann Sub-Selektion; Überzeichnung (z. B. 75 Anfragen / 50 Plätze) → 25 Ablehnungen; VIP-Prio auf Sub-Ebene anwendbar
-- [ ] Tests: PHPUnit — Haupt↔Sub-Abhängigkeit, Quota je Sub-Typ, VIP-Reihenfolge, deterministische Zuteilung
-
 **P3e — Admin-Freigabe-Sicht (Delegieren):**
-- [ ] Mandant-/Team-Admin: Antragsliste mit Status, Einzel-Freigabe/Ablehnung (mit Grund), Massenfreigabe-UI (alle / erste X), Blacklist-Verwaltung (Team-Admin read-only Sicht D7 hier mit echten Ressourcen)
-- [ ] Tests: PHPUnit (Freigabe-Aktionen, Status-Übergänge, Blacklist-CRUD), Playwright `@feature:accreditation`
+- [ ] Backend: Blacklist-CRUD `GET/POST/PUT/DELETE /api/admin/blacklists` (mandant-scoped, `can:accreditations.manage`; super_admin+mandant_admin; `email` ODER `domain` valid, mind. eins; Unique `(mandant_id,email)` + `(mandant_id,domain)` via Migration 000007). Blacklist wirkt nur auf Allokation (nicht retrospektiv)
+- [ ] Backend: Admin-Applications `GET /api/admin/applications?accreditation_id=&status=&search=` (mandant-scoped, team_admin eigene Teams, mit User + Referenz) + Einzel-Aktionen `PUT /api/admin/applications/{id}` `{status: approved|denied, reason?, priority?}` über neue `AllocationService`-Methoden (`approveApplication`/`denyApplication`, **Blacklist-Guard beim Approve**, reason Pflicht bei deny); Massenfreigabe via bestehendem allocate-Endpoint; **VIP-Setzung** (priority)
+- [ ] Backend: Admin-Sub-Applications (Liste + Einzel approve/deny) via `SubAllocationService`-Methoden; Medien-Endpoint `GET /api/admin/applications/{id}/media` (Porträt/Presse-ID des Antragstellers, auth-gated) — **P3b-F3-Entscheidung: Live-Abruf statt Snapshot** (dokumentieren)
+- [ ] Backend-Fixes: **P3d-F3** (Meldungssprache harmonisieren EN), **P3d-F4** (Sub-Apply prüft `active` des Haupts)
+- [ ] Frontend: Freigabe-Seite `/admin/freigaben` (Filter, Liste mit Status/VIP/Medien, Einzel Freigeben/Ablehnen+reason-Modal, Massenfreigabe „alle"/„erste X" mit Ergebnis-Zähler inkl. `skipped_blacklist`-Semantik P3c-F1, Sub-Tab) + Blacklist-Tab (Liste/Add/Delete)
+- [ ] Tests: PHPUnit (Blacklist-CRUD+Unique, Einzel-Aktionen inkl. Blacklist-Guard + reason-Pflicht, Status-Übergänge, team_scoping, Medien-Endpoint, Sub-Aktionen, P3d-F3/F4-Regression), Playwright `@feature:accreditation` (Admin-Freigabe-Flow + Blacklist + **Admin-Sub-Modal E2E = P3d-F1**)
+- [ ] Doku: features/-Sektion **P3d-SOLL** (Sub-Allokation) + **P3e-SOLL** (Freigabe/Blacklist/VIP) — schließt P3d-F5
 
 ### P4 — Ausweis (Template, PDF, CSV/Excel, QR) 🟡
 
@@ -91,6 +91,11 @@
 - [ ] **P3c-F2 (info)** Blacklist-Verwaltung: nur Tabelle/Modell, **keine CRUD-Routen** → P3e (mandant-scoped CRUD + Tests; Unique-Constraint fehlt).
 - [ ] **P3c-F3 (info)** VIP-Setzung: `priority` wird beim Apply hart auf false gesetzt → P3e braucht Admin-Weg (Person/Domäne laut D8).
 - [ ] **P3c-F4 (info)** Test-Coverage-Nuancen (Blacklist+VIP-Kombi, case-insensitiv, approveAll mit bestehenden approved, `mode` fehlt/non-int limit, Exakt-Fit Quota) → optional nachziehen (P3e-Paket oder später).
+- [ ] **P3d-F1 (medium)** Admin-Sub-Modal ohne Playwright-E2E (DoD-Lücke) → E2E für Sub-CRUD-Modal wird im P3e-Frontend-Paket ergänzt.
+- [ ] **P3d-F2 (low)** `'UNIQUE'`-Match case-sensitiv schlägt auf Postgres fehl (SQLSTATE 23505; P3b-Muster gespiegelt) → treiber-agnostischer Check → P7-Hardening.
+- [ ] **P3d-F3 (info)** gemischte Meldungssprache (`Zuerst eine freigegebene Akkreditierung.` DE vs. englische Schwester-422er) → in P3e harmonisieren.
+- [ ] **P3d-F4 (info)** Apply prüft nicht `active` des Haupt-Accreditations → Rand-Konsistenz (kein Exploit), in P3e beheben.
+- [ ] **P3d-F5 (info)** keine P3d-SOLL-Doku → features/-Sektion Sub-Allokation (schließt sich im P3e-Doku-Schritt).
 - [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
 - [ ] **P3b-F3 (info)** Medien-Snapshot beim Antrag (Foto/Presse-ID/Anhänge): Entscheidung in P3e — Freigabe-Sicht bezieht Medien des Antragstellers.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.

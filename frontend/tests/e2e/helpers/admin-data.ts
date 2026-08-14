@@ -293,6 +293,98 @@ export async function registerAndActivateUser() {
 }
 
 /**
+ * Registers a throwaway user via the API, activates it through the Mailpit
+ * activation link, logs in via the API and applies for the given accreditation.
+ * The user ends the flow logged out again (each helper call is a fresh,
+ * disposable account — the unique (accreditation_id, user_id) apply constraint
+ * requires a new user per application).
+ *
+ * @returns {Promise<{ email: string; password: string }>}
+ */
+export async function registerAndApplyForAccreditation(accreditationId = 0, name = 'E2E Antragsteller') {
+    const email = `approve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
+    const password = 'SecurePassw0rd!';
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    try {
+        const register = await api.post('/api/auth/register', {
+            data: { name, email, password, password_confirmation: password },
+        });
+        if (register.status() !== 201) {
+            throw new Error(`User registration failed with status ${register.status()}`);
+        }
+
+        const mailpit = new MailpitHelper();
+        const activationPath = await mailpit.extractActivationPath(email);
+        const activation = await api.get(new URL(activationPath, FRONTEND_BASE_URL).toString());
+        if (activation.status() !== 200) {
+            throw new Error(`User activation failed with status ${activation.status()}`);
+        }
+
+        const login = await api.post('/api/auth/login', { data: { email, password } });
+        if (login.status() !== 200) {
+            throw new Error(`User login failed with status ${login.status()}`);
+        }
+
+        const apply = await api.post(`/api/accreditations/${accreditationId}/apply`);
+        if (apply.status() !== 200 && apply.status() !== 201) {
+            throw new Error(`Apply failed with status ${apply.status()}`);
+        }
+
+        const logout = await api.post('/api/auth/logout');
+        if (logout.status() !== 200) {
+            throw new Error(`Logout failed with status ${logout.status()}`);
+        }
+
+        return { email, password };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
+ * Creates a mandant-scoped blacklist entry via the admin API (super admin /
+ * mandant_admin only). Returns the created entry.
+ *
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function createBlacklistEntryApi(payload = {}) {
+    const api = await loginAdminApi();
+    try {
+        const response = await api.post('/api/admin/blacklists', { data: payload });
+        if (response.status() !== 201) {
+            throw new Error(`Blacklist create failed with status ${response.status()}`);
+        }
+
+        return (await response.json()).data;
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
+ * Runs the manual allocation trigger (mode=all | mode=first) on one
+ * accreditation via the admin API and returns the `{approved, denied,
+ * skipped_blacklist}` result.
+ *
+ * @returns {Promise<{ approved: number; denied: number; skipped_blacklist: number }>}
+ */
+export async function allocateAccreditationApi(accreditationId = 0, mode = 'all', limit = undefined) {
+    const api = await loginAdminApi();
+    try {
+        const response = await api.post(`/api/admin/accreditations/${accreditationId}/allocate`, {
+            data: limit === undefined ? { mode } : { mode, limit },
+        });
+        if (response.status() !== 200) {
+            throw new Error(`Allocation failed with status ${response.status()}`);
+        }
+
+        return (await response.json()).data;
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Creates a unique active portal event (team-scoped, future date + deadline)
  * so the public portal calendar has deterministic content. Returns the event,
  * its team and the mandant name shown as the portal heading.

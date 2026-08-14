@@ -29,14 +29,21 @@ class AppServiceProvider extends ServiceProvider
         // `throttle:register`); the explicit `by()` key guarantees the
         // middleware resolves distinct cache keys for the same ip (without a
         // key it falls back to the route+ip signature shared by both routes).
-        // Login throttles per authenticated user id, falling back to per-ip
-        // for unauthenticated (failed) attempts; register is per-ip.
-        // P2b-F9: login budget raised 10 → 15/min — the E2E @smoke suite needs
-        // ~11–13 logins per minute (session-switching tests). 15/min keeps the
-        // brute-force protection intact. Register stays at 10/min.
-        RateLimiter::for('login', static fn (Request $request): Limit => Limit::perMinute(15)
-            ->by('login:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
-        RateLimiter::for('register', static fn (Request $request): Limit => Limit::perMinute(10)
+        // Both are keyed on the ip only — the previous per-authenticated-user
+        // branch on `login` was dead code, because the request user is never
+        // resolved at middleware time during login; per-ip is the real
+        // brute-force protection. Register is per-ip too.
+        // B2-Floor (login/register): limits are env-dependent. In `local` and
+        // `testing` the budgets are development floors — the parallel Playwright
+        // suite runs ~8 workers behind ONE ip and needs ~17 logins/min on
+        // @feature:accreditation (approvals.spec.ts setup helper), and register
+        // creates several users concurrently. In `production` the real
+        // brute-force values apply: login 15/min, register 10/min.
+        $loginLimit = app()->environment('local', 'testing') ? 40 : 15;
+        $registerLimit = app()->environment('local', 'testing') ? 30 : 10;
+        RateLimiter::for('login', static fn (Request $request): Limit => Limit::perMinute($loginLimit)
+            ->by('login:'.$request->ip()));
+        RateLimiter::for('register', static fn (Request $request): Limit => Limit::perMinute($registerLimit)
             ->by('register:'.$request->ip()));
 
         // P3b-F1: applying for accreditations throttles per authenticated user
@@ -45,5 +52,20 @@ class AppServiceProvider extends ServiceProvider
         // for unauthenticated requests.
         RateLimiter::for('apply', static fn (Request $request): Limit => Limit::perMinute(30)
             ->by('apply:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+        // P3e-B1: named limiters for the remaining public/anonymous inline
+        // throttles. Inline `throttle:20,1` / `throttle:60,1` all resolve to a
+        // single shared per-ip bucket — Laravel keys them on
+        // `sha1(domain|ip)`, and without a route domain that signature is
+        // identical for every route. `activate` (20,1), the portal (60,1) and
+        // the accreditation list (60,1) therefore cannibalized each other's
+        // budget, so a parallel Playwright run hit a 429 on `activate`. Named
+        // limiters with explicit `by()` keys give each surface its own bucket:
+        // activation links (30/min per ip) and the public portal / accreditation
+        // reads (60/min per ip).
+        RateLimiter::for('activate', static fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('activate:'.$request->ip()));
+        RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute(60)
+            ->by('public:'.$request->ip()));
     }
 }

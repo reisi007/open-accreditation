@@ -6,6 +6,7 @@ use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 /**
  * P3d allocation engine for sub-accreditations (Park-/Sitzkarten, D9) — the
@@ -79,6 +80,93 @@ final class SubAllocationService
             count($plan['deny_quota']) + count($plan['deny_blacklist']),
             count($plan['deny_blacklist']),
         );
+    }
+
+    /**
+     * Single sub-application approval (P3e admin action) — the authoritative
+     * "who gets a sub-quota slot" decision for one row. Same guards as the
+     * main engine: blacklisted user (email/domain, mandant-scoped via the
+     * main accreditation) → 422, sub-quota exhausted → 422 `Quota erschöpft`,
+     * and only `requested`/`denied` rows may be (re-)approved (422
+     * otherwise). Approving clears the deny reason.
+     *
+     * @throws ValidationException
+     */
+    public function approveSubApplication(SubApplication $subApplication): SubApplication
+    {
+        $subApplication->loadMissing([
+            'user:id,email',
+            'subAccreditation:id,quota,accreditation_id',
+            'subAccreditation.accreditation:id,mandant_id',
+        ]);
+
+        if (AllocationRules::isBlacklisted(
+            $subApplication->user,
+            AllocationRules::blacklistFor((int) $subApplication->subAccreditation->accreditation->mandant_id),
+        )) {
+            throw ValidationException::withMessages([
+                'status' => 'User is blacklisted',
+            ]);
+        }
+
+        if (! in_array($subApplication->status, ['requested', 'denied'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only requested or denied sub-applications can be approved.',
+            ]);
+        }
+
+        if ($this->approvedCount($subApplication->subAccreditation) >= $subApplication->subAccreditation->quota) {
+            throw ValidationException::withMessages([
+                'status' => AllocationRules::REASON_QUOTA,
+            ]);
+        }
+
+        $subApplication->update([
+            'status' => 'approved',
+            'reason' => null,
+        ]);
+
+        return $subApplication;
+    }
+
+    /**
+     * Single sub-application denial (P3e admin action). A non-empty `$reason`
+     * is mandatory (422 otherwise). Only `requested` (deny) and `approved`
+     * (revoke) rows may be denied (422 otherwise).
+     *
+     * @throws ValidationException
+     */
+    public function denySubApplication(SubApplication $subApplication, string $reason): SubApplication
+    {
+        if (trim($reason) === '') {
+            throw ValidationException::withMessages([
+                'reason' => 'A reason is required when denying a sub-application.',
+            ]);
+        }
+
+        if (! in_array($subApplication->status, ['requested', 'approved'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only requested or approved sub-applications can be denied.',
+            ]);
+        }
+
+        $subApplication->update([
+            'status' => 'denied',
+            'reason' => $reason,
+        ]);
+
+        return $subApplication;
+    }
+
+    /**
+     * Set (or clear) the VIP priority of one sub-application (P3e admin
+     * action). A direct field update — no status change, no guards.
+     */
+    public function setPriority(SubApplication $subApplication, bool $priority): SubApplication
+    {
+        $subApplication->update(['priority' => $priority]);
+
+        return $subApplication;
     }
 
     /**

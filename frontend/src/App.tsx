@@ -18,6 +18,7 @@ import { ApplyPage } from './pages/ApplyPage';
 import { MyAccreditationsPage } from './pages/MyAccreditationsPage';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AccreditationsPage as AdminAccreditationsPage } from './pages/admin/AccreditationsPage';
+import { ApprovalsPage } from './pages/admin/ApprovalsPage';
 import { CategoriesPage } from './pages/admin/CategoriesPage';
 import { EventsPage } from './pages/admin/EventsPage';
 import { MandantDetailPage } from './pages/admin/MandantDetailPage';
@@ -171,6 +172,7 @@ const router = createBrowserRouter([
                     { path: 'categories', element: <CategoriesPage /> },
                     { path: 'events', element: <EventsPage /> },
                     { path: 'accreditations', element: <AdminAccreditationsPage /> },
+                    { path: 'freigaben', element: <ApprovalsPage /> },
                     {
                         element: (
                             <RequireRoles roles={['super_admin', 'mandant_admin']}>

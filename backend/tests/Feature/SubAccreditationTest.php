@@ -405,7 +405,7 @@ class SubAccreditationTest extends TestCase
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Zuerst eine freigegebene Akkreditierung.');
+            ->assertJsonPath('message', 'Approve the main accreditation first.');
     }
 
     public function test_sub_apply_with_requested_or_denied_main_is_422(): void

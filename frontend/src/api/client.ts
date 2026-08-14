@@ -1,8 +1,14 @@
 import type {
     Accreditation,
     AccreditationScope,
+    AdminApplication,
+    AdminMedia,
+    AdminSubApplication,
     AdminUser,
+    AllocationResult,
     Application,
+    ApplicationAction,
+    Blacklist,
     Category,
     Event,
     Mandant,
@@ -348,3 +354,61 @@ export const listSubApplications = (): Promise<SubApplication[]> => request<SubA
 
 export const withdrawSubApplication = (id: number): Promise<void> =>
     request<void>(`/api/sub-applications/${id}`, { method: 'DELETE' });
+
+export interface AdminApplicationsParams {
+    accreditation_id?: number;
+    status?: string;
+    search?: string;
+}
+
+export const listAdminApplications = (params?: AdminApplicationsParams): Promise<AdminApplication[]> =>
+    request<AdminApplication[]>(`/api/admin/applications${buildQuery(params)}`);
+
+export const updateAdminApplication = (id: number, action: ApplicationAction): Promise<AdminApplication> =>
+    request<AdminApplication>(`/api/admin/applications/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(action),
+    });
+
+export const listAdminApplicationMedia = (id: number): Promise<AdminMedia[]> =>
+    request<AdminMedia[]>(`/api/admin/applications/${id}/media`);
+
+export interface AdminSubApplicationsParams {
+    sub_accreditation_id?: number;
+    status?: string;
+}
+
+export const listAdminSubApplications = (params?: AdminSubApplicationsParams): Promise<AdminSubApplication[]> =>
+    request<AdminSubApplication[]>(`/api/admin/sub-applications${buildQuery(params)}`);
+
+export const updateAdminSubApplication = (id: number, action: ApplicationAction): Promise<AdminSubApplication> =>
+    request<AdminSubApplication>(`/api/admin/sub-applications/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(action),
+    });
+
+export interface BlacklistPayload {
+    email?: string;
+    domain?: string;
+    note?: string;
+}
+
+export const listBlacklists = (params?: { search?: string }): Promise<Blacklist[]> =>
+    request<Blacklist[]>(`/api/admin/blacklists${buildQuery(params)}`);
+
+export const createBlacklist = (payload: BlacklistPayload): Promise<Blacklist> =>
+    request<Blacklist>('/api/admin/blacklists', { method: 'POST', body: JSON.stringify(payload) });
+
+export const deleteBlacklist = (id: number): Promise<void> =>
+    request<void>(`/api/admin/blacklists/${id}`, { method: 'DELETE' });
+
+export interface AllocationPayload {
+    mode: 'all' | 'first';
+    limit?: number;
+}
+
+export const allocateAccreditation = (id: number, payload: AllocationPayload): Promise<AllocationResult> =>
+    request<AllocationResult>(`/api/admin/accreditations/${id}/allocate`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });

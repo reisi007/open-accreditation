@@ -6,6 +6,7 @@ use App\Models\Accreditation;
 use App\Models\Application;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\ValidationException;
 
 /**
  * P3c allocation engine — the authoritative "who gets a quota slot" decision.
@@ -84,6 +85,97 @@ final class AllocationService
             count($plan['deny_quota']) + count($plan['deny_blacklist']),
             count($plan['deny_blacklist']),
         );
+    }
+
+    /**
+     * Single-application approval (P3e admin action) — the authoritative
+     * "who gets a quota slot" decision for one row. The blacklist guard and
+     * the quota check run here, never in the controller:
+     *
+     * - a blacklisted user (email/domain, mandant-scoped) can never be
+     *   approved (422),
+     * - the approved count must stay below the quota (422 `Quota erschöpft`)
+     *   — the single approve respects the quota like the bulk engines do,
+     * - only `requested` and `denied` rows may be (re-)approved; `approved`,
+     *   `blacklisted` and any other status are invalid transitions (422).
+     *
+     * Approving clears the deny reason. Not idempotent on purpose — approving
+     * an already-approved row is a client error, not a no-op.
+     *
+     * @throws ValidationException
+     */
+    public function approveApplication(Application $application): Application
+    {
+        $application->loadMissing(['accreditation:id,mandant_id,quota', 'user:id,email']);
+
+        if (AllocationRules::isBlacklisted(
+            $application->user,
+            AllocationRules::blacklistFor((int) $application->accreditation->mandant_id),
+        )) {
+            throw ValidationException::withMessages([
+                'status' => 'User is blacklisted',
+            ]);
+        }
+
+        if (! in_array($application->status, ['requested', 'denied'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only requested or denied applications can be approved.',
+            ]);
+        }
+
+        if ($this->approvedCount($application->accreditation) >= $application->accreditation->quota) {
+            throw ValidationException::withMessages([
+                'status' => AllocationRules::REASON_QUOTA,
+            ]);
+        }
+
+        $application->update([
+            'status' => 'approved',
+            'reason' => null,
+        ]);
+
+        return $application;
+    }
+
+    /**
+     * Single-application denial (P3e admin action). A non-empty `$reason` is
+     * mandatory (422 otherwise). Only `requested` (deny) and `approved`
+     * (revoke) rows may be denied; `denied` and `blacklisted` rows are
+     * invalid transitions (422).
+     *
+     * @throws ValidationException
+     */
+    public function denyApplication(Application $application, string $reason): Application
+    {
+        if (trim($reason) === '') {
+            throw ValidationException::withMessages([
+                'reason' => 'A reason is required when denying an application.',
+            ]);
+        }
+
+        if (! in_array($application->status, ['requested', 'approved'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only requested or approved applications can be denied.',
+            ]);
+        }
+
+        $application->update([
+            'status' => 'denied',
+            'reason' => $reason,
+        ]);
+
+        return $application;
+    }
+
+    /**
+     * Set (or clear) the VIP priority of one application (P3e admin action).
+     * A direct field update — no status change, no guards.
+     */
+    public function setPriority(Application $application, bool $priority): Application
+    {
+        $application->update(['priority' => $priority]);
+
+        return $application;
     }
 
     /**

@@ -2,6 +2,10 @@
 
 use App\Http\Controllers\Api\AccreditationController;
 use App\Http\Controllers\Api\Admin\AccreditationController as AdminAccreditationController;
+use App\Http\Controllers\Api\Admin\AdminApplicationController;
+use App\Http\Controllers\Api\Admin\AdminMediaController;
+use App\Http\Controllers\Api\Admin\AdminSubApplicationController;
+use App\Http\Controllers\Api\Admin\BlacklistController;
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
 use App\Http\Controllers\Api\Admin\MandantController;
@@ -48,7 +52,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('throttle:register')->post('/auth/register', [AuthController::class, 'register'])->name('api.auth.register');
 Route::middleware('throttle:login')->post('/auth/login', [AuthController::class, 'login'])->name('api.auth.login');
 
-Route::middleware('throttle:20,1')->get('/auth/activate/{token}', [AuthController::class, 'activate'])->name('api.auth.activate');
+Route::middleware('throttle:activate')->get('/auth/activate/{token}', [AuthController::class, 'activate'])->name('api.auth.activate');
 
 Route::middleware('auth:api')->group(function (): void {
     Route::post('/auth/logout', [AuthController::class, 'logout'])->name('api.auth.logout');
@@ -158,6 +162,23 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::put('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'update'])->name('sub-accreditations.update');
         Route::delete('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'destroy'])->name('sub-accreditations.destroy');
         Route::post('/sub-accreditations/{sub}/allocate', [AdminSubAccreditationController::class, 'allocate'])->name('sub-accreditations.allocate');
+
+        // P3e: admin approval view — blacklist CRUD (mandant-level, only
+        // super_admin + mandant_admin), the applications/sub-applications
+        // list + single approve/deny/priority actions (via the allocation
+        // services) and the admin media list/delivery of an applicant.
+        Route::get('/blacklists', [BlacklistController::class, 'index'])->name('blacklists.index');
+        Route::post('/blacklists', [BlacklistController::class, 'store'])->name('blacklists.store');
+        Route::delete('/blacklists/{blacklist}', [BlacklistController::class, 'destroy'])->name('blacklists.destroy');
+
+        Route::get('/applications', [AdminApplicationController::class, 'index'])->name('applications.index');
+        Route::put('/applications/{application}', [AdminApplicationController::class, 'update'])->name('applications.update');
+        Route::get('/applications/{application}/media', [AdminMediaController::class, 'index'])->name('applications.media');
+
+        Route::get('/sub-applications', [AdminSubApplicationController::class, 'index'])->name('sub-applications.index');
+        Route::put('/sub-applications/{subApplication}', [AdminSubApplicationController::class, 'update'])->name('sub-applications.update');
+
+        Route::get('/user-media/{media}', [AdminMediaController::class, 'show'])->name('user-media.show');
     });
 
     Route::middleware('can:users.manage')->group(function (): void {
@@ -175,7 +196,7 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
 | public verification page arrives in P4). Every route is scoped to the
 | current mandant from MandantContext; an unknown/absent mandant is a 404
 | (MandantContextMiddleware in production). Read-only, hence only a light
-| `throttle:60,1` keeps scraping in check. Responses: `{data: …}` (media
+| `throttle:public` keeps scraping in check. Responses: `{data: …}` (media
 | delivery streams the file; 404 `{message}` without an image).
 |
 |   GET /api/portal/overview        mandant + teams (teams only when
@@ -188,7 +209,7 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
 |   GET /api/portal/mandant/header  public header delivery (inline)
 |
 */
-Route::prefix('portal')->middleware('throttle:60,1')->name('api.portal.')->group(function (): void {
+Route::prefix('portal')->middleware('throttle:public')->name('api.portal.')->group(function (): void {
     Route::get('/overview', [PortalController::class, 'overview'])->name('overview');
     Route::get('/events', [PortalController::class, 'events'])->name('events');
     Route::get('/events/{event}', [PortalController::class, 'show'])->name('events.show');
@@ -205,10 +226,10 @@ Route::prefix('portal')->middleware('throttle:60,1')->name('api.portal.')->group
 | application surface. Scoped to the current mandant from MandantContext.
 | `GET /api/accreditations` (optional `event_id` filter, foreign → 422) and
 | `GET /api/accreditations/{id}` (inactive/foreign → 404). A light
-| `throttle:60,1` keeps scraping in check. Responses: `{data: …}`.
+| `throttle:public` keeps scraping in check. Responses: `{data: …}`.
 |
 */
-Route::prefix('accreditations')->middleware('throttle:60,1')->name('api.accreditations.')->group(function (): void {
+Route::prefix('accreditations')->middleware('throttle:public')->name('api.accreditations.')->group(function (): void {
     Route::get('/', [AccreditationController::class, 'index'])->name('index');
     Route::get('/{accreditation}', [AccreditationController::class, 'show'])->name('show');
     // P3d: public sub-accreditation list (Park-/Sitzkarten) of one active

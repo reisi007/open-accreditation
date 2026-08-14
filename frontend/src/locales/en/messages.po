@@ -19,6 +19,7 @@ msgstr "{available} slots available"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/CategoryForm.tsx
+#: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/RoleForm.tsx
@@ -28,8 +29,18 @@ msgid "Abbrechen"
 msgstr "Cancel"
 
 #: src/logic/accreditationLabels.ts
+#: src/pages/admin/ApprovalsPage.tsx
 msgid "Abgelehnt"
 msgstr "Denied"
+
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/DenyModal.tsx
+msgid "Ablehnen"
+msgstr "Deny"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Ablehnung fehlgeschlagen."
+msgstr "Denial failed."
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
@@ -42,6 +53,7 @@ msgstr "Admin"
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 msgid "Akkreditierung"
 msgstr "Accreditation"
 
@@ -94,6 +106,7 @@ msgstr "Accreditations could not be loaded."
 #~ msgstr "Accreditation platform"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -111,9 +124,14 @@ msgid "Aktiv"
 msgstr "Active"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Alle"
 msgstr "All"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Alle freigeben"
+msgstr "Approve all"
 
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Alle Teams"
@@ -123,6 +141,14 @@ msgstr "All teams"
 msgid "Alle Wettbewerbe"
 msgstr "All competitions"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Anhang"
+msgstr "Attachment"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Anhang öffnen"
+msgstr "Open attachment"
+
 #: src/App.tsx
 #: src/pages/LoginPage.tsx
 msgid "Anmelden"
@@ -131,6 +157,10 @@ msgstr "Log in"
 #: src/pages/LoginPage.tsx
 msgid "Anmeldung fehlgeschlagen. Bitte versuche es erneut."
 msgstr "Login failed. Please try again."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Antrag ablehnen"
+msgstr "Deny application"
 
 #: src/pages/ApplyPage.tsx
 msgid "Antrag erfolgreich gesendet."
@@ -144,9 +174,22 @@ msgstr "Application could not be submitted."
 msgid "Antrag konnte nicht zurückgezogen werden."
 msgstr "Application could not be withdrawn."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Anträge"
+msgstr "Applications"
+
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Anträge konnten nicht geladen werden."
 msgstr "Applications could not be loaded."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Antragsteller"
+msgstr "Applicant"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Anzahl"
+msgstr "Count"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
@@ -169,6 +212,10 @@ msgstr "Requested"
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Bearbeiten"
 msgstr "Edit"
+
+#: src/pages/admin/DenyModal.tsx
+msgid "Begründung"
+msgstr "Reason"
 
 #: src/pages/admin/accreditationFormUtils.ts
 msgid "Bei Geltungsbereich \"Spiel\" ist ein Event erforderlich."
@@ -204,6 +251,10 @@ msgstr "Please select"
 msgid "Bitte ein Team auswählen."
 msgstr "Please select a team."
 
+#: src/pages/admin/approvalFormUtils.ts
+msgid "Bitte eine gültige E-Mail-Adresse angeben."
+msgstr "Please enter a valid email address."
+
 #: src/pages/LoginPage.tsx
 msgid "Bitte eine gültige E-Mail-Adresse eingeben."
 msgstr "Please enter a valid email address."
@@ -215,6 +266,30 @@ msgstr "Please enter a valid port number."
 #: src/pages/admin/RoleForm.tsx
 msgid "Bitte Team auswählen"
 msgstr "Select a team"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Blacklist"
+msgstr "Blacklist"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Blacklist konnte nicht geladen werden."
+msgstr "The blacklist could not be loaded."
+
+#: src/pages/admin/BlacklistForm.tsx
+msgid "Blacklist-Eintrag anlegen"
+msgstr "Create blacklist entry"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Blacklist-Eintrag konnte nicht angelegt werden."
+msgstr "The blacklist entry could not be created."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Blacklist-Eintrag konnte nicht gelöscht werden."
+msgstr "The blacklist entry could not be deleted."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Blacklist-Eintrag wirklich löschen?"
+msgstr "Really delete this blacklist entry?"
 
 #: src/pages/admin/accreditationFormUtils.ts
 #: src/pages/admin/accreditationSubFormUtils.ts
@@ -263,6 +338,13 @@ msgstr "The domain could not be added."
 msgid "Domains"
 msgstr "Domains"
 
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BlacklistForm.tsx
+msgid "Domäne"
+msgstr "Domain"
+
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BlacklistForm.tsx
 #: src/pages/admin/UsersPage.tsx
 #: src/pages/LoginPage.tsx
 msgid "E-Mail"
@@ -296,6 +378,14 @@ msgstr "Allows managing teams for this mandant."
 #: src/pages/admin/MandantForm.tsx
 msgid "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
 msgstr "Only lowercase letters, numbers and hyphens are allowed."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Erste X freigeben"
+msgstr "Approve first X"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Erstellt"
+msgstr "Created"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/ApplyPage.tsx
@@ -335,7 +425,25 @@ msgstr "Events"
 msgid "Events konnten nicht geladen werden."
 msgstr "The events could not be loaded."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Freigabe entziehen"
+msgstr "Revoke approval"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Freigabe fehlgeschlagen."
+msgstr "Approval failed."
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Freigaben"
+msgstr "Approvals"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Freigeben"
+msgstr "Approve"
+
 #: src/logic/accreditationLabels.ts
+#: src/pages/admin/ApprovalsPage.tsx
 msgid "Freigegeben"
 msgstr "Approved"
 
@@ -372,6 +480,14 @@ msgstr "Scope"
 #: src/logic/accreditationLabels.ts
 msgid "Gesperrt"
 msgstr "Blacklisted"
+
+#: src/pages/admin/DenyModal.tsx
+msgid "Grund für die Ablehnung"
+msgstr "Reason for denial"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Haupt-Akkreditierung"
+msgstr "Main accreditation"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Header"
@@ -450,9 +566,21 @@ msgstr "None"
 msgid "Keine Akkreditierungen verfügbar."
 msgstr "No accreditations available."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Keine Anträge vorhanden."
+msgstr "No applications."
+
 #: src/pages/admin/UsersPage.tsx
 msgid "Keine Benutzer gefunden."
 msgstr "No users found."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Keine Blacklist-Einträge vorhanden."
+msgstr "No blacklist entries."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Keine Sub-Anträge vorhanden."
+msgstr "No sub-applications."
 
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Keine Veranstaltungen"
@@ -480,6 +608,7 @@ msgid "Logo & Header"
 msgstr "Logo & Header"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -527,11 +656,27 @@ msgstr "Mandants"
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "The mandants could not be loaded."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Massenfreigabe"
+msgstr "Bulk approval"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Massenfreigabe fehlgeschlagen."
+msgstr "Bulk approval failed."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Medien"
+msgstr "Media"
+
 #: src/App.tsx
 #: src/pages/ApplyPage.tsx
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Meine Akkreditierungen"
 msgstr "My accreditations"
+
+#: src/pages/admin/approvalFormUtils.ts
+msgid "Mindestens E-Mail oder Domäne ist erforderlich."
+msgstr "At least an email or a domain is required."
 
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/userRoleFormUtils.ts
@@ -570,6 +715,10 @@ msgstr "New category"
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Neue Sub-Akkreditierung"
 msgstr "New sub-accreditation"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Neuer Eintrag"
+msgstr "New entry"
 
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Neuer Mandant"
@@ -619,6 +768,11 @@ msgstr "No sub-accreditations yet."
 msgid "Noch keine Teams vorhanden."
 msgstr "No teams yet."
 
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BlacklistForm.tsx
+msgid "Notiz"
+msgstr "Note"
+
 #: src/pages/portal/EventDetailPage.tsx
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Ort"
@@ -637,9 +791,21 @@ msgstr "Password"
 msgid "Passwort ist erforderlich."
 msgstr "Password is required."
 
+#: src/pages/admin/BlacklistForm.tsx
+msgid "person@example.com"
+msgstr "person@example.com"
+
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Portal konnte nicht geladen werden."
 msgstr "The portal could not be loaded."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Porträt"
+msgstr "Portrait"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Presse-ID"
+msgstr "Press ID"
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Primär"
@@ -647,6 +813,7 @@ msgstr "Primary"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
 msgid "Quota"
 msgstr "Quota"
@@ -676,6 +843,7 @@ msgstr "Season"
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
@@ -761,6 +929,7 @@ msgid "Sprache"
 msgstr "Language"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Status"
@@ -773,6 +942,10 @@ msgstr "hour"
 #: src/components/DeadlineCountdown.tsx
 msgid "Stunden"
 msgstr "hours"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Sub-Akkreditierung"
+msgstr "Sub-accreditation"
 
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Sub-Akkreditierung bearbeiten"
@@ -807,6 +980,10 @@ msgstr "Sub-accreditations (parking/seats)"
 msgid "Sub-Akkreditierungen konnten nicht geladen werden."
 msgstr "The sub-accreditations could not be loaded."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Sub-Antrag ablehnen"
+msgstr "Deny sub-application"
+
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Sub-Antrag konnte nicht gesendet werden."
 msgstr "The sub-application could not be submitted."
@@ -815,6 +992,11 @@ msgstr "The sub-application could not be submitted."
 msgid "Sub-Antrag konnte nicht zurückgezogen werden."
 msgstr "The sub-application could not be withdrawn."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Sub-Anträge"
+msgstr "Sub-applications"
+
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Sub-Anträge konnten nicht geladen werden."
 msgstr "The sub-applications could not be loaded."
@@ -894,6 +1076,14 @@ msgstr "Title is required."
 msgid "Typ"
 msgstr "Type"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Übersprungen (Blacklist)"
+msgstr "Skipped (blacklist)"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
+msgstr "Skipped applications are on the blacklist and remain requested."
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Upload fehlgeschlagen."
 msgstr "Upload failed."
@@ -927,6 +1117,7 @@ msgid "Vereine"
 msgstr "Clubs"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/ApprovalsPage.tsx
 msgid "Verfügbar"
 msgstr "Available"
 
@@ -941,6 +1132,14 @@ msgstr "Verifier"
 #: src/pages/admin/MandantForm.tsx
 msgid "Verschlüsselung"
 msgstr "Encryption"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "VIP"
+msgstr "VIP"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "VIP-Status konnte nicht geändert werden."
+msgstr "The VIP status could not be changed."
 
 #: src/logic/accreditationLabels.ts
 msgid "Warteliste"

@@ -67,11 +67,12 @@ class SubAccreditationController extends Controller
         $user = $request->user();
 
         // (1) The sub-accreditation must exist in the current mandant (its
-        // main accreditation decides the mandant) and be active, otherwise it
-        // does not exist here (404).
+        // main accreditation decides the mandant) and both it and its main
+        // accreditation must be active, otherwise it does not exist here
+        // (404).
         $sub = SubAccreditation::query()
             ->whereKey($sub->id)
-            ->whereHas('accreditation', fn (Builder $q) => $q->forMandant($mandant->id))
+            ->whereHas('accreditation', fn (Builder $q) => $q->forMandant($mandant->id)->active())
             ->first();
 
         abort_if($sub === null || ! $sub->active, 404, 'Sub-accreditation not found.');
@@ -87,7 +88,7 @@ class SubAccreditationController extends Controller
             ->orderBy('id')
             ->first();
 
-        abort_if($application === null, 422, 'Zuerst eine freigegebene Akkreditierung.');
+        abort_if($application === null, 422, 'Approve the main accreditation first.');
 
         // (3) Deadline window (Carbon, no SQL date arithmetic). A window runs
         // from 00:00:00 of `deadline_start` through 23:59:59 of

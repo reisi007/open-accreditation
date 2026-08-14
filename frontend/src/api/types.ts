@@ -221,3 +221,74 @@ export interface SubApplication {
     reason: string | null;
     created_at: string;
 }
+
+export interface AdminUserReference {
+    id: number;
+    email: string;
+    name: string;
+}
+
+export interface AdminApplicationAccreditation {
+    id: number;
+    category: AccreditationReference | null;
+    scope: AccreditationScope;
+    event: AccreditationEventReference | null;
+    team: AccreditationReference | null;
+    quota: number;
+    available: number;
+}
+
+export interface AdminApplication {
+    id: number;
+    user: AdminUserReference | null;
+    accreditation: AdminApplicationAccreditation | null;
+    status: ApplicationStatus;
+    priority: boolean;
+    reason: string | null;
+    created_at: string;
+}
+
+export interface AdminSubApplicationSubAccreditation {
+    id: number;
+    type: SubType;
+    quota: number;
+    available: number;
+}
+
+export interface AdminSubApplication {
+    id: number;
+    user: AdminUserReference | null;
+    sub_accreditation: AdminSubApplicationSubAccreditation | null;
+    accreditation: SubApplicationAccreditation | null;
+    status: SubApplicationStatus;
+    priority: boolean;
+    reason: string | null;
+    created_at: string;
+}
+
+export interface AdminMedia {
+    id: number;
+    type: string;
+    url: string;
+    mime: string;
+}
+
+export interface Blacklist {
+    id: number;
+    email: string | null;
+    domain: string | null;
+    note: string | null;
+    created_at: string;
+}
+
+export interface ApplicationAction {
+    status?: 'approved' | 'denied';
+    reason?: string;
+    priority?: boolean;
+}
+
+export interface AllocationResult {
+    approved: number;
+    denied: number;
+    skipped_blacklist: number;
+}
