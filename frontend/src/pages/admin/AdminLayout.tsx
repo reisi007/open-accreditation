@@ -13,6 +13,7 @@ export function AdminLayout() {
     const isSuperAdmin = isSuperAdminUser(user);
     const showUsers = isSuperAdmin || isMandantAdminUser(user);
     const showTemplates = isSuperAdmin || isMandantAdminUser(user);
+    const showMedia = isSuperAdmin || isMandantAdminUser(user);
 
     const handleLogout = async () => {
         await logout();
@@ -85,6 +86,13 @@ export function AdminLayout() {
                                     className={({ isActive }) => (isActive ? 'menu-active' : '')}
                                 >
                                     {i18n._(t`Ausweis-Templates`)}
+                                </NavLink>
+                            </li>
+                        ) : null}
+                        {showMedia ? (
+                            <li>
+                                <NavLink to="/admin/media" className={({ isActive }) => (isActive ? 'menu-active' : '')}>
+                                    {i18n._(t`Logo & Header`)}
                                 </NavLink>
                             </li>
                         ) : null}

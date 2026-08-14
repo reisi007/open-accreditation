@@ -103,7 +103,7 @@ export function SubAccreditationForm({ initial, submitLabel, submitError, onSubm
                 </div>
             </div>
             {errors.deadline_end ? (
-                <span className="label-text-alt text-error">{errors.deadline_end.message}</span>
+                <span className="label-text-alt mt-1 text-error">{errors.deadline_end.message}</span>
             ) : null}
 
             <div className="form-control">

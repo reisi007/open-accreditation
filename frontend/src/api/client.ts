@@ -149,6 +149,14 @@ export const deleteLogo = (id: number): Promise<void> =>
 export const deleteHeader = (id: number): Promise<void> =>
     request<void>(`/api/admin/mandants/${id}/header`, { method: 'DELETE' });
 
+export const uploadMyLogo = (file: File): Promise<void> => uploadFile('/api/mandant/logo', file);
+
+export const deleteMyLogo = (): Promise<void> => request<void>('/api/mandant/logo', { method: 'DELETE' });
+
+export const uploadMyHeader = (file: File): Promise<void> => uploadFile('/api/mandant/header', file);
+
+export const deleteMyHeader = (): Promise<void> => request<void>('/api/mandant/header', { method: 'DELETE' });
+
 export const listDomains = (mandantId: number): Promise<MandantDomain[]> =>
     request<MandantDomain[]>(`/api/admin/mandants/${mandantId}/domains`);
 

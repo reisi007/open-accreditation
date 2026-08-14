@@ -66,6 +66,19 @@ function statusBadgeClass(status: ApplicationStatus | SubApplicationStatus): str
     }
 }
 
+function statusIconClass(status: ApplicationStatus | SubApplicationStatus): string {
+    switch (status) {
+        case 'approved':
+            return 'mdi--check-circle';
+        case 'denied':
+            return 'mdi--close-circle';
+        case 'blacklisted':
+            return 'mdi--account-cancel';
+        case 'requested':
+            return 'mdi--clock-outline';
+    }
+}
+
 function mediaTypeLabel(type: string, i18n: I18n): string {
     switch (type) {
         case 'portrait':
@@ -92,6 +105,37 @@ async function fetchAllAdminSubAccreditations(accreditations: Accreditation[]): 
     const lists = await Promise.all(accreditations.map((accreditation) => listAdminSubAccreditations(accreditation.id)));
 
     return lists.flat();
+}
+
+const PAGE_SIZE = 20;
+
+interface PaginationProps {
+    page: number;
+    pageCount: number;
+    onPrevious: () => void;
+    onNext: () => void;
+}
+
+function Pagination({ page, pageCount, onPrevious, onNext }: PaginationProps) {
+    const { i18n } = useLingui();
+
+    if (pageCount <= 1) {
+        return null;
+    }
+
+    return (
+        <div className="join">
+            <button type="button" className="btn btn-sm join-item" disabled={page <= 1} onClick={onPrevious}>
+                {i18n._(t`Zurück`)}
+            </button>
+            <span className="btn btn-sm join-item btn-ghost pointer-events-none">
+                {i18n._(t`Seite ${page} von ${pageCount}`)}
+            </span>
+            <button type="button" className="btn btn-sm join-item" disabled={page >= pageCount} onClick={onNext}>
+                {i18n._(t`Weiter`)}
+            </button>
+        </div>
+    );
 }
 
 interface ApplicationRowProps {
@@ -158,26 +202,48 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
 
     return (
         <tr>
-            <td>
-                <div className="font-medium">{application.user?.name ?? ''}</div>
-                <div className="text-sm text-base-content/70">{application.user?.email ?? ''}</div>
+            <td className="min-w-0 py-3">
+                <div className="min-w-0">
+                    <div className="truncate font-medium" title={application.user?.name ?? ''}>
+                        {application.user?.name ?? ''}
+                    </div>
+                    <div className="truncate text-sm text-base-content/70" title={application.user?.email ?? ''}>
+                        {application.user?.email ?? ''}
+                    </div>
+                </div>
             </td>
-            <td>
-                <div className="flex flex-wrap gap-1">
+            <td className="min-w-0 py-3">
+                <div className="flex gap-1">
                     {application.accreditation?.category ? (
-                        <span className="badge badge-info badge-sm">{application.accreditation.category.name}</span>
+                        <span
+                            className="badge badge-info badge-sm min-w-0 max-w-40 truncate"
+                            title={application.accreditation.category.name}
+                        >
+                            {application.accreditation.category.name}
+                        </span>
                     ) : null}
                     {application.accreditation?.event ? (
-                        <span className="badge badge-outline badge-sm">{application.accreditation.event.title}</span>
+                        <span
+                            className="badge badge-outline badge-sm min-w-0 max-w-40 truncate"
+                            title={application.accreditation.event.title}
+                        >
+                            {application.accreditation.event.title}
+                        </span>
                     ) : null}
                     {application.accreditation?.team ? (
-                        <span className="badge badge-ghost badge-sm">{application.accreditation.team.name}</span>
+                        <span
+                            className="badge badge-ghost badge-sm min-w-0 max-w-40 truncate"
+                            title={application.accreditation.team.name}
+                        >
+                            {application.accreditation.team.name}
+                        </span>
                     ) : null}
                 </div>
             </td>
-            <td>
+            <td className="py-3">
                 <div className="flex flex-col gap-1">
-                    <span className={`badge badge-sm ${statusBadgeClass(application.status)}`}>
+                    <span className={`badge badge-sm gap-1 ${statusBadgeClass(application.status)}`}>
+                        <span className={`iconify ${statusIconClass(application.status)} text-sm`}></span>
                         {applicationStatusLabel(application.status, i18n)}
                     </span>
                     {application.reason ? (
@@ -185,7 +251,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     ) : null}
                 </div>
             </td>
-            <td>
+            <td className="py-3">
                 <label className="label cursor-pointer gap-2">
                     <input
                         type="checkbox"
@@ -196,7 +262,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     />
                 </label>
             </td>
-            <td>
+            <td className="py-3">
                 {mediaLoading ? <span className="loading loading-spinner loading-sm"></span> : null}
                 {media && media.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
@@ -224,7 +290,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     </div>
                 ) : null}
             </td>
-            <td>
+            <td className="py-3">
                 {actionError ? (
                     <p role="alert" className="mb-2 max-w-48 text-sm text-error">
                         {actionError}
@@ -235,7 +301,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                         {resendSuccess}
                     </p>
                 ) : null}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                     {canApprove ? (
                         <button type="button" className="btn btn-sm btn-success" disabled={busy} onClick={() => void handleApprove()}>
                             {i18n._(t`Freigeben`)}
@@ -272,6 +338,7 @@ function ApplicationsTab() {
     const { i18n } = useLingui();
     const [accreditationFilter, setAccreditationFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState<'' | ApplicationStatus>('');
+    const [page, setPage] = useState(1);
     const [allocationLimit, setAllocationLimit] = useState('5');
     const [allocationResult, setAllocationResult] = useState<AllocationResult | null>(null);
     const [allocationError, setAllocationError] = useState<string | null>(null);
@@ -306,6 +373,13 @@ function ApplicationsTab() {
     const revalidate = async () => {
         await Promise.all([mutate(), mutateAccreditations()]);
     };
+
+    const applications = data ?? [];
+    const pageCount = Math.max(1, Math.ceil(applications.length / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    const pageStart = (currentPage - 1) * PAGE_SIZE;
+    const visibleApplications = applications.slice(pageStart, pageStart + PAGE_SIZE);
+    const filtersActive = accreditationFilter !== '' || statusFilter !== '';
 
     const handleAllocate = async (mode: 'all' | 'first') => {
         if (accreditationFilter === '') return;
@@ -369,7 +443,7 @@ function ApplicationsTab() {
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-end gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
                 <div className="form-control">
                     <label className="label" htmlFor="approval-accreditation-filter">
                         <span className="label-text">{i18n._(t`Akkreditierung`)}</span>
@@ -378,7 +452,10 @@ function ApplicationsTab() {
                         id="approval-accreditation-filter"
                         className="select select-sm"
                         value={accreditationFilter}
-                        onChange={(event) => setAccreditationFilter(event.target.value)}
+                        onChange={(event) => {
+                            setAccreditationFilter(event.target.value);
+                            setPage(1);
+                        }}
                     >
                         <option value="">{i18n._(t`Alle`)}</option>
                         {(accreditations ?? []).map((accreditation) => (
@@ -396,7 +473,10 @@ function ApplicationsTab() {
                         id="approval-status-filter"
                         className="select select-sm"
                         value={statusFilter}
-                        onChange={(event) => setStatusFilter(event.target.value as '' | ApplicationStatus)}
+                        onChange={(event) => {
+                            setStatusFilter(event.target.value as '' | ApplicationStatus);
+                            setPage(1);
+                        }}
                     >
                         <option value="">{i18n._(t`Alle`)}</option>
                         <option value="requested">{applicationStatusLabel('requested', i18n)}</option>
@@ -520,34 +600,58 @@ function ApplicationsTab() {
             ) : null}
 
             {data && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Antragsteller`)}</th>
-                                <th>{i18n._(t`Akkreditierung`)}</th>
-                                <th>{i18n._(t`Status`)}</th>
-                                <th>{i18n._(t`VIP`)}</th>
-                                <th>{i18n._(t`Medien`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.map((application) => (
-                                <ApplicationRow
-                                    key={application.id}
-                                    application={application}
-                                    onChanged={revalidate}
-                                    onDeny={openDeny}
+                <div className="flex flex-col gap-2">
+                    <p aria-live="polite">
+                        {applications.length === 1 ? `${applications.length} Antrag` : `${applications.length} Anträge`}
+                    </p>
+                    {applications.length === 0 ? (
+                        filtersActive ? (
+                            <div className="flex flex-col gap-1">
+                                <p className="text-base-content/70">{i18n._(t`Keine Anträge für diese Filter.`)}</p>
+                                <p className="text-sm text-base-content/50">
+                                    {i18n._(t`Passe die Filter an, um Anträge anzuzeigen.`)}
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-base-content/70">{i18n._(t`Keine Anträge vorhanden.`)}</p>
+                        )
+                    ) : (
+                        <>
+                            <div className="overflow-x-auto overflow-y-auto max-h-96">
+                                <table className="table">
+                                    <thead>
+                                        <tr>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Akkreditierung`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Medien`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {visibleApplications.map((application) => (
+                                            <ApplicationRow
+                                                key={application.id}
+                                                application={application}
+                                                onChanged={revalidate}
+                                                onDeny={openDeny}
+                                            />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex justify-end">
+                                <Pagination
+                                    page={currentPage}
+                                    pageCount={pageCount}
+                                    onPrevious={() => setPage(Math.max(1, currentPage - 1))}
+                                    onNext={() => setPage(Math.min(pageCount, currentPage + 1))}
                                 />
-                            ))}
-                        </tbody>
-                    </table>
+                            </div>
+                        </>
+                    )}
                 </div>
-            ) : null}
-
-            {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Keine Anträge vorhanden.`)}</p>
             ) : null}
 
             {denyTarget ? (
@@ -605,10 +709,10 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
 
     return (
         <tr>
-            <td>
+            <td className="min-w-0 py-3">
                 <div className="flex flex-col gap-1">
                     {application.sub_accreditation ? (
-                        <span className="badge badge-outline badge-sm">
+                        <span className="badge badge-outline badge-sm min-w-0 max-w-40 truncate" title={subTypeLabel(application.sub_accreditation.type, i18n)}>
                             {subTypeLabel(application.sub_accreditation.type, i18n)}
                         </span>
                     ) : null}
@@ -620,23 +724,40 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     ) : null}
                 </div>
             </td>
-            <td>
-                <div className="font-medium">{application.user?.name ?? ''}</div>
-                <div className="text-sm text-base-content/70">{application.user?.email ?? ''}</div>
+            <td className="min-w-0 py-3">
+                <div className="min-w-0">
+                    <div className="truncate font-medium" title={application.user?.name ?? ''}>
+                        {application.user?.name ?? ''}
+                    </div>
+                    <div className="truncate text-sm text-base-content/70" title={application.user?.email ?? ''}>
+                        {application.user?.email ?? ''}
+                    </div>
+                </div>
             </td>
-            <td>
-                <div className="flex flex-wrap gap-1">
+            <td className="min-w-0 py-3">
+                <div className="flex gap-1">
                     {application.accreditation?.category ? (
-                        <span className="badge badge-info badge-sm">{application.accreditation.category.name}</span>
+                        <span
+                            className="badge badge-info badge-sm min-w-0 max-w-40 truncate"
+                            title={application.accreditation.category.name}
+                        >
+                            {application.accreditation.category.name}
+                        </span>
                     ) : null}
                     {application.accreditation?.event ? (
-                        <span className="badge badge-outline badge-sm">{application.accreditation.event.title}</span>
+                        <span
+                            className="badge badge-outline badge-sm min-w-0 max-w-40 truncate"
+                            title={application.accreditation.event.title}
+                        >
+                            {application.accreditation.event.title}
+                        </span>
                     ) : null}
                 </div>
             </td>
-            <td>
+            <td className="py-3">
                 <div className="flex flex-col gap-1">
-                    <span className={`badge badge-sm ${statusBadgeClass(application.status)}`}>
+                    <span className={`badge badge-sm gap-1 ${statusBadgeClass(application.status)}`}>
+                        <span className={`iconify ${statusIconClass(application.status)} text-sm`}></span>
                         {applicationStatusLabel(application.status, i18n)}
                     </span>
                     {application.reason ? (
@@ -644,7 +765,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     ) : null}
                 </div>
             </td>
-            <td>
+            <td className="py-3">
                 <label className="label cursor-pointer gap-2">
                     <input
                         type="checkbox"
@@ -655,13 +776,13 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     />
                 </label>
             </td>
-            <td>
+            <td className="py-3">
                 {actionError ? (
                     <p role="alert" className="mb-2 max-w-48 text-sm text-error">
                         {actionError}
                     </p>
                 ) : null}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                     {canApprove ? (
                         <button type="button" className="btn btn-sm btn-success" disabled={busy} onClick={() => void handleApprove()}>
                             {i18n._(t`Freigeben`)}
@@ -687,6 +808,7 @@ function SubApplicationsTab() {
     const { i18n } = useLingui();
     const [subAccreditationFilter, setSubAccreditationFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState<'' | SubApplicationStatus>('');
+    const [page, setPage] = useState(1);
 
     const [denyTarget, setDenyTarget] = useState<AdminSubApplication | null>(null);
     const [denyError, setDenyError] = useState<string | null>(null);
@@ -711,6 +833,13 @@ function SubApplicationsTab() {
     const revalidate = async () => {
         await mutate();
     };
+
+    const subApplications = data ?? [];
+    const pageCount = Math.max(1, Math.ceil(subApplications.length / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    const pageStart = (currentPage - 1) * PAGE_SIZE;
+    const visibleSubApplications = subApplications.slice(pageStart, pageStart + PAGE_SIZE);
+    const filtersActive = subAccreditationFilter !== '' || statusFilter !== '';
 
     const openDeny = (application: AdminSubApplication) => {
         setDenyTarget(application);
@@ -741,7 +870,7 @@ function SubApplicationsTab() {
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-end gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
                 <div className="form-control">
                     <label className="label" htmlFor="approval-sub-accreditation-filter">
                         <span className="label-text">{i18n._(t`Sub-Akkreditierung`)}</span>
@@ -750,7 +879,10 @@ function SubApplicationsTab() {
                         id="approval-sub-accreditation-filter"
                         className="select select-sm"
                         value={subAccreditationFilter}
-                        onChange={(event) => setSubAccreditationFilter(event.target.value)}
+                        onChange={(event) => {
+                            setSubAccreditationFilter(event.target.value);
+                            setPage(1);
+                        }}
                     >
                         <option value="">{i18n._(t`Alle`)}</option>
                         {(allSubs ?? []).map((sub) => (
@@ -768,7 +900,10 @@ function SubApplicationsTab() {
                         id="approval-sub-status-filter"
                         className="select select-sm"
                         value={statusFilter}
-                        onChange={(event) => setStatusFilter(event.target.value as '' | SubApplicationStatus)}
+                        onChange={(event) => {
+                            setStatusFilter(event.target.value as '' | SubApplicationStatus);
+                            setPage(1);
+                        }}
                     >
                         <option value="">{i18n._(t`Alle`)}</option>
                         <option value="requested">{applicationStatusLabel('requested', i18n)}</option>
@@ -787,34 +922,60 @@ function SubApplicationsTab() {
             ) : null}
 
             {data && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Sub-Akkreditierung`)}</th>
-                                <th>{i18n._(t`Antragsteller`)}</th>
-                                <th>{i18n._(t`Haupt-Akkreditierung`)}</th>
-                                <th>{i18n._(t`Status`)}</th>
-                                <th>{i18n._(t`VIP`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.map((application) => (
-                                <SubApplicationRow
-                                    key={application.id}
-                                    application={application}
-                                    onChanged={revalidate}
-                                    onDeny={openDeny}
+                <div className="flex flex-col gap-2">
+                    <p aria-live="polite">
+                        {subApplications.length === 1
+                            ? `${subApplications.length} Sub-Antrag`
+                            : `${subApplications.length} Sub-Anträge`}
+                    </p>
+                    {subApplications.length === 0 ? (
+                        filtersActive ? (
+                            <div className="flex flex-col gap-1">
+                                <p className="text-base-content/70">{i18n._(t`Keine Sub-Anträge für diese Filter.`)}</p>
+                                <p className="text-sm text-base-content/50">
+                                    {i18n._(t`Passe die Filter an, um Sub-Anträge anzuzeigen.`)}
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-base-content/70">{i18n._(t`Keine Sub-Anträge vorhanden.`)}</p>
+                        )
+                    ) : (
+                        <>
+                            <div className="overflow-x-auto overflow-y-auto max-h-96">
+                                <table className="table">
+                                    <thead>
+                                        <tr>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Sub-Akkreditierung`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Haupt-Akkreditierung`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {visibleSubApplications.map((application) => (
+                                            <SubApplicationRow
+                                                key={application.id}
+                                                application={application}
+                                                onChanged={revalidate}
+                                                onDeny={openDeny}
+                                            />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex justify-end">
+                                <Pagination
+                                    page={currentPage}
+                                    pageCount={pageCount}
+                                    onPrevious={() => setPage(Math.max(1, currentPage - 1))}
+                                    onNext={() => setPage(Math.min(pageCount, currentPage + 1))}
                                 />
-                            ))}
-                        </tbody>
-                    </table>
+                            </div>
+                        </>
+                    )}
                 </div>
-            ) : null}
-
-            {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Keine Sub-Anträge vorhanden.`)}</p>
             ) : null}
 
             {denyTarget ? (
@@ -834,6 +995,7 @@ function BlacklistTab() {
     const { i18n } = useLingui();
     const { data, error, isLoading, mutate } = useSWR<Blacklist[]>(['/api/admin/blacklists', ''], () => listBlacklists());
     const [formError, setFormError] = useState<string | null>(null);
+    const [page, setPage] = useState(1);
 
     const handleCreate = async (values: BlacklistFormValues) => {
         setFormError(null);
@@ -857,6 +1019,12 @@ function BlacklistTab() {
         }
     };
 
+    const entries = data ?? [];
+    const pageCount = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    const pageStart = (currentPage - 1) * PAGE_SIZE;
+    const visibleEntries = entries.slice(pageStart, pageStart + PAGE_SIZE);
+
     return (
         <div className="flex flex-col gap-6">
             <div className="card bg-base-200">
@@ -875,42 +1043,71 @@ function BlacklistTab() {
             ) : null}
 
             {data && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`E-Mail`)}</th>
-                                <th>{i18n._(t`Domäne`)}</th>
-                                <th>{i18n._(t`Notiz`)}</th>
-                                <th>{i18n._(t`Erstellt`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.map((entry) => (
-                                <tr key={entry.id}>
-                                    <td>{entry.email ?? '—'}</td>
-                                    <td>{entry.domain ?? '—'}</td>
-                                    <td>{entry.note ?? ''}</td>
-                                    <td>{formatDateTime(entry.created_at, i18n)}</td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="btn btn-sm btn-error btn-outline"
-                                            onClick={() => void handleDelete(entry)}
-                                        >
-                                            {i18n._(t`Löschen`)}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="flex flex-col gap-2">
+                    <p aria-live="polite">
+                        {entries.length === 1 ? `${entries.length} Eintrag` : `${entries.length} Einträge`}
+                    </p>
+                    {entries.length === 0 ? (
+                        <p className="text-base-content/70">{i18n._(t`Keine Blacklist-Einträge vorhanden.`)}</p>
+                    ) : (
+                        <>
+                            <div className="overflow-x-auto overflow-y-auto max-h-96">
+                                <table className="table">
+                                    <thead>
+                                        <tr>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domäne`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Notiz`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Erstellt`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {visibleEntries.map((entry) => (
+                                            <tr key={entry.id}>
+                                                <td className="min-w-0 py-3">
+                                                    <div className="truncate" title={entry.email ?? ''}>
+                                                        {entry.email ?? '—'}
+                                                    </div>
+                                                </td>
+                                                <td className="min-w-0 py-3">
+                                                    <div className="truncate" title={entry.domain ?? ''}>
+                                                        {entry.domain ?? '—'}
+                                                    </div>
+                                                </td>
+                                                <td className="min-w-0 py-3">
+                                                    <div className="truncate max-w-56" title={entry.note ?? ''}>
+                                                        {entry.note ?? ''}
+                                                    </div>
+                                                </td>
+                                                <td className="py-3">{formatDateTime(entry.created_at, i18n)}</td>
+                                                <td className="py-3">
+                                                    <div className="flex justify-end">
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-error btn-outline"
+                                                            onClick={() => void handleDelete(entry)}
+                                                        >
+                                                            {i18n._(t`Löschen`)}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex justify-end">
+                                <Pagination
+                                    page={currentPage}
+                                    pageCount={pageCount}
+                                    onPrevious={() => setPage(Math.max(1, currentPage - 1))}
+                                    onNext={() => setPage(Math.min(pageCount, currentPage + 1))}
+                                />
+                            </div>
+                        </>
+                    )}
                 </div>
-            ) : null}
-
-            {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Keine Blacklist-Einträge vorhanden.`)}</p>
             ) : null}
         </div>
     );

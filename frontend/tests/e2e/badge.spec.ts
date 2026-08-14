@@ -34,7 +34,9 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
 
         // Create a badge template via the UI: name + three layout fields
         // (name, category, date) and mark it as the mandant default.
-        await main.getByRole('button', { name: 'Neu', exact: true }).click();
+        // When no templates exist yet, "Neu" appears in the header AND in the
+        // empty-state panel CTA — the header one (first) is equivalent.
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
         const dialog = page.getByRole('dialog');
         await expect(dialog.getByRole('heading', { name: 'Neues Template' })).toBeVisible();
 

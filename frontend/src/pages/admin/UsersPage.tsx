@@ -7,10 +7,13 @@ import type { AdminUser, UserRoleAssignment } from '../../api/types';
 import { RoleForm } from './RoleForm';
 import { buildRolePayload, type RoleFormValues } from './userRoleFormUtils';
 
+const PAGE_SIZE = 20;
+
 export function UsersPage() {
     const { i18n } = useLingui();
     const [searchInput, setSearchInput] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [page, setPage] = useState(1);
 
     useEffect(() => {
         const timer = window.setTimeout(() => setDebouncedSearch(searchInput), 300);
@@ -47,6 +50,12 @@ export function UsersPage() {
         }
     };
 
+    const totalCount = users?.length ?? 0;
+    const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    const pagedUsers = (users ?? []).slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    const hasSearch = debouncedSearch !== '';
+
     const roleBadges = (assignments: UserRoleAssignment[]) =>
         assignments.map((assignment) => (
             <span
@@ -69,10 +78,13 @@ export function UsersPage() {
                     <input
                         id="users-search"
                         type="search"
-                        className="input input-sm"
+                        className="input max-w-xs"
                         placeholder={i18n._(t`E-Mail oder Name`)}
                         value={searchInput}
-                        onChange={(event) => setSearchInput(event.target.value)}
+                        onChange={(event) => {
+                            setSearchInput(event.target.value);
+                            setPage(1);
+                        }}
                     />
                 </div>
             </div>
@@ -86,42 +98,84 @@ export function UsersPage() {
             ) : null}
 
             {users && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Name`)}</th>
-                                <th>{i18n._(t`E-Mail`)}</th>
-                                <th>{i18n._(t`Rollen`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {users.map((user) => (
-                                <tr key={user.id}>
-                                    <td className="font-medium">{user.name}</td>
-                                    <td>{user.email}</td>
-                                    <td>
-                                        <div className="flex flex-wrap gap-1">{roleBadges(user.roles)}</div>
-                                    </td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="btn btn-sm btn-outline"
-                                            onClick={() => openEdit(user)}
-                                        >
-                                            {i18n._(t`Rollen bearbeiten`)}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <p className="text-sm text-base-content/70">{i18n._(t`${totalCount} Benutzer`)}</p>
+                        {pageCount > 1 ? (
+                            <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage <= 1}
+                                    onClick={() => setPage((previous) => Math.max(1, previous - 1))}
+                                >
+                                    {i18n._(t`Zurück`)}
+                                </button>
+                                <span className="join-item btn btn-sm btn-disabled" aria-live="polite">
+                                    {i18n._(t`Seite ${currentPage} von ${pageCount}`)}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage >= pageCount}
+                                    onClick={() => setPage((previous) => Math.min(pageCount, previous + 1))}
+                                >
+                                    {i18n._(t`Weiter`)}
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+                    <div className="overflow-x-auto">
+                        <div className="max-h-96 overflow-y-auto">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
+                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
+                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Rollen`)}</th>
+                                        <th className="sticky top-0 z-10 bg-base-100 min-w-40">{i18n._(t`Aktionen`)}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pagedUsers.map((user) => (
+                                        <tr key={user.id}>
+                                            <td className="max-w-48">
+                                                <span className="block truncate font-medium" title={user.name}>
+                                                    {user.name}
+                                                </span>
+                                            </td>
+                                            <td className="max-w-72">
+                                                <span className="block truncate" title={user.email}>
+                                                    {user.email}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div className="flex flex-wrap gap-1">{roleBadges(user.roles)}</div>
+                                            </td>
+                                            <td className="whitespace-nowrap">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-sm btn-outline"
+                                                    onClick={() => openEdit(user)}
+                                                >
+                                                    {i18n._(t`Rollen bearbeiten`)}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             ) : null}
 
             {users && users.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Keine Benutzer gefunden.`)}</p>
+                <p className="text-base-content/70">
+                    {hasSearch
+                        ? i18n._(t`Keine Benutzer für die Suche.`)
+                        : i18n._(t`Noch keine Benutzer vorhanden.`)}
+                </p>
             ) : null}
 
             {editUser ? (

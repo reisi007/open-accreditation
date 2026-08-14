@@ -44,6 +44,7 @@ test.describe('Admin Freigaben (P3e)', () => {
         await main.getByRole('button', { name: 'Blacklist-Eintrag anlegen' }).click();
         const blacklistRow = main.getByRole('row', { name: new RegExp(applicantD.email) });
         await expect(blacklistRow).toBeVisible();
+        await expect(main.getByText('1 Eintrag', { exact: true })).toBeVisible();
 
         // 2) Anträge tab: filter by the accreditation and see all four rows.
         await main.getByRole('tab', { name: 'Anträge', exact: true }).click();
@@ -57,7 +58,19 @@ test.describe('Admin Freigaben (P3e)', () => {
         await expect(rowC).toBeVisible();
         await expect(rowD).toBeVisible();
 
-        // 2b) P5-F1 negative: a requested application has no resend button.
+        // 2a) Result count uses the full filtered array length; small result
+        //     lists render no pagination controls.
+        await expect(main.getByText('4 Anträge', { exact: true })).toBeVisible();
+        await expect(main.getByRole('button', { name: 'Weiter' })).toHaveCount(0);
+
+        // 2b) P5-UI: a status filter with no matches shows the dedicated empty
+        //     state instead of the generic "Keine Anträge vorhanden." text.
+        await main.getByLabel('Status', { exact: true }).selectOption('approved');
+        await expect(main.getByText('Keine Anträge für diese Filter.')).toBeVisible();
+        await main.getByLabel('Status', { exact: true }).selectOption('');
+        await expect(rowA).toBeVisible();
+
+        // 2c) P5-F1 negative: a requested application has no resend button.
         await expect(rowC.getByRole('button', { name: 'E-Mail erneut senden' })).toHaveCount(0);
 
         // 3) Mark applicant A as VIP.
@@ -117,6 +130,7 @@ test.describe('Admin Freigaben (P3e)', () => {
         page.on('dialog', (dialog) => void dialog.accept());
         await blacklistRow.getByRole('button', { name: 'Löschen' }).click();
         await expect(blacklistRow).toHaveCount(0);
+        await expect(main.getByText('0 Einträge', { exact: true })).toBeVisible();
     });
 
     test('admin creates, edits and deletes a sub-accreditation via the admin modal', { tag: ['@feature:accreditation'] }, async ({ page }) => {

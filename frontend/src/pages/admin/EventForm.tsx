@@ -145,7 +145,7 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
                 </div>
             </div>
             {errors.deadline_end ? (
-                <span className="label-text-alt text-error">{errors.deadline_end.message}</span>
+                <span className="label-text-alt mt-1 text-error">{errors.deadline_end.message}</span>
             ) : null}
 
             <div className="form-control">

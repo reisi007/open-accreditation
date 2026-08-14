@@ -99,7 +99,7 @@ export function BadgeTemplatesPage() {
                 </div>
             ) : null}
 
-            {data && !isLoading && !error ? (
+            {data && data.length > 0 && !isLoading && !error ? (
                 <div className="overflow-x-auto">
                     <table className="table">
                         <thead>
@@ -115,11 +115,17 @@ export function BadgeTemplatesPage() {
                                 const fieldCount = template.layout.length;
                                 return (
                                     <tr key={template.id}>
-                                        <td className="font-medium">{template.name}</td>
+                                        <td className="max-w-56">
+                                            <div className="truncate font-medium" title={template.name}>
+                                                {template.name}
+                                            </div>
+                                        </td>
                                         <td>
                                             {template.is_default ? (
                                                 <span className="badge badge-success badge-sm">{i18n._(t`Standard`)}</span>
-                                            ) : null}
+                                            ) : (
+                                                <span className="text-base-content/40">—</span>
+                                            )}
                                         </td>
                                         <td>
                                             <span className="badge badge-ghost badge-sm">
@@ -153,7 +159,19 @@ export function BadgeTemplatesPage() {
             ) : null}
 
             {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Noch keine Templates vorhanden.`)}</p>
+                <div className="card border border-base-300 bg-base-100">
+                    <div className="card-body items-center justify-center py-16 text-center">
+                        <span className="iconify mdi--badge-account-outline text-6xl text-base-content/40"></span>
+                        <h2 className="card-title">{i18n._(t`Noch keine Ausweis-Templates`)}</h2>
+                        <p className="text-base-content/70">
+                            {i18n._(t`Lege das erste Ausweis-Template an, um Ausweise zu drucken und zu verifizieren.`)}
+                        </p>
+                        <button type="button" className="btn btn-primary mt-2" onClick={openNew}>
+                            <span className="iconify mdi--plus text-xl"></span>
+                            {i18n._(t`Neu`)}
+                        </button>
+                    </div>
+                </div>
             ) : null}
 
             {showForm ? (

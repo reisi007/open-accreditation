@@ -86,7 +86,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                 </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
                 <div className="overflow-x-auto">
                     <table className="table table-sm">
                         <thead>

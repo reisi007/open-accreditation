@@ -28,7 +28,7 @@ export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel
 
     return (
         <form
-            className="mt-4 flex flex-col gap-4 rounded-box bg-base-100 p-4"
+            className="mt-4 flex flex-col gap-4"
             noValidate
             onSubmit={handleSubmit(async (values) => {
                 await onSubmit(values);

@@ -187,15 +187,15 @@
 
 | Batch | Inhalt | Implementer | Verifikator |
 |---|---|---|---|
-| A | **UI-Befunde admin-freigaben** (Pagination/Sticky/Result-Count, Action-Group-Muster, Status-Semantik, Zeilendichte, Filter-Empty-State, Filter-Grid) | ⏳ läuft (ses_ffe20c34bffeR1S5u01Q56uVIj) | — |
-| B | **UI-Befunde admin-users** (Pagination/Sticky/Result-Count, Action-Spalte, E-Mail-Truncate, Tabellenbreite, Empty-State-Differenzierung, Toolbar) | ⏳ läuft (ses_ffe20c34affeInW1ED1cxrr6j5) | — |
-| C | **UI-Befunde badge-templates + meine-akkreditierungen + Empty-State-Panels** (`—`-Platzhalter, Truncate, responsives Card-Layout, ID als Sekundär-Metadaten, zentrierte Empty-States) | ✅ fertig (ses_ffe20c349ffeppDRj0oDqU9q2H) | — |
-| D | **Formular-Abstände** (Submit-Wrapper in Login/Verify/Blacklist/Domain-Form, `grid gap-4`, Error-Hint `mt-1`, TeamForm-Card, BlacklistForm-Klassen) | ✅ fertig (ses_ffe20c34cffeJScqTyU6tBfssw) | — |
-| E | **P8b Backend** (Permission `mandant.media.manage`, self-scoped Routen/Controller, Gate, PHPUnit + RolePermissionTest-Matrix) | ⏳ läuft (ses_ffe1d666cffeoyILV8jfWDMg1P) | — |
-| F | **P8b Frontend** (Route/Seite mandant_admin + MediaField, Admin-Menüpunkt, MandantListPage-Thumbnail + Open-Portal-Link, Playwright-E2E `@feature:admin:mandant`) | ⏳ läuft (ses_ffe20c34cffeJScqTyU6tBfssw) | — |
-| G1 | **P7-Hardening Backend (Config/Auth)** — F2 JWT-cookie-only, F3 Disk-serve, F4 activation_token-Hash, F5 Upload-Kontingent, B2 Auth-Throttle, B3 trustHosts, P2a-RL, P5-F2 Resend-RL, P1a-B1/B2/B4, P0-Fix-F3 | ⏸ wartet auf E (routes/api.php-Konflikt) | — |
-| G2 | **P7-Hardening Backend (Daten/Export)** — P4-F1 CSV-Formel-Injection, P3d-F2 Blacklist case-insensitiv, P2c-F3 role_user.team_id-FK, P2b-F8 Event-Partial-Update | ⏳ läuft (ses_ffe1d666bffepfyqopg7UxQhx8) | — |
-| H | **Verifikation + Screenshot-Suite + Vision** (je Batch separater Verifikator; danach `pnpm test:screenshots` + Vision-Analyse; Commits je Batch) | — | — |
+| A | **UI-Befunde admin-freigaben** (Pagination/Sticky/Result-Count, Action-Group-Muster, Status-Semantik, Zeilendichte, Filter-Empty-State, Filter-Grid) | ✅ fertig (ses_ffe20c34bffeR1S5u01Q56uVIj) | ⏳ nach F |
+| B | **UI-Befunde admin-users** (Pagination/Sticky/Result-Count, Action-Spalte, E-Mail-Truncate, Tabellenbreite, Empty-State-Differenzierung, Toolbar) | ✅ fertig (ses_ffe20c34affeInW1ED1cxrr6j5) | ⏳ nach F |
+| C | **UI-Befunde badge-templates + meine-akkreditierungen + Empty-State-Panels** (`—`-Platzhalter, Truncate, responsives Card-Layout, ID als Sekundär-Metadaten, zentrierte Empty-States) | ✅ fertig (ses_ffe20c349ffeppDRj0oDqU9q2H) | ⏳ nach F |
+| D | **Formular-Abstände** (Submit-Wrapper in Login/Verify/Blacklist/Domain-Form, `grid gap-4`, Error-Hint `mt-1`, TeamForm-Card, BlacklistForm-Klassen) | ✅ fertig (ses_ffe20c34cffeJScqTyU6tBfssw) | ⏳ nach F |
+| E | **P8b Backend** (Permission `mandant.media.manage`, self-scoped Routen/Controller, Gate, PHPUnit + RolePermissionTest-Matrix) | ✅ fertig (ses_ffe1d666cffeoyILV8jfWDMg1P) | ✅ APPROVED |
+| F | **P8b Frontend** (Route/Seite mandant_admin + MediaField, Admin-Menüpunkt, MandantListPage-Thumbnail + Open-Portal-Link, Playwright-E2E `@feature:admin:mandant`) | ⏳ läuft (ses_ffe20c34cffeJScqTyU6tBfssw) | ⏳ nach F |
+| G1 | **P7-Hardening Backend (Config/Auth)** — F2 JWT-cookie-only, F3 Disk-serve, F4 activation_token-Hash, F5 Upload-Kontingent, B2 Auth-Throttle, B3 trustHosts, P2a-RL, P5-F2 Resend-RL, P1a-B1/B2/B4, P0-Fix-F3 | ✅ fertig (ses_ffe1d666cffeoyILV8jfWDMg1P) | ✅ APPROVED |
+| G2 | **P7-Hardening Backend (Daten/Export)** — P4-F1 CSV-Formel-Injection, P3d-F2 Blacklist case-insensitiv, P2c-F3 role_user.team_id-FK, P2b-F8 Event-Partial-Update | ✅ fertig (ses_ffe1d666bffepfyqopg7UxQhx8) | ✅ APPROVED |
+| H | **Verifikation + Screenshot-Suite + Vision** (je Batch separater Verifikator; danach `pnpm test:screenshots` + Vision-Analyse; Commits je Batch) | — | ⏳ Backend ✅, Frontend nach F |
 
 Reihenfolge: E+F (P8b) und G2 (P7-Daten) laufen parallel zum Frontend (A–D); G1 (P7-Config) startet nach E (routes/api.php). Danach H (Screenshots + Vision). Commits je Batch.
 

@@ -222,9 +222,12 @@ export function MyAccreditationsPage() {
                                 key={application.id}
                                 className="card border border-base-300 bg-base-100 p-4"
                             >
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <div>
-                                        <h2 className="text-lg font-semibold">{accreditation?.category?.name ?? ''}</h2>
+                                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                        <h2 className="text-lg font-semibold">
+                                            {accreditation?.category?.name ?? ''}
+                                        </h2>
+                                        <p className="mt-0.5 text-sm text-base-content/60">#{application.id}</p>
                                         <div className="mt-1 flex flex-wrap items-center gap-2">
                                             <span className="badge badge-outline badge-sm">
                                                 {accreditation ? accreditationScopeLabel(accreditation.scope, i18n) : ''}
@@ -239,7 +242,7 @@ export function MyAccreditationsPage() {
                                             ) : null}
                                         </div>
                                     </div>
-                                    <div className="flex flex-col items-end gap-2">
+                                    <div className="flex flex-col items-start gap-2 sm:items-end">
                                         <span className={`badge badge-sm ${STATUS_BADGE_CLASS[application.status]}`}>
                                             {applicationStatusLabel(application.status, i18n)}
                                         </span>
@@ -252,34 +255,34 @@ export function MyAccreditationsPage() {
                                                 {i18n._(t`Zurückziehen`)}
                                             </button>
                                         ) : null}
+                                        {application.status === 'approved' ? (
+                                            <div
+                                                role="group"
+                                                aria-label={i18n._(t`Wallet-Downloads`)}
+                                                className="flex flex-col gap-2"
+                                            >
+                                                <a
+                                                    href={`/api/applications/${application.id}/wallet`}
+                                                    download="wallet.pkpass"
+                                                    className="btn btn-outline btn-sm"
+                                                >
+                                                    {i18n._(t`Apple Wallet`)}
+                                                </a>
+                                                <a
+                                                    href={`/api/applications/${application.id}/wallet/google`}
+                                                    download="wallet.json"
+                                                    className="btn btn-outline btn-sm"
+                                                >
+                                                    {i18n._(t`Google Wallet`)}
+                                                </a>
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                                 {application.status === 'approved' ? (
-                                    <div className="mt-3 border-t border-base-300 pt-3">
-                                        <div
-                                            role="group"
-                                            aria-label={i18n._(t`Wallet-Downloads`)}
-                                            className="flex flex-wrap items-center gap-2"
-                                        >
-                                            <a
-                                                href={`/api/applications/${application.id}/wallet`}
-                                                download="wallet.pkpass"
-                                                className="btn btn-outline btn-sm"
-                                            >
-                                                {i18n._(t`Apple Wallet`)}
-                                            </a>
-                                            <a
-                                                href={`/api/applications/${application.id}/wallet/google`}
-                                                download="wallet.json"
-                                                className="btn btn-outline btn-sm"
-                                            >
-                                                {i18n._(t`Google Wallet`)}
-                                            </a>
-                                        </div>
-                                        <p className="mt-2 text-sm text-base-content/60">
-                                            {i18n._(t`Pass wird im Apple/Google-Wallet-Format heruntergeladen.`)}
-                                        </p>
-                                    </div>
+                                    <p className="mt-3 border-t border-base-300 pt-3 text-sm text-base-content/60">
+                                        {i18n._(t`Pass wird im Apple/Google-Wallet-Format heruntergeladen.`)}
+                                    </p>
                                 ) : null}
                                 {application.status === 'approved' && accreditation ? (
                                     <SubAccreditationSection

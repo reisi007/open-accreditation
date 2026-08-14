@@ -22,9 +22,29 @@ msgstr ""
 msgid "{available} Plätze frei"
 msgstr "{available} Plätze frei"
 
+#: src/pages/admin/ApprovalsPage.tsx
+#~ msgid "{count, plural, one {# Antrag} other {# Anträge}}"
+#~ msgstr "{count, plural, one {# Antrag} other {# Anträge}}"
+
+#: src/pages/admin/ApprovalsPage.tsx
+#~ msgid "{count, plural, one {# Eintrag} other {# Einträge}}"
+#~ msgstr "{count, plural, one {# Eintrag} other {# Einträge}}"
+
+#: src/pages/admin/ApprovalsPage.tsx
+#~ msgid "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
+#~ msgstr "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
+
+#: src/pages/admin/UsersPage.tsx
+#~ msgid "{count} Benutzer"
+#~ msgstr "{count} Benutzer"
+
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "{fieldCount} Felder"
 msgstr "{fieldCount} Felder"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "{totalCount} Benutzer"
+msgstr "{totalCount} Benutzer"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/BadgeTemplateForm.tsx
@@ -274,7 +294,7 @@ msgstr "Benutzer suchen"
 msgid "Beschreibung"
 msgstr "Beschreibung"
 
-#: src/pages/admin/MandantDetailPage.tsx
+#: src/components/MediaField.tsx
 msgid "Bild konnte nicht entfernt werden."
 msgstr "Bild konnte nicht entfernt werden."
 
@@ -427,6 +447,7 @@ msgstr "Ebene"
 msgid "Einstellungen"
 msgstr "Einstellungen"
 
+#: src/components/MediaField.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Entfernen"
 msgstr "Entfernen"
@@ -595,6 +616,7 @@ msgid "Haupt-Akkreditierung"
 msgstr "Haupt-Akkreditierung"
 
 #: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/MandantMediaPage.tsx
 msgid "Header"
 msgstr "Header"
 
@@ -602,7 +624,7 @@ msgstr "Header"
 msgid "Heimstätte"
 msgstr "Heimstätte"
 
-#: src/pages/admin/MandantDetailPage.tsx
+#: src/components/MediaField.tsx
 msgid "Hochladen"
 msgstr "Hochladen"
 
@@ -665,9 +687,13 @@ msgstr "Kategorien"
 msgid "Kategorien konnten nicht geladen werden."
 msgstr "Kategorien konnten nicht geladen werden."
 
-#: src/pages/admin/MandantDetailPage.tsx
+#: src/components/MediaField.tsx
 msgid "Kein Bild hinterlegt."
 msgstr "Kein Bild hinterlegt."
+
+#: src/pages/admin/MandantMediaPage.tsx
+msgid "Kein Mandanten-Kontext vorhanden."
+msgstr "Kein Mandanten-Kontext vorhanden."
 
 #: src/pages/admin/MandantForm.tsx
 #~ msgid "Kein Passwort gespeichert."
@@ -682,12 +708,20 @@ msgid "Keine Akkreditierungen verfügbar."
 msgstr "Keine Akkreditierungen verfügbar."
 
 #: src/pages/admin/ApprovalsPage.tsx
+msgid "Keine Anträge für diese Filter."
+msgstr "Keine Anträge für diese Filter."
+
+#: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Anträge vorhanden."
 msgstr "Keine Anträge vorhanden."
 
 #: src/pages/admin/UsersPage.tsx
-msgid "Keine Benutzer gefunden."
-msgstr "Keine Benutzer gefunden."
+msgid "Keine Benutzer für die Suche."
+msgstr "Keine Benutzer für die Suche."
+
+#: src/pages/admin/UsersPage.tsx
+#~ msgid "Keine Benutzer gefunden."
+#~ msgstr "Keine Benutzer gefunden."
 
 #: src/pages/admin/resendMailUtils.ts
 msgid "Keine Berechtigung für diesen Antrag."
@@ -696,6 +730,10 @@ msgstr "Keine Berechtigung für diesen Antrag."
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Blacklist-Einträge vorhanden."
 msgstr "Keine Blacklist-Einträge vorhanden."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Keine Sub-Anträge für diese Filter."
+msgstr "Keine Sub-Anträge für diese Filter."
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Sub-Anträge vorhanden."
@@ -713,6 +751,10 @@ msgstr "Kontakt"
 msgid "Leer = unverändert"
 msgstr "Leer = unverändert"
 
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Lege das erste Ausweis-Template an, um Ausweise zu drucken und zu verifizieren."
+msgstr "Lege das erste Ausweis-Template an, um Ausweise zu drucken und zu verifizieren."
+
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/AccreditationForm.tsx
 msgid "Liga"
@@ -727,10 +769,14 @@ msgid "Live-Vorschau (A6, Maße in mm)"
 msgstr "Live-Vorschau (A6, Maße in mm)"
 
 #: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/MandantMediaPage.tsx
 msgid "Logo"
 msgstr "Logo"
 
+#: src/pages/admin/AdminLayout.tsx
 #: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/MandantMediaPage.tsx
 msgid "Logo & Header"
 msgstr "Logo & Header"
 
@@ -886,6 +932,14 @@ msgstr "Noch keine Akkreditierungen vorhanden."
 msgid "Noch keine Anträge vorhanden."
 msgstr "Noch keine Anträge vorhanden."
 
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "Noch keine Ausweis-Templates"
+msgstr "Noch keine Ausweis-Templates"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Noch keine Benutzer vorhanden."
+msgstr "Noch keine Benutzer vorhanden."
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Noch keine Domains vorhanden."
 msgstr "Noch keine Domains vorhanden."
@@ -911,8 +965,8 @@ msgid "Noch keine Teams vorhanden."
 msgstr "Noch keine Teams vorhanden."
 
 #: src/pages/admin/BadgeTemplatesPage.tsx
-msgid "Noch keine Templates vorhanden."
-msgstr "Noch keine Templates vorhanden."
+#~ msgid "Noch keine Templates vorhanden."
+#~ msgstr "Noch keine Templates vorhanden."
 
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BlacklistForm.tsx
@@ -933,6 +987,14 @@ msgstr "Parkkarte"
 msgid "Pass wird im Apple/Google-Wallet-Format heruntergeladen."
 msgstr "Pass wird im Apple/Google-Wallet-Format heruntergeladen."
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Passe die Filter an, um Anträge anzuzeigen."
+msgstr "Passe die Filter an, um Anträge anzuzeigen."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Passe die Filter an, um Sub-Anträge anzuzeigen."
+msgstr "Passe die Filter an, um Sub-Anträge anzuzeigen."
+
 #: src/pages/LoginPage.tsx
 msgid "Passwort"
 msgstr "Passwort"
@@ -948,6 +1010,10 @@ msgstr "person@example.com"
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Portal konnte nicht geladen werden."
 msgstr "Portal konnte nicht geladen werden."
+
+#: src/pages/admin/MandantMediaPage.tsx
+msgid "Portaldaten konnten nicht geladen werden."
+msgstr "Portaldaten konnten nicht geladen werden."
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Porträt"
@@ -1019,6 +1085,18 @@ msgstr "Schriftgröße (pt)"
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Schriftgröße muss mindestens 1 sein."
 msgstr "Schriftgröße muss mindestens 1 sein."
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Seite {currentPage} von {pageCount}"
+msgstr "Seite {currentPage} von {pageCount}"
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Seite {page} von {pageCount}"
+msgstr "Seite {page} von {pageCount}"
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Seitennavigation"
+msgstr "Seitennavigation"
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -1298,7 +1376,7 @@ msgstr "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
 msgid "Ungültiger Code."
 msgstr "Ungültiger Code."
 
-#: src/pages/admin/MandantDetailPage.tsx
+#: src/components/MediaField.tsx
 msgid "Upload fehlgeschlagen."
 msgstr "Upload fehlgeschlagen."
 
@@ -1368,6 +1446,11 @@ msgstr "Wallet-Downloads"
 msgid "Warteliste"
 msgstr "Warteliste"
 
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Weiter"
+msgstr "Weiter"
+
 #: src/pages/admin/EventForm.tsx
 #: src/pages/portal/EventDetailPage.tsx
 #: src/pages/portal/PortalHomePage.tsx
@@ -1397,6 +1480,11 @@ msgstr "Y muss 0 oder größer sein."
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Zentriert"
 msgstr "Zentriert"
+
+#: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Zurück"
+msgstr "Zurück"
 
 #: src/pages/ApplyPage.tsx
 msgid "Zurück zu Akkreditierungen"

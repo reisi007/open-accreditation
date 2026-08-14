@@ -32,6 +32,7 @@ export function MandantListPage() {
                     <table className="table">
                         <thead>
                             <tr>
+                                <th>{i18n._(t`Logo`)}</th>
                                 <th>{i18n._(t`Name`)}</th>
                                 <th>{i18n._(t`Slug`)}</th>
                                 <th>{i18n._(t`Domains`)}</th>
@@ -43,6 +44,13 @@ export function MandantListPage() {
                             {mandants.map((mandant) => (
                                 <tr key={mandant.id}>
                                     <td>
+                                        {mandant.logo_url ? (
+                                            <img src={mandant.logo_url} alt="" className="h-10 w-10 rounded object-cover" />
+                                        ) : (
+                                            <span>—</span>
+                                        )}
+                                    </td>
+                                    <td>
                                         <Link to={`/admin/mandants/${mandant.id}`} className="link">
                                             {mandant.name}
                                         </Link>
@@ -50,7 +58,17 @@ export function MandantListPage() {
                                     <td>
                                         <code>{mandant.slug}</code>
                                     </td>
-                                    <td>{(mandant.domains ?? []).map((domain) => domain.hostname).join(', ')}</td>
+                                    <td>
+                                        {(mandant.domains ?? []).map((domain, index) => (
+                                            <span key={domain.id}>
+                                                {index > 0 ? ', ' : null}
+                                                <a href={`http://${domain.hostname}`} target="_blank" rel="noreferrer">
+                                                    {domain.hostname}
+                                                    <span className="iconify mdi--open-in-new text-sm"></span>
+                                                </a>
+                                            </span>
+                                        ))}
+                                    </td>
                                     <td>{mandant.teams_count}</td>
                                     <td>
                                         {mandant.is_active ? (

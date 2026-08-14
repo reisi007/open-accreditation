@@ -96,10 +96,12 @@ export function LoginPage() {
                     ) : null}
                 </div>
 
-                <button type="submit" className="btn btn-primary mt-2" disabled={isSubmitting}>
-                    {isSubmitting ? <span className="loading loading-spinner loading-xs"></span> : null}
-                    {i18n._(t`Anmelden`)}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                        {isSubmitting ? <span className="loading loading-spinner loading-xs"></span> : null}
+                        {i18n._(t`Anmelden`)}
+                    </button>
+                </div>
             </form>
         </section>
     );

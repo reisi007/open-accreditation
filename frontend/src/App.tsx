@@ -24,6 +24,7 @@ import { EventsPage } from './pages/admin/EventsPage';
 import { MandantDetailPage } from './pages/admin/MandantDetailPage';
 import { MandantFormPage } from './pages/admin/MandantFormPage';
 import { MandantListPage } from './pages/admin/MandantListPage';
+import { MandantMediaPage } from './pages/admin/MandantMediaPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { BadgeTemplatesPage } from './pages/admin/BadgeTemplatesPage';
 import { VerifyPage } from './pages/VerifyPage';
@@ -189,6 +190,7 @@ const router = createBrowserRouter([
                         children: [
                             { path: 'users', element: <UsersPage /> },
                             { path: 'badge-templates', element: <BadgeTemplatesPage /> },
+                            { path: 'media', element: <MandantMediaPage /> },
                         ],
                     },
                 ],

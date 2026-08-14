@@ -89,10 +89,12 @@ export function VerifyPage() {
                         required
                     />
                 </div>
-                <button type="submit" className="btn btn-primary" disabled={isLoading}>
-                    {isLoading ? <span className="loading loading-spinner loading-xs"></span> : null}
-                    {i18n._(t`Prüfen`)}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button type="submit" className="btn btn-primary" disabled={isLoading}>
+                        {isLoading ? <span className="loading loading-spinner loading-xs"></span> : null}
+                        {i18n._(t`Prüfen`)}
+                    </button>
+                </div>
             </form>
 
             {isLoading ? <span className="loading loading-spinner loading-lg"></span> : null}

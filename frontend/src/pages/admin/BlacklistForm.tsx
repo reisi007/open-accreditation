@@ -46,7 +46,7 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
                     <input
                         id="blacklist-email"
                         type="email"
-                        className={`input input-sm ${errors.email ? 'input-error' : ''}`}
+                        className={`input ${errors.email ? 'input-error' : ''}`}
                         {...register('email')}
                         placeholder={i18n._(t`person@example.com`)}
                     />
@@ -60,7 +60,7 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
                     </label>
                     <input
                         id="blacklist-domain"
-                        className={`input input-sm ${errors.domain ? 'input-error' : ''}`}
+                        className={`input ${errors.domain ? 'input-error' : ''}`}
                         {...register('domain')}
                         placeholder="example.com"
                     />
@@ -72,7 +72,7 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
                     <label className="label" htmlFor="blacklist-note">
                         <span className="label-text">{i18n._(t`Notiz`)}</span>
                     </label>
-                    <input id="blacklist-note" className="input input-sm" {...register('note')} />
+                    <input id="blacklist-note" className="input" {...register('note')} />
                 </div>
             </div>
 
@@ -82,8 +82,8 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
                 </p>
             ) : null}
 
-            <div>
-                <button type="submit" className="btn btn-sm btn-primary" disabled={isSubmitting}>
+            <div className="flex flex-wrap items-center gap-2">
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
                     {isSubmitting ? <span className="loading loading-spinner loading-xs"></span> : null}
                     {i18n._(t`Blacklist-Eintrag anlegen`)}
                 </button>

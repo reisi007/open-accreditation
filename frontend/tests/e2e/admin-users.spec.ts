@@ -57,6 +57,9 @@ test.describe('Admin: Benutzer (P2c)', () => {
         const row = adminMain.getByRole('row', { name: new RegExp(email) });
         await expect(row).toBeVisible();
 
+        // Result count reflects the filtered list.
+        await expect(adminMain.getByText('1 Benutzer', { exact: true })).toBeVisible();
+
         // Step 1: the `user` role is the default for a freshly registered user.
         await row.getByRole('button', { name: 'Rollen bearbeiten' }).click();
         await expect(adminMain.getByRole('heading', { name: 'Rollen bearbeiten' })).toBeVisible();
@@ -78,5 +81,9 @@ test.describe('Admin: Benutzer (P2c)', () => {
         await adminMain.getByRole('button', { name: 'Speichern' }).click();
         await expect(row.getByText(/Team Admin/)).toHaveCount(0);
         await expect(row.getByText('User', { exact: true })).toBeVisible();
+
+        // A search without hits shows the search-specific empty state.
+        await adminMain.getByLabel('Benutzer suchen').fill('kein-treffer@example.test');
+        await expect(adminMain.getByText('Keine Benutzer für die Suche.', { exact: true })).toBeVisible();
     });
 });

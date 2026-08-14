@@ -3,10 +3,14 @@ import {
     ApiError,
     addDomain,
     deleteMandant,
+    deleteMyHeader,
+    deleteMyLogo,
     getMe,
     listMandants,
     setUnauthorizedHandler,
     uploadLogo,
+    uploadMyHeader,
+    uploadMyLogo,
 } from './client';
 import type { Mandant } from './types';
 
@@ -92,6 +96,55 @@ describe('api client', () => {
         expect(init?.body).toBeInstanceOf(FormData);
         const formData = init?.body as FormData;
         expect(formData.get('file')).toBe(file);
+    });
+
+    it('uploads the self-service mandant logo via FormData', async () => {
+        const fetchMock = stubFetch({ data: {} }, 200);
+        const file = new File(['x'], 'logo.png', { type: 'image/png' });
+
+        await uploadMyLogo(file);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/mandant/logo');
+        expect(init?.method).toBe('POST');
+        expect(init?.credentials).toBe('include');
+        expect(init?.body).toBeInstanceOf(FormData);
+        const formData = init?.body as FormData;
+        expect(formData.get('file')).toBe(file);
+    });
+
+    it('deletes the self-service mandant logo', async () => {
+        const fetchMock = stubFetch(undefined, 204);
+
+        await deleteMyLogo();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/mandant/logo');
+        expect(init?.method).toBe('DELETE');
+        expect(init?.credentials).toBe('include');
+    });
+
+    it('uploads and deletes the self-service mandant header', async () => {
+        const uploadMock = stubFetch({ data: {} }, 200);
+        const file = new File(['h'], 'header.png', { type: 'image/png' });
+
+        await uploadMyHeader(file);
+
+        const [uploadUrl, uploadInit] = uploadMock.mock.calls[0];
+        expect(uploadUrl).toBe('/api/mandant/header');
+        expect(uploadInit?.method).toBe('POST');
+        const formData = uploadInit?.body as FormData;
+        expect(formData.get('file')).toBe(file);
+
+        const deleteMock = stubFetch(undefined, 204);
+        await deleteMyHeader();
+
+        const [deleteUrl, deleteInit] = deleteMock.mock.calls[0];
+        expect(deleteUrl).toBe('/api/mandant/header');
+        expect(deleteInit?.method).toBe('DELETE');
+        expect(deleteInit?.credentials).toBe('include');
     });
 
     it('triggers the unauthorized handler on 401 for admin endpoints', async () => {
