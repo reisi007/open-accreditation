@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Admin\TeamController;
 use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\MandantMediaSelfServiceController;
 use App\Http\Controllers\Api\Portal\PortalController;
 use App\Http\Controllers\Api\Portal\PortalMediaController;
 use App\Http\Controllers\Api\ProfileController;
@@ -51,6 +52,18 @@ use Illuminate\Support\Facades\Route;
 |   GET    /api/user/media/{id}   auth-gated inline delivery (owner-only)
 |   DELETE /api/user/media/{id}   delete own media
 |
+| Mandant self-service media (auth:api + `can:mandant.media.manage`, P8b):
+|   GET    /api/mandant/logo      own mandant's logo delivery (inline)
+|   POST   /api/mandant/logo      upload/replace own mandant's logo
+|   DELETE /api/mandant/logo      delete own mandant's logo
+|   GET    /api/mandant/header    own mandant's header delivery (inline)
+|   POST   /api/mandant/header    upload/replace own mandant's header
+|   DELETE /api/mandant/header    delete own mandant's header
+| The target mandant is derived from MandantContext (never a request
+| parameter) — mandant_admin manages only his own mandant (no IDOR); the gate
+| denies him once the current context is a foreign mandant. super_admin keeps
+| the full admin surface (`api.admin.mandants.*`).
+|
 */
 
 Route::middleware('throttle:register')->post('/auth/register', [AuthController::class, 'register'])->name('api.auth.register');
@@ -65,9 +78,22 @@ Route::middleware('auth:api')->group(function (): void {
     Route::put('/user/profile', [ProfileController::class, 'update'])->name('api.user.profile.update');
 
     Route::get('/user/media', [UserMediaController::class, 'index'])->name('api.user.media.index');
-    Route::post('/user/media', [UserMediaController::class, 'store'])->name('api.user.media.store');
+    Route::post('/user/media', [UserMediaController::class, 'store'])->middleware('throttle:media')->name('api.user.media.store');
     Route::get('/user/media/{media}', [UserMediaController::class, 'show'])->name('api.user.media.show');
     Route::delete('/user/media/{media}', [UserMediaController::class, 'destroy'])->name('api.user.media.destroy');
+
+    // P8b: mandant self-service logo/header (mandant_admin manages the OWN
+    // mandant's media). The mandant is resolved from MandantContext inside the
+    // controller — the gate denies once the current context is foreign.
+    // Uploads (F5) share the per-user `media` upload limiter.
+    Route::prefix('mandant')->middleware('can:mandant.media.manage')->name('api.mandant.')->group(function (): void {
+        Route::get('/logo', [MandantMediaSelfServiceController::class, 'showLogo'])->name('logo');
+        Route::post('/logo', [MandantMediaSelfServiceController::class, 'storeLogo'])->middleware('throttle:media')->name('logo.store');
+        Route::delete('/logo', [MandantMediaSelfServiceController::class, 'destroyLogo'])->name('logo.destroy');
+        Route::get('/header', [MandantMediaSelfServiceController::class, 'showHeader'])->name('header');
+        Route::post('/header', [MandantMediaSelfServiceController::class, 'storeHeader'])->middleware('throttle:media')->name('header.store');
+        Route::delete('/header', [MandantMediaSelfServiceController::class, 'destroyHeader'])->name('header.destroy');
+    });
 
     // P3b: apply for an accreditation (deadline/duplicate guarded in the
     // controller) and "Meine Akkreditierungen". Apply is throttled per
@@ -117,79 +143,87 @@ Route::middleware('auth:api')->group(function (): void {
 | resources or `{message}` + status; deletes return 204. Logo/header delivery
 | is auth-gated like user media.
 |
+| P2a-RL: every mutating admin route (POST/PUT/DELETE) carries
+| `throttle:admin` (named limiter, 300/min per authenticated admin user, key
+| `admin:{userId|ip}` — registered in AppServiceProvider). The admin
+| GET/read routes are deliberately NOT throttled: lists are auth-gated
+| already and a shared bucket would harm legit admin browsing. The pass-resend
+| route additionally carries `throttle:resend` (10/min, P5-F2), which is far
+| stricter than the shared admin write budget.
+|
 */
 Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(function (): void {
     Route::middleware('can:mandants.manage')->group(function (): void {
         Route::get('/mandants', [MandantController::class, 'index'])->name('mandants.index');
-        Route::post('/mandants', [MandantController::class, 'store'])->name('mandants.store');
+        Route::post('/mandants', [MandantController::class, 'store'])->middleware('throttle:admin')->name('mandants.store');
         Route::get('/mandants/{mandant}', [MandantController::class, 'show'])->name('mandants.show');
-        Route::put('/mandants/{mandant}', [MandantController::class, 'update'])->name('mandants.update');
-        Route::delete('/mandants/{mandant}', [MandantController::class, 'destroy'])->name('mandants.destroy');
+        Route::put('/mandants/{mandant}', [MandantController::class, 'update'])->middleware('throttle:admin')->name('mandants.update');
+        Route::delete('/mandants/{mandant}', [MandantController::class, 'destroy'])->middleware('throttle:admin')->name('mandants.destroy');
 
         Route::get('/mandants/{mandant}/logo', [MandantMediaController::class, 'showLogo'])->name('mandants.logo');
-        Route::post('/mandants/{mandant}/logo', [MandantMediaController::class, 'storeLogo'])->name('mandants.logo.store');
-        Route::delete('/mandants/{mandant}/logo', [MandantMediaController::class, 'destroyLogo'])->name('mandants.logo.destroy');
+        Route::post('/mandants/{mandant}/logo', [MandantMediaController::class, 'storeLogo'])->middleware('throttle:admin')->name('mandants.logo.store');
+        Route::delete('/mandants/{mandant}/logo', [MandantMediaController::class, 'destroyLogo'])->middleware('throttle:admin')->name('mandants.logo.destroy');
         Route::get('/mandants/{mandant}/header', [MandantMediaController::class, 'showHeader'])->name('mandants.header');
-        Route::post('/mandants/{mandant}/header', [MandantMediaController::class, 'storeHeader'])->name('mandants.header.store');
-        Route::delete('/mandants/{mandant}/header', [MandantMediaController::class, 'destroyHeader'])->name('mandants.header.destroy');
+        Route::post('/mandants/{mandant}/header', [MandantMediaController::class, 'storeHeader'])->middleware('throttle:admin')->name('mandants.header.store');
+        Route::delete('/mandants/{mandant}/header', [MandantMediaController::class, 'destroyHeader'])->middleware('throttle:admin')->name('mandants.header.destroy');
 
         Route::get('/mandants/{mandant}/domains', [MandantDomainController::class, 'index'])->name('mandants.domains.index');
-        Route::post('/mandants/{mandant}/domains', [MandantDomainController::class, 'store'])->name('mandants.domains.store');
-        Route::delete('/mandants/{mandant}/domains/{domain}', [MandantDomainController::class, 'destroy'])->name('mandants.domains.destroy');
+        Route::post('/mandants/{mandant}/domains', [MandantDomainController::class, 'store'])->middleware('throttle:admin')->name('mandants.domains.store');
+        Route::delete('/mandants/{mandant}/domains/{domain}', [MandantDomainController::class, 'destroy'])->middleware('throttle:admin')->name('mandants.domains.destroy');
     });
 
     Route::get('/mandants/{mandant}/teams', [TeamController::class, 'index'])->middleware('can:teams.view')->name('mandants.teams.index');
 
     Route::middleware('can:teams.manage')->group(function (): void {
-        Route::post('/mandants/{mandant}/teams', [TeamController::class, 'store'])->name('mandants.teams.store');
-        Route::put('/mandants/{mandant}/teams/{team}', [TeamController::class, 'update'])->name('mandants.teams.update');
-        Route::delete('/mandants/{mandant}/teams/{team}', [TeamController::class, 'destroy'])->name('mandants.teams.destroy');
+        Route::post('/mandants/{mandant}/teams', [TeamController::class, 'store'])->middleware('throttle:admin')->name('mandants.teams.store');
+        Route::put('/mandants/{mandant}/teams/{team}', [TeamController::class, 'update'])->middleware('throttle:admin')->name('mandants.teams.update');
+        Route::delete('/mandants/{mandant}/teams/{team}', [TeamController::class, 'destroy'])->middleware('throttle:admin')->name('mandants.teams.destroy');
     });
 
     Route::middleware('can:categories.manage')->group(function (): void {
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
-        Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
-        Route::put('/categories/{category}', [CategoryController::class, 'update'])->name('categories.update');
-        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+        Route::post('/categories', [CategoryController::class, 'store'])->middleware('throttle:admin')->name('categories.store');
+        Route::put('/categories/{category}', [CategoryController::class, 'update'])->middleware('throttle:admin')->name('categories.update');
+        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->middleware('throttle:admin')->name('categories.destroy');
     });
 
     Route::middleware('can:events.manage')->group(function (): void {
         Route::get('/events', [EventController::class, 'index'])->name('events.index');
-        Route::post('/events', [EventController::class, 'store'])->name('events.store');
-        Route::put('/events/{event}', [EventController::class, 'update'])->name('events.update');
-        Route::delete('/events/{event}', [EventController::class, 'destroy'])->name('events.destroy');
+        Route::post('/events', [EventController::class, 'store'])->middleware('throttle:admin')->name('events.store');
+        Route::put('/events/{event}', [EventController::class, 'update'])->middleware('throttle:admin')->name('events.update');
+        Route::delete('/events/{event}', [EventController::class, 'destroy'])->middleware('throttle:admin')->name('events.destroy');
     });
 
     Route::middleware('can:accreditations.manage')->group(function (): void {
         Route::get('/accreditations', [AdminAccreditationController::class, 'index'])->name('accreditations.index');
-        Route::post('/accreditations', [AdminAccreditationController::class, 'store'])->name('accreditations.store');
-        Route::put('/accreditations/{accreditation}', [AdminAccreditationController::class, 'update'])->name('accreditations.update');
-        Route::delete('/accreditations/{accreditation}', [AdminAccreditationController::class, 'destroy'])->name('accreditations.destroy');
+        Route::post('/accreditations', [AdminAccreditationController::class, 'store'])->middleware('throttle:admin')->name('accreditations.store');
+        Route::put('/accreditations/{accreditation}', [AdminAccreditationController::class, 'update'])->middleware('throttle:admin')->name('accreditations.update');
+        Route::delete('/accreditations/{accreditation}', [AdminAccreditationController::class, 'destroy'])->middleware('throttle:admin')->name('accreditations.destroy');
         // P3c: manual allocation trigger (mode=all | mode=first).
-        Route::post('/accreditations/{accreditation}/allocate', [AdminAccreditationController::class, 'allocate'])->name('accreditations.allocate');
+        Route::post('/accreditations/{accreditation}/allocate', [AdminAccreditationController::class, 'allocate'])->middleware('throttle:admin')->name('accreditations.allocate');
         // P3d: sub-accreditation (Park-/Sitzkarte) CRUD + manual allocation
         // trigger (mode=all | mode=first, identical contract to P3c).
         Route::get('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'index'])->name('accreditations.sub-accreditations.index');
-        Route::post('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'store'])->name('accreditations.sub-accreditations.store');
-        Route::put('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'update'])->name('sub-accreditations.update');
-        Route::delete('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'destroy'])->name('sub-accreditations.destroy');
-        Route::post('/sub-accreditations/{sub}/allocate', [AdminSubAccreditationController::class, 'allocate'])->name('sub-accreditations.allocate');
+        Route::post('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'store'])->middleware('throttle:admin')->name('accreditations.sub-accreditations.store');
+        Route::put('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'update'])->middleware('throttle:admin')->name('sub-accreditations.update');
+        Route::delete('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'destroy'])->middleware('throttle:admin')->name('sub-accreditations.destroy');
+        Route::post('/sub-accreditations/{sub}/allocate', [AdminSubAccreditationController::class, 'allocate'])->middleware('throttle:admin')->name('sub-accreditations.allocate');
 
         // P3e: admin approval view — blacklist CRUD (mandant-level, only
         // super_admin + mandant_admin), the applications/sub-applications
         // list + single approve/deny/priority actions (via the allocation
         // services) and the admin media list/delivery of an applicant.
         Route::get('/blacklists', [BlacklistController::class, 'index'])->name('blacklists.index');
-        Route::post('/blacklists', [BlacklistController::class, 'store'])->name('blacklists.store');
-        Route::delete('/blacklists/{blacklist}', [BlacklistController::class, 'destroy'])->name('blacklists.destroy');
+        Route::post('/blacklists', [BlacklistController::class, 'store'])->middleware('throttle:admin')->name('blacklists.store');
+        Route::delete('/blacklists/{blacklist}', [BlacklistController::class, 'destroy'])->middleware('throttle:admin')->name('blacklists.destroy');
 
         Route::get('/applications', [AdminApplicationController::class, 'index'])->name('applications.index');
-        Route::put('/applications/{application}', [AdminApplicationController::class, 'update'])->name('applications.update');
-        Route::post('/applications/{application}/resend', [AdminApplicationController::class, 'resend'])->name('applications.resend');
+        Route::put('/applications/{application}', [AdminApplicationController::class, 'update'])->middleware('throttle:admin')->name('applications.update');
+        Route::post('/applications/{application}/resend', [AdminApplicationController::class, 'resend'])->middleware('throttle:resend')->name('applications.resend');
         Route::get('/applications/{application}/media', [AdminMediaController::class, 'index'])->name('applications.media');
 
         Route::get('/sub-applications', [AdminSubApplicationController::class, 'index'])->name('sub-applications.index');
-        Route::put('/sub-applications/{subApplication}', [AdminSubApplicationController::class, 'update'])->name('sub-applications.update');
+        Route::put('/sub-applications/{subApplication}', [AdminSubApplicationController::class, 'update'])->middleware('throttle:admin')->name('sub-applications.update');
 
         Route::get('/user-media/{media}', [AdminMediaController::class, 'show'])->name('user-media.show');
 
@@ -197,16 +231,16 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         // the controller) and the badge export (PDF/CSV stream). Both live on
         // the accreditations.manage surface.
         Route::get('/badge-templates', [BadgeTemplateController::class, 'index'])->name('badge-templates.index');
-        Route::post('/badge-templates', [BadgeTemplateController::class, 'store'])->name('badge-templates.store');
-        Route::put('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'update'])->name('badge-templates.update');
-        Route::delete('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'destroy'])->name('badge-templates.destroy');
+        Route::post('/badge-templates', [BadgeTemplateController::class, 'store'])->middleware('throttle:admin')->name('badge-templates.store');
+        Route::put('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'update'])->middleware('throttle:admin')->name('badge-templates.update');
+        Route::delete('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'destroy'])->middleware('throttle:admin')->name('badge-templates.destroy');
 
-        Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->name('accreditations.badges.export');
+        Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->middleware('throttle:admin')->name('accreditations.badges.export');
     });
 
     Route::middleware('can:users.manage')->group(function (): void {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
-        Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->name('users.roles.update');
+        Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->middleware('throttle:admin')->name('users.roles.update');
     });
 });
 

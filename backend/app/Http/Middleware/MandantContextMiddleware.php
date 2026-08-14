@@ -10,6 +10,13 @@ use Symfony\Component\HttpFoundation\Response;
 class MandantContextMiddleware
 {
     /**
+     * P1a-B2: the ONLY Referer host accepted in the local-env fallback — the
+     * Vite dev server origin (host + port; the port is significant, Symfony
+     * and `parse_url` keep it in the origin, only getHost() strips it).
+     */
+    private const VITE_DEV_ORIGIN = 'localhost:5173';
+
+    /**
      * Resolve the mandant from the request host and set it as the current
      * mandant.
      *
@@ -59,15 +66,23 @@ class MandantContextMiddleware
      * The request host, lower-cased. In local dev the Vite proxy rewrites the
      * Host header — the Referer header (sent automatically by browsers) still
      * carries the original host, so we prefer it (mirrors the portal's
-     * BrandContextMiddleware).
+     * BrandContextMiddleware). P1a-B2: ONLY the Vite dev origin
+     * (`localhost:5173`) is accepted as Referer host — a foreign Referer
+     * (spoofable via any request) must never steer host resolution; anything
+     * else falls back to the Host-header path.
      */
     private function resolveHost(Request $request): string
     {
         if (app()->environment('local')) {
-            $refererHost = parse_url((string) $request->header('referer', ''), PHP_URL_HOST);
+            $referer = parse_url((string) $request->header('referer', ''));
 
-            if (is_string($refererHost) && $refererHost !== '') {
-                return strtolower($refererHost);
+            if (is_array($referer) && isset($referer['host']) && $referer['host'] !== '') {
+                $refererHost = strtolower((string) $referer['host'])
+                    .(isset($referer['port']) ? ':'.$referer['port'] : '');
+
+                if ($refererHost === self::VITE_DEV_ORIGIN) {
+                    return $refererHost;
+                }
             }
         }
 

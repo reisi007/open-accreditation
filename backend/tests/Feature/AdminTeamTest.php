@@ -282,6 +282,25 @@ class AdminTeamTest extends TestCase
         $this->assertDatabaseMissing('teams', ['id' => $team->id]);
     }
 
+    public function test_team_delete_cascades_role_user_assignments(): void
+    {
+        $team = $this->mandantA->teams()->create(['name' => 'FC Weg', 'slug' => 'fc-weg']);
+        $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $team->id);
+
+        $assignment = RoleUser::query()->where('user_id', $teamAdmin->id)->firstOrFail();
+        $this->assertSame($team->id, $assignment->team_id);
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id)
+            ->assertStatus(204);
+
+        // P2c-F3: the FK cascade removes the role_user row — no orphan with a
+        // stale team_id survives. The user row itself stays.
+        $this->assertDatabaseMissing('teams', ['id' => $team->id]);
+        $this->assertDatabaseMissing('role_user', ['team_id' => $team->id]);
+        $this->assertDatabaseHas('users', ['id' => $teamAdmin->id]);
+    }
+
     public function test_team_of_foreign_mandant_is_not_reachable(): void
     {
         $team = $this->mandantB->teams()->create(['name' => 'FC Fremd', 'slug' => 'fc-fremd']);

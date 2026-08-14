@@ -81,13 +81,19 @@ class BlacklistController extends Controller
         $email = $email !== null ? Str::lower(trim($email)) : null;
         $domain = $domain !== null ? Str::lower(trim($domain)) : null;
 
-        if ($email !== null && Blacklist::query()->where('mandant_id', $mandantId)->where('email', $email)->exists()) {
+        // P3d-F2: the duplicate pre-check compares case-insensitively
+        // (`LOWER(...) = ?` is portable across Postgres and SQLite). Rows
+        // written outside this controller may carry mixed-case emails/domains
+        // (e. g. seeds or direct inserts); a case-sensitive `=` would let the
+        // semantically equal value slip through and surface as a DB unique
+        // violation (SQLSTATE 23505) instead of a clean 422.
+        if ($email !== null && Blacklist::query()->where('mandant_id', $mandantId)->whereRaw('LOWER(email) = ?', [strtolower($email)])->exists()) {
             throw ValidationException::withMessages([
                 'email' => 'This email is already blacklisted.',
             ]);
         }
 
-        if ($domain !== null && Blacklist::query()->where('mandant_id', $mandantId)->where('domain', $domain)->exists()) {
+        if ($domain !== null && Blacklist::query()->where('mandant_id', $mandantId)->whereRaw('LOWER(domain) = ?', [strtolower($domain)])->exists()) {
             throw ValidationException::withMessages([
                 'domain' => 'This domain is already blacklisted.',
             ]);

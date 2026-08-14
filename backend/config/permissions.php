@@ -31,6 +31,12 @@ use App\Enums\UserRole;
 | P2b controllers — mandant-level categories stay read-only for him).
 | `accreditations.view` for team_admin is the read-only D7 view on the
 | Verband's accreditations of the team's persons (person scope follows in P3).
+| `mandant.media.manage` (P8b) is mandant_admin-only: he manages the logo and
+| header image of his OWN mandant through the self-scoped `/api/mandant/logo|header`
+| surface (mandant always derived from MandantContext — never a request
+| parameter, so no IDOR). super_admin keeps full control over every mandant's
+| media through the existing admin surface (`mandants.manage`). team_admin,
+| user and verifier hold no media permission at all.
 |
 */
 
@@ -47,6 +53,7 @@ return [
         'users.manage',
         'accreditations.view',
         'accreditations.manage',
+        'mandant.media.manage',
     ],
 
     UserRole::TEAM_ADMIN->value => [

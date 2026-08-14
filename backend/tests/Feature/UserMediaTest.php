@@ -159,6 +159,111 @@ class UserMediaTest extends TestCase
         $this->assertSame(3, UserMedia::where('user_id', $user->id)->where('type', 'attachment')->count());
     }
 
+    /* ---------------------------------------------------------------------
+     | F5: per-user upload quota (file count + total bytes) on the private
+     | disk, enforced in UserMediaService before anything is persisted.
+     | ------------------------------------------------------------------- */
+
+    public function test_upload_rejects_11th_file_over_the_per_user_quota(): void
+    {
+        $user = User::factory()->create();
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->actingAsApi($user)
+                ->post('/api/user/media', [
+                    'type' => 'attachment',
+                    'file' => UploadedFile::fake()->image("doc-{$i}.jpg"),
+                ])
+                ->assertStatus(201);
+        }
+
+        $this->actingAsApi($user)
+            ->post('/api/user/media', [
+                'type' => 'attachment',
+                'file' => UploadedFile::fake()->image('doc-11.jpg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
+
+        // The rejected upload must not have persisted anything.
+        $this->assertSame(10, UserMedia::where('user_id', $user->id)->count());
+    }
+
+    public function test_upload_rejects_total_bytes_over_the_per_user_quota(): void
+    {
+        $user = User::factory()->create();
+
+        // Seed 5 files at ~2 MiB each (10 MiB total). The fake file uses
+        // size in KiB, so 2_097_152 bytes each via `size(2048)`.
+        for ($i = 0; $i < 5; $i++) {
+            UserMedia::create([
+                'user_id' => $user->id,
+                'type' => 'attachment',
+                'path' => "user-media/verband/{$user->id}/attachment/{$i}.jpg",
+                'mime' => 'image/jpeg',
+                'size' => 2048 * 1024,
+                'original_name' => "doc-{$i}.jpg",
+            ]);
+        }
+
+        $this->actingAsApi($user)
+            ->post('/api/user/media', [
+                'type' => 'attachment',
+                'file' => UploadedFile::fake()->image('overflow.jpg')->size(700),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
+
+        $this->assertSame(5, UserMedia::where('user_id', $user->id)->count());
+    }
+
+    public function test_replacing_a_singular_file_at_the_quota_limit_still_works(): void
+    {
+        $user = User::factory()->create();
+
+        // Fill the quota with 1 portrait + 9 attachments (10 files). Replacing
+        // the portrait must still succeed — the singular replacement removes
+        // the old portrait row first, so neither file count nor bytes grow.
+        UserMedia::create([
+            'user_id' => $user->id,
+            'type' => 'portrait',
+            'path' => "user-media/verband/{$user->id}/portrait/old.jpg",
+            'mime' => 'image/jpeg',
+            'size' => 1024 * 1024,
+            'original_name' => 'portrait.jpg',
+        ]);
+
+        for ($i = 0; $i < 9; $i++) {
+            UserMedia::create([
+                'user_id' => $user->id,
+                'type' => 'attachment',
+                'path' => "user-media/verband/{$user->id}/attachment/{$i}.jpg",
+                'mime' => 'image/jpeg',
+                'size' => 1024 * 1024,
+                'original_name' => "doc-{$i}.jpg",
+            ]);
+        }
+
+        $this->actingAsApi($user)
+            ->post('/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait-b.jpg'),
+            ])
+            ->assertStatus(201);
+
+        $this->assertSame(10, UserMedia::where('user_id', $user->id)->count());
+
+        // Replacing again must keep working (still at the file-count limit).
+        $this->actingAsApi($user)
+            ->post('/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait-c.jpg'),
+            ])
+            ->assertStatus(201);
+
+        $this->assertSame(10, UserMedia::where('user_id', $user->id)->count());
+    }
+
     public function test_owner_can_deliver_media_inline(): void
     {
         $user = User::factory()->create();

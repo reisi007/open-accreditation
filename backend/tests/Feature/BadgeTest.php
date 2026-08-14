@@ -544,6 +544,55 @@ class BadgeTest extends TestCase
         $this->assertSame(2, substr_count($csv, "\n"));
     }
 
+    public function test_export_csv_neutralizes_formula_injection_cells(): void
+    {
+        $event = $this->mandantA->events()->create(['title' => '-Finale; DROP TABLE users', 'date' => '2026-09-01']);
+        $category = $this->mandantA->categories()->create(['name' => '+Presse', 'slug' => 'presse-inject']);
+        $accreditation = $this->mandantA->accreditations()->create([
+            'category_id' => $category->id,
+            'scope' => 'event',
+            'quota' => 5,
+            'event_id' => $event->id,
+        ]);
+
+        $evil = User::factory()->create([
+            'name' => '=HYPERLINK("http://evil.example","x")',
+            'email' => '=2+2@example.com',
+        ]);
+        $normal = User::factory()->create(['name' => 'Jane Doe', 'email' => 'jane@example.com']);
+
+        $this->makeApplication($accreditation, $evil, ['status' => 'approved']);
+        $this->makeApplication($accreditation, $normal, ['status' => 'approved']);
+        $this->createTemplate(['is_default' => true]);
+
+        $csv = $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$accreditation->id.'/badges/export', ['format' => 'csv'])
+            ->assertOk()
+            ->streamedContent();
+
+        // Rows are ordered by application id: evil first, normal second.
+        $lines = explode("\n", trim(substr($csv, 3)));
+        $evilRow = str_getcsv($lines[1], ';');
+        $normalRow = str_getcsv($lines[2], ';');
+
+        // Every user-controlled cell that starts with a formula marker gets a
+        // leading `'` so Excel/Sheets render it as text.
+        $this->assertSame("'=HYPERLINK(\"http://evil.example\",\"x\")", $evilRow[0]);
+        $this->assertStringStartsWith("'=", $evilRow[1]);
+        $this->assertStringStartsWith("'+", $evilRow[2]);
+        $this->assertStringStartsWith("'-", $evilRow[3]);
+
+        // The verify URL cell goes through the same helper (unchanged here).
+        $this->assertStringStartsWith('https://accreditation.test/verify/', $evilRow[5]);
+
+        // A normal name/email stays untouched; the shared category/event are
+        // dangerous (`+`/`-`) and sanitized in every row.
+        $this->assertSame('Jane Doe', $normalRow[0]);
+        $this->assertSame('jane@example.com', $normalRow[1]);
+        $this->assertSame("'+Presse", $normalRow[2]);
+        $this->assertSame("'-Finale; DROP TABLE users", $normalRow[3]);
+    }
+
     /* ---------------------------------------------------------------------
      | QrTokenService — determinism, tamper detection, secrets
      | ------------------------------------------------------------------- */

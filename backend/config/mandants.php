@@ -23,8 +23,14 @@ return [
     | Cache TTL (seconds)
     |--------------------------------------------------------------------------
     |
-    | Wie lange eine Host→Mandant-Auflösung (sowie der Primary-Mandant) im
-    | Cache gehalten wird, bevor erneut aus der Datenbank gelesen wird.
+    | Wie lange eine Host→Mandant-Auflösung (hostname → mandant_id, Cache-Key
+    | `mandant.domain.{host}`) im Cache gehalten wird, bevor erneut aus der
+    | Datenbank gelesen wird. Negativ-Auflösungen (unbekannter Host) werden
+    | kürzer gecacht (siehe `MandantContext::NEGATIVE_CACHE_TTL_SECONDS`).
+    |
+    | Hinweis: Der Mandant-Datensatz selbst sowie der Primary-Mandant
+    | (`MandantContext::default()`) werden NIE gecacht — nur die
+    | Host→Mandant-Zuordnung.
     |
     */
 

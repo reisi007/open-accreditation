@@ -49,12 +49,18 @@ class AuthController extends Controller
         }
 
         return DB::transaction(function () use ($validated, $mandant, $request): JsonResponse {
+            // F4: the raw one-time token is sent to the user (mail/URL) but
+            // only its sha256 digest (64 hex chars — fits the 64-char column)
+            // is persisted, so a leaked users-table dump yields no usable
+            // activation links.
+            $token = Str::random(64);
+
             $user = User::create([
                 'name' => $validated['name'],
                 'email' => strtolower($validated['email']),
                 'password' => $validated['password'],
                 'email_verified_at' => null,
-                'activation_token' => Str::random(64),
+                'activation_token' => hash('sha256', $token),
                 'activation_token_expires_at' => now()->addHours(self::ACTIVATION_TTL_HOURS),
             ]);
 
@@ -69,7 +75,7 @@ class AuthController extends Controller
 
             Mail::to($user->email)->send(new ActivationMail(
                 name: $user->name,
-                activationUrl: $this->activationUrl($user->activation_token, $request),
+                activationUrl: $this->activationUrl($token, $request),
             ));
 
             return response()->json([
@@ -83,10 +89,12 @@ class AuthController extends Controller
      *
      * Validates the one-time activation token (GET so the mail link works
      * directly in a browser), sets `email_verified_at` and consumes the token.
+     * The lookup uses the sha256 digest of the raw token (F4) — the DB never
+     * stores the raw token.
      */
     public function activate(string $token): JsonResponse
     {
-        $user = User::query()->where('activation_token', $token)->first();
+        $user = User::query()->where('activation_token', hash('sha256', $token))->first();
 
         if ($user === null) {
             return response()->json([

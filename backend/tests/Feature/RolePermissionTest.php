@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
+use App\Models\Team;
 use App\Models\User;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
@@ -47,6 +48,7 @@ class RolePermissionTest extends TestCase
             'accreditations.self',
             'users.manage',
             'verification.verify',
+            'mandant.media.manage',
         ];
 
         $mandantLevel = [
@@ -56,6 +58,7 @@ class RolePermissionTest extends TestCase
             'users.manage',
             'accreditations.view',
             'accreditations.manage',
+            'mandant.media.manage',
         ];
 
         return [
@@ -91,7 +94,7 @@ class RolePermissionTest extends TestCase
                 UserRole::TEAM_ADMIN->value,
                 7,
                 ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
-                ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify'],
+                ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage'],
                 'own',
             ],
             'team_admin on a foreign mandant' => [
@@ -105,7 +108,7 @@ class RolePermissionTest extends TestCase
                 UserRole::USER->value,
                 null,
                 ['accreditations.self'],
-                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify', 'mandant.media.manage'],
                 'own',
             ],
             'user on a foreign mandant' => [
@@ -119,7 +122,7 @@ class RolePermissionTest extends TestCase
                 UserRole::VERIFIER->value,
                 null,
                 ['verification.verify'],
-                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage', 'mandant.media.manage'],
                 'own',
             ],
             'verifier on a foreign mandant' => [
@@ -173,6 +176,7 @@ class RolePermissionTest extends TestCase
         $this->assertTrue(Gate::forUser($admin)->allows('teams.view'));
         $this->assertTrue(Gate::forUser($admin)->allows('teams.manage'));
         $this->assertTrue(Gate::forUser($admin)->allows('accreditations.view'));
+        $this->assertTrue(Gate::forUser($admin)->allows('mandant.media.manage'));
     }
 
     public function test_team_admin_team_argument_scope(): void
@@ -217,7 +221,7 @@ class RolePermissionTest extends TestCase
         [$mandant] = $this->createMandants();
         MandantContext::set($mandant);
 
-        foreach (['mandants.manage', 'teams.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'verification.verify'] as $permission) {
+        foreach (['mandants.manage', 'teams.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage'] as $permission) {
             $this->assertFalse(Gate::allows($permission), "guest should be denied: {$permission}");
         }
     }
@@ -242,8 +246,10 @@ class RolePermissionTest extends TestCase
         $mandantAdmin = $this->createUserWithRole(UserRole::MANDANT_ADMIN->value, $mandant);
 
         $this->assertTrue($mandantAdmin->hasPermission('events.manage'));
+        $this->assertTrue($mandantAdmin->hasPermission('mandant.media.manage'));
         $this->assertFalse($mandantAdmin->hasPermission('verification.verify'));
         $this->assertFalse($mandantAdmin->hasPermission('events.manage', $mandant->id + 999));
+        $this->assertFalse($mandantAdmin->hasPermission('mandant.media.manage', $mandant->id + 999));
 
         $superAdmin = $this->createGlobalSuperAdmin();
         MandantContext::reset();
@@ -256,10 +262,22 @@ class RolePermissionTest extends TestCase
      */
     private function createMandants(): array
     {
-        return [
-            Mandant::factory()->create(['slug' => 'verband-a']),
-            Mandant::factory()->create(['slug' => 'verband-b']),
-        ];
+        $mandantA = Mandant::factory()->create(['slug' => 'verband-a']);
+        $mandantB = Mandant::factory()->create(['slug' => 'verband-b']);
+
+        // The team_admin matrix rows reference a fixed team id (7) for the
+        // role assignment. Since the P2c-F3 FK on `role_user.team_id` →
+        // `teams.id`, a real row must exist or the pivot insert fails — the
+        // team is created here so every test reusing these mandants stays
+        // FK-valid (gate arguments 8/999 are only compared, never inserted).
+        Team::factory()->create([
+            'id' => 7,
+            'mandant_id' => $mandantA->id,
+            'name' => 'Team Referenz',
+            'slug' => 'team-referenz',
+        ]);
+
+        return [$mandantA, $mandantB];
     }
 
     private function createUserWithRole(string $roleSlug, Mandant $mandant, ?int $teamId = null): User

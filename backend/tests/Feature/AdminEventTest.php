@@ -373,6 +373,80 @@ class AdminEventTest extends TestCase
             ->assertJsonPath('data.deadline_end', '2026-08-15');
     }
 
+    public function test_partial_update_rejects_deadline_end_before_stored_deadline_start(): void
+    {
+        $event = $this->mandantA->events()->create([
+            'title' => 'Ziel',
+            'deadline_start' => '2026-08-10',
+            'deadline_end' => '2026-08-20',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, ['deadline_end' => '2026-08-05'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('deadline_end');
+
+        $this->assertSame('2026-08-20', $event->fresh()->deadline_end?->toDateString());
+    }
+
+    public function test_partial_update_rejects_deadline_start_after_stored_deadline_end(): void
+    {
+        $event = $this->mandantA->events()->create([
+            'title' => 'Ziel',
+            'deadline_start' => '2026-08-10',
+            'deadline_end' => '2026-08-20',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, ['deadline_start' => '2026-08-25'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('deadline_start');
+
+        $this->assertSame('2026-08-10', $event->fresh()->deadline_start?->toDateString());
+    }
+
+    public function test_partial_update_of_a_single_valid_deadline_still_works(): void
+    {
+        $event = $this->mandantA->events()->create([
+            'title' => 'Ziel',
+            'deadline_start' => '2026-08-10',
+            'deadline_end' => '2026-08-20',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, ['deadline_end' => '2026-08-22'])
+            ->assertOk()
+            ->assertJsonPath('data.deadline_end', '2026-08-22')
+            ->assertJsonPath('data.deadline_start', '2026-08-10');
+
+        // Reverse direction: only deadline_start moved, still within range.
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, ['deadline_start' => '2026-08-12'])
+            ->assertOk()
+            ->assertJsonPath('data.deadline_start', '2026-08-12')
+            ->assertJsonPath('data.deadline_end', '2026-08-22');
+    }
+
+    public function test_update_can_clear_both_deadlines(): void
+    {
+        $event = $this->mandantA->events()->create([
+            'title' => 'Ziel',
+            'deadline_start' => '2026-08-10',
+            'deadline_end' => '2026-08-20',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/events/'.$event->id, [
+                'deadline_start' => null,
+                'deadline_end' => null,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.deadline_start', null)
+            ->assertJsonPath('data.deadline_end', null);
+
+        $this->assertDatabaseHas('events', ['id' => $event->id, 'deadline_start' => null, 'deadline_end' => null]);
+    }
+
     public function test_event_date_validation(): void
     {
         $this->actingAsApi($this->superAdmin())

@@ -86,9 +86,13 @@ class RoleAssignmentTest extends TestCase
             ['name' => 'Team Admin'],
         );
 
+        // G2 FK: `role_user.team_id` now references `teams.id` — the team must
+        // actually exist (previously a bare id was tolerated).
+        $team = $mandant->teams()->create(['name' => 'Team A', 'slug' => 'team-a']);
+
         RoleUser::create(['user_id' => $admin->id, 'role_id' => $mandantAdminRole->id, 'mandant_id' => $mandant->id]);
         RoleUser::create(['user_id' => $verifier->id, 'role_id' => $verifierRole->id, 'mandant_id' => $mandant->id]);
-        RoleUser::create(['user_id' => $teamAdmin->id, 'role_id' => $teamAdminRole->id, 'mandant_id' => $mandant->id, 'team_id' => 7]);
+        RoleUser::create(['user_id' => $teamAdmin->id, 'role_id' => $teamAdminRole->id, 'mandant_id' => $mandant->id, 'team_id' => $team->id]);
 
         $this->assertTrue($admin->isMandantAdmin($mandant->id));
         $this->assertFalse($admin->isMandantAdmin($mandant->id + 999));
@@ -96,7 +100,7 @@ class RoleAssignmentTest extends TestCase
         $this->assertTrue($verifier->isVerifier($mandant->id));
         $this->assertFalse($verifier->isVerifier($mandant->id + 999));
 
-        $this->assertTrue($teamAdmin->isTeamAdmin(7));
-        $this->assertFalse($teamAdmin->isTeamAdmin(8));
+        $this->assertTrue($teamAdmin->isTeamAdmin($team->id));
+        $this->assertFalse($teamAdmin->isTeamAdmin($team->id + 1));
     }
 }

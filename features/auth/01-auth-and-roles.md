@@ -17,8 +17,11 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      `confirmed`).
    - Erzeugt den User mit Rolle **`user`** scoped auf den aktuellen Mandanten
      (`role_user.mandant_id`), `email_verified_at = null`, plus
-     `activation_token` (`Str::random(64)`) und `activation_token_expires_at`
-     (TTL **24 h**, `AuthController::ACTIVATION_TTL_HOURS`).
+     `activation_token` = **sha256-Digest** des rohen Tokens (F4; 64 Hex, passt
+     in die 64-Zeichen-Spalte) und `activation_token_expires_at`
+     (TTL **24 h**, `AuthController::ACTIVATION_TTL_HOURS`). Der rohe
+     `Str::random(64)`-Token landet NUR im Mail-Link — die DB speichert nie
+     den Klartext-Token.
    - Versendet die **Aktivierungsmail** (`ActivationMail`, Markdown-Template
      `mail.activation`). Der Aktivierungslink wird aus der **Mandanten-Domain**
      gebaut (Fallback-Chain: erste Domain des aktuellen Mandanten →
@@ -140,17 +143,59 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
 - `UserMediaResource` exponiert nur ID/type/mime/size/original_name/created_at
   + auth-gated `url()`; nie den privaten Pfad.
 
-## Hardening / Follow-up (offen, P7)
+## Hardening (P7 — erledigt 2026-08-14)
 
 - **F1 (erledigt):** Aktivierungslink aus der Mandanten-Domain statt
   `config('app.url')` — im Ist umgesetzt (`activationUrl`-Fallback-Chain,
   F1-Fix 2026-08-13).
-- **F2 (low):** JWT-Parser-Kette auf **Cookie** beschränken (aktuell auch
-  Header/Query/Form möglich).
-- **F3 (low):** `local`-Disk hat `serve => true` und teilt Root mit `private`
-  — Sicherstellen, dass keine privaten Dateien serviert werden.
-- **F4 (low):** `activation_token` als **Hash** (sha256) statt Klartext in
-  der DB (Token im Mail-Link bleibt Klartext).
-- **F5 (low):** Upload-Kontingent/Rate-Limit für `/api/user/media`.
+- **F2 (erledigt):** JWT-Parser-Kette auf den **httpOnly-Cookie `accr_jwt`
+  beschränkt** (`AppServiceProvider::boot()` → `setChain([Cookies])`).
+  `Authorization: Bearer`, `?token=`, POST `token` und Route-Param-Tokens
+  werden NICHT mehr akzeptiert — jeder andere Kanal ist tote Fläche für
+  Token-Exfiltration. (Registriert in `AppServiceProvider::boot()`, da dieser
+  Provider nach den Package-Discovery-Providern bootet und die vom Package
+  aufgebaute Kette damit vollständig ersetzt.)
+- **F3 (erledigt):** `local`-Disk hat `serve => false` — User-/Mandanten-Media
+  liegen auf Disk `private` und werden ausschließlich über die auth-gated
+  Endpoints ausgeliefert (`config/filesystems.php`).
+- **F4 (erledigt):** `activation_token` wird als **sha256-Digest** (64 Hex)
+  gespeichert; der **rohe Token** steht nur im Mail-Link. Lookup in
+  `activate()` hashed den eingehenden Token (`AuthController::register/activate`).
+- **F5 (erledigt):** Upload-Kontingent + Rate-Limit für `/api/user/media`:
+  `throttle:media` (30/min pro User, `media:{userId|ip}`) auf die
+  User-Media- und Mandant-Self-Service-Uploads (P8b), plus
+  `UserMediaService`-Quota: **max. 10 Dateien** (`MAX_MEDIA_FILES`) und
+  **max. 10 MiB** (`MAX_MEDIA_BYTES`) pro User — singular-Ersatz zählt nicht
+  doppelt; Verstoß → 422 mit deutscher Meldung.
+- **B3 (erledigt):** `trustHosts`-Allow-List aus `mandant_domains.hostname`
+  + lokale Defaults (`localhost`, `127.0.0.1`, `^\[::1\]$`, `^(.+\.)?test$`,
+  `^(.+\.)?localhost$`) in `bootstrap/app.php`. Fremde Hosts → **400** vor der
+  Mandant-Auflösung; allow-listete, aber unbekannte Hosts weiterhin **404**
+  (MandantContextMiddleware). Callback defensiv (DB nicht verfügbar → nur
+  Defaults).
+- **P1a-B1 (erledigt):** `MandantContext::resolve()` cached unbekannte Hosts
+  **negativ** (Sentinel `MISSING`, TTL 60 s) — Host-Request-Floods auf
+  Bogon-Domains treffen die `mandant_domains`-Tabelle nicht mehr;
+  `forgetHost()` räumt beide Einträge (gleicher Cache-Key).
+- **P1a-B2 (erledigt):** Referer-Fallback in `MandantContextMiddleware` nur
+  noch für die **Vite-Dev-Origin `localhost:5173`** — ein spoofbarer
+  Fremd-Referer steuert die Host-Auflösung nicht mehr.
+- **P2a-RL (erledigt):** `throttle:admin` (300/min, `admin:{userId|ip}`) auf
+  allen **schreibenden** Admin-Routen (`POST/PUT/DELETE` unter
+  `/api/admin/*`); Admin-GET-/Read-Routen bewusst unlimitiert.
+- **P5-F2 (erledigt):** `throttle:resend` (10/min, `resend:{userId|ip}`) auf
+  `POST /api/admin/applications/{application}/resend` — Mail-Spam-Vektor zu.
+- **P0-Fix-F3 (erledigt):** `DatabaseSeeder` erzeugt den Default-Admin in
+  **Production nur mit explizit gesetzten `ADMIN_EMAIL` + `ADMIN_PASSWORD`**
+  und verweigert das Standard-Passwort `admin` hard; sonst Skip mit Log.
+  Local/Testing unverändert.
+- **Neue Limiters keyen per `$request->user('api')`:** `Request::user()`
+  löst den Default-Guard (web/session) auf und ist für API-Requests `null` —
+  `media`/`admin`/`resend` müssen daher explizit den `api`-Guard lesen.
+  (Hinweis: der bestehende `apply`-Limiter nutzt noch `$request->user()` und
+  fällt damit faktisch auf per-IP zurück — bewusst nicht geändert, siehe
+  Befund im Review.)
+
+Akzeptierte Rest-Risiken:
 - F6 (info): 403-Texte offenbaren bewusst die Kontoexistenz (akzeptiert).
 - F7 (info): Mandant-Check nur beim Login — Ressourcen-Scoping (P2).

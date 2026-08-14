@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use App\Support\MandantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -167,5 +168,116 @@ class AuthThrottleTest extends TestCase
         }
 
         $this->getJson('/api/portal/overview')->assertStatus(429);
+    }
+
+    /* ---------------------------------------------------------------------
+     | F5 / P2a-RL / P5-F2: the `media`, `admin` and `resend` named limiters.
+     | All three are keyed per AUTHENTICATED user — they resolve the user via
+     | `$request->user('api')`, because `Request::user()` without a guard
+     | argument uses the *default* guard (web/session), which is null for API
+     | requests.
+     | ------------------------------------------------------------------- */
+
+    private function authenticatedLimiterRequest(User $user, string $uri): Request
+    {
+        auth('api')->setUser($user);
+
+        $request = Request::create($uri, 'GET');
+        $request->server->set('REMOTE_ADDR', '10.0.0.7');
+        $request->setUserResolver(static fn (?string $guard = null) => auth($guard)->user());
+
+        return $request;
+    }
+
+    public function test_media_limiter_is_registered_and_keyed_per_user(): void
+    {
+        $user = User::factory()->create();
+        $request = $this->authenticatedLimiterRequest($user, '/api/user/media');
+
+        $limiter = RateLimiter::limiter('media');
+        $this->assertNotNull($limiter, 'named limiter "media" must be registered');
+
+        $limit = $limiter($request);
+
+        $this->assertSame(30, $limit->maxAttempts);
+        $this->assertSame('media:'.$user->id, $limit->key);
+
+        // Same ip, different user → different bucket key.
+        $other = User::factory()->create();
+        $otherLimit = $limiter($this->authenticatedLimiterRequest($other, '/api/user/media'));
+        $this->assertSame('media:'.$other->id, $otherLimit->key);
+        $this->assertNotSame($limit->key, $otherLimit->key);
+
+        // Unauthenticated request → per-ip fallback.
+        $guestRequest = Request::create('/api/user/media', 'POST');
+        $guestRequest->server->set('REMOTE_ADDR', '10.0.0.8');
+        $this->assertSame('media:10.0.0.8', $limiter($guestRequest)->key);
+    }
+
+    public function test_admin_limiter_is_registered_and_keyed_per_user(): void
+    {
+        $user = User::factory()->create();
+        $request = $this->authenticatedLimiterRequest($user, '/api/admin/mandants');
+
+        $limiter = RateLimiter::limiter('admin');
+        $this->assertNotNull($limiter, 'named limiter "admin" must be registered');
+
+        $limit = $limiter($request);
+
+        $this->assertSame(300, $limit->maxAttempts);
+        $this->assertSame('admin:'.$user->id, $limit->key);
+    }
+
+    public function test_resend_limiter_is_registered_and_keyed_per_user(): void
+    {
+        $user = User::factory()->create();
+        $request = $this->authenticatedLimiterRequest($user, '/api/admin/applications/1/resend');
+
+        $limiter = RateLimiter::limiter('resend');
+        $this->assertNotNull($limiter, 'named limiter "resend" must be registered');
+
+        $limit = $limiter($request);
+
+        $this->assertSame(10, $limit->maxAttempts);
+        $this->assertSame('resend:'.$user->id, $limit->key);
+    }
+
+    public function test_media_throttle_is_applied_to_user_and_self_service_uploads(): void
+    {
+        $this->assertContains('throttle:media', $this->routeMiddleware('api.user.media.store'));
+        $this->assertContains('throttle:media', $this->routeMiddleware('api.mandant.logo.store'));
+        $this->assertContains('throttle:media', $this->routeMiddleware('api.mandant.header.store'));
+
+        // Read/delivery routes of the same surface stay unthrottled.
+        $this->assertNotContains('throttle:media', $this->routeMiddleware('api.user.media.index'));
+        $this->assertNotContains('throttle:media', $this->routeMiddleware('api.user.media.show'));
+    }
+
+    public function test_admin_throttle_is_applied_to_write_routes_only(): void
+    {
+        $this->assertContains('throttle:admin', $this->routeMiddleware('api.admin.mandants.store'));
+        $this->assertContains('throttle:admin', $this->routeMiddleware('api.admin.mandants.update'));
+        $this->assertContains('throttle:admin', $this->routeMiddleware('api.admin.mandants.destroy'));
+        $this->assertContains('throttle:admin', $this->routeMiddleware('api.admin.applications.update'));
+        $this->assertContains('throttle:admin', $this->routeMiddleware('api.admin.users.roles.update'));
+
+        // Read routes are deliberately NOT throttled (auth-gated already).
+        $this->assertNotContains('throttle:admin', $this->routeMiddleware('api.admin.mandants.index'));
+        $this->assertNotContains('throttle:admin', $this->routeMiddleware('api.admin.mandants.show'));
+        $this->assertNotContains('throttle:admin', $this->routeMiddleware('api.admin.applications.index'));
+    }
+
+    public function test_resend_throttle_is_applied_to_the_resend_route(): void
+    {
+        $this->assertContains('throttle:resend', $this->routeMiddleware('api.admin.applications.resend'));
+    }
+
+    private function routeMiddleware(string $routeName): array
+    {
+        $route = app('router')->getRoutes()->getByName($routeName);
+
+        $this->assertNotNull($route, "route {$routeName} must exist");
+
+        return $route->gatherMiddleware();
     }
 }

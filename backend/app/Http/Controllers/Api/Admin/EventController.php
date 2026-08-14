@@ -125,6 +125,21 @@ class EventController extends Controller
             $rules['deadline_end'][] = 'after_or_equal:deadline_start';
         }
 
+        // P2b-F8: on update, a payload that touches only ONE deadline is
+        // checked against the OTHER one from the stored record — otherwise a
+        // `deadline_end` before the stored `deadline_start` (or vice versa)
+        // would sneak in. Carbon-based date strings, portable across
+        // Postgres/SQLite; the create path (`$event === null`) is untouched.
+        if ($event !== null) {
+            if (! $request->filled('deadline_start') && $request->has('deadline_end') && $event->deadline_start !== null) {
+                $rules['deadline_end'][] = 'after_or_equal:'.$event->deadline_start->toDateString();
+            }
+
+            if (! $request->filled('deadline_end') && $request->has('deadline_start') && $event->deadline_end !== null) {
+                $rules['deadline_start'][] = 'before_or_equal:'.$event->deadline_end->toDateString();
+            }
+        }
+
         return $rules;
     }
 

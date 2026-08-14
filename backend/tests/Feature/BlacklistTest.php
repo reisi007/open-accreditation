@@ -189,6 +189,62 @@ class BlacklistTest extends TestCase
             ->assertJsonValidationErrors('domain');
     }
 
+    public function test_duplicate_email_in_different_case_is_422_not_500(): void
+    {
+        // A row written outside the controller (seed/direct insert) may carry
+        // a mixed-case email. The duplicate pre-check must match it
+        // case-insensitively — otherwise the insert would violate the DB
+        // unique constraint (SQLSTATE 23505) instead of a clean 422.
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'X@EXAMPLE.com']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/blacklists', ['email' => 'x@example.com'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('email');
+
+        $this->assertSame(1, Blacklist::query()->where('mandant_id', $this->mandantA->id)->count());
+
+        // A distinct email is still accepted.
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/blacklists', ['email' => 'other@example.com'])
+            ->assertStatus(201);
+    }
+
+    public function test_duplicate_domain_in_different_case_is_422(): void
+    {
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'domain' => 'BLOCKED.org']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/blacklists', ['domain' => 'blocked.org'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('domain');
+
+        $this->assertSame(1, Blacklist::query()->where('mandant_id', $this->mandantA->id)->count());
+    }
+
+    public function test_case_insensitive_email_and_domain_uniqueness_are_independent(): void
+    {
+        Blacklist::create([
+            'mandant_id' => $this->mandantA->id,
+            'email' => 'X@EXAMPLE.com',
+            'domain' => 'BLOCKED.org',
+        ]);
+
+        // Same email in a different case → 422 on email even with a fresh domain.
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/blacklists', ['email' => 'x@example.com', 'domain' => 'fresh.org'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('email');
+
+        // Same domain in a different case → 422 on domain even with a fresh email.
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/blacklists', ['email' => 'fresh@example.com', 'domain' => 'blocked.org'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('domain');
+
+        $this->assertSame(1, Blacklist::query()->where('mandant_id', $this->mandantA->id)->count());
+    }
+
     public function test_email_and_domain_uniqueness_are_independent_columns(): void
     {
         // The unique constraints are per column: `(mandant_id, email)` and

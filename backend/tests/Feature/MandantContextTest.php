@@ -8,6 +8,7 @@ use App\Support\MandantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Request;
 use Tests\TestCase;
 
 class MandantContextTest extends TestCase
@@ -20,6 +21,16 @@ class MandantContextTest extends TestCase
 
         Cache::flush();
         MandantContext::reset();
+    }
+
+    protected function tearDown(): void
+    {
+        // B3: requests that run in a simulated production environment activate
+        // the TrustHosts middleware, which sets Symfony's static trusted-host
+        // patterns. Reset them so they cannot leak into later tests.
+        Request::setTrustedHosts([]);
+
+        parent::tearDown();
     }
 
     public function test_resolve_finds_mandant_by_hostname(): void
@@ -47,6 +58,42 @@ class MandantContextTest extends TestCase
     public function test_resolve_returns_null_for_unknown_host(): void
     {
         $this->assertNull(MandantContext::resolve('unknown.invalid'));
+    }
+
+    public function test_unknown_host_is_negatively_cached_with_a_sentinel(): void
+    {
+        $this->assertNull(MandantContext::resolve('unknown.invalid'));
+
+        // P1a-B1: the miss is cached (short TTL) so a bogus-host flood does
+        // not hammer the domain table.
+        $this->assertTrue(Cache::has('mandant.domain.unknown.invalid'));
+        $this->assertSame(MandantContext::MISSING, Cache::get('mandant.domain.unknown.invalid'));
+    }
+
+    public function test_unknown_host_second_resolve_does_not_query_the_database(): void
+    {
+        MandantContext::resolve('unknown.invalid');
+
+        DB::enableQueryLog();
+
+        $this->assertNull(MandantContext::resolve('unknown.invalid'));
+        $this->assertNull(MandantContext::resolve('unknown.invalid'));
+
+        $domainQueries = collect(DB::getQueryLog())
+            ->filter(fn (array $query) => str_contains((string) $query['query'], 'mandant_domains'))
+            ->count();
+
+        $this->assertSame(0, $domainQueries);
+    }
+
+    public function test_forget_host_clears_the_negative_cache(): void
+    {
+        MandantContext::resolve('unknown.invalid');
+        $this->assertTrue(Cache::has('mandant.domain.unknown.invalid'));
+
+        MandantContext::forgetHost('unknown.invalid');
+
+        $this->assertFalse(Cache::has('mandant.domain.unknown.invalid'));
     }
 
     public function test_resolve_ignores_inactive_mandants(): void
@@ -114,12 +161,26 @@ class MandantContextTest extends TestCase
         $this->assertNull(MandantContext::current());
     }
 
-    public function test_unknown_host_returns_404_in_http_context(): void
+    public function test_untrusted_host_returns_400_in_production(): void
     {
         app()->detectEnvironment(fn () => 'production');
         $this->setRunningInConsole(false);
 
-        $this->get('http://unknown.invalid/')->assertNotFound();
+        // B3: `unknown.invalid` is not on the trustHosts allow-list, so the
+        // host is rejected (400, SuspiciousOperationException) BEFORE the
+        // mandant context is even resolved.
+        $this->get('http://unknown.invalid/')->assertStatus(400);
+    }
+
+    public function test_allow_listed_unknown_host_still_returns_404_in_production(): void
+    {
+        app()->detectEnvironment(fn () => 'production');
+        $this->setRunningInConsole(false);
+
+        // B3: `*.test` passes the trustHosts allow-list, but no mandant owns
+        // `foo.test` — the MandantContextMiddleware 404 for unknown hosts
+        // remains the behavior for allow-listed-but-unknown hosts.
+        $this->get('http://foo.test/')->assertStatus(404);
     }
 
     public function test_default_returns_the_primary_mandant(): void
@@ -234,6 +295,34 @@ class MandantContextTest extends TestCase
         $this->get('http://127.0.0.1/')->assertOk();
 
         $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_local_env_vite_referer_is_honored_over_the_host_header(): void
+    {
+        app()->detectEnvironment(fn () => 'local');
+
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        // The Host (`unknown.invalid`) would resolve to NO mandant; only the
+        // P1a-B2 Referer fallback for the Vite origin `localhost:5173` maps to
+        // the primary mandant via the loopback fallback.
+        $this->get('http://unknown.invalid/', ['Referer' => 'http://localhost:5173/'])->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_local_env_foreign_referer_is_ignored(): void
+    {
+        app()->detectEnvironment(fn () => 'local');
+
+        Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        // A spoofable foreign Referer must NOT steer host resolution — the
+        // Host header (`unknown.invalid`) stays authoritative and yields no
+        // mandant (in the console/test context: continue without mandant).
+        $this->get('http://unknown.invalid/', ['Referer' => 'http://evil.example/'])->assertOk();
+
+        $this->assertNull(MandantContext::current());
     }
 
     private function setRunningInConsole(bool $value): void

@@ -63,9 +63,14 @@ class AuthRegisterTest extends TestCase
         // The new account is scoped to the current mandant only.
         $this->assertSame('user', $user->roleForMandant($this->mandant->id));
 
+        // F4: the mail URL carries the RAW token; the DB stores its sha256
+        // digest — never the raw token itself.
         Mail::assertSent(ActivationMail::class, function (ActivationMail $mail) use ($user) {
+            $rawToken = (string) substr($mail->activationUrl, strrpos($mail->activationUrl, '/') + 1);
+
             return $mail->hasTo($user->email)
-                && str_contains($mail->activationUrl, $user->activation_token);
+                && str_contains($mail->activationUrl, $rawToken)
+                && hash('sha256', $rawToken) === $user->activation_token;
         });
     }
 
@@ -88,10 +93,14 @@ class AuthRegisterTest extends TestCase
 
         $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?: 'https';
 
+        // F4: the mail URL carries the RAW token; the DB stores its sha256.
         Mail::assertSent(ActivationMail::class, function (ActivationMail $mail) use ($user, $scheme) {
+            $rawToken = (string) substr($mail->activationUrl, strrpos($mail->activationUrl, '/') + 1);
+
             return $mail->hasTo($user->email)
                 && str_starts_with($mail->activationUrl, $scheme.'://bundesliga.test/api/auth/activate/')
-                && str_contains($mail->activationUrl, $user->activation_token);
+                && str_contains($mail->activationUrl, $rawToken)
+                && hash('sha256', $rawToken) === $user->activation_token;
         });
     }
 

@@ -102,12 +102,31 @@ final class BadgeExportService
     private function csvRow(Application $application): array
     {
         return [
-            $application->user?->name ?? '',
-            $application->user?->email ?? '',
-            $application->accreditation?->category?->name ?? '',
-            $application->accreditation?->event?->title ?? '',
+            $this->sanitizeCsvCell($application->user?->name ?? ''),
+            $this->sanitizeCsvCell($application->user?->email ?? ''),
+            $this->sanitizeCsvCell($application->accreditation?->category?->name ?? ''),
+            $this->sanitizeCsvCell($application->accreditation?->event?->title ?? ''),
             $this->renderer->statusLabel((string) $application->status),
-            $this->renderer->verifyUrl($application),
+            $this->sanitizeCsvCell($this->renderer->verifyUrl($application)),
         ];
+    }
+
+    /**
+     * Neutralize CSV formula-injection (P4-F1): a cell that begins with a
+     * spreadsheet formula marker (`=`, `+`, `-`, `@`) or a tab/CR is prefixed
+     * with a single quote so Excel/Sheets treat it as text instead of
+     * evaluating it. Applied to every user-controlled cell (name, email,
+     * category, event, verify URL); the German status label and the header
+     * row are trusted server-side values and stay untouched.
+     */
+    private function sanitizeCsvCell(string $value): string
+    {
+        $trimmed = trim($value);
+
+        if ($trimmed === '' || ! in_array($trimmed[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return $value;
+        }
+
+        return "'".$value;
     }
 }

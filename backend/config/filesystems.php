@@ -30,10 +30,14 @@ return [
 
     'disks' => [
 
+        // F3: the `local` disk must never serve files over HTTP. Auth-gated
+        // user/mandant media live on the `private` disk below and are delivered
+        // exclusively through the authenticated media endpoints — an open
+        // serve() route on the shared storage root would expose them publicly.
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

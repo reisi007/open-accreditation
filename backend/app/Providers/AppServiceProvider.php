@@ -6,6 +6,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use PHPOpenSourceSaver\JWTAuth\Http\Parser\Cookies;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,6 +23,22 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // F2: restrict the JWT token parser chain to the httpOnly `accr_jwt`
+        // cookie ONLY. The package default chain is `[AuthHeaders, QueryString,
+        // InputSource]` (AbstractServiceProvider::registerTokenParser) plus
+        // `[RouteParams, Cookies]` appended by LaravelServiceProvider::boot() —
+        // i.e. it also accepts `Authorization: Bearer`, `?token=`, POST `token`
+        // and route-param tokens. This provider boots after the package's
+        // provider (package-discovery providers register before the
+        // bootstrap/providers.php entries), so `setChain` replaces the whole
+        // chain with just the cookie parser. The SPA authenticates exclusively
+        // via the cookie, so every other channel is dead surface for token
+        // exfiltration (e.g. tokens leaked into logs or referers).
+        app('tymon.jwt.parser')->setChain([
+            (new Cookies((bool) config('jwt.decrypt_cookies')))
+                ->setKey((string) config('jwt.cookie_key_name')),
+        ]);
+
         // B2: separate throttle buckets for login and register. Before, both
         // routes shared a single `throttle:5,1` bucket, so failed register
         // attempts silently consumed the login quota and vice versa. Each
@@ -67,5 +84,29 @@ class AppServiceProvider extends ServiceProvider
             ->by('activate:'.$request->ip()));
         RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute(60)
             ->by('public:'.$request->ip()));
+
+        // F5: user-media uploads throttle per authenticated user (a scripted
+        // upload flood of portraits/press-ids/attachments is the threat), key
+        // `media:{userId}`; unauthenticated fallback `media:{ip}`. The explicit
+        // `user('api')` is required: `Request::user()` resolves the *default*
+        // guard (web/session), which is null for API requests — the existing
+        // `apply` limiter above has that latent per-ip fallback, these new
+        // limiters must not repeat it.
+        RateLimiter::for('media', static fn (Request $request): Limit => Limit::perMinute(30)
+            ->by('media:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
+
+        // P2a-RL: admin WRITE routes (POST/PUT/DELETE under /api/admin/*) are
+        // throttled per authenticated admin user (key `admin:{userId}`,
+        // fallback `admin:{ip}`) with a generous 300/min budget. The admin
+        // GET/read routes stay unthrottled — browsing lists is auth-gated
+        // already and a shared bucket would harm legitimate admin usage.
+        RateLimiter::for('admin', static fn (Request $request): Limit => Limit::perMinute(300)
+            ->by('admin:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
+
+        // P5-F2: pass-resend per admin user (key `resend:{userId}`, fallback
+        // `resend:{ip}`) — closes the mail-spam vector (10/min), far stricter
+        // than the shared `admin` write budget.
+        RateLimiter::for('resend', static fn (Request $request): Limit => Limit::perMinute(10)
+            ->by('resend:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
     }
 }
