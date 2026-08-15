@@ -197,9 +197,11 @@ export function EventsPage() {
                                             {pagedEvents.map((event) => (
                                                 <tr key={event.id}>
                                                     <td className="font-medium">{event.title}</td>
-                                                    <td>
+                                                    <td className="min-w-0">
                                                         {event.team ? (
-                                                            <span className="badge badge-outline badge-sm">{event.team.name}</span>
+                                                            <span className="badge badge-outline badge-sm min-w-0 max-w-40">
+                                                                <span className="truncate" title={event.team.name}>{event.team.name}</span>
+                                                            </span>
                                                         ) : (
                                                             <span className="badge badge-ghost badge-sm">{i18n._(t`Verbandsebene`)}</span>
                                                         )}

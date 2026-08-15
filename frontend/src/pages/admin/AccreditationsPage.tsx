@@ -298,13 +298,21 @@ export function AccreditationsPage() {
                                                 <tr key={accreditation.id}>
                                                     <td className="font-medium">{accreditation.category?.name ?? ''}</td>
                                                     <td>{accreditationScopeLabel(accreditation.scope, i18n)}</td>
-                                                    <td>
+                                                    <td className="min-w-0">
                                                         <div className="flex flex-wrap gap-1">
                                                             {accreditation.event ? (
-                                                                <span className="badge badge-info badge-sm">{accreditation.event.title}</span>
+                                                                <span className="badge badge-info badge-sm min-w-0 max-w-48">
+                                                                    <span className="truncate" title={accreditation.event.title}>
+                                                                        {accreditation.event.title}
+                                                                    </span>
+                                                                </span>
                                                             ) : null}
                                                             {accreditation.team ? (
-                                                                <span className="badge badge-outline badge-sm">{accreditation.team.name}</span>
+                                                                <span className="badge badge-outline badge-sm min-w-0 max-w-40">
+                                                                    <span className="truncate" title={accreditation.team.name}>
+                                                                        {accreditation.team.name}
+                                                                    </span>
+                                                                </span>
                                                             ) : (
                                                                 <span className="badge badge-ghost badge-sm">
                                                                     {i18n._(t`Verbandsebene`)}

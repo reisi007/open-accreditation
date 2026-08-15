@@ -134,8 +134,8 @@ export function AdminLayout() {
                 <div className="drawer-content">
                     <header className="navbar bg-base-200 shadow-sm">
                         <div className="navbar-start">
-                            <Link to="/" className="btn btn-ghost text-xl">
-                                <span className="iconify material-symbols--badge text-2xl text-primary"></span>
+                            <Link to="/" className="btn btn-ghost px-2 text-base lg:px-4 lg:text-xl">
+                                <span className="iconify material-symbols--badge hidden text-2xl text-primary lg:inline-block"></span>
                                 {i18n._(t`Akkreditierung`)}
                             </Link>
                         </div>
@@ -143,14 +143,19 @@ export function AdminLayout() {
                             <label
                                 htmlFor="admin-drawer"
                                 aria-label={i18n._(t`Menü`)}
-                                className="btn btn-ghost lg:hidden"
+                                className="btn btn-ghost btn-sm btn-square lg:hidden"
                             >
                                 <span className="iconify mdi--menu text-2xl"></span>
                             </label>
                             <span className="hidden text-sm text-base-content/70 sm:inline">{user?.email}</span>
-                            <button type="button" className="btn btn-ghost" onClick={() => void handleLogout()}>
+                            <button
+                                type="button"
+                                className="btn btn-ghost btn-sm lg:btn-md"
+                                aria-label={i18n._(t`Abmelden`)}
+                                onClick={() => void handleLogout()}
+                            >
                                 <span className="iconify mdi--logout text-xl"></span>
-                                {i18n._(t`Abmelden`)}
+                                <span className="hidden sm:inline">{i18n._(t`Abmelden`)}</span>
                             </button>
                             <LanguageSwitcher />
                         </div>
