@@ -881,6 +881,7 @@ msgid "Meine Akkreditierungen"
 msgstr "Meine Akkreditierungen"
 
 #: src/App.tsx
+#: src/pages/admin/AdminLayout.tsx
 msgid "Menü"
 msgstr "Menü"
 
@@ -1114,6 +1115,7 @@ msgid "Saison"
 msgstr "Saison"
 
 #: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/AdminLayout.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/DenyModal.tsx

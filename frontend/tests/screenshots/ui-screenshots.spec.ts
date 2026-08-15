@@ -22,9 +22,14 @@ import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandan
  *      link (route-guard / direct-URL semantics);
  *   2. per-route `goto` nav steps for dynamic detail pages (reason in the
  *      manifest);
- *   3. on the mobile viewport, routes whose nav starts with a HEADER click are
- *      loaded by direct URL instead — the same navbar overflow makes header
- *      nav clicks unreliable at 360px.
+ *   3. on the mobile viewport, routes whose nav starts with a HEADER or a
+ *      `complementary` (admin sidebar) click are loaded by direct URL instead
+ *      — the same navbar overflow makes header nav clicks unreliable at 360px,
+ *      and the admin sidebar sits behind the CLOSED daisyUI drawer (H5): its
+ *      `drawer-side` is `visibility: hidden`, so the `complementary`
+ *      landmark's links are absent from the a11y tree until the hamburger is
+ *      opened. Resolved-URL loads capture the exact page deterministically;
+ *      the desktop path still clicks the landmarks' links.
  * - Login flows through the real UI form — no localStorage injection.
  * - Locators are scoped to landmarks (`banner` / `complementary` / `main`).
  */
@@ -160,13 +165,18 @@ for (const route of routes) {
                     await loginViaUi(page, origin, String(seed.email), String(seed.password), /\/$/);
                 }
 
-                const needsHeaderNav = (route.nav ?? []).some((step) => step.kind === 'click' && step.scope === 'banner');
-                if (viewport === 'mobile' && needsHeaderNav) {
-                    // The mobile navbar overflows (header links overlap and sit
-                    // off-viewport at 360px), so header-driven routes load by
-                    // their resolved URL instead — the review still captures
-                    // the exact page, and the overflow itself is visible on the
-                    // captured home screenshot for the vision agent to flag.
+                const needsMobileUrlBypass =
+                    viewport === 'mobile' &&
+                    (route.nav ?? []).some(
+                        (step) => step.kind === 'click' && (step.scope === 'banner' || step.scope === 'complementary'),
+                    );
+                if (needsMobileUrlBypass) {
+                    // Mobile-only bypass (see module comment case 3): the header
+                    // links overflow the navbar at 360px, and the admin sidebar
+                    // (`complementary`) sits behind the CLOSED daisyUI drawer
+                    // (H5) so its links are absent from the a11y tree. Both are
+                    // loaded by their resolved URL instead — deterministic, and
+                    // the desktop path still clicks the landmarks' links.
                     await page.goto(resolvePath(route.path, seed));
                     await waitForAppSettled(page);
                 } else {
