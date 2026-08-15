@@ -49,6 +49,10 @@ export interface UiReviewRoute {
     /** Tenant per state; default: filled → primary, empty → empty. */
     tenant?: Partial<Record<UiReviewState, UiReviewTenant>>;
     note?: string;
+    /** Static <title> of the app — the spec asserts it so a foreign dev-server
+     *  on the port can never be silently screenshotted. Required when the app
+     *  has a stable title. */
+    expectedTitle?: string;
     /** Seed per state — only states that need deterministic data define one. */
     seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
     nav?: UiReviewNavStep[];

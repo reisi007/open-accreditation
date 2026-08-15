@@ -1,8 +1,21 @@
 // Generic manifest-driven screenshot spec for the ui-review skill.
 //
 // Reads the route/state/viewport matrix from the manifest and captures a
-// full-page PNG per combination. This file is intentionally generic — route
-// specifics (seeds, nav steps, auth) live in the manifest.
+// full-page PNG PER COMBO **plus** viewport-height SECTION captures of the
+// whole page (see `captureSections`). This file is intentionally generic —
+// route specifics (seeds, nav steps, auth) live in the manifest.
+//
+// WHY SECTIONS: Full-page PNGs of long pages get downscaled to ~2000 px for the
+// vision model — regions below the fold become unreadable and bugs there are
+// missed (regression: a clipped badge in a table far down the page). `captureSections`
+// therefore scrolls the ENTIRE page in 80 %-viewport steps (20 % overlap) and saves
+// `<name>-secN.png` files. It detects the REAL scroll container: the window normally,
+// but if the app scrolls in an inner overflow container (e.g. a 100vh layout with
+// `<main class="…overflow-auto">`), that container is scrolled instead — otherwise
+// long pages would only ever produce `sec0`.
+//
+// The manifest's `expectedTitle` is asserted so a foreign dev-server on the port
+// can never be silently screenshotted.
 //
 // Conventions (adjust to the target project's test policy):
 // - SPA navigation happens via UI clicks (`nav` steps). `page.goto` is only
@@ -33,6 +46,9 @@ const ADMIN_EMAIL = '<adminEmail>';
 const ADMIN_PASSWORD = '<adminPassword>';
 const SCREENSHOT_OUTPUT_DIR = '<outputDir>'; // must mirror the config outputDir
 
+const out = (state: UiReviewState, viewport: UiReviewViewport, file: string) =>
+    path.resolve(process.cwd(), SCREENSHOT_OUTPUT_DIR, state, viewport, file);
+
 function viewportForProject(projectName: string): UiReviewViewport {
     return projectName === 'Mobile Chrome' ? 'mobile' : 'desktop';
 }
@@ -53,9 +69,68 @@ function resolvePath(pattern: string, params: Record<string, unknown>): string {
 }
 
 /** Let the SPA + i18n settle so later clicks never race a layout shift. */
-async function waitForAppSettled(page: Page): Promise<void> {
+async function waitForAppSettled(page: Page, expectedTitle?: string): Promise<void> {
     await page.waitForLoadState('networkidle');
+    if (expectedTitle) {
+        // Guard: stellt sicher, dass wirklich diese App gerendert wird und nicht ein
+        // fremder Dev-Server, der zufällig den Port belegt (verhindert stille Fehl-Captures).
+        await expect(page).toHaveTitle(expectedTitle);
+    }
     await page.waitForTimeout(300);
+}
+
+/**
+ * Captures the whole page in readable viewport-height sections (80 % step,
+ * 20 % overlap). Detects the real scroll container: prefers the window
+ * (document.scrollingElement); if the app scrolls in an INNER overflow
+ * container (100vh layout, `<main class="…overflow-auto">`), that container
+ * is scrolled instead — otherwise long pages only ever produce sec0.
+ */
+async function captureSections(
+    page: Page,
+    state: UiReviewState,
+    viewport: UiReviewViewport,
+    name: string,
+): Promise<void> {
+    const scroller = await page.evaluate(() => {
+        const doc = document.scrollingElement;
+        const winH = window.innerHeight;
+        if (doc && doc.scrollHeight > winH + 4) {
+            return { kind: 'window', max: doc.scrollHeight - winH, step: Math.round(winH * 0.8) };
+        }
+        const main = document.querySelector('main');
+        if (main && main.scrollHeight > main.clientHeight + 4) {
+            return {
+                kind: 'main',
+                max: main.scrollHeight - main.clientHeight,
+                step: Math.round(main.clientHeight * 0.8),
+            };
+        }
+        return { kind: 'window', max: 0, step: Math.round(winH * 0.8) };
+    });
+    const scroll = (y: number) =>
+        page.evaluate(
+            ({ kind, y }) => {
+                if (kind === 'main') {
+                    const el = document.querySelector('main');
+                    if (el) el.scrollTop = y;
+                } else {
+                    window.scrollTo(0, y);
+                }
+            },
+            { kind: scroller.kind, y },
+        );
+    let y = 0;
+    let i = 0;
+    for (;;) {
+        await scroll(y);
+        await page.waitForTimeout(150);
+        await page.screenshot({ path: out(state, viewport, `${name}-sec${i}.png`), fullPage: false });
+        if (y >= scroller.max) break;
+        i += 1;
+        y = Math.min(scroller.max, y + scroller.step);
+    }
+    await scroll(0);
 }
 
 /**
@@ -99,12 +174,12 @@ async function settleAndCapture(
     state: UiReviewState,
     viewport: UiReviewViewport,
 ): Promise<void> {
-    await waitForAppSettled(page);
+    await waitForAppSettled(page, route.expectedTitle);
     await expect(page.getByRole('main')).toBeVisible();
     // page.screenshot resolves relative paths against process.cwd(), not the
     // config outputDir — build the absolute path explicitly.
-    const file = path.resolve(process.cwd(), SCREENSHOT_OUTPUT_DIR, state, viewport, `${route.name}.png`);
-    await page.screenshot({ path: file, fullPage: true });
+    await page.screenshot({ path: out(state, viewport, `${route.name}.png`), fullPage: true });
+    await captureSections(page, state, viewport, route.name);
 }
 
 for (const route of routes) {

@@ -50,11 +50,31 @@ viewport it:
 4. waits for the page to settle (network idle + key UI) **after login the
    auth redirect chain must finish before any nav step runs** (a regular user
    lands on `/`, an admin on `/admin/*`),
-5. saves a full-page PNG at `<outputDir>/<state>/<viewport>/<name>.png`.
+5. saves a full-page PNG at `<outputDir>/<state>/<viewport>/<name>.png` **and**
+   viewport-height section PNGs `<name>-secN.png` covering the whole page (see
+   below).
 
 Screenshot path resolution: **`page.screenshot({ path })` resolves relative
 paths against the process working directory, not the config `outputDir`** — build
 the path with `path.resolve(process.cwd(), outputDir, state, viewport, name)`.
+
+### Sections: why every page needs multiple readable shots
+
+A full-page PNG of a long page is **downscaled to ~2000 px** when the vision
+model reads it (`media.auto_resize` default). On mobile a 12,000-px-tall page
+collapses to ~180 px width — everything below the fold is unreadable and real
+bugs there are missed (a clipped badge in a table far down a page was found by a
+human, not the review). So the spec additionally:
+
+- scrolls the **real scroll container** in 80 %-viewport steps (20 % overlap)
+  and saves `<name>-secN.png` per step;
+- detects the scroller: `document.scrollingElement` when the page scrolls the
+  window, otherwise an **inner overflow container** (100vh layout, e.g.
+  `<main class="…overflow-auto">`) — without that, a long inner-scrolled page
+  would only ever produce `sec0`.
+
+Assert the app's static `<title>` (manifest `expectedTitle`) before capturing so
+a foreign dev-server on the port is never silently screenshotted.
 
 Tag every test (e.g. `{ tag: ['@screenshot'] }`) so it is groupable and clearly
 separate from functional E2E tags.

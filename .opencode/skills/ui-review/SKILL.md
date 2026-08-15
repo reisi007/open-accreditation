@@ -6,9 +6,18 @@ description: Generate Playwright screenshots of every page (empty/filled states)
 # UI Review — repeatable visual QA loop
 
 This skill turns a web app's visual state into a repeatable, reviewable artifact:
-Playwright captures full-page screenshots of every page in both **filled** and
-**empty** states, a vision-capable agent analyzes them against a checklist, and
-the resulting findings drive targeted UI fixes.
+Playwright captures screenshots of every page in both **filled** and **empty**
+states, a vision-capable agent analyzes them against a checklist, and the
+resulting findings drive targeted UI fixes.
+
+Each route/state/viewport combo produces a **full-page PNG** **plus viewport-
+height SECTION captures** (`<name>-secN.png`) that scroll the whole page in
+80 % steps. Long pages must not rely on the full-page PNG alone: a full-page
+image of a page >2000 px tall gets downscaled for the vision model and regions
+below the fold become unreadable (regression: a clipped badge in a table far
+down the page). Sections keep every region at readable resolution. Apps that
+scroll in an inner overflow container (100vh layout with `<main …overflow-auto>`)
+are handled by scrolling that container — see `references/harness.md`.
 
 The screenshot set is **intentionally separate from the normal E2E suite**: it is
 not a functional test. It never asserts behavior — it only *captures pixels* so a
@@ -41,16 +50,20 @@ PNGs land under the config's `outputDir` (this repo:
 `frontend/test-results/ui-screenshots/`), organized as:
 
 ```
-<outputDir>/<state>/<viewport>/<name>.png
+<outputDir>/<state>/<viewport>/<name>.png        # full-page
+<outputDir>/<state>/<viewport>/<name>-secN.png   # viewport-height sections (N = 0,1,2,…)
   filled/desktop/home.png
+  filled/desktop/home-sec0.png
+  filled/desktop/home-sec1.png
   empty/desktop/home.png
   filled/mobile/admin-users.png
   ...
 ```
 
-The manifest (`tests/screenshots/ui-review.config.ts` here) defines which routes
-× states × viewports are captured. A failed screenshot test means the harness
-(or the page) is broken — fix it before moving on.
+Long pages produce **multiple** `-secN` files; a short page only `-sec0`. The
+manifest (`tests/screenshots/ui-review.config.ts` here) defines which routes ×
+states × viewports are captured. A failed screenshot test means the harness (or
+the page) is broken — fix it before moving on.
 
 ## Step 2 — Vision analysis
 
