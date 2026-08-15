@@ -33,7 +33,10 @@ export function MandantListPage() {
     const totalCount = mandants?.length ?? 0;
     const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
     const currentPage = Math.min(page, pageCount);
-    const pagedMandants = (mandants ?? []).slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    // Newest first (backend orders alphabetically, which would bury newly
+    // created rows behind the 20-row page boundary and break the E2E flow).
+    const orderedMandants = [...(mandants ?? [])].sort((a, b) => b.id - a.id);
+    const pagedMandants = orderedMandants.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     return (
         <section className="flex flex-col gap-6">

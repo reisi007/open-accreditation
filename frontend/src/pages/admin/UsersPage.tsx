@@ -9,6 +9,23 @@ import { buildRolePayload, type RoleFormValues } from './userRoleFormUtils';
 
 const PAGE_SIZE = 20;
 
+/**
+ * Wide tables scroll horizontally by design. On mobile there is no native
+ * scroll affordance, so a subtle right-edge fade (over the container) plus a
+ * one-line hint shows that more columns are reachable by swiping. Desktop
+ * keeps the default scrollbar.
+ */
+function MobileScrollHint() {
+    const { i18n } = useLingui();
+
+    return (
+        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
+            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
+            {i18n._(t`Zum Scrollen wischen`)}
+        </p>
+    );
+}
+
 export function UsersPage() {
     const { i18n } = useLingui();
     const [searchInput, setSearchInput] = useState('');
@@ -125,47 +142,53 @@ export function UsersPage() {
                             </div>
                         ) : null}
                     </div>
-                    <div className="overflow-x-auto">
-                        <div className="max-h-96 overflow-y-auto">
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Rollen`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100 min-w-40">{i18n._(t`Aktionen`)}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {pagedUsers.map((user) => (
-                                        <tr key={user.id}>
-                                            <td className="max-w-48">
-                                                <span className="block truncate font-medium" title={user.name}>
-                                                    {user.name}
-                                                </span>
-                                            </td>
-                                            <td className="max-w-72">
-                                                <span className="block truncate" title={user.email}>
-                                                    {user.email}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <div className="flex flex-wrap gap-1">{roleBadges(user.roles)}</div>
-                                            </td>
-                                            <td className="whitespace-nowrap">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-outline"
-                                                    onClick={() => openEdit(user)}
-                                                >
-                                                    {i18n._(t`Rollen bearbeiten`)}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    <div className="flex flex-col">
+                        <div className="relative">
+                            <div className="overflow-x-auto">
+                                <div className="max-h-96 overflow-y-auto">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Rollen`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100 min-w-40">{i18n._(t`Aktionen`)}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pagedUsers.map((user) => (
+                                                <tr key={user.id}>
+                                                    <td className="max-w-48">
+                                                        <span className="block truncate font-medium" title={user.name}>
+                                                            {user.name}
+                                                        </span>
+                                                    </td>
+                                                    <td className="max-w-72">
+                                                        <span className="block truncate" title={user.email}>
+                                                            {user.email}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <div className="flex flex-wrap gap-1">{roleBadges(user.roles)}</div>
+                                                    </td>
+                                                    <td className="whitespace-nowrap">
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-outline"
+                                                            onClick={() => openEdit(user)}
+                                                        >
+                                                            {i18n._(t`Rollen bearbeiten`)}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
                         </div>
+                        <MobileScrollHint />
                     </div>
                 </div>
             ) : null}
@@ -186,6 +209,9 @@ export function UsersPage() {
                                 <h2 className="card-title">{i18n._(t`Noch keine Benutzer vorhanden.`)}</h2>
                                 <p className="text-base-content/70">
                                     {i18n._(t`Sobald sich Benutzer registrieren, erscheinen sie hier.`)}
+                                </p>
+                                <p className="text-base-content/70">
+                                    {i18n._(t`Benutzer registrieren sich über das Portal und werden per E-Mail aktiviert.`)}
                                 </p>
                             </>
                         )}

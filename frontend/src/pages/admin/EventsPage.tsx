@@ -10,10 +10,30 @@ import { buildEventPayload, type EventFormValues } from './eventFormUtils';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
+const PAGE_SIZE = 20;
+
+/**
+ * Wide tables scroll horizontally by design. On mobile there is no native
+ * scroll affordance, so a subtle right-edge fade (over the container) plus a
+ * one-line hint shows that more columns are reachable by swiping. Desktop
+ * keeps the default scrollbar.
+ */
+function MobileScrollHint() {
+    const { i18n } = useLingui();
+
+    return (
+        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
+            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
+            {i18n._(t`Zum Scrollen wischen`)}
+        </p>
+    );
+}
+
 export function EventsPage() {
     const { i18n } = useLingui();
     const { currentTeamIds } = useAdminTeams();
     const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
+    const [page, setPage] = useState(1);
 
     const eventsKey = ['/api/admin/events', activeFilter];
     const { data: events, error, isLoading, mutate } = useSWR<Event[]>(eventsKey, () =>
@@ -74,6 +94,14 @@ export function EventsPage() {
     const isTeamScoped = currentTeamIds.length > 0;
     const isReadOnly = (event: Event) => isTeamScoped && (event.team_id === null || !currentTeamIds.includes(event.team_id));
 
+    const totalCount = events?.length ?? 0;
+    const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    // Newest first (backend orders alphabetically, which would bury newly
+    // created rows behind the 20-row page boundary and break the E2E flow).
+    const orderedEvents = [...(events ?? [])].sort((a, b) => b.id - a.id);
+    const pagedEvents = orderedEvents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
     const formatDeadline = (event: Event) => {
         if (event.deadline_start && event.deadline_end) {
             return `${event.deadline_start} – ${event.deadline_end}`;
@@ -90,7 +118,10 @@ export function EventsPage() {
                         aria-label={i18n._(t`Status`)}
                         className="select select-sm"
                         value={activeFilter}
-                        onChange={(event) => setActiveFilter(event.target.value as ActiveFilter)}
+                        onChange={(event) => {
+                            setActiveFilter(event.target.value as ActiveFilter);
+                            setPage(1);
+                        }}
                     >
                         <option value="all">{i18n._(t`Alle`)}</option>
                         <option value="active">{i18n._(t`Aktiv`)}</option>
@@ -118,62 +149,100 @@ export function EventsPage() {
             ) : null}
 
             {events && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Titel`)}</th>
-                                <th>{i18n._(t`Team`)}</th>
-                                <th>{i18n._(t`Datum`)}</th>
-                                <th>{i18n._(t`Frist`)}</th>
-                                <th>{i18n._(t`Status`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {events.map((event) => (
-                                <tr key={event.id}>
-                                    <td className="font-medium">{event.title}</td>
-                                    <td>
-                                        {event.team ? (
-                                            <span className="badge badge-outline badge-sm">{event.team.name}</span>
-                                        ) : (
-                                            <span className="badge badge-ghost badge-sm">{i18n._(t`Verbandsebene`)}</span>
-                                        )}
-                                    </td>
-                                    <td>{event.date ?? ''}</td>
-                                    <td>{formatDeadline(event)}</td>
-                                    <td>
-                                        {event.active ? (
-                                            <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>
-                                        ) : (
-                                            <span className="badge badge-ghost badge-sm">{i18n._(t`Inaktiv`)}</span>
-                                        )}
-                                    </td>
-                                    <td>
-                                        {isReadOnly(event) ? null : (
-                                            <div className="flex gap-2">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-outline"
-                                                    onClick={() => openEdit(event)}
-                                                >
-                                                    {i18n._(t`Bearbeiten`)}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-error btn-outline"
-                                                    onClick={() => void handleDelete(event)}
-                                                >
-                                                    {i18n._(t`Löschen`)}
-                                                </button>
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <p aria-live="polite" className="text-sm text-base-content/70">
+                            {totalCount === 1 ? '1 Event' : `${totalCount} Events`}
+                        </p>
+                        {pageCount > 1 ? (
+                            <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage <= 1}
+                                    onClick={() => setPage((previous) => Math.max(1, previous - 1))}
+                                >
+                                    {i18n._(t`Zurück`)}
+                                </button>
+                                <span className="join-item btn btn-sm btn-disabled" aria-live="polite">
+                                    {i18n._(t`Seite ${currentPage} von ${pageCount}`)}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage >= pageCount}
+                                    onClick={() => setPage((previous) => Math.min(pageCount, previous + 1))}
+                                >
+                                    {i18n._(t`Weiter`)}
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+                    <div className="flex flex-col">
+                        <div className="relative">
+                            <div className="overflow-x-auto">
+                                <div className="max-h-96 overflow-y-auto">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Titel`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Team`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Datum`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Frist`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pagedEvents.map((event) => (
+                                                <tr key={event.id}>
+                                                    <td className="font-medium">{event.title}</td>
+                                                    <td>
+                                                        {event.team ? (
+                                                            <span className="badge badge-outline badge-sm">{event.team.name}</span>
+                                                        ) : (
+                                                            <span className="badge badge-ghost badge-sm">{i18n._(t`Verbandsebene`)}</span>
+                                                        )}
+                                                    </td>
+                                                    <td>{event.date ?? ''}</td>
+                                                    <td>{formatDeadline(event)}</td>
+                                                    <td>
+                                                        {event.active ? (
+                                                            <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>
+                                                        ) : (
+                                                            <span className="badge badge-ghost badge-sm">{i18n._(t`Inaktiv`)}</span>
+                                                        )}
+                                                    </td>
+                                                    <td>
+                                                        {isReadOnly(event) ? null : (
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-sm btn-outline"
+                                                                    onClick={() => openEdit(event)}
+                                                                >
+                                                                    {i18n._(t`Bearbeiten`)}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-sm btn-error btn-outline"
+                                                                    onClick={() => void handleDelete(event)}
+                                                                >
+                                                                    {i18n._(t`Löschen`)}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
+                        </div>
+                        <MobileScrollHint />
+                    </div>
                 </div>
             ) : null}
 

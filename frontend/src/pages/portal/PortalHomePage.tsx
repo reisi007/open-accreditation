@@ -151,7 +151,15 @@ export function PortalHomePage() {
                         ) : null}
 
                         {events && !eventsLoading && !eventsError && events.length === 0 ? (
-                            <p className="text-base-content/70">{i18n._(t`Keine Veranstaltungen`)}</p>
+                            <div className="card border border-base-300 bg-base-100">
+                                <div className="card-body items-center justify-center py-16 text-center">
+                                    <span className="iconify mdi--calendar-outline text-6xl text-base-content/40"></span>
+                                    <h2 className="card-title">{i18n._(t`Keine Veranstaltungen`)}</h2>
+                                    <p className="text-base-content/70">
+                                        {i18n._(t`Zurzeit sind keine Veranstaltungen eingetragen.`)}
+                                    </p>
+                                </div>
+                            </div>
                         ) : null}
 
                         {events && !eventsLoading && !eventsError && events.length > 0 ? (

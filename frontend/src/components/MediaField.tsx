@@ -1,6 +1,6 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ApiError } from '../api/client';
 
 interface MediaFieldProps {
@@ -12,6 +12,7 @@ interface MediaFieldProps {
 
 export function MediaField({ label, url, onUpload, onDelete }: MediaFieldProps) {
     const { i18n } = useLingui();
+    const fileInputId = useId();
     const [file, setFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -62,10 +63,18 @@ export function MediaField({ label, url, onUpload, onDelete }: MediaFieldProps) 
             ) : (
                 <p className="label-text-alt text-base-content/70">{i18n._(t`Kein Bild hinterlegt.`)}</p>
             )}
+            <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor={fileInputId} className="btn btn-outline btn-sm">
+                    <span className="iconify mdi--image-outline text-lg"></span>
+                    {i18n._(t`Bild auswählen`)}
+                </label>
+                {file ? <span className="text-sm text-base-content/70">{file.name}</span> : null}
+            </div>
             <input
+                id={fileInputId}
                 type="file"
                 accept="image/*"
-                className="file-input file-input-sm"
+                className="hidden"
                 aria-label={label}
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />

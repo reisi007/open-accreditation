@@ -373,11 +373,12 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
             throw new Error(`User login failed with status ${login.status()}`);
         }
 
-        // Small opaque portrait fixture (8×8 RGB PNG) — small enough for a
-        // throwaway portrait and passes the backend's image/dimension
-        // validation (max 2000px, no minimum). The previous 1×1 semi-transparent
-        // RED pixel rendered as a broken-looking red tile on the public verify
-        // page; an opaque, structured image captures as a real photo.
+        // Realistic head-and-shoulders portrait fixture (96×120 PNG, ~0.7 KB) —
+        // programmatically drawn with Python/PIL (light-gray background,
+        // skin-tone head, dark hair cap, simple clothing band) so the public
+        // verify page shows a human-looking image when scaled to ~128×160.
+        // Small enough for a throwaway portrait and passes the backend's
+        // image/dimension validation (max 2000px, no minimum).
         const portrait = await api.post('/api/user/media', {
             multipart: {
                 type: 'portrait',
@@ -385,7 +386,7 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
                     name: 'portrait.png',
                     mimeType: 'image/png',
                     buffer: Buffer.from(
-                        'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAH0lEQVR42mPQ0DHBihhwSpxb0YUVkSERldeCFZEuAQB6+VehEw1DswAAAABJRU5ErkJggg==',
+                        'iVBORw0KGgoAAAANSUhEUgAAAGAAAAB4CAIAAACCf2CZAAACjklEQVR42u2cu0oDQRSGZ0fTSFBRH0REsVV8BYNWFmJlqRaS2sJCrcTKykrJM0hqMQRfQiy8oCI2YrBYCEuuuztn5xK/v1rIJHPm23/O3MJEj0/PCvWXBgGAAAQgAAEIQAACEAIQgAAEIAABaLQ0bvj9ytqy/42s3d7hILoYgAAEIAABCAEIQAACEIAABCAAIQABCEAAAhCAAAQgACEAuQNkcmipvD9WxUFWAPlsIvPYcJAq9t8dsS6PD+KHncMTH1rVjseLLvZxXysiMhE6ydhcOiirPvVE/DDZ+i6ivEdJuvsVDTVRu7UdzyLlu2s3NJF25Z2Ubc5anpn0SCw1rk/3cn/3vLp9Xt22X69tB/WLtTvLDs676csXQUdgFJtaqnRkwXKplYx4c/+su4WZRqWh5ZNoyqXW14/uiNDrYb4npqyjtWXXCANKmqhtnzSYCkpzSRMZ2kfMQVNLld+Hm3xuKiITx+9pbH7Dl7WYSQuH8rLQjwYokrqaIo2D0ujl9V0pNTc7bf5TIg4SG+ZFohGUVDzMpAEU4nbHAIlkH08d5E8aEoyELmYXkA8mko3BpYOa9Uaz3pAq5vtEMd+ksd3yhdXFrJ/asbDjUWxhdTGmMMAj6ekE46AcK4+egLKiKSIDRsVdEyi1OnM7PujgIrZclw40bmu16KCjt/D7Oug3bMGhOtwcYaf/6kDzqLURILJ/G7Dh8G95uRe5ui45ByYnK+HI7X3S8YFav9M0pVR8wmV+vBX2jmLHYbFiT1qxaQ8gACEAAUhiHrSyfuSw+outmTTFdq/ecBBdDEAAAhACEIAApP7TfpDDGSAOAhCAAAQgAAEIQAhAAAIQgAAEIAABCAEIQAACEIAANFL6A/UV1Rn7fVgJAAAAAElFTkSuQmCC',
                         'base64',
                     ),
                 },

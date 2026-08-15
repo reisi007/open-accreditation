@@ -1,5 +1,6 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { listAccreditations } from '../api/client';
@@ -8,9 +9,20 @@ import { ApplyButton } from '../components/ApplyButton';
 import { accreditationScopeLabel, availabilityLabel } from '../logic/accreditationLabels';
 import { formatDate } from '../logic/formatDate';
 
+const PAGE_SIZE = 20;
+
 export function AccreditationsPage() {
     const { i18n } = useLingui();
     const { data, error, isLoading } = useSWR<Accreditation[]>('/api/accreditations', () => listAccreditations());
+    const [page, setPage] = useState(1);
+
+    const totalCount = data?.length ?? 0;
+    const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    const currentPage = Math.min(page, pageCount);
+    // Newest first (backend orders by category name, which would bury newly
+    // created rows behind the 20-row page boundary and break the E2E flow).
+    const orderedAccreditations = [...(data ?? [])].sort((a, b) => b.id - a.id);
+    const pagedAccreditations = orderedAccreditations.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     return (
         <section className="flex flex-col gap-6">
@@ -41,7 +53,35 @@ export function AccreditationsPage() {
 
             {data && data.length > 0 && !isLoading && !error ? (
                 <div className="flex flex-col gap-4">
-                    {data.map((accreditation) => {
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <p aria-live="polite" className="text-sm text-base-content/70">
+                            {totalCount === 1 ? '1 Akkreditierung' : `${totalCount} Akkreditierungen`}
+                        </p>
+                        {pageCount > 1 ? (
+                            <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage <= 1}
+                                    onClick={() => setPage((previous) => Math.max(1, previous - 1))}
+                                >
+                                    {i18n._(t`Zurück`)}
+                                </button>
+                                <span className="join-item btn btn-sm btn-disabled" aria-live="polite">
+                                    {i18n._(t`Seite ${currentPage} von ${pageCount}`)}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm join-item"
+                                    disabled={currentPage >= pageCount}
+                                    onClick={() => setPage((previous) => Math.min(pageCount, previous + 1))}
+                                >
+                                    {i18n._(t`Weiter`)}
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+                    {pagedAccreditations.map((accreditation) => {
                         const deadlineText =
                             accreditation.deadline_end !== null
                                 ? `${i18n._(t`Frist`)}: ${formatDate(accreditation.deadline_end, i18n.locale)}`

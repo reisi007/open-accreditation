@@ -2,6 +2,7 @@ import type { I18n } from '@lingui/core';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import {
     ApiError,
@@ -661,6 +662,9 @@ function ApplicationsTab() {
                                                 t`Sobald sich Nutzer für Akkreditierungen bewerben, erscheinen ihre Anträge hier.`,
                                             )}
                                         </p>
+                                        <Link to="/admin/accreditations" className="btn btn-primary mt-2">
+                                            {i18n._(t`Akkreditierungen konfigurieren`)}
+                                        </Link>
                                     </>
                                 )}
                             </div>

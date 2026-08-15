@@ -135,6 +135,10 @@ msgstr "Akkreditierungen ansehen"
 msgid "Akkreditierungen für dieses Event"
 msgstr "Akkreditierungen für dieses Event"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Akkreditierungen konfigurieren"
+msgstr "Akkreditierungen konfigurieren"
+
 #: src/pages/AccreditationsPage.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Akkreditierungen konnten nicht geladen werden."
@@ -291,12 +295,20 @@ msgid "Benutzer konnten nicht geladen werden."
 msgstr "Benutzer konnten nicht geladen werden."
 
 #: src/pages/admin/UsersPage.tsx
+msgid "Benutzer registrieren sich über das Portal und werden per E-Mail aktiviert."
+msgstr "Benutzer registrieren sich über das Portal und werden per E-Mail aktiviert."
+
+#: src/pages/admin/UsersPage.tsx
 msgid "Benutzer suchen"
 msgstr "Benutzer suchen"
 
 #: src/pages/admin/CategoryForm.tsx
 msgid "Beschreibung"
 msgstr "Beschreibung"
+
+#: src/components/MediaField.tsx
+msgid "Bild auswählen"
+msgstr "Bild auswählen"
 
 #: src/components/MediaField.tsx
 msgid "Bild konnte nicht entfernt werden."
@@ -1118,6 +1130,10 @@ msgstr "Schriftgröße (pt)"
 msgid "Schriftgröße muss mindestens 1 sein."
 msgstr "Schriftgröße muss mindestens 1 sein."
 
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Seite {currentPage} von {pageCount}"
@@ -1127,6 +1143,10 @@ msgstr "Seite {currentPage} von {pageCount}"
 msgid "Seite {page} von {pageCount}"
 msgstr "Seite {page} von {pageCount}"
 
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Seitennavigation"
@@ -1496,7 +1516,11 @@ msgstr "Wallet-Downloads"
 msgid "Warteliste"
 msgstr "Warteliste"
 
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Weiter"
@@ -1532,9 +1556,13 @@ msgstr "Y muss 0 oder größer sein."
 msgid "Zentriert"
 msgstr "Zentriert"
 
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/UsersPage.tsx
 msgid "Zum Scrollen wischen"
 msgstr "Zum Scrollen wischen"
 
@@ -1542,7 +1570,11 @@ msgstr "Zum Scrollen wischen"
 msgid "Zur Startseite"
 msgstr "Zur Startseite"
 
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/CategoriesPage.tsx
+#: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Zurück"
@@ -1567,3 +1599,7 @@ msgstr "Zurückziehen"
 #: src/pages/AccreditationsPage.tsx
 msgid "Zurzeit gibt es keine Akkreditierungen, für die du dich bewerben kannst."
 msgstr "Zurzeit gibt es keine Akkreditierungen, für die du dich bewerben kannst."
+
+#: src/pages/portal/PortalHomePage.tsx
+msgid "Zurzeit sind keine Veranstaltungen eingetragen."
+msgstr "Zurzeit sind keine Veranstaltungen eingetragen."
