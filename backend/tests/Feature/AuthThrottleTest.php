@@ -116,7 +116,10 @@ class AuthThrottleTest extends TestCase
         $publicLimit = $public($request);
 
         $this->assertSame(30, $activateLimit->maxAttempts);
-        $this->assertSame(60, $publicLimit->maxAttempts);
+        // Like the login/register floors, `public` is env-dependent: 300/min in
+        // `local`/`testing` (the ui-review screenshot suite does ~80+ public
+        // GETs per run from one ip), 60/min in `production`.
+        $this->assertSame(300, $publicLimit->maxAttempts);
 
         // The same request/ip must resolve to distinct bucket keys for every
         // named limiter — otherwise parallel runs on different routes still
@@ -161,9 +164,9 @@ class AuthThrottleTest extends TestCase
         $this->getJson('/api/auth/activate/not-a-token')->assertStatus(429);
     }
 
-    public function test_public_bucket_blocks_61st_request(): void
+    public function test_public_bucket_blocks_301st_request(): void
     {
-        for ($i = 0; $i < 60; $i++) {
+        for ($i = 0; $i < 300; $i++) {
             $this->getJson('/api/portal/overview')->assertStatus(404);
         }
 

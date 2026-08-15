@@ -171,11 +171,26 @@ export function UsersPage() {
             ) : null}
 
             {users && users.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">
-                    {hasSearch
-                        ? i18n._(t`Keine Benutzer für die Suche.`)
-                        : i18n._(t`Noch keine Benutzer vorhanden.`)}
-                </p>
+                <div className="card border border-base-300 bg-base-100">
+                    <div className="card-body items-center justify-center py-16 text-center">
+                        <span className="iconify mdi--account-group-outline text-6xl text-base-content/40"></span>
+                        {hasSearch ? (
+                            <>
+                                <h2 className="card-title">{i18n._(t`Keine Benutzer für die Suche.`)}</h2>
+                                <p className="text-base-content/70">
+                                    {i18n._(t`Passe den Suchbegriff an oder leere ihn, um alle Benutzer zu sehen.`)}
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <h2 className="card-title">{i18n._(t`Noch keine Benutzer vorhanden.`)}</h2>
+                                <p className="text-base-content/70">
+                                    {i18n._(t`Sobald sich Benutzer registrieren, erscheinen sie hier.`)}
+                                </p>
+                            </>
+                        )}
+                    </div>
+                </div>
             ) : null}
 
             {editUser ? (

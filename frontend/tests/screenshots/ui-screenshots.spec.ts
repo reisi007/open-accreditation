@@ -111,18 +111,21 @@ async function settleAndCapture(
  * F6: the `empty.localhost` fixture tenant is unreachable in local dev (the
  * backend middleware resolves every local host to the primary mandant — see
  * `ui-review.config.ts` module header). For routes that must show a GENUINELY
- * empty UI, the manifest declares `emptyMock` URL globs: each matching request
- * is fulfilled with `{data: []}` so the page renders its empty state. The
- * stubs only ever apply to `empty`-state captures and are scoped to the admin
- * list endpoints — the login and portal requests pass through untouched.
+ * empty UI, the manifest declares `emptyMock` entries: each matching request
+ * is fulfilled with `{data: []}` (or the entry's custom `body`, e.g. an empty
+ * portal overview) so the page renders its empty state. The stubs only ever
+ * apply to `empty`-state captures and are scoped to the admin list endpoints
+ * and the public portal routes — the login requests pass through untouched.
  */
 async function stubEmptyLists(page: Page, route: UiReviewRoute, state: UiReviewState): Promise<void> {
     if (state !== 'empty') {
         return;
     }
-    for (const pattern of route.emptyMock ?? []) {
+    for (const entry of route.emptyMock ?? []) {
+        const pattern = typeof entry === 'string' ? entry : entry.pattern;
+        const body = typeof entry === 'string' ? { data: [] } : (entry.body ?? { data: [] });
         await page.route(pattern, (routeHandler) =>
-            routeHandler.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
+            routeHandler.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }),
         );
     }
 }

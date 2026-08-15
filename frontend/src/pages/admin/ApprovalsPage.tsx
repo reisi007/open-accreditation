@@ -1,7 +1,7 @@
 import type { I18n } from '@lingui/core';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import useSWR from 'swr';
 import {
     ApiError,
@@ -138,6 +138,44 @@ function Pagination({ page, pageCount, onPrevious, onNext }: PaginationProps) {
     );
 }
 
+/**
+ * Wide tables scroll horizontally by design. On mobile there is no native
+ * scroll affordance, so a subtle right-edge fade (over the container) plus a
+ * one-line hint shows that more columns are reachable by swiping. Desktop
+ * keeps the default scrollbar.
+ */
+function MobileTableScrollHint() {
+    const { i18n } = useLingui();
+
+    return (
+        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
+            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
+            {i18n._(t`Zum Scrollen wischen`)}
+        </p>
+    );
+}
+
+interface WideTableProps {
+    children: ReactNode;
+}
+
+/**
+ * Local wrapper for horizontally/vertically scrollable tables: renders the
+ * `overflow-x-auto` container plus the mobile-only scroll affordance. The
+ * right-edge fade overlay must not intercept pointer events.
+ */
+function WideTable({ children }: WideTableProps) {
+    return (
+        <div className="flex flex-col">
+            <div className="relative">
+                {children}
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
+            </div>
+            <MobileTableScrollHint />
+        </div>
+    );
+}
+
 interface ApplicationRowProps {
     application: AdminApplication;
     onChanged: () => Promise<void>;
@@ -216,26 +254,26 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                 <div className="flex flex-wrap gap-1">
                     {application.accreditation?.category ? (
                         <span
-                            className="badge badge-info badge-sm min-w-0 max-w-36 truncate"
+                            className="badge badge-info badge-sm min-w-0 max-w-36"
                             title={application.accreditation.category.name}
                         >
-                            {application.accreditation.category.name}
+                            <span className="truncate">{application.accreditation.category.name}</span>
                         </span>
                     ) : null}
                     {application.accreditation?.event ? (
                         <span
-                            className="badge badge-outline badge-sm min-w-0 max-w-36 truncate"
+                            className="badge badge-outline badge-sm min-w-0 max-w-36"
                             title={application.accreditation.event.title}
                         >
-                            {application.accreditation.event.title}
+                            <span className="truncate">{application.accreditation.event.title}</span>
                         </span>
                     ) : null}
                     {application.accreditation?.team ? (
                         <span
-                            className="badge badge-ghost badge-sm min-w-0 max-w-36 truncate"
+                            className="badge badge-ghost badge-sm min-w-0 max-w-36"
                             title={application.accreditation.team.name}
                         >
-                            {application.accreditation.team.name}
+                            <span className="truncate">{application.accreditation.team.name}</span>
                         </span>
                     ) : null}
                 </div>
@@ -605,43 +643,57 @@ function ApplicationsTab() {
                         {applications.length === 1 ? `${applications.length} Antrag` : `${applications.length} Anträge`}
                     </p>
                     {applications.length === 0 ? (
-                        filtersActive ? (
-                            <div className="flex flex-col gap-1">
-                                <p className="text-base-content/70">{i18n._(t`Keine Anträge für diese Filter.`)}</p>
-                                <p className="text-sm text-base-content/50">
-                                    {i18n._(t`Passe die Filter an, um Anträge anzuzeigen.`)}
-                                </p>
+                        <div className="card border border-base-300 bg-base-100">
+                            <div className="card-body items-center justify-center py-16 text-center">
+                                <span className="iconify mdi--clipboard-text-outline text-6xl text-base-content/40"></span>
+                                {filtersActive ? (
+                                    <>
+                                        <h2 className="card-title">{i18n._(t`Keine Anträge für diese Filter.`)}</h2>
+                                        <p className="text-base-content/70">
+                                            {i18n._(t`Passe die Filter an, um Anträge anzuzeigen.`)}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <h2 className="card-title">{i18n._(t`Keine Anträge vorhanden.`)}</h2>
+                                        <p className="text-base-content/70">
+                                            {i18n._(
+                                                t`Sobald sich Nutzer für Akkreditierungen bewerben, erscheinen ihre Anträge hier.`,
+                                            )}
+                                        </p>
+                                    </>
+                                )}
                             </div>
-                        ) : (
-                            <p className="text-base-content/70">{i18n._(t`Keine Anträge vorhanden.`)}</p>
-                        )
+                        </div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto overflow-y-auto max-h-96">
-                                <table className="table">
-                                    <thead>
-                                        <tr>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Akkreditierung`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Medien`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {visibleApplications.map((application) => (
-                                            <ApplicationRow
-                                                key={application.id}
-                                                application={application}
-                                                onChanged={revalidate}
-                                                onDeny={openDeny}
-                                            />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="flex justify-end">
+                            <WideTable>
+                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Akkreditierung`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Medien`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {visibleApplications.map((application) => (
+                                                <ApplicationRow
+                                                    key={application.id}
+                                                    application={application}
+                                                    onChanged={revalidate}
+                                                    onDeny={openDeny}
+                                                />
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </WideTable>
+                            <div className="mt-4 flex justify-end">
                                 <Pagination
                                     page={currentPage}
                                     pageCount={pageCount}
@@ -712,8 +764,8 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
             <td className="min-w-0 py-3">
                 <div className="flex flex-col gap-1">
                     {application.sub_accreditation ? (
-                        <span className="badge badge-outline badge-sm min-w-0 max-w-36 truncate" title={subTypeLabel(application.sub_accreditation.type, i18n)}>
-                            {subTypeLabel(application.sub_accreditation.type, i18n)}
+                        <span className="badge badge-outline badge-sm min-w-0 max-w-36" title={subTypeLabel(application.sub_accreditation.type, i18n)}>
+                            <span className="truncate">{subTypeLabel(application.sub_accreditation.type, i18n)}</span>
                         </span>
                     ) : null}
                     {application.sub_accreditation ? (
@@ -738,18 +790,18 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                 <div className="flex flex-wrap gap-1">
                     {application.accreditation?.category ? (
                         <span
-                            className="badge badge-info badge-sm min-w-0 max-w-36 truncate"
+                            className="badge badge-info badge-sm min-w-0 max-w-36"
                             title={application.accreditation.category.name}
                         >
-                            {application.accreditation.category.name}
+                            <span className="truncate">{application.accreditation.category.name}</span>
                         </span>
                     ) : null}
                     {application.accreditation?.event ? (
                         <span
-                            className="badge badge-outline badge-sm min-w-0 max-w-36 truncate"
+                            className="badge badge-outline badge-sm min-w-0 max-w-36"
                             title={application.accreditation.event.title}
                         >
-                            {application.accreditation.event.title}
+                            <span className="truncate">{application.accreditation.event.title}</span>
                         </span>
                     ) : null}
                 </div>
@@ -929,43 +981,57 @@ function SubApplicationsTab() {
                             : `${subApplications.length} Sub-Anträge`}
                     </p>
                     {subApplications.length === 0 ? (
-                        filtersActive ? (
-                            <div className="flex flex-col gap-1">
-                                <p className="text-base-content/70">{i18n._(t`Keine Sub-Anträge für diese Filter.`)}</p>
-                                <p className="text-sm text-base-content/50">
-                                    {i18n._(t`Passe die Filter an, um Sub-Anträge anzuzeigen.`)}
-                                </p>
+                        <div className="card border border-base-300 bg-base-100">
+                            <div className="card-body items-center justify-center py-16 text-center">
+                                <span className="iconify mdi--clipboard-text-outline text-6xl text-base-content/40"></span>
+                                {filtersActive ? (
+                                    <>
+                                        <h2 className="card-title">{i18n._(t`Keine Sub-Anträge für diese Filter.`)}</h2>
+                                        <p className="text-base-content/70">
+                                            {i18n._(t`Passe die Filter an, um Sub-Anträge anzuzeigen.`)}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <h2 className="card-title">{i18n._(t`Keine Sub-Anträge vorhanden.`)}</h2>
+                                        <p className="text-base-content/70">
+                                            {i18n._(
+                                                t`Sobald sich Nutzer für Sub-Akkreditierungen bewerben, erscheinen ihre Sub-Anträge hier.`,
+                                            )}
+                                        </p>
+                                    </>
+                                )}
                             </div>
-                        ) : (
-                            <p className="text-base-content/70">{i18n._(t`Keine Sub-Anträge vorhanden.`)}</p>
-                        )
+                        </div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto overflow-y-auto max-h-96">
-                                <table className="table">
-                                    <thead>
-                                        <tr>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Sub-Akkreditierung`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Haupt-Akkreditierung`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {visibleSubApplications.map((application) => (
-                                            <SubApplicationRow
-                                                key={application.id}
-                                                application={application}
-                                                onChanged={revalidate}
-                                                onDeny={openDeny}
-                                            />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="flex justify-end">
+                            <WideTable>
+                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Sub-Akkreditierung`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Antragsteller`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Haupt-Akkreditierung`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {visibleSubApplications.map((application) => (
+                                                <SubApplicationRow
+                                                    key={application.id}
+                                                    application={application}
+                                                    onChanged={revalidate}
+                                                    onDeny={openDeny}
+                                                />
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </WideTable>
+                            <div className="mt-4 flex justify-end">
                                 <Pagination
                                     page={currentPage}
                                     pageCount={pageCount}
@@ -1048,56 +1114,66 @@ function BlacklistTab() {
                         {entries.length === 1 ? `${entries.length} Eintrag` : `${entries.length} Einträge`}
                     </p>
                     {entries.length === 0 ? (
-                        <p className="text-base-content/70">{i18n._(t`Keine Blacklist-Einträge vorhanden.`)}</p>
+                        <div className="card border border-base-300 bg-base-100">
+                            <div className="card-body items-center justify-center py-16 text-center">
+                                <span className="iconify mdi--account-cancel-outline text-6xl text-base-content/40"></span>
+                                <h2 className="card-title">{i18n._(t`Keine Blacklist-Einträge vorhanden.`)}</h2>
+                                <p className="text-base-content/70">
+                                    {i18n._(t`Gesperrte E-Mail-Adressen und Domänen erscheinen hier, sobald du sie anlegst.`)}
+                                </p>
+                            </div>
+                        </div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto overflow-y-auto max-h-96">
-                                <table className="table">
-                                    <thead>
-                                        <tr>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domäne`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Notiz`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Erstellt`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100 w-32">{i18n._(t`Aktionen`)}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {visibleEntries.map((entry) => (
-                                            <tr key={entry.id}>
-                                                <td className="min-w-0 py-3">
-                                                    <div className="truncate" title={entry.email ?? ''}>
-                                                        {entry.email ?? '—'}
-                                                    </div>
-                                                </td>
-                                                <td className="min-w-0 py-3">
-                                                    <div className="truncate" title={entry.domain ?? ''}>
-                                                        {entry.domain ?? '—'}
-                                                    </div>
-                                                </td>
-                                                <td className="min-w-0 py-3">
-                                                    <div className="truncate max-w-56" title={entry.note ?? ''}>
-                                                        {entry.note ?? ''}
-                                                    </div>
-                                                </td>
-                                                <td className="whitespace-nowrap py-3">{formatDateTime(entry.created_at, i18n)}</td>
-                                                <td className="py-3">
-                                                    <div className="flex justify-end">
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-sm btn-error btn-outline"
-                                                            onClick={() => void handleDelete(entry)}
-                                                        >
-                                                            {i18n._(t`Löschen`)}
-                                                        </button>
-                                                    </div>
-                                                </td>
+                            <WideTable>
+                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`E-Mail`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domäne`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Notiz`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Erstellt`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100 w-32">{i18n._(t`Aktionen`)}</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="flex justify-end">
+                                        </thead>
+                                        <tbody>
+                                            {visibleEntries.map((entry) => (
+                                                <tr key={entry.id}>
+                                                    <td className="min-w-0 py-3">
+                                                        <div className="truncate" title={entry.email ?? ''}>
+                                                            {entry.email ?? '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="min-w-0 py-3">
+                                                        <div className="truncate" title={entry.domain ?? ''}>
+                                                            {entry.domain ?? '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="min-w-0 py-3">
+                                                        <div className="truncate max-w-56" title={entry.note ?? ''}>
+                                                            {entry.note ?? ''}
+                                                        </div>
+                                                    </td>
+                                                    <td className="whitespace-nowrap py-3">{formatDateTime(entry.created_at, i18n)}</td>
+                                                    <td className="py-3">
+                                                        <div className="flex justify-end">
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-sm btn-error btn-outline"
+                                                                onClick={() => void handleDelete(entry)}
+                                                            >
+                                                                {i18n._(t`Löschen`)}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </WideTable>
+                            <div className="mt-4 flex justify-end">
                                 <Pagination
                                     page={currentPage}
                                     pageCount={pageCount}

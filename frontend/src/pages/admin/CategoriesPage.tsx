@@ -160,7 +160,19 @@ export function CategoriesPage() {
             ) : null}
 
             {categories && categories.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Noch keine Kategorien vorhanden.`)}</p>
+                <div className="card border border-base-300 bg-base-100">
+                    <div className="card-body items-center justify-center py-16 text-center">
+                        <span className="iconify mdi--shape-outline text-6xl text-base-content/40"></span>
+                        <h2 className="card-title">{i18n._(t`Noch keine Kategorien vorhanden.`)}</h2>
+                        <p className="text-base-content/70">
+                            {i18n._(t`Lege die erste Kategorie an, damit Akkreditierungen erstellt werden können.`)}
+                        </p>
+                        <button type="button" className="btn btn-primary mt-2" onClick={openNew}>
+                            <span className="iconify mdi--plus text-xl"></span>
+                            {i18n._(t`Neu`)}
+                        </button>
+                    </div>
+                </div>
             ) : null}
 
             {showForm ? (

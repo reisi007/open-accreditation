@@ -8,6 +8,23 @@ import type { Mandant } from '../../api/types';
 
 const PAGE_SIZE = 20;
 
+/**
+ * Wide tables scroll horizontally by design. On mobile there is no native
+ * scroll affordance, so a subtle right-edge fade (over the container) plus a
+ * one-line hint shows that more columns are reachable by swiping. Desktop
+ * keeps the default scrollbar.
+ */
+function MobileScrollHint() {
+    const { i18n } = useLingui();
+
+    return (
+        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
+            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
+            {i18n._(t`Zum Scrollen wischen`)}
+        </p>
+    );
+}
+
 export function MandantListPage() {
     const { i18n } = useLingui();
     const { data: mandants, error, isLoading } = useSWR<Mandant[]>('/api/admin/mandants', () => listMandants());
@@ -66,73 +83,79 @@ export function MandantListPage() {
                             </div>
                         ) : null}
                     </div>
-                    <div className="overflow-x-auto">
-                        <div className="max-h-96 overflow-y-auto">
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Logo`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Slug`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domains`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Teams`)}</th>
-                                        <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {pagedMandants.map((mandant) => (
-                                        <tr key={mandant.id}>
-                                            <td>
-                                                {mandant.logo_url ? (
-                                                    <img
-                                                        src={mandant.logo_url}
-                                                        alt=""
-                                                        className="h-10 w-10 rounded object-cover"
-                                                    />
-                                                ) : (
-                                                    <span>—</span>
-                                                )}
-                                            </td>
-                                            <td>
-                                                <Link to={`/admin/mandants/${mandant.id}`} className="link">
-                                                    {mandant.name}
-                                                </Link>
-                                            </td>
-                                            <td>
-                                                <code>{mandant.slug}</code>
-                                            </td>
-                                            <td>
-                                                {(mandant.domains ?? []).map((domain, index) => (
-                                                    <span key={domain.id}>
-                                                        {index > 0 ? ', ' : null}
-                                                        <a
-                                                            href={`http://${domain.hostname}`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                        >
-                                                            {domain.hostname}
-                                                            <span className="iconify mdi--open-in-new text-sm"></span>
-                                                        </a>
-                                                    </span>
-                                                ))}
-                                            </td>
-                                            <td>{mandant.teams_count}</td>
-                                            <td>
-                                                {mandant.is_active ? (
-                                                    <span className="badge badge-success badge-sm">
-                                                        {i18n._(t`Aktiv`)}
-                                                    </span>
-                                                ) : (
-                                                    <span className="badge badge-ghost badge-sm">
-                                                        {i18n._(t`Inaktiv`)}
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    <div className="flex flex-col">
+                        <div className="relative">
+                            <div className="overflow-x-auto">
+                                <div className="max-h-96 overflow-y-auto">
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Logo`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Slug`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domains`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Teams`)}</th>
+                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pagedMandants.map((mandant) => (
+                                                <tr key={mandant.id}>
+                                                    <td>
+                                                        {mandant.logo_url ? (
+                                                            <img
+                                                                src={mandant.logo_url}
+                                                                alt=""
+                                                                className="h-10 w-10 rounded object-cover"
+                                                            />
+                                                        ) : (
+                                                            <span>—</span>
+                                                        )}
+                                                    </td>
+                                                    <td>
+                                                        <Link to={`/admin/mandants/${mandant.id}`} className="link">
+                                                            {mandant.name}
+                                                        </Link>
+                                                    </td>
+                                                    <td>
+                                                        <code>{mandant.slug}</code>
+                                                    </td>
+                                                    <td>
+                                                        {(mandant.domains ?? []).map((domain, index) => (
+                                                            <span key={domain.id}>
+                                                                {index > 0 ? ', ' : null}
+                                                                <a
+                                                                    href={`http://${domain.hostname}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                >
+                                                                    {domain.hostname}
+                                                                    <span className="iconify mdi--open-in-new text-sm"></span>
+                                                                </a>
+                                                            </span>
+                                                        ))}
+                                                    </td>
+                                                    <td>{mandant.teams_count}</td>
+                                                    <td>
+                                                        {mandant.is_active ? (
+                                                            <span className="badge badge-success badge-sm">
+                                                                {i18n._(t`Aktiv`)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="badge badge-ghost badge-sm">
+                                                                {i18n._(t`Inaktiv`)}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
                         </div>
+                        <MobileScrollHint />
                     </div>
                 </div>
             ) : null}

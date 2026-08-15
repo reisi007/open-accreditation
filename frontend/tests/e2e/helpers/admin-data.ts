@@ -373,8 +373,11 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
             throw new Error(`User login failed with status ${login.status()}`);
         }
 
-        // 1×1 PNG — small enough for a throwaway portrait, passes the backend's
-        // image/dimension validation (max 2000px, no minimum).
+        // Small opaque portrait fixture (8×8 RGB PNG) — small enough for a
+        // throwaway portrait and passes the backend's image/dimension
+        // validation (max 2000px, no minimum). The previous 1×1 semi-transparent
+        // RED pixel rendered as a broken-looking red tile on the public verify
+        // page; an opaque, structured image captures as a real photo.
         const portrait = await api.post('/api/user/media', {
             multipart: {
                 type: 'portrait',
@@ -382,7 +385,7 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
                     name: 'portrait.png',
                     mimeType: 'image/png',
                     buffer: Buffer.from(
-                        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+                        'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAH0lEQVR42mPQ0DHBihhwSpxb0YUVkSERldeCFZEuAQB6+VehEw1DswAAAABJRU5ErkJggg==',
                         'base64',
                     ),
                 },

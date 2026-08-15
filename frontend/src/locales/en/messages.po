@@ -603,6 +603,10 @@ msgstr "Scope"
 msgid "Gesperrt"
 msgstr "Blacklisted"
 
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Gesperrte E-Mail-Adressen und Domänen erscheinen hier, sobald du sie anlegst."
+msgstr "Blocked email addresses and domains appear here once you add them."
+
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Google Wallet"
 msgstr "Google Wallet"
@@ -758,6 +762,18 @@ msgstr "Empty = unchanged"
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "Lege das erste Ausweis-Template an, um Ausweise zu drucken und zu verifizieren."
 msgstr "Create the first badge template so badges can be printed and verified."
+
+#: src/pages/admin/EventsPage.tsx
+msgid "Lege das erste Event an, damit Akkreditierungen einem Spiel zugeordnet werden können."
+msgstr "Create the first event so accreditations can be assigned to a game."
+
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "Lege die erste Akkreditierung an, damit sich Interessierte bewerben können."
+msgstr "Create the first accreditation so interested people can apply."
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "Lege die erste Kategorie an, damit Akkreditierungen erstellt werden können."
+msgstr "Create the first category so accreditations can be set up."
 
 #: src/logic/accreditationLabels.ts
 #: src/pages/admin/AccreditationForm.tsx
@@ -999,6 +1015,10 @@ msgstr "Parking pass"
 msgid "Pass wird im Apple/Google-Wallet-Format heruntergeladen."
 msgstr "The pass is downloaded in Apple/Google Wallet format."
 
+#: src/pages/admin/UsersPage.tsx
+msgid "Passe den Suchbegriff an oder leere ihn, um alle Benutzer zu sehen."
+msgstr "Adjust or clear the search term to see all users."
+
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Passe die Filter an, um Anträge anzuzeigen."
 msgstr "Adjust the filters to show requests."
@@ -1173,6 +1193,18 @@ msgstr "SMTP port"
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Sobald du dich für eine Akkreditierung beworben hast, erscheint dein Antrag hier."
 msgstr "Once you have applied for an accreditation, your application will appear here."
+
+#: src/pages/admin/UsersPage.tsx
+msgid "Sobald sich Benutzer registrieren, erscheinen sie hier."
+msgstr "Users appear here once they register."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Sobald sich Nutzer für Akkreditierungen bewerben, erscheinen ihre Anträge hier."
+msgstr "Once users apply for accreditations, their applications appear here."
+
+#: src/pages/admin/ApprovalsPage.tsx
+msgid "Sobald sich Nutzer für Sub-Akkreditierungen bewerben, erscheinen ihre Sub-Anträge hier."
+msgstr "Once users apply for sub-accreditations, their sub-applications appear here."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
@@ -1501,6 +1533,16 @@ msgid "Zentriert"
 msgstr "Centered"
 
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/BadgeTemplatesPage.tsx
+#: src/pages/admin/MandantListPage.tsx
+msgid "Zum Scrollen wischen"
+msgstr "Swipe to scroll"
+
+#: src/pages/AccreditationsPage.tsx
+msgid "Zur Startseite"
+msgstr "Back to homepage"
+
+#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Zurück"
@@ -1521,3 +1563,7 @@ msgstr "Back to home"
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Zurückziehen"
 msgstr "Withdraw"
+
+#: src/pages/AccreditationsPage.tsx
+msgid "Zurzeit gibt es keine Akkreditierungen, für die du dich bewerben kannst."
+msgstr "There are currently no accreditations you can apply for."

@@ -79,10 +79,16 @@ class AppServiceProvider extends ServiceProvider
         // budget, so a parallel Playwright run hit a 429 on `activate`. Named
         // limiters with explicit `by()` keys give each surface its own bucket:
         // activation links (30/min per ip) and the public portal / accreditation
-        // reads (60/min per ip).
+        // reads. The public budget is env-dependent like the login/register
+        // floors: in `local`/`testing` it is raised to 300/min — the ui-review
+        // screenshot suite (2 parallel workers, ONE ip) deterministically
+        // exhausted the old 60/min mid-run (70-GET burst returned exactly
+        // 60×200 then 10×429). In `production` the real per-ip value (60/min)
+        // applies.
         RateLimiter::for('activate', static fn (Request $request): Limit => Limit::perMinute(30)
             ->by('activate:'.$request->ip()));
-        RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute(60)
+        $publicLimit = app()->environment('local', 'testing') ? 300 : 60;
+        RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute($publicLimit)
             ->by('public:'.$request->ip()));
 
         // F5: user-media uploads throttle per authenticated user (a scripted

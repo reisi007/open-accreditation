@@ -36,16 +36,25 @@ import {
  * i.e. the PRIMARY mandant's domain. Every local-dev request therefore
  * resolves to the primary mandant, and "empty" captures of mandant-scoped
  * lists were byte-identical to the filled ones. Routes that must show a
- * GENUINELY empty UI state stub the list response via `emptyMock`
- * (`page.route` → `{data: []}`) and run on the primary tenant; the real fix is
+ * GENUINELY empty UI state stub the response via `emptyMock` (`page.route` →
+ * `{data: []}`, or a custom body for non-list endpoints such as
+ * `/api/portal/overview`) and run on the primary tenant; the real fix is
  * a backend change (accept `*.localhost:5173` Referer hosts) — out of frontend
- * scope.
+ * scope. This covers admin lists AND public guest routes (home/akkreditierungen).
  */
 
 export type UiReviewState = 'filled' | 'empty';
 export type UiReviewViewport = 'desktop' | 'mobile';
 export type UiReviewAuth = 'guest' | 'admin' | 'user' | 'none';
 export type UiReviewTenant = 'primary' | 'empty';
+
+/**
+ * One empty-state API stub. Either a plain URL glob fulfilled with the default
+ * `{data: []}`, or an object with a custom JSON `body` for endpoints whose
+ * shape is not a bare list (e.g. `/api/portal/overview` answers
+ * `{data: {mandant, teams}}`).
+ */
+export type UiReviewEmptyMock = string | { pattern: string; body?: unknown };
 
 export interface UiReviewClickStep {
     kind: 'click';
@@ -84,14 +93,16 @@ export interface UiReviewRoute {
     seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
     nav?: UiReviewNavStep[];
     /**
-     * URL globs intercepted ONLY in the `empty` state and fulfilled with
-     * `{data: []}` — used when the `empty.localhost` fixture cannot deliver a
+     * URL globs intercepted ONLY in the `empty` state and fulfilled with an
+     * empty payload (`{data: []}` by default, custom `body` for non-list
+     * endpoints) — used when the `empty.localhost` fixture cannot deliver a
      * genuinely empty capture (see the module header for the F6 root cause:
      * local-dev host resolution always lands on the primary mandant). The
      * empty UI state is then simulated at the API boundary instead of relying
-     * on the unreachable fixture tenant.
+     * on the unreachable fixture tenant. Applies to mandant-scoped admin
+     * lists AND public guest routes (portal overview/events, accreditations).
      */
-    emptyMock?: string[];
+    emptyMock?: UiReviewEmptyMock[];
 }
 
 export interface UiReviewConfig {
@@ -109,15 +120,41 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/',
             states: ['filled', 'empty'],
             auth: 'guest',
+            tenant: { empty: 'primary' },
             seeds: { filled: seedPortalEvent },
+            emptyMock: [
+                '**/api/portal/events*',
+                {
+                    pattern: '**/api/portal/overview*',
+                    body: {
+                        data: {
+                            mandant: {
+                                id: 1,
+                                slug: 'empty',
+                                name: 'Leerer Mandant',
+                                logo_url: null,
+                                header_url: null,
+                                impressum_text: null,
+                                privacy_text: null,
+                                teams_enabled: false,
+                            },
+                            teams: [],
+                        },
+                    },
+                },
+            ],
+            note: 'Public guest page. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the portal overview (an empty mandant without logo/header/teams) and the events list ([]) via emptyMock and runs on the primary tenant — the homepage renders a genuine empty portal ("Keine Veranstaltungen") instead of a load error or the filled primary data.',
         },
         {
             name: 'akkreditierungen',
             path: '/akkreditierungen',
             states: ['filled', 'empty'],
             auth: 'guest',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Akkreditierungen' }],
             seeds: { filled: seedAccreditation },
+            emptyMock: ['**/api/accreditations*'],
+            note: 'Public guest page. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the accreditations list ([]) via emptyMock and runs on the primary tenant — the page renders its genuine empty state ("Keine Akkreditierungen verfügbar.").',
         },
         {
             name: 'login',

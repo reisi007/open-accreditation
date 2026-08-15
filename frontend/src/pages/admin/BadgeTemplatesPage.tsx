@@ -17,6 +17,23 @@ function firstErrorMessage(err: unknown, fallback: string): string {
     return err instanceof ApiError ? err.message : fallback;
 }
 
+/**
+ * Wide tables scroll horizontally by design. On mobile there is no native
+ * scroll affordance, so a subtle right-edge fade (over the container) plus a
+ * one-line hint shows that more columns are reachable by swiping. Desktop
+ * keeps the default scrollbar.
+ */
+function MobileScrollHint() {
+    const { i18n } = useLingui();
+
+    return (
+        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
+            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
+            {i18n._(t`Zum Scrollen wischen`)}
+        </p>
+    );
+}
+
 export function BadgeTemplatesPage() {
     const { i18n } = useLingui();
     const { data, error, isLoading, mutate } = useSWR<BadgeTemplate[]>('/api/admin/badge-templates', () =>
@@ -100,61 +117,67 @@ export function BadgeTemplatesPage() {
             ) : null}
 
             {data && data.length > 0 && !isLoading && !error ? (
-                <div className="overflow-x-auto">
-                    <table className="table">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Name`)}</th>
-                                <th>{i18n._(t`Standard`)}</th>
-                                <th>{i18n._(t`Felder`)}</th>
-                                <th>{i18n._(t`Aktionen`)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.map((template) => {
-                                const fieldCount = template.layout.length;
-                                return (
-                                    <tr key={template.id}>
-                                        <td className="max-w-56">
-                                            <div className="truncate font-medium" title={template.name}>
-                                                {template.name}
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {template.is_default ? (
-                                                <span className="badge badge-success badge-sm">{i18n._(t`Standard`)}</span>
-                                            ) : (
-                                                <span className="text-base-content/40">—</span>
-                                            )}
-                                        </td>
-                                        <td>
-                                            <span className="badge badge-ghost badge-sm">
-                                                {i18n._(t`${fieldCount} Felder`)}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div className="flex gap-2">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-outline"
-                                                    onClick={() => openEdit(template)}
-                                                >
-                                                    {i18n._(t`Bearbeiten`)}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-sm btn-error btn-outline"
-                                                    onClick={() => void handleDelete(template)}
-                                                >
-                                                    {i18n._(t`Löschen`)}
-                                                </button>
-                                            </div>
-                                        </td>
+                <div className="flex flex-col">
+                    <div className="relative">
+                        <div className="overflow-x-auto">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th>{i18n._(t`Name`)}</th>
+                                        <th>{i18n._(t`Standard`)}</th>
+                                        <th>{i18n._(t`Felder`)}</th>
+                                        <th>{i18n._(t`Aktionen`)}</th>
                                     </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                </thead>
+                                <tbody>
+                                    {data.map((template) => {
+                                        const fieldCount = template.layout.length;
+                                        return (
+                                            <tr key={template.id}>
+                                                <td className="max-w-56">
+                                                    <div className="truncate font-medium" title={template.name}>
+                                                        {template.name}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {template.is_default ? (
+                                                        <span className="badge badge-success badge-sm">{i18n._(t`Standard`)}</span>
+                                                    ) : (
+                                                        <span className="text-base-content/40">—</span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <span className="badge badge-ghost badge-sm">
+                                                        {i18n._(t`${fieldCount} Felder`)}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-outline"
+                                                            onClick={() => openEdit(template)}
+                                                        >
+                                                            {i18n._(t`Bearbeiten`)}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-sm btn-error btn-outline"
+                                                            onClick={() => void handleDelete(template)}
+                                                        >
+                                                            {i18n._(t`Löschen`)}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
+                    </div>
+                    <MobileScrollHint />
                 </div>
             ) : null}
 

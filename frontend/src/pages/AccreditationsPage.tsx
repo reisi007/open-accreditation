@@ -1,5 +1,6 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
+import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { listAccreditations } from '../api/client';
 import type { Accreditation } from '../api/types';
@@ -24,7 +25,18 @@ export function AccreditationsPage() {
             ) : null}
 
             {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Keine Akkreditierungen verfügbar.`)}</p>
+                <div className="card border border-base-300 bg-base-100">
+                    <div className="card-body items-center justify-center py-16 text-center">
+                        <span className="iconify mdi--badge-account-outline text-6xl text-base-content/40"></span>
+                        <h2 className="card-title">{i18n._(t`Keine Akkreditierungen verfügbar.`)}</h2>
+                        <p className="text-base-content/70">
+                            {i18n._(t`Zurzeit gibt es keine Akkreditierungen, für die du dich bewerben kannst.`)}
+                        </p>
+                        <Link to="/" className="btn btn-primary mt-2">
+                            {i18n._(t`Zur Startseite`)}
+                        </Link>
+                    </div>
+                </div>
             ) : null}
 
             {data && data.length > 0 && !isLoading && !error ? (
