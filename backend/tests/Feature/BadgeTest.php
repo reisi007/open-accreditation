@@ -617,8 +617,11 @@ class BadgeTest extends TestCase
         $application = $this->makeApplication($this->createAccreditation(['quota' => 5]), User::factory()->create());
         $token = app(QrTokenService::class)->make($application);
 
-        // Flip the last base64url character → signature mismatch.
-        $tampered = substr($token, 0, -1).(substr($token, -1) === 'a' ? 'b' : 'a');
+        // Flip a character in the MIDDLE of the token (inside the signature's
+        // base64, full group) — flipping the LAST char is a no-op for single-digit
+        // ids (the final group carries only padding bits, so the decoded
+        // signature is unchanged and `parse()` still returns the id).
+        $tampered = substr_replace($token, substr($token, 10, 1) === 'a' ? 'b' : 'a', 10, 1);
         $this->assertNull(app(QrTokenService::class)->parse($tampered));
 
         // Forge a valid signature over a different application id.
@@ -760,7 +763,7 @@ class BadgeTest extends TestCase
 
         $application = $this->makeApplication($this->createAccreditation(['quota' => 5]), User::factory()->create());
         $token = app(QrTokenService::class)->make($application);
-        $tampered = substr($token, 0, -1).(substr($token, -1) === 'a' ? 'b' : 'a');
+        $tampered = substr_replace($token, substr($token, 10, 1) === 'a' ? 'b' : 'a', 10, 1);
 
         $this->getJson('/api/verify/'.$tampered)
             ->assertStatus(404)
@@ -809,7 +812,11 @@ class BadgeTest extends TestCase
     {
         Cache::flush();
 
-        for ($i = 0; $i < 60; $i++) {
+        // The public limiter is env-dependent: 300/min in local/testing (raised
+        // for the ui-review screenshot suite), 60/min in production.
+        $limit = app()->environment('local', 'testing') ? 300 : 60;
+
+        for ($i = 0; $i < $limit; $i++) {
             $this->getJson('/api/verify/not-a-real-token')->assertStatus(404);
         }
 
