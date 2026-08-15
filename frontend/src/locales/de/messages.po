@@ -127,6 +127,10 @@ msgstr "Akkreditierung wirklich löschen?"
 msgid "Akkreditierungen"
 msgstr "Akkreditierungen"
 
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Akkreditierungen ansehen"
+msgstr "Akkreditierungen ansehen"
+
 #: src/pages/portal/EventDetailPage.tsx
 msgid "Akkreditierungen für dieses Event"
 msgstr "Akkreditierungen für dieses Event"
@@ -848,6 +852,10 @@ msgstr "Medien"
 msgid "Meine Akkreditierungen"
 msgstr "Meine Akkreditierungen"
 
+#: src/App.tsx
+msgid "Menü"
+msgstr "Menü"
+
 #: src/pages/admin/approvalFormUtils.ts
 msgid "Mindestens E-Mail oder Domäne ist erforderlich."
 msgstr "Mindestens E-Mail oder Domäne ist erforderlich."
@@ -929,8 +937,12 @@ msgid "Noch keine Akkreditierungen vorhanden."
 msgstr "Noch keine Akkreditierungen vorhanden."
 
 #: src/pages/MyAccreditationsPage.tsx
-msgid "Noch keine Anträge vorhanden."
-msgstr "Noch keine Anträge vorhanden."
+msgid "Noch keine Anträge"
+msgstr "Noch keine Anträge"
+
+#: src/pages/MyAccreditationsPage.tsx
+#~ msgid "Noch keine Anträge vorhanden."
+#~ msgstr "Noch keine Anträge vorhanden."
 
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "Noch keine Ausweis-Templates"
@@ -1086,6 +1098,7 @@ msgstr "Schriftgröße (pt)"
 msgid "Schriftgröße muss mindestens 1 sein."
 msgstr "Schriftgröße muss mindestens 1 sein."
 
+#: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Seite {currentPage} von {pageCount}"
 msgstr "Seite {currentPage} von {pageCount}"
@@ -1094,6 +1107,7 @@ msgstr "Seite {currentPage} von {pageCount}"
 msgid "Seite {page} von {pageCount}"
 msgstr "Seite {page} von {pageCount}"
 
+#: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Seitennavigation"
 msgstr "Seitennavigation"
@@ -1155,6 +1169,10 @@ msgstr "SMTP-Passwort"
 #: src/pages/admin/MandantForm.tsx
 msgid "SMTP-Port"
 msgstr "SMTP-Port"
+
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Sobald du dich für eine Akkreditierung beworben hast, erscheint dein Antrag hier."
+msgstr "Sobald du dich für eine Akkreditierung beworben hast, erscheint dein Antrag hier."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
@@ -1447,6 +1465,7 @@ msgid "Warteliste"
 msgstr "Warteliste"
 
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Weiter"
 msgstr "Weiter"
@@ -1482,6 +1501,7 @@ msgid "Zentriert"
 msgstr "Zentriert"
 
 #: src/pages/admin/ApprovalsPage.tsx
+#: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 msgid "Zurück"
 msgstr "Zurück"

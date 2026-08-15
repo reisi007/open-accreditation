@@ -1,6 +1,7 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import useSWR, { useSWRConfig } from 'swr';
 import {
     ApiError,
@@ -210,7 +211,18 @@ export function MyAccreditationsPage() {
             ) : null}
 
             {data && data.length === 0 && !isLoading && !error ? (
-                <p className="text-base-content/70">{i18n._(t`Noch keine Anträge vorhanden.`)}</p>
+                <div className="card border border-base-300 bg-base-100">
+                    <div className="card-body items-center justify-center py-16 text-center">
+                        <span className="iconify mdi--badge-account-outline text-6xl text-base-content/40"></span>
+                        <h2 className="card-title">{i18n._(t`Noch keine Anträge`)}</h2>
+                        <p className="text-base-content/70">
+                            {i18n._(t`Sobald du dich für eine Akkreditierung beworben hast, erscheint dein Antrag hier.`)}
+                        </p>
+                        <Link to="/akkreditierungen" className="btn btn-primary mt-2">
+                            {i18n._(t`Akkreditierungen ansehen`)}
+                        </Link>
+                    </div>
+                </div>
             ) : null}
 
             {data && data.length > 0 && !isLoading && !error ? (

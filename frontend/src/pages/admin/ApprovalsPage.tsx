@@ -202,7 +202,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
 
     return (
         <tr>
-            <td className="min-w-0 py-3">
+            <td className="min-w-0 max-w-40 py-3">
                 <div className="min-w-0">
                     <div className="truncate font-medium" title={application.user?.name ?? ''}>
                         {application.user?.name ?? ''}
@@ -213,10 +213,10 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                 </div>
             </td>
             <td className="min-w-0 py-3">
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                     {application.accreditation?.category ? (
                         <span
-                            className="badge badge-info badge-sm min-w-0 max-w-40 truncate"
+                            className="badge badge-info badge-sm min-w-0 max-w-36 truncate"
                             title={application.accreditation.category.name}
                         >
                             {application.accreditation.category.name}
@@ -224,7 +224,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     ) : null}
                     {application.accreditation?.event ? (
                         <span
-                            className="badge badge-outline badge-sm min-w-0 max-w-40 truncate"
+                            className="badge badge-outline badge-sm min-w-0 max-w-36 truncate"
                             title={application.accreditation.event.title}
                         >
                             {application.accreditation.event.title}
@@ -232,7 +232,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     ) : null}
                     {application.accreditation?.team ? (
                         <span
-                            className="badge badge-ghost badge-sm min-w-0 max-w-40 truncate"
+                            className="badge badge-ghost badge-sm min-w-0 max-w-36 truncate"
                             title={application.accreditation.team.name}
                         >
                             {application.accreditation.team.name}
@@ -240,7 +240,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     ) : null}
                 </div>
             </td>
-            <td className="py-3">
+            <td className="whitespace-nowrap py-3">
                 <div className="flex flex-col gap-1">
                     <span className={`badge badge-sm gap-1 ${statusBadgeClass(application.status)}`}>
                         <span className={`iconify ${statusIconClass(application.status)} text-sm`}></span>
@@ -626,7 +626,7 @@ function ApplicationsTab() {
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Medien`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -712,7 +712,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
             <td className="min-w-0 py-3">
                 <div className="flex flex-col gap-1">
                     {application.sub_accreditation ? (
-                        <span className="badge badge-outline badge-sm min-w-0 max-w-40 truncate" title={subTypeLabel(application.sub_accreditation.type, i18n)}>
+                        <span className="badge badge-outline badge-sm min-w-0 max-w-36 truncate" title={subTypeLabel(application.sub_accreditation.type, i18n)}>
                             {subTypeLabel(application.sub_accreditation.type, i18n)}
                         </span>
                     ) : null}
@@ -724,7 +724,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     ) : null}
                 </div>
             </td>
-            <td className="min-w-0 py-3">
+            <td className="min-w-0 max-w-40 py-3">
                 <div className="min-w-0">
                     <div className="truncate font-medium" title={application.user?.name ?? ''}>
                         {application.user?.name ?? ''}
@@ -735,10 +735,10 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                 </div>
             </td>
             <td className="min-w-0 py-3">
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                     {application.accreditation?.category ? (
                         <span
-                            className="badge badge-info badge-sm min-w-0 max-w-40 truncate"
+                            className="badge badge-info badge-sm min-w-0 max-w-36 truncate"
                             title={application.accreditation.category.name}
                         >
                             {application.accreditation.category.name}
@@ -746,7 +746,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     ) : null}
                     {application.accreditation?.event ? (
                         <span
-                            className="badge badge-outline badge-sm min-w-0 max-w-40 truncate"
+                            className="badge badge-outline badge-sm min-w-0 max-w-36 truncate"
                             title={application.accreditation.event.title}
                         >
                             {application.accreditation.event.title}
@@ -754,7 +754,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     ) : null}
                 </div>
             </td>
-            <td className="py-3">
+            <td className="whitespace-nowrap py-3">
                 <div className="flex flex-col gap-1">
                     <span className={`badge badge-sm gap-1 ${statusBadgeClass(application.status)}`}>
                         <span className={`iconify ${statusIconClass(application.status)} text-sm`}></span>
@@ -950,7 +950,7 @@ function SubApplicationsTab() {
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Haupt-Akkreditierung`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`VIP`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100 w-60">{i18n._(t`Aktionen`)}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1059,7 +1059,7 @@ function BlacklistTab() {
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Domäne`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Notiz`)}</th>
                                             <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Erstellt`)}</th>
-                                            <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                            <th className="sticky top-0 z-10 bg-base-100 w-32">{i18n._(t`Aktionen`)}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1080,7 +1080,7 @@ function BlacklistTab() {
                                                         {entry.note ?? ''}
                                                     </div>
                                                 </td>
-                                                <td className="py-3">{formatDateTime(entry.created_at, i18n)}</td>
+                                                <td className="whitespace-nowrap py-3">{formatDateTime(entry.created_at, i18n)}</td>
                                                 <td className="py-3">
                                                     <div className="flex justify-end">
                                                         <button

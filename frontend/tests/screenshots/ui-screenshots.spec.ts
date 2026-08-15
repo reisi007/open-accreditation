@@ -107,6 +107,26 @@ async function settleAndCapture(
     await page.screenshot({ path: file, fullPage: true });
 }
 
+/**
+ * F6: the `empty.localhost` fixture tenant is unreachable in local dev (the
+ * backend middleware resolves every local host to the primary mandant — see
+ * `ui-review.config.ts` module header). For routes that must show a GENUINELY
+ * empty UI, the manifest declares `emptyMock` URL globs: each matching request
+ * is fulfilled with `{data: []}` so the page renders its empty state. The
+ * stubs only ever apply to `empty`-state captures and are scoped to the admin
+ * list endpoints — the login and portal requests pass through untouched.
+ */
+async function stubEmptyLists(page: Page, route: UiReviewRoute, state: UiReviewState): Promise<void> {
+    if (state !== 'empty') {
+        return;
+    }
+    for (const pattern of route.emptyMock ?? []) {
+        await page.route(pattern, (routeHandler) =>
+            routeHandler.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
+        );
+    }
+}
+
 for (const route of routes) {
     for (const state of route.states) {
         for (const viewport of route.viewports ?? ['desktop', 'mobile']) {
@@ -122,6 +142,10 @@ for (const route of routes) {
                     await ensureEmptyMandant();
                 }
                 const seed = route.seeds?.[state] ? await route.seeds[state]() : {};
+
+                // F6 empty-state API stubs (before any navigation so SWR never
+                // caches the real, primary-mandant data).
+                await stubEmptyLists(page, route, state);
 
                 // Initial guest load of "/" is the allowed page.goto exception.
                 await page.goto(`${origin}/`);

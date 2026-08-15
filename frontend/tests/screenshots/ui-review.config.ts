@@ -28,6 +28,18 @@ import {
  *   whose "empty" comes from the logged-in user's own data) override `tenant`.
  *   Routes whose empty state is not meaningful (forms, global super-admin
  *   surfaces) document that in `note`.
+ *
+ * F6 root cause (why `emptyMock` exists): the `empty.localhost` fixture does
+ * NOT resolve in local dev. `MandantContextMiddleware` honors only the
+ * `localhost:5173` Referer host and otherwise resolves from the request Host —
+ * which the Vite proxy (`changeOrigin`) rewrites to the backend's `localhost`,
+ * i.e. the PRIMARY mandant's domain. Every local-dev request therefore
+ * resolves to the primary mandant, and "empty" captures of mandant-scoped
+ * lists were byte-identical to the filled ones. Routes that must show a
+ * GENUINELY empty UI state stub the list response via `emptyMock`
+ * (`page.route` → `{data: []}`) and run on the primary tenant; the real fix is
+ * a backend change (accept `*.localhost:5173` Referer hosts) — out of frontend
+ * scope.
  */
 
 export type UiReviewState = 'filled' | 'empty';
@@ -71,6 +83,15 @@ export interface UiReviewRoute {
     /** Seed per state — only states that need deterministic data define one. */
     seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
     nav?: UiReviewNavStep[];
+    /**
+     * URL globs intercepted ONLY in the `empty` state and fulfilled with
+     * `{data: []}` — used when the `empty.localhost` fixture cannot deliver a
+     * genuinely empty capture (see the module header for the F6 root cause:
+     * local-dev host resolution always lands on the primary mandant). The
+     * empty UI state is then simulated at the API boundary instead of relying
+     * on the unreachable fixture tenant.
+     */
+    emptyMock?: string[];
 }
 
 export interface UiReviewConfig {
@@ -169,7 +190,7 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/admin/mandants',
             states: ['filled'],
             auth: 'admin',
-            note: 'The mandant list is a global super-admin surface (not mandant-scoped) — a data-less tenant cannot render it empty; filled only.',
+            note: 'Global super-admin surface: the list shows EVERY mandant regardless of the current tenant, so a data-less fixture cannot render it empty — a populated "empty" capture would be expected behavior. Filled only.',
         },
         {
             name: 'admin-mandants-new',
@@ -198,48 +219,74 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/admin/categories',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Kategorien' }],
             seeds: { filled: seedAccreditation },
+            emptyMock: ['**/api/admin/categories*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the categories list to [] via emptyMock and runs on the primary tenant.',
         },
         {
             name: 'admin-events',
             path: '/admin/events',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Events' }],
             seeds: { filled: seedPortalEvent },
+            emptyMock: ['**/api/admin/events*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the events list to [] via emptyMock and runs on the primary tenant.',
         },
         {
             name: 'admin-accreditations',
             path: '/admin/accreditations',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Akkreditierungen' }],
             seeds: { filled: seedAccreditation },
+            emptyMock: ['**/api/admin/accreditations*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the accreditations list to [] via emptyMock and runs on the primary tenant.',
         },
         {
             name: 'admin-freigaben',
             path: '/admin/freigaben',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Freigaben' }],
             seeds: { filled: () => seedFreigabenFilled() },
+            emptyMock: ['**/api/admin/applications*', '**/api/admin/accreditations*', '**/api/admin/badge-templates*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the applications list (plus the filter/export sources) to [] via emptyMock and runs on the primary tenant.',
         },
         {
             name: 'admin-users',
             path: '/admin/users',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Benutzer' }],
             seeds: { filled: () => seedUsersFilled() },
+            emptyMock: ['**/api/admin/users*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the users list to [] via emptyMock and runs on the primary tenant.',
         },
         {
             name: 'admin-badge-templates',
             path: '/admin/badge-templates',
             states: ['filled', 'empty'],
             auth: 'admin',
+            tenant: { empty: 'primary' },
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Ausweis-Templates' }],
             seeds: { filled: seedBadgeTemplate },
+            emptyMock: ['**/api/admin/badge-templates*'],
+            note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the badge-templates list to [] via emptyMock and runs on the primary tenant.',
+        },
+        {
+            name: 'admin-media',
+            path: '/admin/media',
+            states: ['filled'],
+            auth: 'admin',
+            nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Logo & Header' }],
+            note: 'Self-service media page reads the current mandant\'s portal overview (`/api/portal/overview`) — no seed needed. The primary mandant has no uploaded logo/header yet, so a separate "empty" state would render identically to "filled"; captured once.',
         },
     ],
 };

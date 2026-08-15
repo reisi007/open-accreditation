@@ -195,7 +195,7 @@
 | F | **P8b Frontend** (Route/Seite mandant_admin + MediaField, Admin-Menüpunkt, MandantListPage-Thumbnail + Open-Portal-Link, Playwright-E2E `@feature:admin:mandant`) | ⏳ läuft (ses_ffe20c34cffeJScqTyU6tBfssw) | ⏳ nach F |
 | G1 | **P7-Hardening Backend (Config/Auth)** — F2 JWT-cookie-only, F3 Disk-serve, F4 activation_token-Hash, F5 Upload-Kontingent, B2 Auth-Throttle, B3 trustHosts, P2a-RL, P5-F2 Resend-RL, P1a-B1/B2/B4, P0-Fix-F3 | ✅ fertig (ses_ffe1d666cffeoyILV8jfWDMg1P) | ✅ APPROVED |
 | G2 | **P7-Hardening Backend (Daten/Export)** — P4-F1 CSV-Formel-Injection, P3d-F2 Blacklist case-insensitiv, P2c-F3 role_user.team_id-FK, P2b-F8 Event-Partial-Update | ✅ fertig (ses_ffe1d666bffepfyqopg7UxQhx8) | ✅ APPROVED |
-| H | **Verifikation + Screenshot-Suite + Vision** (je Batch separater Verifikator; danach `pnpm test:screenshots` + Vision-Analyse; Commits je Batch) | — | ⏳ Backend ✅, Frontend nach F |
+| H | **Verifikation + Screenshot-Suite + Vision** (je Batch separater Verifikator; danach `pnpm test:screenshots` + Vision-Analyse; Commits je Batch) | Backend ✅ APPROVED; Frontend ✅ APPROVED; Screenshot-Suite ✅ 55 PNGs grün; **Vision: 12 high (Mobile-Navbar), 5 medium, 10 low** | ⏳ Fix-Batch H1 läuft (ses_ffdcf9e53ffeiVWklEi5XnOBYC) |
 
 Reihenfolge: E+F (P8b) und G2 (P7-Daten) laufen parallel zum Frontend (A–D); G1 (P7-Config) startet nach E (routes/api.php). Danach H (Screenshots + Vision). Commits je Batch.
 

@@ -49,6 +49,43 @@ function RouterShell() {
     );
 }
 
+function MobileNavMenu() {
+    const { i18n } = useLingui();
+    const { user, isAuthenticated } = useAuth();
+    const isAdmin = isAdminUser(user);
+
+    return (
+        <div className="dropdown lg:hidden">
+            <div
+                tabIndex={0}
+                role="button"
+                aria-label={i18n._(t`Menü`)}
+                className="btn btn-ghost btn-sm btn-square"
+            >
+                <span className="iconify mdi--menu text-2xl"></span>
+            </div>
+            <ul tabIndex={-1} className="dropdown-content menu z-50 w-56 rounded-box bg-base-100 p-2 shadow">
+                <li>
+                    <Link to="/akkreditierungen">{i18n._(t`Akkreditierungen`)}</Link>
+                </li>
+                <li>
+                    <Link to="/verify">{i18n._(t`Verifizieren`)}</Link>
+                </li>
+                {isAuthenticated ? (
+                    <li>
+                        <Link to="/meine-akkreditierungen">{i18n._(t`Meine Akkreditierungen`)}</Link>
+                    </li>
+                ) : null}
+                {isAdmin ? (
+                    <li>
+                        <Link to="/admin">{i18n._(t`Admin`)}</Link>
+                    </li>
+                ) : null}
+            </ul>
+        </div>
+    );
+}
+
 function AuthNav() {
     const { i18n } = useLingui();
     const { user, isAuthenticated, logout } = useAuth();
@@ -64,17 +101,21 @@ function AuthNav() {
     return (
         <div className="navbar-end flex items-center gap-2">
             {isAdmin ? (
-                <Link to="/admin" className="btn btn-ghost">
+                <Link to="/admin" className="btn btn-ghost btn-sm hidden lg:inline-flex lg:btn-md">
                     {i18n._(t`Admin`)}
                 </Link>
             ) : null}
             {isAuthenticated ? (
-                <button type="button" className="btn btn-ghost" onClick={() => void handleLogout()}>
+                <button
+                    type="button"
+                    className="btn btn-ghost btn-sm lg:btn-md"
+                    onClick={() => void handleLogout()}
+                >
                     <span className="iconify mdi--logout text-xl"></span>
                     {i18n._(t`Abmelden`)}
                 </button>
             ) : (
-                <Link to="/login" className="btn btn-ghost">
+                <Link to="/login" className="btn btn-ghost btn-sm lg:btn-md">
                     {i18n._(t`Anmelden`)}
                 </Link>
             )}
@@ -91,12 +132,13 @@ function RootLayout() {
         <div className="min-h-dvh bg-base-100">
             <header className="navbar bg-base-200 shadow-sm">
                 <div className="navbar-start">
-                    <Link to="/" className="btn btn-ghost text-xl">
-                        <span className="iconify material-symbols--badge text-2xl text-primary"></span>
+                    <MobileNavMenu />
+                    <Link to="/" className="btn btn-ghost px-2 text-base lg:px-4 lg:text-xl">
+                        <span className="iconify material-symbols--badge hidden text-2xl text-primary lg:inline-block"></span>
                         {i18n._(t`Akkreditierung`)}
                     </Link>
                 </div>
-                <div className="navbar-center flex items-center gap-1">
+                <div className="navbar-center hidden gap-1 lg:flex">
                     <Link to="/akkreditierungen" className="btn btn-ghost btn-sm">
                         {i18n._(t`Akkreditierungen`)}
                     </Link>
