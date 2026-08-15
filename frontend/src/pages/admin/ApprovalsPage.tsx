@@ -672,7 +672,7 @@ function ApplicationsTab() {
                     ) : (
                         <>
                             <WideTable>
-                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                <div className="overflow-x-auto">
                                     <table className="table">
                                         <thead>
                                             <tr>
@@ -1010,7 +1010,7 @@ function SubApplicationsTab() {
                     ) : (
                         <>
                             <WideTable>
-                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                <div className="overflow-x-auto">
                                     <table className="table">
                                         <thead>
                                             <tr>
@@ -1130,7 +1130,7 @@ function BlacklistTab() {
                     ) : (
                         <>
                             <WideTable>
-                                <div className="max-h-96 overflow-x-auto overflow-y-auto pb-2">
+                                <div className="overflow-x-auto">
                                     <table className="table">
                                         <thead>
                                             <tr>

@@ -89,8 +89,7 @@ export function MandantListPage() {
                     <div className="flex flex-col">
                         <div className="relative">
                             <div className="overflow-x-auto">
-                                <div className="max-h-96 overflow-y-auto">
-                                    <table className="table">
+                                <table className="table">
                                         <thead>
                                             <tr>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Logo`)}</th>
@@ -154,7 +153,6 @@ export function MandantListPage() {
                                             ))}
                                         </tbody>
                                     </table>
-                                </div>
                             </div>
                             <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
                         </div>
