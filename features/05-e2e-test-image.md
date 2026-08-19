@@ -8,6 +8,31 @@ Jeder E2E-CI-Run lud Playwright-Chromium + apt-System-Deps neu herunter
 (`npx playwright install --with-deps chromium`) — obwohl die Browser-Version an
 `@playwright/test` gebunden ist und sich zwischen Version-Bumps nicht ändert.
 
+## Messung (2026-08-19, Step-Level-Zerlegung)
+
+| Schritt | alt (Runner) | neu (Container) | Δ |
+|---|---|---|---|
+| Initialize containers (Image-Pull + Services) | 22s | 44s | **+22s** (1,7 GB Image-Pull aus GHCR) |
+| Playwright-Browser-Install | 24s | 1s (No-Op) | **−23s** |
+| E2E-Smoke-Tests (`@smoke`, serial) | 41s | 41s | ±0 |
+| **Job gesamt** | **2m04s** | **2m11s** | **+7s ≈ ±0** |
+
+**Fazit:** Kein Wall-Clock-Gewinn in diesem Repo — die E2E-Suite ist klein (nur
+`@smoke`, serial, 41s) und `ubuntu-latest` bringt die meisten Playwright-System-Deps
+bereits mit, daher war der Browser-Install dort schon günstig (24s). Der Image-Pull
+(~22s) zehrt die Ersparnis exakt auf. **Der Gewinn liegt woanders:**
+- **Prod-Runtime-Parität:** Backend läuft in exakt `accriditation-base:8.5`
+  (gleiche PHP-Extensions exiftool/ImageMagick/pdo_pgsql) statt setup-php auf
+  ubuntu-latest → keine Umgebungs-Drift zwischen Test und Produktion.
+- **Determinismus:** Browser-Version == `@playwright/test` (Lockfile), kein Download
+  aus flakigen CDNs/apt-Mirrors pro Run.
+- **Netz-Workload der Runner:** ~200 MB weniger Download pro Run (Browser + apt-Deps),
+  dafür +1,7 GB Image-Pull — per GHCR.
+
+Bewusst beibehalten trotz ±0: Parität/Determinismus > Speed, und bei wachsender
+E2E-Suite (volle Suite statt nur Smoke) skaliert der Container-Vorteil (Browser-Install
+wäre dann konstant 24s+ pro Run, Image-Pull bleibt konstant ~22s).
+
 ## SOLL-Zustand
 
 1. **`deployment/Dockerfile.e2e`** — Derivat von `ghcr.io/reisi007/accriditation-base:8.5`
