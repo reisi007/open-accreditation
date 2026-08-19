@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Http\Resources\AdminApplicationResource;
 use App\Models\Accreditation;
 use App\Models\Application;
 use App\Models\BadgeTemplate;
@@ -16,6 +17,8 @@ use App\Services\QrTokenService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -866,8 +869,8 @@ class BadgeTest extends TestCase
         $this->assertNull($application->qr_token);
 
         // Serialize the resource directly (the admin approval view does this).
-        $request = \Illuminate\Http\Request::create('/api/admin/applications');
-        $array = (new \App\Http\Resources\AdminApplicationResource($application))->toArray($request);
+        $request = Request::create('/api/admin/applications');
+        $array = (new AdminApplicationResource($application))->toArray($request);
 
         // qr_url is still populated — computed from the deterministic token.
         $this->assertNotNull($array['qr_url']);
@@ -893,7 +896,7 @@ class BadgeTest extends TestCase
         $this->assertNull($approved->fresh()->qr_token);
         $this->assertNull($requested->fresh()->qr_token);
 
-        $exit = \Illuminate\Support\Facades\Artisan::call('accreditation:backfill-qr-tokens');
+        $exit = Artisan::call('accreditation:backfill-qr-tokens');
 
         $this->assertSame(0, $exit);
 
@@ -904,7 +907,7 @@ class BadgeTest extends TestCase
         $this->assertNull($requested->fresh()->qr_token);
 
         // Idempotent: a second run keeps the same token and does not error.
-        \Illuminate\Support\Facades\Artisan::call('accreditation:backfill-qr-tokens');
+        Artisan::call('accreditation:backfill-qr-tokens');
         $this->assertSame($token, $approved->fresh()->qr_token);
     }
 
