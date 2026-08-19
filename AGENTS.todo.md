@@ -54,6 +54,22 @@
 
 ---
 
+## 🛠️ Session 2026-08-19 — CI-E2E-Test-Image `accriditation-e2e` (Portal-Behandlung)
+
+> SOLL-Zustand: `features/05-e2e-test-image.md`. Gleiches Muster wie im Portal
+> (`portal.reisinger.pictures`, `features/infrastructure/28-ci-test-image.md`): Test-Image mit
+> vorinstallierten Playwright-Browsern → E2E-Job läuft komplett im Container.
+
+- [x] `deployment/Dockerfile.e2e` (FROM `accriditation-base:8.5` + Composer/Node v26/pnpm/Playwright-Chromium)
+- [x] `.github/workflows/e2e-image.yml` (Trigger: Dockerfile.e2e + Workflow + `frontend/pnpm-lock.yaml` + weekly + dispatch; Lockfile-basierte Playwright-Versionsextraktion — package.json trägt `^1.61.1`, Lockfile resolvet `1.62.1`)
+- [x] `ci.yml` Job `e2e`: `container:` + `MAILPIT_API_URL` + `.env`-Overrides (postgres/mailpit per Service-Name) + setup-php entfernt + Playwright-Fallback-No-Op
+- [x] Doku `features/05-e2e-test-image.md` + `features/README.md`-Index
+- [ ] **Commit 1** (Image + Doku, ohne ci.yml) pushen → Image-Build in GH Actions abwarten
+- [ ] **Commit 2** (ci.yml) pushen → CI grün abwarten (E2E-Job im Container)
+- [ ] Speedup-Messung (Runner-Download vs. Image-Pull) dokumentieren
+
+---
+
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
 - [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
