@@ -82,9 +82,20 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     name: E2E (Playwright Smoke)
     runs-on: ubuntu-latest
+    # Gesamter E2E-Job laeuft im Test-Image accriditation-e2e (accriditation-base
+    # + Node/pnpm/Composer + Playwright-Chromium vorinstalliert) -> kein Browser-
+    # Download und kein apt-Deps-Setup pro Run. Backend & Vite laufen als
+    # Hintergrundprozesse im selben Container; die Daten-Dienste (postgres/
+    # mailpit) sind per Service-Name erreichbar. Details: features/05-e2e-test-image.md.
+    container:
+      image: ghcr.io/reisi007/accriditation-e2e:latest
     env:
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: admin
+      # Mailpit-API fuer die E2E-Helper (helpers/mailpit.ts liest MAILPIT_API_URL;
+      # Default waere localhost:8025). Container-Modus: Dienste sind nur per
+      # Service-Name erreichbar, nicht via 127.0.0.1.
+      MAILPIT_API_URL: http://mailpit:8025/api/v1
     services:
       postgres:
         image: postgres:17-alpine
@@ -109,18 +120,27 @@ jobs:
           - 8025:8025
     steps:
       - uses: actions/checkout@v5
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: 8.5
-          extensions: mbstring, pgsql, pdo_pgsql, pdo_sqlite, dom, gd, zip
-          coverage: none
       - name: Install backend dependencies
         working-directory: backend
+        # Composer ist im Image (COPY --from=composer:2); PHP aus dem Test-Image
+        # (accriditation-base) — kein setup-php auf dem Runner noetig.
         run: composer install --no-interaction --prefer-dist --no-progress
       - name: Prepare backend environment
         working-directory: backend
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          # Container-Modus: Dienste per Service-Name + interne Ports
+          # (.env.example selbst bleibt fuer lokale Nutzung unveraendert).
+          sed -i.bak -E \
+            -e 's|^DB_HOST=.*|DB_HOST=postgres|' \
+            -e 's|^DB_PORT=.*|DB_PORT=5432|' \
+            -e 's|^MAIL_HOST=.*|MAIL_HOST=mailpit|' \
+            -e 's|^MAIL_PORT=.*|MAIL_PORT=1025|' \
+            .env && rm -f .env.bak
+          grep -q '^DB_HOST=postgres$' .env
+          grep -q '^DB_PORT=5432$' .env
+          grep -q '^MAIL_HOST=mailpit$' .env
+          grep -q '^MAIL_PORT=1025$' .env
       - name: Generate app key
         working-directory: backend
         run: php artisan key:generate
@@ -154,9 +174,14 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Install Playwright browsers
+      - name: Verify Playwright browsers (fallback install)
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        # Browser sind im Image unter /ms-playwright vorinstalliert (Version ==
+        # @playwright/test). Dieser Schritt ist ein No-Op, wenn die Version
+        # passt; bei Versionsdrift (Dependabot-Bump vor Image-Rebuild) laedt er
+        # nur die fehlende Browser-Version nach. `--with-deps` bewusst NICHT:
+        # apt-System-Deps sind im Image gebacken.
+        run: npx playwright install chromium
       - name: Start frontend dev server
         working-directory: frontend
         run: |
