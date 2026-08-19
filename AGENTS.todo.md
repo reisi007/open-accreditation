@@ -104,7 +104,7 @@
 > Kontext: Tippfehler `open-accriditation`→`open-accreditation` bereits bereinigt (siehe unten/`git status`).
 > opencode-DB + aktuelle Session zeigten bereits den korrekten Pfad → kein Eingriff nötig.
 
-- [x] **Tippfehler-Repo-Bereinigung** — Source/Config-Strings (`package.json`, `.env`/`.env.example`, `README.md`, `features/README.md`, `scripts/e2e-up.sh`, `AGENTS.md`/`.todo.md`) + `node_modules` via Clean-Reinstall (0 alte Pfade) + stale Blade-Views gecleared. opencode-DB/Session unverändert (schon korrekt). Verbleibend: finalen Repo-URL/Projektnamen festlegen.
+- [x] **Tippfehler-Repo-Bereinigung** — Source/Config-Strings (`package.json`, `.env`/`.env.example`, `README.md`, `features/README.md`, `scripts/e2e-up.sh`, `AGENTS.md`/`.todo.md`) + `node_modules` via Clean-Reinstall (0 alte Pfade) + stale Blade-Views gecleared. opencode-DB/Session unverändert (schon korrekt). GitHub-Remote `reisi007/open-accreditation` bestätigt (existiert, korrekt benannt, Work gepusht).
 - [x] **E2E-Test-Hygiene (low)** — erledigt + verifiziert (APPROVED). `badge.spec.ts` löscht `E2E Ausweis*`-Template via `afterAll`; `ensurePrimaryMandantActivePortalEvent` self-cleaning; `purgeAllE2EArtifacts` + `globalTeardown` (nur E2E-präfixierte Artefakte, `Hauptseite` nie betroffen). `@feature:badge` E2E grün, Mandanten 36→5, DB sauber; `pnpm build`/`lint:fix` grün.
 - [x] **P4-F3 eigener Limiter (low)** — erledigt + verifiziert (APPROVED). Dedizierter `verify`-Limiter in `AppServiceProvider` (60/min prod, 300/min test, per-IP), `routes/api.php:311` auf `throttle:verify`; `portal`/`accreditations` bleiben `throttle:public`. 17 neue Throttle-Tests, Voll-Suite 678 grün.
 - [x] **P4-F2 Write-on-Read (low)** — erledigt + verifiziert (APPROVED). `QrTokenService::token()` (rein, kein DB-Write) im `AdminApplicationResource`; `make()` persistiert weiterhin (Approval/Resend/Backfill). Neuer idempotenter Command `accreditation:backfill-qr-tokens`. 3 neue Tests (inkl. Regressions-Test: Serialisierung persistiert NICHT), Voll-Suite 678 grün.
@@ -118,7 +118,7 @@
 
 ## 📌 Offene Punkte / Risiken
 
-- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt (Verzeichnis war bereits korrekt; String-Refs in package.json/.env/READMEs/e2e-up.sh/AGENTS-Docs + stale Blade-Views gecleared; opencode-DB + Session zeigten bereits korrekten Pfad). Verbleibend: finalen **Repo-URL/Projektnamen** festlegen (z. B. GitHub-Remote).
+- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt (Verzeichnis war bereits korrekt; String-Refs in package.json/.env/READMEs/e2e-up.sh/AGENTS-Docs + stale Blade-Views gecleared; opencode-DB + Session zeigten bereits korrekten Pfad). GitHub-Remote `reisi007/open-accreditation` bestätigt (existiert, korrekt benannt, Work gepusht) — Repo-URL final.
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)
 - [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)
