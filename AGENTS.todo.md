@@ -1,4 +1,4 @@
-# Task Board — open-accriditation
+# Task Board — open-accreditation
 
 > Stand: 2026-08-15. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
 > Umsetzung nach `features/`. Referenz: Sportdata „Accreditation Services" + Screenshots des
@@ -84,16 +84,30 @@
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 - [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.
 - [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
-- [ ] **P4-F2 (low)** `AdminApplicationResource` macht Write-on-Read (lazy qr_token-Backfill während Serialisierung) → besser im Approval-Flow oder explizit (P7).
-- [ ] **P4-F3 (low)** Verify nutzt `throttle:public` (geteilter Bucket mit Portal/Akkreditierungen) → eigener benannter Limiter (P7).
+
 - [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
 - [ ] **P4-F5 (info)** `features/`-SOLL-Doku: P6-Wallet-Vertrag (PKPASS) + Badges/QR-SOLL fehlen → Doku-Batch (P7-Vorbereitung).
 - [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
 - [ ] **P5-F4 (info)** Queue-Integration (synchroner Versand als MVP-Entscheidung) → später/Post-MVP.
 - [ ] **P6-B1 (info)** `relevantDate`-Semantik: nutzt `deadline_end` statt Event-Datum → mit Benutzer abstimmen (P7/Produkt).
 - [ ] **P6-B2 (info)** ohne `GOOGLE_ISSUER_ID` leeres id-Präfix im Preview-Modus → dokumentiert, kein Risiko.
-- [ ] **E2E-Test-Hygiene (low)** Daten-Ansammlung: `frontend/tests/e2e/badge.spec.ts:51` hinterlässt pro Lauf `E2E Ausweis*`-Templates (Strict-Mode-Verletzung beim nächsten Lauf); ebenso akkumulieren Mandanten (>20 bricht Pagination-basierte Smoke-Assertions) → Cleanup/Teardown im E2E-Harness ergänzen.
+
 - [ ] **Vite-Proxy / MandantContextMiddleware (info)** `*.localhost:5173`-Hosts in lokalem Dev unerreichbar (Vite `changeOrigin` rewritet Host → Primary-Mandant); Screenshot-Harness umgeht das mit `emptyMock`-Stubs → Zukunft: Backend akzeptiert `*.localhost:5173`-Referer (dokumentierte Verbesserung).
+
+---
+
+---
+
+## 🛠️ Session 2026-08-19b — Follow-up-Fixes (delegiert, wartet auf Verifikation)
+
+> SOLL: risikoarme Follow-ups aus §Offene Follow-ups abarbeiten (User hat keine Zeit für Go-Live).
+> Kontext: Tippfehler `open-accriditation`→`open-accreditation` bereits bereinigt (siehe unten/`git status`).
+> opencode-DB + aktuelle Session zeigten bereits den korrekten Pfad → kein Eingriff nötig.
+
+- [x] **Tippfehler-Repo-Bereinigung** — Source/Config-Strings (`package.json`, `.env`/`.env.example`, `README.md`, `features/README.md`, `scripts/e2e-up.sh`, `AGENTS.md`/`.todo.md`) + `node_modules` via Clean-Reinstall (0 alte Pfade) + stale Blade-Views gecleared. opencode-DB/Session unverändert (schon korrekt). Verbleibend: finalen Repo-URL/Projektnamen festlegen.
+- [x] **E2E-Test-Hygiene (low)** — erledigt + verifiziert (APPROVED). `badge.spec.ts` löscht `E2E Ausweis*`-Template via `afterAll`; `ensurePrimaryMandantActivePortalEvent` self-cleaning; `purgeAllE2EArtifacts` + `globalTeardown` (nur E2E-präfixierte Artefakte, `Hauptseite` nie betroffen). `@feature:badge` E2E grün, Mandanten 36→5, DB sauber; `pnpm build`/`lint:fix` grün.
+- [x] **P4-F3 eigener Limiter (low)** — erledigt + verifiziert (APPROVED). Dedizierter `verify`-Limiter in `AppServiceProvider` (60/min prod, 300/min test, per-IP), `routes/api.php:311` auf `throttle:verify`; `portal`/`accreditations` bleiben `throttle:public`. 17 neue Throttle-Tests, Voll-Suite 678 grün.
+- [x] **P4-F2 Write-on-Read (low)** — erledigt + verifiziert (APPROVED). `QrTokenService::token()` (rein, kein DB-Write) im `AdminApplicationResource`; `make()` persistiert weiterhin (Approval/Resend/Backfill). Neuer idempotenter Command `accreditation:backfill-qr-tokens`. 3 neue Tests (inkl. Regressions-Test: Serialisierung persistiert NICHT), Voll-Suite 678 grün.
 
 ---
 
@@ -104,7 +118,7 @@
 
 ## 📌 Offene Punkte / Risiken
 
-- [ ] Projektname/Repo-URL festlegen (Verzeichnis heißt `open-accriditation`, Tippfehler)
+- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt (Verzeichnis war bereits korrekt; String-Refs in package.json/.env/READMEs/e2e-up.sh/AGENTS-Docs + stale Blade-Views gecleared; opencode-DB + Session zeigten bereits korrekten Pfad). Verbleibend: finalen **Repo-URL/Projektnamen** festlegen (z. B. GitHub-Remote).
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)
 - [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)

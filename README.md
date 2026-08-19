@@ -1,4 +1,4 @@
-# open-accriditation
+# open-accreditation
 
 Moderne, mandantenfähige **Akkreditierungs-Plattform (Multi-Tenant)** für
 Sportverbände und Vereine — Nachbau des Feature-Umfangs von Sportdata

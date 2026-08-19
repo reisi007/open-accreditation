@@ -174,6 +174,86 @@ class AuthThrottleTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | P4-F3: the QR-verification scan endpoint (`/api/verify/*`) owns its OWN
+     | named `verify` limiter (keyed per-ip like `public`), decoupled from the
+     | portal / accreditation-read `public` bucket. A scan burst must not
+     | cannibalize the public read budget and vice versa.
+     | ------------------------------------------------------------------- */
+
+    public function test_verify_limiter_is_registered_with_distinct_key(): void
+    {
+        $request = Request::create('/api/verify/abc123', 'GET');
+        $request->server->set('REMOTE_ADDR', '10.0.0.3');
+
+        $verify = RateLimiter::limiter('verify');
+        $public = RateLimiter::limiter('public');
+        $activate = RateLimiter::limiter('activate');
+
+        $this->assertNotNull($verify, 'named limiter "verify" must be registered');
+        $this->assertNotNull($public, 'named limiter "public" must be registered');
+        $this->assertNotNull($activate, 'named limiter "activate" must be registered');
+
+        $verifyLimit = $verify($request);
+        $publicLimit = $public($request);
+        $activateLimit = $activate($request);
+
+        // Like `public`, `verify` is env-dependent: 300/min in `local`/`testing`
+        // (ui-review screenshot suite + parallel Playwright scans), 60/min in
+        // `production`.
+        $this->assertSame(300, $verifyLimit->maxAttempts);
+        $this->assertSame(300, $publicLimit->maxAttempts);
+
+        // The same request/ip must resolve to a distinct bucket key from the
+        // shared public/activate buckets — otherwise scan throttling would still
+        // cannibalize the public read budget.
+        $keys = [
+            $verifyLimit->key,
+            $publicLimit->key,
+            $activateLimit->key,
+        ];
+
+        $this->assertCount(3, array_unique($keys), 'verify/public/activate must use distinct bucket keys');
+    }
+
+    public function test_verify_bucket_blocks_excess_requests(): void
+    {
+        // Resolve the real per-ip budget (300/min in testing) from the named
+        // limiter so the assertion stays correct across environments.
+        $limit = RateLimiter::limiter('verify')(Request::create('/api/verify/x', 'GET'))->maxAttempts;
+
+        for ($i = 0; $i < $limit; $i++) {
+            $this->getJson('/api/verify/not-a-real-token')->assertStatus(404);
+        }
+
+        $this->getJson('/api/verify/not-a-real-token')->assertStatus(429);
+    }
+
+    public function test_verify_bucket_is_independent_of_public_throttling(): void
+    {
+        // Exhaust the PUBLIC bucket (300/min in testing) with portal reads.
+        for ($i = 0; $i < 300; $i++) {
+            $this->getJson('/api/portal/overview')->assertStatus(404);
+        }
+
+        // The exhausted public bucket must NOT throttle the verify endpoint — it
+        // owns a separate `verify` bucket (P4-F3). 404: bogus token / no mandant.
+        $this->getJson('/api/verify/not-a-real-token')->assertStatus(404);
+    }
+
+    public function test_public_bucket_is_independent_of_verify_throttling(): void
+    {
+        // Exhaust the VERIFY bucket (300/min in testing) with scan requests.
+        $limit = RateLimiter::limiter('verify')(Request::create('/api/verify/x', 'GET'))->maxAttempts;
+        for ($i = 0; $i < $limit; $i++) {
+            $this->getJson('/api/verify/not-a-real-token')->assertStatus(404);
+        }
+
+        // The exhausted verify bucket must NOT throttle the portal (public)
+        // read — the two surfaces own separate buckets (P4-F3).
+        $this->getJson('/api/portal/overview')->assertStatus(404);
+    }
+
+    /* ---------------------------------------------------------------------
      | F5 / P2a-RL / P5-F2: the `media`, `admin` and `resend` named limiters.
      | All three are keyed per AUTHENTICATED user — they resolve the user via
      | `$request->user('api')`, because `Request::user()` without a guard

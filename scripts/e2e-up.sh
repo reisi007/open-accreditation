@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Idempotent local development setup for open-accriditation.
+# Idempotent local development setup for open-accreditation.
 # Starts the Docker infra (Postgres + Mailpit) and prepares the Laravel
 # backend (env, APP_KEY, JWT_SECRET, migrate + seed). Safe to re-run.
 #

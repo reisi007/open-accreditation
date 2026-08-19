@@ -32,11 +32,14 @@ class AdminApplicationResource extends JsonResource
             'reason' => $this->reason,
             'created_at' => $this->created_at?->toISOString(),
             // P4: the verification URL (relative — the frontend prefixes its
-            // own origin), only for approved applications. Approved rows that
-            // predate P4 get their deterministic token backfilled lazily here
-            // (`QrTokenService::make` persists it on the row).
+            // own origin), only for approved applications. The token is
+            // computed deterministically on READ (`QrTokenService::token`) and
+            // NEVER written back here — a DB write during serialization is a
+            // side effect. Approved rows carry a stored `qr_token` from
+            // approval time / the one-time backfill command; legacy rows fall
+            // back to the computed value.
             'qr_url' => $this->status === 'approved'
-                ? '/verify/'.($this->qr_token ?? app(QrTokenService::class)->make($this->resource))
+                ? '/verify/'.($this->qr_token ?? app(QrTokenService::class)->token($this->resource))
                 : null,
         ];
     }

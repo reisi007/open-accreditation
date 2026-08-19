@@ -812,8 +812,9 @@ class BadgeTest extends TestCase
     {
         Cache::flush();
 
-        // The public limiter is env-dependent: 300/min in local/testing (raised
-        // for the ui-review screenshot suite), 60/min in production.
+        // The dedicated `verify` limiter (P4-F3) is env-dependent: 300/min in
+        // local/testing (raised for the ui-review screenshot suite), 60/min in
+        // production.
         $limit = app()->environment('local', 'testing') ? 300 : 60;
 
         for ($i = 0; $i < $limit; $i++) {
@@ -842,12 +843,69 @@ class BadgeTest extends TestCase
         $approvedEntry = $data->firstWhere('id', $approved->id);
         $requestedEntry = $data->firstWhere('id', $requested->id);
 
-        // The approved row had no token yet — the resource backfilled it.
+        // The approved row has no stored token — the resource computes the
+        // deterministic token on read (without persisting it).
         $this->assertNotNull($approvedEntry['qr_url']);
         $this->assertStringStartsWith('/verify/', $approvedEntry['qr_url']);
-        $this->assertSame('/verify/'.$approved->fresh()->qr_token, $approvedEntry['qr_url']);
+
+        // Read path must NOT write: the DB row stays NULL after serialization.
+        $this->assertNull($approved->fresh()->qr_token);
+
+        // The computed token still resolves to the application (idempotent HMAC).
+        $computed = substr($approvedEntry['qr_url'], strlen('/verify/'));
+        $this->assertSame($approved->id, app(QrTokenService::class)->parse($computed));
 
         $this->assertNull($requestedEntry['qr_url']);
+    }
+
+    public function test_serializing_approved_application_with_null_qr_token_does_not_persist(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 5]);
+        $application = $this->makeApplication($accreditation, User::factory()->create(), ['status' => 'approved']);
+
+        $this->assertNull($application->qr_token);
+
+        // Serialize the resource directly (the admin approval view does this).
+        $request = \Illuminate\Http\Request::create('/api/admin/applications');
+        $array = (new \App\Http\Resources\AdminApplicationResource($application))->toArray($request);
+
+        // qr_url is still populated — computed from the deterministic token.
+        $this->assertNotNull($array['qr_url']);
+        $this->assertStringStartsWith('/verify/', $array['qr_url']);
+
+        $token = substr($array['qr_url'], strlen('/verify/'));
+        $this->assertSame($application->id, app(QrTokenService::class)->parse($token));
+
+        // No write-on-read: the DB row remains untouched.
+        $this->assertNull($application->fresh()->qr_token);
+        $this->assertDatabaseHas('applications', [
+            'id' => $application->id,
+            'qr_token' => null,
+        ]);
+    }
+
+    public function test_backfill_qr_tokens_command_fills_approved_without_token(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 5]);
+        $approved = $this->makeApplication($accreditation, User::factory()->create(), ['status' => 'approved']);
+        $requested = $this->makeApplication($accreditation, User::factory()->create());
+
+        $this->assertNull($approved->fresh()->qr_token);
+        $this->assertNull($requested->fresh()->qr_token);
+
+        $exit = \Illuminate\Support\Facades\Artisan::call('accreditation:backfill-qr-tokens');
+
+        $this->assertSame(0, $exit);
+
+        // Only the approved row got a token; requested rows are untouched.
+        $token = $approved->fresh()->qr_token;
+        $this->assertNotNull($token);
+        $this->assertSame($approved->id, app(QrTokenService::class)->parse($token));
+        $this->assertNull($requested->fresh()->qr_token);
+
+        // Idempotent: a second run keeps the same token and does not error.
+        \Illuminate\Support\Facades\Artisan::call('accreditation:backfill-qr-tokens');
+        $this->assertSame($token, $approved->fresh()->qr_token);
     }
 
     /* ---------------------------------------------------------------------

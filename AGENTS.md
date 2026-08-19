@@ -1,4 +1,4 @@
-# AI Operating Guidelines & Doc-as-Code Policy — open-accriditation
+# AI Operating Guidelines & Doc-as-Code Policy — open-accreditation
 
 **Projekt:** Moderne, mandantenfähige Akkreditierungs-Plattform (Multi-Tenant) für Sportverbände
 und Vereine. Nachbau des Feature-Umfangs von Sportdata „Accreditation Services" (set.sportdata.org)

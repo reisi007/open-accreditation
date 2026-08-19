@@ -21,6 +21,12 @@ use App\Models\Application;
  * looks the application up by the recovered id — the HMAC is the security
  * boundary, the stored `qr_token` column is an optimisation/index for admin
  * views, not a source of truth.
+ *
+ * Two entry points:
+ *   - `token()`  — PURE, never touches the DB. Use it in READ paths (JSON
+ *     serialization) where a write-on-read would be a side effect.
+ *   - `make()`   — persists the deterministic token on the row when missing
+ *     (idempotent). Use it in WRITE paths: approval, resend, one-time backfill.
  */
 final class QrTokenService
 {
@@ -29,6 +35,18 @@ final class QrTokenService
      *                               secret to prove tamper detection).
      */
     public function __construct(private readonly ?string $secret = null) {}
+
+    /**
+     * The deterministic token for one application WITHOUT persisting it.
+     *
+     * Read paths (JSON serialization) must use this — a DB write during
+     * serialization is a side effect and must be avoided. Write paths
+     * (approval, resend, backfill) use `make()` instead.
+     */
+    public function token(Application $application): string
+    {
+        return $this->tokenFor((int) $application->getKey());
+    }
 
     /**
      * The token for one application. Persists it on the row when missing

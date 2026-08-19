@@ -303,12 +303,12 @@ Route::prefix('accreditations')->middleware('throttle:public')->name('api.accred
 | Auth-free like the portal; the signed `{token}` is the access credential.
 | `GET /api/verify/{token}` answers `{data: {status, …}}` (identity only for
 | `approved` applications) and `GET /api/verify/{token}/photo` streams the
-| approved applicant's portrait inline. A light `throttle:public` keeps
-| scanning in check (shared per-ip bucket with the portal/accreditation
-| reads).
+| approved applicant's portrait inline. A dedicated `throttle:verify` keeps
+| scanning in check — its own per-ip bucket, decoupled from the portal and
+| accreditation-read traffic (P4-F3).
 |
 */
-Route::prefix('verify')->middleware('throttle:public')->name('api.verify.')->group(function (): void {
+Route::prefix('verify')->middleware('throttle:verify')->name('api.verify.')->group(function (): void {
     Route::get('/{token}/photo', [VerifyController::class, 'photo'])->name('photo');
     Route::get('/{token}', [VerifyController::class, 'verify'])->name('show');
 });

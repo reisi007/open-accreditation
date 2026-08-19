@@ -589,6 +589,34 @@ export async function allocateAccreditationApi(accreditationId = 0, mode = 'all'
  *
  * @returns {Promise<{ event: object; team: object; mandantName: string }>}
  */
+/**
+ * Removes E2E portal events (titled "Portal-Test *" / competition
+ * "E2E Wettbewerb *") for the current primary mandant so repeated runs never
+ * accumulate duplicates that break the portal calendar's single-card assertion.
+ *
+ * This helper is the only producer of these events and is invoked once per run,
+ * so removing its own prior artifacts is safe under Playwright's parallel
+ * workers. It deliberately does NOT touch the shared "E2E Heimverein" team
+ * (created by `ensurePrimaryMandantHasTeam` and consumed by other specs in
+ * parallel) — that is reclaimed by the serial global teardown instead.
+ */
+async function cleanupPrimaryMandantPortalEvents() {
+    const api = await loginAdminApi();
+    try {
+        const body = await (await api.get('/api/admin/events')).json();
+        const events = body.data ?? [];
+        for (const event of events) {
+            const title = event.title ?? '';
+            const competition = event.competition ?? '';
+            if (title.startsWith('Portal-Test ') || competition.startsWith('E2E Wettbewerb ')) {
+                await api.delete(`/api/admin/events/${event.id}`);
+            }
+        }
+    } finally {
+        await api.dispose();
+    }
+}
+
 export async function ensurePrimaryMandantActivePortalEvent() {
     const api = await loginAdminApi();
     try {
@@ -633,6 +661,11 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             team = (await teamCreate.json()).data;
         }
 
+        // Self-cleaning: drop any portal event left by a previous run before
+        // creating the deterministic one for this run, so the portal calendar
+        // always holds exactly one matching card.
+        await cleanupPrimaryMandantPortalEvents();
+
         const title = `Portal-Test ${Date.now()}`;
         const competition = `E2E Wettbewerb ${Date.now()}`;
         const create = await api.post('/api/admin/events', {
@@ -653,6 +686,105 @@ export async function ensurePrimaryMandantActivePortalEvent() {
         const createdBody = await create.json();
 
         return { event: createdBody.data, team, mandantName: primary.name };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
+ * Best-effort global purge of every E2E artifact left in the dev database.
+ * Intended to run from Playwright's `globalTeardown` so each full run starts
+ * from a clean slate, but exported so it can also be invoked manually. Never
+ * throws — a down stack or an already-removed row must not fail the suite.
+ *
+ * The purge is deliberately written with inline loops (rather than param-bearing
+ * helpers) so it stays on the plain-ES2020 parser that `tests/e2e` uses while
+ * still satisfying the strict `tsc` build (no implicit-`any` parameters).
+ */
+export async function purgeAllE2EArtifacts() {
+    const api = await loginAdminApi();
+    try {
+        const mandantsBody = await (await api.get('/api/admin/mandants')).json();
+        const mandants = mandantsBody.data ?? [];
+        let primary = null;
+        for (const mandant of mandants) {
+            if (mandant.is_primary) {
+                primary = mandant;
+                break;
+            }
+        }
+        if (primary === null) {
+            primary = mandants[0] ?? null;
+        }
+        if (!primary) {
+            throw new Error('No mandant found for E2E purge');
+        }
+        const primaryId = primary.id;
+
+        // Badge templates: name "E2E Ausweis*".
+        const templateBody = await (await api.get('/api/admin/badge-templates')).json();
+        for (const template of templateBody.data ?? []) {
+            if ((template.name ?? '').startsWith('E2E Ausweis')) {
+                await api.delete(`/api/admin/badge-templates/${template.id}`);
+            }
+        }
+
+        // Categories: "E2E Akkreditierung *" / "E2E Sub Akkreditierung *".
+        // Deleting a category cascades to its accreditations (and their
+        // applications / sub-accreditations), reclaiming all accreditation data.
+        const categoryBody = await (await api.get('/api/admin/categories')).json();
+        for (const category of categoryBody.data ?? []) {
+            const name = category.name ?? '';
+            if (name.startsWith('E2E Akkreditierung ') || name.startsWith('E2E Sub Akkreditierung ')) {
+                await api.delete(`/api/admin/categories/${category.id}`);
+            }
+        }
+
+        // Events: portal markers ("Portal-Test *" / "E2E Wettbewerb *") and
+        // accreditation markers ("E2E Akkreditierung Event *" /
+        // "E2E Sub Akkreditierung Event *").
+        const eventBody = await (await api.get('/api/admin/events')).json();
+        for (const event of eventBody.data ?? []) {
+            const title = event.title ?? '';
+            const competition = event.competition ?? '';
+            if (
+                title.startsWith('Portal-Test ') ||
+                competition.startsWith('E2E Wettbewerb ') ||
+                title.startsWith('E2E Akkreditierung Event ') ||
+                title.startsWith('E2E Sub Akkreditierung Event ')
+            ) {
+                await api.delete(`/api/admin/events/${event.id}`);
+            }
+        }
+
+        // Teams: "E2E Heimverein *" (shared across specs, so reclaimed here).
+        const teamBody = await (await api.get(`/api/admin/mandants/${primaryId}/teams`)).json();
+        for (const team of teamBody.data ?? []) {
+            if ((team.name ?? '').startsWith('E2E Heimverein ')) {
+                await api.delete(`/api/admin/mandants/${primaryId}/teams/${team.id}`);
+            }
+        }
+
+        // Mandants: E2E-prefixed (name "E2E *" / slug "e2e-*") fabricated by
+        // admin-mandant.spec. The destroy route refuses to delete a mandant that
+        // still owns teams (409), so detach its teams first — they are all E2E
+        // test artifacts — then delete the mandant (which cascades to the
+        // mandant's own events / categories). The seeded primary mandant
+        // ("Hauptseite") is never matched.
+        const allMandantsBody = await (await api.get('/api/admin/mandants')).json();
+        for (const mandant of allMandantsBody.data ?? []) {
+            const name = mandant.name ?? '';
+            const slug = mandant.slug ?? '';
+            if (name.startsWith('E2E ') || slug.startsWith('e2e-')) {
+                const teamBody = await (await api.get(`/api/admin/mandants/${mandant.id}/teams`)).json();
+                for (const team of teamBody.data ?? []) {
+                    await api.delete(`/api/admin/mandants/${mandant.id}/teams/${team.id}`);
+                }
+                await api.delete(`/api/admin/mandants/${mandant.id}`);
+            }
+        }
+    } catch (error) {
+        console.warn('[e2e-hygiene] purgeAllE2EArtifacts failed:', error);
     } finally {
         await api.dispose();
     }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ensurePrimaryMandantApprovedApplication } from './helpers/admin-data';
+import { ensurePrimaryMandantApprovedApplication, loginAdminApi } from './helpers/admin-data';
 
 test.describe('Badge-Templates, Export & Verify (P4)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
@@ -8,6 +8,24 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
     // specs.
     test.beforeEach(async ({}, testInfo) => {
         test.skip(testInfo.project.name !== 'Desktop Chrome');
+    });
+
+    // Self-cleaning: the UI-created "E2E Ausweis" template is never removed by
+    // the flow, so a second run matches multiple rows (Playwright StrictMode
+    // violation). Purge it via the admin API after the test, even on failure.
+    test.afterAll(async () => {
+        const api = await loginAdminApi();
+        try {
+            const body = await (await api.get('/api/admin/badge-templates')).json();
+            const templates = body.data ?? [];
+            for (const template of templates) {
+                if ((template.name ?? '').startsWith('E2E Ausweis')) {
+                    await api.delete(`/api/admin/badge-templates/${template.id}`);
+                }
+            }
+        } finally {
+            await api.dispose();
+        }
     });
 
     test('creates a template, exports PDF badges and verifies a token publicly', { tag: ['@feature:badge'] }, async ({ page }) => {

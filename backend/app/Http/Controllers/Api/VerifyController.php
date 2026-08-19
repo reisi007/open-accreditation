@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Public QR verification (P4), guarded only by `throttle:public`.
+ * Public QR verification (P4), guarded only by the dedicated `throttle:verify`
  *
  *   GET /api/verify/{token}
  *       parses the token (HMAC) and looks the application up by the recovered

@@ -1,4 +1,4 @@
-# Features — open-accriditation
+# Features — open-accreditation
 
 Dauerhafter SOLL-Zustand des Systems: Architekturentscheidungen, Datenmodell,
 API-Verträge und Feature-Spezifikationen, die langfristig gültig sind.

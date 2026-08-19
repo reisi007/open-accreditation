@@ -91,6 +91,18 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute($publicLimit)
             ->by('public:'.$request->ip()));
 
+        // P4-F3: the QR-verification scan endpoint (`/api/verify/*`) gets its
+        // OWN named limiter instead of riding the shared `public` bucket. Before,
+        // scanning throttling was coupled to the unrelated portal and
+        // accreditation-read traffic — a burst of scans silently consumed the
+        // public read budget and vice versa. The dedicated bucket is keyed
+        // per-ip exactly like `public` (mirrors its env-dependent floor: 300/min
+        // in `local`/`testing` so the ui-review screenshot suite and parallel
+        // Playwright scans don't trip a 429, 60/min in `production`).
+        $verifyLimit = app()->environment('local', 'testing') ? 300 : 60;
+        RateLimiter::for('verify', static fn (Request $request): Limit => Limit::perMinute($verifyLimit)
+            ->by('verify:'.$request->ip()));
+
         // F5: user-media uploads throttle per authenticated user (a scripted
         // upload flood of portraits/press-ids/attachments is the threat), key
         // `media:{userId}`; unauthenticated fallback `media:{ip}`. The explicit
