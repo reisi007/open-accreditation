@@ -286,6 +286,37 @@ class AdminUserTest extends TestCase
             ->assertStatus(404);
     }
 
+    public function test_update_roles_rejects_user_of_another_mandant(): void
+    {
+        $foreign = $this->createUserWithRole(UserRole::USER->value, $this->mandantB->id);
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->putJson('/api/admin/users/'.$foreign->id.'/roles', [
+                'roles' => [['role' => 'user']],
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(0, RoleUser::query()->where('user_id', $foreign->id)->where('mandant_id', $this->mandantA->id)->count());
+        $this->assertSame(1, RoleUser::query()->where('user_id', $foreign->id)->where('mandant_id', $this->mandantB->id)->count());
+    }
+
+    public function test_update_roles_rejects_global_super_admin_without_mandant_assignment(): void
+    {
+        $global = $this->createGlobalSuperAdmin();
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->putJson('/api/admin/users/'.$global->id.'/roles', [
+                'roles' => [['role' => 'verifier']],
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(0, RoleUser::query()->where('user_id', $global->id)->where('mandant_id', $this->mandantA->id)->count());
+        $this->assertDatabaseHas('role_user', [
+            'user_id' => $global->id,
+            'mandant_id' => null,
+        ]);
+    }
+
     /* ---------------------------------------------------------------------
      | Role validation
      | ------------------------------------------------------------------- */

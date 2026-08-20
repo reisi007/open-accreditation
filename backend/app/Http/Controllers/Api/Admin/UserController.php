@@ -87,6 +87,17 @@ class UserController extends Controller
     {
         $mandantId = $this->currentMandantId();
 
+        // The target must already be a member of the current mandant: no
+        // mandant-scoped role assignment may be written for a user who is not
+        // a member (a different mandant's user, or a global super_admin with
+        // no scoped assignment here). This keeps role management scoped to
+        // "users of my mandant".
+        abort_unless(
+            $user->roleUserAssignments()->forMandant($mandantId)->exists(),
+            404,
+            'User is not a member of this mandant.',
+        );
+
         $allowedRoles = [
             UserRole::MANDANT_ADMIN->value,
             UserRole::TEAM_ADMIN->value,
