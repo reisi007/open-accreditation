@@ -47,11 +47,11 @@ class UserController extends Controller
             ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])]);
 
         if ($request->filled('search')) {
-            $search = '%'.$request->input('search').'%';
+            $term = $this->escapeLike((string) $request->input('search'));
             $query->where(
                 fn (Builder $q) => $q
-                    ->where('users.name', 'like', $search)
-                    ->orWhere('users.email', 'like', $search),
+                    ->whereRaw("users.name like ? escape '\\'", ["%{$term}%"])
+                    ->orWhereRaw("users.email like ? escape '\\'", ["%{$term}%"]),
             );
         }
 
@@ -174,5 +174,15 @@ class UserController extends Controller
         }
 
         return $entries;
+    }
+
+    /**
+     * Escape LIKE wildcards so a search for literal `%`/`_` does not act as a
+     * pattern. Applied with an explicit `ESCAPE '\'` clause (portable across
+     * Postgres and SQLite — mirrors AdminApplicationController / BlacklistController).
+     */
+    private function escapeLike(string $term): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
     }
 }
