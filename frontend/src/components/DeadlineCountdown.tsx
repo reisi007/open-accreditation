@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useEffect, useState } from 'react';
 
@@ -58,21 +58,18 @@ export function DeadlineCountdown({ deadline }: DeadlineCountdownProps) {
 
     if (state.days !== null) {
         const count = state.days;
-        const noun = count === 1 ? i18n._(t`Tag`) : i18n._(t`Tage`);
         const badgeClass = count <= 7 ? 'badge-warning' : 'badge-info';
         return (
             <span className={`badge badge-sm ${badgeClass}`}>
-                {i18n._(t`Noch ${count} ${noun}`)}
+                {i18n._({ ...msg`Noch {count, plural, one {Tag} other {Tage}}`, values: { count } })}
             </span>
         );
     }
 
-    const hours = state.hours ?? 0;
-    const count = hours;
-    const noun = hours === 1 ? i18n._(t`Stunde`) : i18n._(t`Stunden`);
+    const count = state.hours ?? 0;
     return (
         <span className="badge badge-sm badge-warning">
-            {i18n._(t`Noch ${count} ${noun}`)}
+            {i18n._({ ...msg`Noch {count, plural, one {Stunde} other {Stunden}}`, values: { count } })}
         </span>
     );
 }

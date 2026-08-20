@@ -47,8 +47,12 @@ msgid "{fieldCount} Felder"
 msgstr "{fieldCount} fields"
 
 #: src/pages/admin/UsersPage.tsx
-msgid "{totalCount} Benutzer"
-msgstr "{totalCount} users"
+msgid "{totalCount, plural, one {# Benutzer} other {# Benutzer}}"
+msgstr "{totalCount, plural, one {# user} other {# users}}"
+
+#: src/pages/admin/UsersPage.tsx
+#~ msgid "{totalCount} Benutzer"
+#~ msgstr "{totalCount} users"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/BadgeTemplateForm.tsx
@@ -966,8 +970,16 @@ msgstr "{available, plural, one {# slot left} other {# slots left}}"
 #~ msgstr "Still {available} free"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Noch {count} {noun}"
-msgstr "Only {count} {noun} left"
+msgid "Noch {count, plural, one {Stunde} other {Stunden}}"
+msgstr "Only {count, plural, one {# hour} other {# hours}} left"
+
+#: src/components/DeadlineCountdown.tsx
+msgid "Noch {count, plural, one {Tag} other {Tage}}"
+msgstr "Only {count, plural, one {# day} other {# days}} left"
+
+#: src/components/DeadlineCountdown.tsx
+#~ msgid "Noch {count} {noun}"
+#~ msgstr "Only {count} {noun} left"
 
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Noch keine Akkreditierungen vorhanden."
@@ -1278,12 +1290,12 @@ msgid "Status"
 msgstr "Status"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Stunde"
-msgstr "hour"
+#~ msgid "Stunde"
+#~ msgstr "hour"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Stunden"
-msgstr "hours"
+#~ msgid "Stunden"
+#~ msgstr "hours"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Sub-Akkreditierung"
@@ -1344,12 +1356,12 @@ msgid "Sub-Anträge konnten nicht geladen werden."
 msgstr "The sub-applications could not be loaded."
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Tag"
-msgstr "day"
+#~ msgid "Tag"
+#~ msgstr "day"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Tage"
-msgstr "days"
+#~ msgid "Tage"
+#~ msgstr "days"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/CategoryForm.tsx

@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
@@ -117,7 +117,12 @@ export function UsersPage() {
             {users && !isLoading && !error ? (
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
-                        <p className="text-sm text-base-content/70">{i18n._(t`${totalCount} Benutzer`)}</p>
+                        <p className="text-sm text-base-content/70">
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Benutzer} other {# Benutzer}}`,
+                                values: { totalCount },
+                            })}
+                        </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
                                 <button
