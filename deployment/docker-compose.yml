@@ -10,9 +10,8 @@ services:
     environment:
       POSTGRES_DB: accriditation
       POSTGRES_USER: accriditation
-      # Dev password sourced from local .env (gitignored) or shell env.
-      # Fallback keeps local `docker compose up` working without setup.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-accriditation}
+      # E2E/dev DB uses a plain dev password (owner decision: no secure password needed for E2E).
+      POSTGRES_PASSWORD: accriditation
     ports:
       # CC-R3: bind the Postgres port to localhost only, so the DB is reachable
       # from the local machine but NOT exposed on the broader host network.

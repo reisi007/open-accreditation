@@ -110,10 +110,8 @@ jobs:
         env:
           POSTGRES_DB: accriditation
           POSTGRES_USER: accriditation
-          # Source the E2E DB password from the E2E_POSTGRES_PASSWORD GitHub
-          # secret (repo settings → Secrets and variables → Actions). The
-          # fallback keeps CI green until the owner configures the secret.
-          POSTGRES_PASSWORD: ${{ secrets.E2E_POSTGRES_PASSWORD || 'accriditation' }}
+          # E2E DB uses a plain dev password (owner decision: no secure password needed for E2E).
+          POSTGRES_PASSWORD: accriditation
         options: >-
           --health-cmd="pg_isready -U accriditation -d accriditation"
           --health-interval=10s

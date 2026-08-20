@@ -177,12 +177,13 @@
 
 ### Offene Entscheidungen / Owner-Action
 - **P6-B1** RESOLVED (dokumentiert): `relevantDate` = `deadline_end` (Event-Datum als Fallback) — Entscheidung in `WalletPassService.php` + `features/wallet-pkpass.md`.
-- **CC-R2**: GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (aktuell Fallback `accriditation`) — verbleibende Owner-Action.
+- **CC-R2**: Owner-declined — E2E DB braucht **kein** sicheres Passwort (explizite Owner-Entscheidung); auf plain `accriditation` vereinfacht, keine Secret-Config nötig.
 
 ### Status — ALLE Batch-2-Items erledigt
 - Code-Fixes (FE-R2, BE-R6, BE-R7, P3c-F4) + Infra/Docs (CC-R3, CC-R4, CC-R5, P4-F5, P6-B1) committet.
 - **Voll-Suite grün:** Backend **689 passed** (4439 assertions), Frontend **124 vitest** + `lint` + `build`.
-- **Verbleibend:** (a) Formaler separater Verifikator (AGENTS.md §5) pro Fix — optional, kann nachgeholt werden.
-  (b) **Owner-Action:** GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (CC-R2 nutzt Fallback).
+- **Verbleibend:** Formaler separater Verifikator (AGENTS.md §5) wird als Batch über die Review-Commits
+  (`09b2949..HEAD`) ausgeführt (Architektur/Security-Review). CC-R2-Owner-Action entfällt (E2E DB kein
+  sicheres Passwort nötig, plain `accriditation`).
 - `AGENTS.todo.md` bereinigt; Befunde ggf. → `features/`/`Security Risk Register`.
 - **Gepusht** an `origin/master` (alle lokalen Commits).
