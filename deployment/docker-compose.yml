@@ -10,7 +10,9 @@ services:
     environment:
       POSTGRES_DB: accriditation
       POSTGRES_USER: accriditation
-      POSTGRES_PASSWORD: accriditation
+      # Dev password sourced from local .env (gitignored) or shell env.
+      # Fallback keeps local `docker compose up` working without setup.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-accriditation}
     ports:
       - "5432:5432"
     volumes:
