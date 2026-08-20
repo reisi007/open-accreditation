@@ -705,6 +705,134 @@ class AllocationTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | Coverage gaps (P3c-F4) — blacklist precedence, case-insensitivity,
+     | pre-existing approvals, exact-fit quota
+     | ------------------------------------------------------------------- */
+
+    public function test_vip_that_is_blacklisted_is_denied_not_approved(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 5]);
+
+        $vipBanned = User::factory()->create(['email' => 'vip-banned@example.com']);
+        $clean = User::factory()->create();
+
+        $this->request($accreditation, $vipBanned, ['priority' => true]);
+        $this->request($accreditation, $clean);
+
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'vip-banned@example.com']);
+
+        $result = $this->allocation->approveAllEligible($accreditation);
+
+        // Blacklist precedence: the VIP is denied (reason Blacklist) despite
+        // priority, never approved.
+        $this->assertSame(1, $result->approved);
+        $this->assertSame(1, $result->denied);
+        $this->assertSame(1, $result->skipped_blacklist);
+
+        $this->assertDatabaseHas('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $vipBanned->id,
+            'status' => 'denied',
+            'reason' => 'Blacklist',
+        ]);
+        $this->assertDatabaseHas('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $clean->id,
+            'status' => 'approved',
+        ]);
+    }
+
+    public function test_blacklisted_email_match_is_case_insensitive(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 5]);
+
+        // Blacklist stored lowercase; the applicant email uses mixed case.
+        $user = User::factory()->create(['email' => 'MixedCase@Example.COM']);
+
+        $this->request($accreditation, $user);
+
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'mixedcase@example.com']);
+
+        $result = $this->allocation->approveAllEligible($accreditation);
+
+        $this->assertSame(0, $result->approved);
+        $this->assertSame(1, $result->denied);
+        $this->assertSame(1, $result->skipped_blacklist);
+
+        $this->assertDatabaseHas('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $user->id,
+            'status' => 'denied',
+            'reason' => 'Blacklist',
+        ]);
+    }
+
+    public function test_approve_all_exact_quota_approves_all_without_surplus(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 4]);
+
+        foreach ($this->users(4) as $user) {
+            $this->request($accreditation, $user);
+        }
+
+        $result = $this->allocation->approveAllEligible($accreditation);
+
+        // Applicants == quota → every one approved, none denied/surplus.
+        $this->assertSame(4, $result->approved);
+        $this->assertSame(0, $result->denied);
+        $this->assertSame(0, $result->skipped_blacklist);
+        $this->assertSame(0, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'denied')->count());
+    }
+
+    public function test_approve_all_is_idempotent_with_pre_existing_approved(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 3]);
+
+        // One row already approved (e.g. a prior single-approve admin action).
+        $this->request($accreditation, User::factory()->create(), ['status' => 'approved']);
+        foreach ($this->users(4) as $user) {
+            $this->request($accreditation, $user);
+        }
+
+        $first = $this->allocation->approveAllEligible($accreditation);
+
+        // Quota 3, 1 already approved → only 2 more approved, 2 denied.
+        $this->assertSame(2, $first->approved);
+        $this->assertSame(2, $first->denied);
+        $this->assertSame(3, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'approved')->count());
+
+        $second = $this->allocation->approveAllEligible($accreditation);
+
+        // Re-running must not duplicate approvals or alter any status.
+        $this->assertSame(0, $second->approved);
+        $this->assertSame(0, $second->denied);
+        $this->assertSame(3, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'approved')->count());
+        $this->assertSame(2, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'denied')->count());
+    }
+
+    public function test_approve_selection_is_idempotent_with_pre_existing_approved(): void
+    {
+        $accreditation = $this->createAccreditation(['quota' => 3]);
+
+        $this->request($accreditation, User::factory()->create(), ['status' => 'approved']);
+        foreach ($this->users(2) as $user) {
+            $this->request($accreditation, $user);
+        }
+
+        $first = $this->allocation->approveSelection($accreditation, 2);
+
+        // 1 already approved + 2 newly approved = quota; no requested left.
+        $this->assertSame(2, $first->approved);
+        $this->assertSame(3, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'approved')->count());
+        $this->assertSame(0, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'requested')->count());
+
+        $second = $this->allocation->approveSelection($accreditation, 2);
+
+        $this->assertSame(0, $second->approved);
+        $this->assertSame(3, Application::query()->where('accreditation_id', $accreditation->id)->where('status', 'approved')->count());
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 
