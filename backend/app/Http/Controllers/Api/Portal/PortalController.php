@@ -74,11 +74,12 @@ class PortalController extends Controller
 
         if ($request->filled('competition')) {
             $term = $this->escapeLike((string) $request->input('competition'));
-            // Portable LIKE escaping: both Postgres and SQLite support the
-            // standard `ESCAPE '\'` clause (SQLite has no default escape
-            // character). The user input stays a bound parameter — the raw
-            // part is the constant clause only.
-            $query->whereRaw("competition like ? escape '\\'", ["%{$term}%"]);
+            // Portable LIKE: `LOWER()` on both sides pins case-insensitive
+            // search (Postgres LIKE is case-sensitive, SQLite is not), and
+            // `ESCAPE '\'` keeps wildcard escaping identical on both engines
+            // (SQLite has no default escape character). The user input stays
+            // a bound parameter — the raw part is the constant clause only.
+            $query->whereRaw("LOWER(competition) like LOWER(?) escape '\\'", ["%{$term}%"]);
         }
 
         return PortalEventResource::collection(

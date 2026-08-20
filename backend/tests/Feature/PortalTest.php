@@ -234,6 +234,14 @@ class PortalTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.title', 'Pokal');
 
+        // CC-R1: case-mismatched search must still match — Postgres LIKE is
+        // case-sensitive by default, SQLite is not; LOWER() pins the portable
+        // contract on both engines.
+        $this->getJson('/api/portal/events?competition=OKAL')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.title', 'Pokal');
+
         // Literal `%` is escaped: the search only matches events containing
         // a real percent sign, never acting as a wildcard.
         $this->getJson('/api/portal/events?competition='.urlencode('%'))

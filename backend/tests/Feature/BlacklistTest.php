@@ -330,6 +330,15 @@ class BlacklistTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.note', 'Spam-Betrug');
 
+        // CC-R1: case-mismatched search must still match — Postgres LIKE is
+        // case-sensitive by default, SQLite is not; LOWER() pins the portable
+        // contract on both engines.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/blacklists?search=SPAM')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.note', 'Spam-Betrug');
+
         $this->actingAsApi($this->superAdmin())
             ->getJson('/api/admin/blacklists?search=nomatch')
             ->assertOk()

@@ -179,6 +179,15 @@ class AdminApprovalTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $approved->id);
 
+        // CC-R1: case-mismatched search must still match — Postgres LIKE is
+        // case-sensitive by default, SQLite is not; LOWER() pins the portable
+        // contract on both engines.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/applications?search=JANE')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $approved->id);
+
         $this->actingAsApi($this->superAdmin())
             ->getJson('/api/admin/applications?search=example.com')
             ->assertOk()

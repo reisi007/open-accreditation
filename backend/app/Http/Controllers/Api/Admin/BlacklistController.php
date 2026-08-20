@@ -48,9 +48,12 @@ class BlacklistController extends Controller
         if ($request->filled('search')) {
             $term = $this->escapeLike((string) $request->input('search'));
             $query->where(function (Builder $q) use ($term) {
-                $q->whereRaw("blacklists.email like ? escape '\\'", ["%{$term}%"])
-                    ->orWhereRaw("blacklists.domain like ? escape '\\'", ["%{$term}%"])
-                    ->orWhereRaw("blacklists.note like ? escape '\\'", ["%{$term}%"]);
+                // CC-R1: `LOWER()` on both sides pins case-insensitive search
+                // and keeps Postgres (LIKE is case-sensitive) in sync with
+                // SQLite (LIKE is case-insensitive by default) — portable.
+                $q->whereRaw("LOWER(blacklists.email) like LOWER(?) escape '\\'", ["%{$term}%"])
+                    ->orWhereRaw("LOWER(blacklists.domain) like LOWER(?) escape '\\'", ["%{$term}%"])
+                    ->orWhereRaw("LOWER(blacklists.note) like LOWER(?) escape '\\'", ["%{$term}%"]);
             });
         }
 

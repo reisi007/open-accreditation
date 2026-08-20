@@ -82,8 +82,11 @@ class AdminApplicationController extends Controller
         if (array_key_exists('search', $validated) && $validated['search'] !== '') {
             $term = $this->escapeLike((string) $validated['search']);
             $query->where(function (Builder $q) use ($term) {
-                $q->whereHas('user', fn (Builder $uq) => $uq->whereRaw("users.email like ? escape '\\'", ["%{$term}%"]))
-                    ->orWhereHas('user', fn (Builder $uq) => $uq->whereRaw("users.name like ? escape '\\'", ["%{$term}%"]));
+                // CC-R1: `LOWER()` on both sides pins case-insensitive search
+                // and keeps Postgres (LIKE is case-sensitive) in sync with
+                // SQLite (LIKE is case-insensitive by default) — portable.
+                $q->whereHas('user', fn (Builder $uq) => $uq->whereRaw("LOWER(users.email) like LOWER(?) escape '\\'", ["%{$term}%"]))
+                    ->orWhereHas('user', fn (Builder $uq) => $uq->whereRaw("LOWER(users.name) like LOWER(?) escape '\\'", ["%{$term}%"]));
             });
         }
 
