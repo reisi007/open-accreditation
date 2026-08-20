@@ -154,7 +154,7 @@
 - [ ] **FE-R3 · INFO · OK** — `VerifyPage.tsx:71` img-src, kein JS-Risiko.
 
 **Cross-Cutting / Infra**
-- [x] **CC-R1 · MEDIUM · DONE (committed on master)** — LIKE → `LOWER()` in `AdminApplicationController:85-86`, `PortalController:81`, `BlacklistController:51`.
+- [x] **CC-R1 · MEDIUM · DONE — korrigiert 2026-08-20** — LIKE → `LOWER()` in `AdminApplicationController:85-86`, `PortalController:81`, `BlacklistController:51`. **Früherer „DONE"-Eintrag war falsch**: kein Review-Commit hatte die 3 Controller berührt (diff `09b2949..HEAD` leer); der §5-Verifikator (F11) verwechselte die prä-existierenden `LOWER()`-Exists-Checks (BlacklistController:90/96) mit der Suche. Jetzt real umgesetzt + je Testdatei case-mismatch-Assertions (`search=SPAM`/`ALICE`/`JANE`, `competition=OKAL` — Postgres-LIKE ist case-sensitiv, SQLite nicht).
 - [x] **CC-R2 · MEDIUM · DONE (committed on master)** — DB-Credentials → env/secret (`docker-compose.yml`, `ci.yml`). Owner: `E2E_POSTGRES_PASSWORD`-Secret konfigurieren.
 - [x] **CC-R3 · LOW · DONE (committed on master)** — DB-Port auf `127.0.0.1:5432:5432` (localhost-only).
 - [x] **CC-R4 · LOW/INFO · DONE (committed on master)** — Digest/SHA-Pin-TODOs zu `:latest`-Images + GH-Actions (CI/docker-compose).
@@ -171,19 +171,22 @@
   + Stashes aufgeräumt. Keine offenen Feature-Branches mehr.
 
 ### Verification
-- Voll-Suite auf `master` grün: **Backend 683 passed**, **Frontend 124 vitest + build + lint**.
-- Formaler **separater Verifikator pro Fix (AGENTS.md §5)** steht noch aus → kann als Batch nachgeholt werden
-  (Architektur/Security-Review je Diff). Implementer-Tests + Konsolidierungs-Suite sind bereits grün.
+- Voll-Suite auf `master` grün: **Backend 689 passed (4451 assertions)**, **Frontend 124 vitest + build + lint**.
+- Formaler **separater Verifikator (AGENTS.md §5)** als Batch über die Review-Commits (`09b2949..HEAD`)
+  ausgeführt → **Verdict APPROVED** (Architektur + Security, keine critical/high-Befunde, kein Regressions-Risiko).
+  **Korrektur aus dem Lauf:** F11 („CC-R1 schon im Base vorhanden") war ein Fehlleser — CC-R1 wurde danach
+  real implementiert (siehe Finding-Liste) und die Suite erneut grün gefahren.
 
 ### Offene Entscheidungen / Owner-Action
 - **P6-B1** RESOLVED (dokumentiert): `relevantDate` = `deadline_end` (Event-Datum als Fallback) — Entscheidung in `WalletPassService.php` + `features/wallet-pkpass.md`.
 - **CC-R2**: Owner-declined — E2E DB braucht **kein** sicheres Passwort (explizite Owner-Entscheidung); auf plain `accriditation` vereinfacht, keine Secret-Config nötig.
 
-### Status — ALLE Batch-2-Items erledigt
-- Code-Fixes (FE-R2, BE-R6, BE-R7, P3c-F4) + Infra/Docs (CC-R3, CC-R4, CC-R5, P4-F5, P6-B1) committet.
-- **Voll-Suite grün:** Backend **689 passed** (4439 assertions), Frontend **124 vitest** + `lint` + `build`.
-- **Verbleibend:** Formaler separater Verifikator (AGENTS.md §5) wird als Batch über die Review-Commits
-  (`09b2949..HEAD`) ausgeführt (Architektur/Security-Review). CC-R2-Owner-Action entfällt (E2E DB kein
-  sicheres Passwort nötig, plain `accriditation`).
+### Status — ALLE Review-Findings erledigt
+- Code-Fixes (FE-R2, BE-R6, BE-R7, P3c-F4, CC-R1) + Infra/Docs (CC-R3, CC-R4, CC-R5, P4-F5, P6-B1) committet.
+- **Voll-Suite grün:** Backend **689 passed (4451 assertions)**, Frontend **124 vitest** + `lint` + `build`.
+- **§5-Verifikator abgeschlossen: APPROVED** (Batch über `09b2949..HEAD`, Architektur + Security, keine
+  critical/high-Befunde). Einziges Korrektiv aus dem Lauf: CC-R1 war faktisch nicht umgesetzt → nachgeliefert
+  + Regressionstests ergänzt.
+- CC-R2-Owner-Action entfällt (E2E DB kein sicheres Passwort nötig, plain `accriditation`).
 - `AGENTS.todo.md` bereinigt; Befunde ggf. → `features/`/`Security Risk Register`.
 - **Gepusht** an `origin/master` (alle lokalen Commits).
