@@ -19,8 +19,12 @@ msgstr ""
 #~ msgstr "{0} Felder"
 
 #: src/logic/accreditationLabels.ts
-msgid "{available} Plätze frei"
-msgstr "{available} Plätze frei"
+msgid "{available, plural, one {# Platz frei} other {# Plätze frei}}"
+msgstr "{available, plural, one {# Platz frei} other {# Plätze frei}}"
+
+#: src/logic/accreditationLabels.ts
+#~ msgid "{available} Plätze frei"
+#~ msgstr "{available} Plätze frei"
 
 #: src/pages/admin/ApprovalsPage.tsx
 #~ msgid "{count, plural, one {# Antrag} other {# Anträge}}"
@@ -954,8 +958,12 @@ msgid "Neues Template"
 msgstr "Neues Template"
 
 #: src/logic/accreditationLabels.ts
-msgid "Noch {available} frei"
-msgstr "Noch {available} frei"
+msgid "Noch {available, plural, one {# Platz frei} other {# Plätze frei}}"
+msgstr "Noch {available, plural, one {# Platz frei} other {# Plätze frei}}"
+
+#: src/logic/accreditationLabels.ts
+#~ msgid "Noch {available} frei"
+#~ msgstr "Noch {available} frei"
 
 #: src/components/DeadlineCountdown.tsx
 msgid "Noch {count} {noun}"
