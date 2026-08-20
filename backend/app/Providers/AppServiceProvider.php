@@ -68,7 +68,7 @@ class AppServiceProvider extends ServiceProvider
         // threat — quota is not enforced at apply time), falling back to per-ip
         // for unauthenticated requests.
         RateLimiter::for('apply', static fn (Request $request): Limit => Limit::perMinute(30)
-            ->by('apply:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+            ->by('apply:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
 
         // P3e-B1: named limiters for the remaining public/anonymous inline
         // throttles. Inline `throttle:20,1` / `throttle:60,1` all resolve to a
