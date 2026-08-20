@@ -33,7 +33,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
 
       - name: Extract build args from repository
         id: versions
@@ -48,17 +48,17 @@ jobs:
           echo "pnpm_version=${PNPM_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v4  # major tag pin — SHA-pinning is a stronger, immutable option
 
       - name: Build and Push accriditation-e2e Image (amd64)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           context: deployment
           file: deployment/Dockerfile.e2e
@@ -69,6 +69,9 @@ jobs:
             PNPM_VERSION=${{ steps.versions.outputs.pnpm_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # `:latest` is the mutable CI reference (consumed by ci.yml `e2e` job).
+          # The immutable counterpart below pins the exact @playwright/test
+          # version from the lockfile for reproducible, rollback-safe runs.
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:${{ steps.versions.outputs.playwright_version }}

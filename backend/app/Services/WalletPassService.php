@@ -546,6 +546,11 @@ final class WalletPassService
             $eventDate = $accreditation?->event?->date;
             $deadline = $subAccreditation?->deadline_end;
             $date = $eventDate ?? $deadline;
+            // P6-B1 (USER-DECISION, documented in features/wallet-pkpass.md):
+            // `relevantDate` = close of the accreditation validity window
+            // (`deadline_end`). The locked-screen relevance is the moment the
+            // pass/badge stops being valid. The event date is the fallback when
+            // no deadline is set. Do NOT invert these two operands.
             $relevantDate = $deadline ?? $eventDate;
             $typeLabel = $type === 'seat' ? 'Sitzkarte' : 'Parkkarte';
             $description = $typeLabel.($category !== '' ? ' '.$category : '');
@@ -559,6 +564,11 @@ final class WalletPassService
             $eventDate = $accreditation?->event?->date;
             $deadline = $accreditation?->deadline_end;
             $date = $eventDate ?? $deadline;
+            // P6-B1 (USER-DECISION, documented in features/wallet-pkpass.md):
+            // `relevantDate` = close of the accreditation validity window
+            // (`deadline_end`). The locked-screen relevance is the moment the
+            // pass/badge stops being valid. The event date is the fallback when
+            // no deadline is set. Do NOT invert these two operands.
             $relevantDate = $deadline ?? $eventDate;
             $typeLabel = $this->statusLabel((string) $subject->status);
             $description = 'Akkreditierung'.($category !== '' ? ' '.$category : '');

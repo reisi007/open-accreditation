@@ -14,7 +14,9 @@ services:
       # Fallback keeps local `docker compose up` working without setup.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-accriditation}
     ports:
-      - "5432:5432"
+      # CC-R3: bind the Postgres port to localhost only, so the DB is reachable
+      # from the local machine but NOT exposed on the broader host network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +28,9 @@ services:
       - accriditation_internal
 
   mailpit:
+    # CC-R4: `:latest` is a floating tag. No reproducible version is pinned in
+    # this repo — pin to an immutable digest for reproducible CI/dev:
+    # TODO: pin to an immutable digest (e.g. axllent/mailpit@sha256:…) for reproducible CI
     image: axllent/mailpit:latest
     container_name: accriditation_mailpit
     restart: unless-stopped

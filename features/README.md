@@ -14,6 +14,8 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 | `02-domain-model.md` | Entity-Übersicht: P1-Tabellen (mandants, users, roles, user_media) + P2/P3-Ausblick |
 | `03-caddy-brand-files.md` | Statische Brand-/Logo-Dateien im React-Projekt (Fallback), Caddy per-Mandant Datei-Overrides (SOLL) |
 | `05-e2e-test-image.md` | **E2E-Test-Image `accriditation-e2e`:** accriditation-base + Node/pnpm/Composer + Playwright-Chromium vorinstalliert; CI-E2E läuft komplett im Container |
+| `badges-qr.md` | **Badges, QR & Export (P4):** BadgeTemplate-Modell + Feld-Editor, A6-Rendering, QR-Code (unten rechts, Überlappungs-Limitation), PDF-/CSV-Export inkl. Formula-Injection-Schutz |
+| `wallet-pkpass.md` | **Wallet / PKPASS (P6):** Apple/Google Wallet-Passes, Pass-Struktur, Verify-URL, `relevantDate`-Semantik (P6-B1: `deadline_end`) |
 | `accreditation/01-allocation-engine.md` | Allocation-Engine (P3c): deterministische Freigabe (VIP → FCFS), Quota, Blacklist, manuell + automatisch |
 | `auth/01-auth-and-roles.md` | Auth-Flow (Registrierung → Aktivierung → Login-Cookie → Logout → `/me`), Rollen-Matrix, Profil/Media-Vertrag |
 
@@ -28,9 +30,7 @@ jeweiligen Feature-Dateien dokumentiert und laufen als P2/P7-Items.
 ## Weitere folgen
 
 - Sub-Akkreditierungen (Park-/Sitzkarten) als Erweiterung der Allocation-Engine
-- Ausweis & Badge-Templates (PDF, QR, CSV/Excel)
 - E-Mail-Workflow (Mailables, SMTP je Mandant)
-- Wallets (PKPASS, Apple/Google Wallet)
 
 ## Struktur-Referenz
 
