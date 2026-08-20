@@ -61,7 +61,7 @@ export function DeadlineCountdown({ deadline }: DeadlineCountdownProps) {
         const badgeClass = count <= 7 ? 'badge-warning' : 'badge-info';
         return (
             <span className={`badge badge-sm ${badgeClass}`}>
-                {i18n._({ ...msg`Noch {count, plural, one {Tag} other {Tage}}`, values: { count } })}
+                {i18n._({ ...msg`Noch {count, plural, one {# Tag} other {# Tage}}`, values: { count } })}
             </span>
         );
     }
@@ -69,7 +69,7 @@ export function DeadlineCountdown({ deadline }: DeadlineCountdownProps) {
     const count = state.hours ?? 0;
     return (
         <span className="badge badge-sm badge-warning">
-            {i18n._({ ...msg`Noch {count, plural, one {Stunde} other {Stunden}}`, values: { count } })}
+            {i18n._({ ...msg`Noch {count, plural, one {# Stunde} other {# Stunden}}`, values: { count } })}
         </span>
     );
 }

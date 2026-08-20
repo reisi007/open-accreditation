@@ -190,3 +190,18 @@
 - CC-R2-Owner-Action entfällt (E2E DB kein sicheres Passwort nötig, plain `accriditation`).
 - `AGENTS.todo.md` bereinigt; Befunde ggf. → `features/`/`Security Risk Register`.
 - **Gepusht** an `origin/master` (alle lokalen Commits).
+
+### CI-Folge-Befund (2026-08-20): FE-R2-Regression im E2E-Smoke — GEFIXT
+- **Symptom:** CI-E2E-Smoke rot in 3 Runs (`portal.spec.ts:57` erwartet `/Noch \d+ Tage/`).
+- **Ursache (Root-Cause via Playwright-Snapshot `text: Noch Tage E2E Heimverein …`):**
+  FE-R2-ICU-Messages in `DeadlineCountdown.tsx` hatten **kein `#`** in den Plural-Zweigen
+  (`one {Tag}` statt `one {# Tag}`) → Countdown rendert „Noch Tage" **ohne Zahl**.
+  FE-R1 war korrekt (`{# Platz frei}`); `check-i18n`/vitest sind blind für fehlendes `#`
+  (prüfen nur PO↔JS-Sync, nicht ICU-Inhalt) → Lücke, die nur E2E/Live-Auge zeigt.
+- **Fix:** `#` in beide Messages (`# Tag`/`# Tage`, `# Stunde`/`# Stunden`),
+  `lingui:extract` + EN-msgstr nachgezogen + `lingui:compile`.
+- **Regressionstest:** `portal.spec.ts:57` (war 3× rot, nach Fix grün — CI verifiziert).
+  Zusätzlich geprüft: keine weitere Plural-Message ohne `#` im Source.
+- **Nebenwirkung:** GC von obsoleten Katalogeinträgen bewusst NICHT durchgeführt
+  (`extract --clean`), da dies der bestehende Repo-Standard ist (alte Keys bleiben im
+  kompilierten JS als Restbestand — unschädlich).

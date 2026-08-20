@@ -970,12 +970,20 @@ msgstr "{available, plural, one {# slot left} other {# slots left}}"
 #~ msgstr "Still {available} free"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Noch {count, plural, one {Stunde} other {Stunden}}"
+msgid "Noch {count, plural, one {# Stunde} other {# Stunden}}"
 msgstr "Only {count, plural, one {# hour} other {# hours}} left"
 
 #: src/components/DeadlineCountdown.tsx
-msgid "Noch {count, plural, one {Tag} other {Tage}}"
+msgid "Noch {count, plural, one {# Tag} other {# Tage}}"
 msgstr "Only {count, plural, one {# day} other {# days}} left"
+
+#: src/components/DeadlineCountdown.tsx
+#~ msgid "Noch {count, plural, one {Stunde} other {Stunden}}"
+#~ msgstr "Only {count, plural, one {# hour} other {# hours}} left"
+
+#: src/components/DeadlineCountdown.tsx
+#~ msgid "Noch {count, plural, one {Tag} other {Tage}}"
+#~ msgstr "Only {count, plural, one {# day} other {# days}} left"
 
 #: src/components/DeadlineCountdown.tsx
 #~ msgid "Noch {count} {noun}"
