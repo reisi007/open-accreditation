@@ -122,3 +122,70 @@
 - [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
 - [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)
 - [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)
+
+---
+
+## 🔍 Whole-Repo Code Review — 2026-08-20 (STATUS)
+
+> **Methode:** 3 Review-Subagenten (Backend / Frontend / Cross-Cutting) + Backend-Tests (678 grün) +
+> Frontend (lint/build/124 vitest grün). **User-Regel:** „akzeptiert/info" ≠ akzeptiert → separat re-assessed.
+> Fixes delegiert (parallel, unabhängig von Severity). Build-Agent orchestriert nur (AGENTS.md §5).
+> **Hinweis:** Diese Sektion wurde durch den Tree-Churn (Branch-Switches/Resets der Parallel-Agenten)
+> einmal verworfen → jetzt auf Branch `chore/review-todo` geschützt.
+
+### Gesundheit
+- Backend `php artisan test`: Review-Start **678 grün**. **AKTUELL ~64 rot (transient)** — BE-R2
+  (globaler Tenant-Scope) ist mid-Refactor; `Event.php` fehlt `use App\Support\MandantContext;`
+  → `Class "App\Models\MandantContext" not found`. Wird von BE-R2 behoben (sonst Cleanup).
+- Frontend `lint:fix`/`build`/124 vitest: grün (Review-Start). FE-R1 (Pluralisierung) noch offen.
+
+### Findings (neu) — Status
+**Backend**
+- [ ] **BE-R1 · MEDIUM · USER-DECISION** — `AuthController::register` globale `email`-Unique vs Per-Mandant (`AuthController.php:39`). Entscheidung ausstehend.
+- [ ] **BE-R2 · MEDIUM · IN FLIGHT (be-r2)** — globaler `forCurrentMandant()`-Safety-Net + Route-Binding-Resolver (`Support/MandantContext.php`, `Models/*`).
+- [x] **BE-R3 · LOW · DONE (be-r3, isoliert)** — `updateRoles` Mandant-Mitgliedschafts-Guard + 2 Tests (680 tests grün).
+- [x] **BE-R4 · LOW · DONE (be-r4)** — UserController-Suche `escapeLike()` — Branch ⚠️ kontaminiert (trägt CC-R1-Controller), im Cleanup splitten.
+- [x] **BE-R5 · LOW · DONE (be-r5, sauber)** — apply-Rate-Limiter `user('api')` (AppServiceProvider.php:71).
+- [ ] **BE-R6 · LOW/INFO · PENDING (Batch 2)** — JWT-Cookie `SameSite=Lax` (Controller.php:28).
+- [ ] **BE-R7 · INFO/LOW · PENDING (Batch 2)** — negativer Host-Cache bei Domain-Anlage (MandantContext.php:154).
+- [ ] **BE-R8 · INFO · DOKUMENTIEREN** — VIP/denied nicht durch Bulk-Run reanimierbar (design limitation).
+
+**Frontend**
+- [ ] **FE-R1 · MEDIUM · REDO NÖTIG (fe-r1 leer, Datei unverändert)** — Pluralisierung `accreditationLabels.ts:31,48` → ICU (`i18n._(t\`{available, plural, …}\`)`) + DE/EN-Kataloge.
+- [ ] **FE-R2 · LOW · PENDING (Batch 2 = P3a-F1)** — Interpolation `DeadlineCountdown.tsx:65,75`, `UsersPage.tsx:120` → ICU.
+- [ ] **FE-R3 · INFO · OK** — `VerifyPage.tsx:71` img-src, kein JS-Risiko.
+
+**Cross-Cutting / Infra**
+- [x] **CC-R1 · MEDIUM · DONE (Inhalt in be-r4; cc-r1 leer)** — LIKE → `LOWER()` in `AdminApplicationController:85-86`, `PortalController:81`, `BlacklistController:51`.
+- [x] **CC-R2 · MEDIUM · DONE (cc-r2, sauber, validiert)** — DB-Credentials → env/secret (`docker-compose.yml`, `ci.yml`). Owner: `E2E_POSTGRES_PASSWORD`-Secret konfigurieren.
+- [ ] **CC-R3 · LOW · PENDING** — DB-Port `5432:5432` Host-Exposure (compose).
+- [ ] **CC-R4 · LOW/INFO · PENDING** — Floating Image-Tags / mutable GH-Action-Pins.
+- [ ] **CC-R5 · LOW/INFO · PENDING** — `.env.example` `APP_DEBUG=true`, kein Prod-Manifest.
+
+### Re-Assessment der „akzeptiert/info"-Follow-ups (Subagent, read-only)
+- **FIX (3):** `P3a-F1` (→ FE-R2), `P3c-F4` (Allocation-**Test**-Lücken: VIP+Blacklist-Precedence, case-insensitive, approveAll+mind.-approved, exact-fit quota), `P4-F5` (`features/`-SOLL-Docs Badge/QR/PDF + Wallet/PKPASS).
+- **USER-DECISION (1):** `P6-B1` (`relevantDate` Event-Datum vs `deadline_end`, WalletPassService.php:549,562).
+- **LEAVE (15), davon STALE/zu schließen (4):** `F7`, `P3e-B5`, `B3`, `P3a-F2` (bereits implementiert/mitigiert).
+  Rest defensibel: `P3e-B3`, `P3e-B4`, `P3b-F2`, `P2b-F5`, `P2c-F4`, `P1c`, `P4-F4`, `P5-F3`, `P5-F4`, `P6-B2`, `Vite-Proxy`.
+
+### Branch-Status (git, nach Churn)
+- ✅ sauber: `fix/be-r5`, `fix/cc-r2`, `fix/be-r3` (isoliert)
+- ⚠️ kontaminiert: `fix/be-r4` (trägt CC-R1-Controller) → Cleanup splittet
+- ⚠️ leer: `fix/cc-r1` (Inhalt in be-r4), `fix/fe-r1` (FE-R1 nicht persistiert → REDO)
+- ⏳ IN FLIGHT: `fix/be-r2` (Model-Refactor, transient rot)
+
+### Verification
+- Implementer liefen Tests selbst (green in Scope), ABER: Branches kontaminiert + Suite transient rot
+  → **separater Verifikator pro Fix (AGENTS.md §5) STEHT AUS.** Cleanup: Branch-Reconstruction
+  (nur Ziel-Dateien von Base) + per-Branch-Tests + Architektur/Security-Review, dann Merge.
+
+### Offene Entscheidungen / Owner-Action
+- **P6-B1** USER-DECISION: `relevantDate` Event-Datum vs `deadline_end`.
+- **CC-R2**: GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (aktuell Fallback `accriditation`).
+
+### Nächste Schritte (Cleanup, nach BE-R2)
+1. BE-R2 fertig → ggf. `Event.php` `use App\Support\MandantContext;` fixen (Subagent).
+2. **FE-R1 REDO** (frischer Subagent: explizite Pfade, KEIN `git add -A`, nur Frontend, andere uncommitted Changes preserven).
+3. Jeden `fix/<id>` sauber von Base rekonstruieren; `UserController.php` = BE-R4+BE-R3 mergen.
+4. Per Branch `php artisan test` / `pnpm` + separater Verifikator (§5).
+5. Merge → master; `AGENTS.todo.md` bereinigen (erledigte TODOs entfernen, Befunde → `features/`/`Security Risk Register`).

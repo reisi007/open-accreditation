@@ -82,6 +82,7 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
      Verifikator ist NIE der Implementer desselben Tasks.
   5. Bei visuellen Prüfungen (Layout, Screenshots, Bilder, Screenshots-Analyse) den **`vision`-Subagenten**
      nutzen.
+  - **Operational Discipline (bewährt):** (a) Konsolidierung grundsätzlich auf dem **main**-Branch — KEINE per-Task `fix/*`-Branches (verursachten Branch-Churn: Commits auf falschen Branches, Cross-Kontamination der Fixes, verlorene `AGENTS.todo.md`-Edits, ungewollte Stashes). (b) Parallelität auf **max. 2 Subagenten** begrenzen und nur bei disjunkten Ziel-Dateien; sonst sequenziell. (c) In einem geteilten Working-Tree dürfen Subagenten **nie `git add -A`** verwenden — immer explizite Pfade (`git add <datei1> <datei2>`), sonst werden fremde in-flight-Änderungen in den Commit gezogen. (d) Nach Fertigstellung: auf main mergen/cherry-picken, Tests verifizieren, Scratch-Branches + Stashes aufräumen.
 - **Implementer (Subagent):** läuft in frischem, isoliertem Kontext; erhält präzise Anweisungen +
   Ziel-Dateien; setzt um und erzeugt Tests.
 - **Verifikator (Subagent):** separat vom Implementer; führt Tests/Lint/Build aus und prüft den Diff. Die Verifikation umfasst ZUSÄTZLICH:
