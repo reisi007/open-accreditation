@@ -26,7 +26,7 @@
         "check:i18n": "node scripts/check-i18n.mjs"
     },
     "dependencies": {
-        "@hookform/resolvers": "^5.4.0",
+        "@hookform/resolvers": "^5.9.1",
         "@lingui/babel-plugin-lingui-macro": "^6.6.0",
         "@lingui/core": "^6.6.0",
         "@lingui/react": "^6.6.0",
@@ -42,7 +42,7 @@
     "devDependencies": {
         "@babel/core": "^8.0.1",
         "@eslint/js": "^10.0.1",
-        "@iconify-json/material-symbols": "^1.2.82",
+        "@iconify-json/material-symbols": "^1.2.89",
         "@iconify-json/mdi": "^1.2.3",
         "@iconify/tailwind4": "^1.2.3",
         "@lingui/cli": "^6.6.0",
@@ -61,7 +61,7 @@
         "@vitejs/plugin-react": "^6.0.3",
         "@vitest/coverage-v8": "^4.1.9",
         "babel-plugin-react-compiler": "^1.0.0",
-        "daisyui": "^5.6.13",
+        "daisyui": "^5.7.17",
         "eslint": "^10.6.0",
         "eslint-plugin-lingui": "^0.14.0",
         "eslint-plugin-react-hooks": "^7.1.1",
