@@ -102,6 +102,17 @@ class MandantContext
     }
 
     /**
+     * Whether a mandant is currently resolved/set (host-derived via the
+     * middleware, or manually in tests/CLI). Used to guard tenant-isolation
+     * safety nets so they stay inert for seeders, console commands and tests
+     * that run without a resolved mandant.
+     */
+    public static function hasCurrent(): bool
+    {
+        return self::current() !== null;
+    }
+
+    /**
      * The primary mandant (`is_primary = true`), falling back to the optional
      * `mandants.fallback_mandant` slug when no primary exists. Not cached —
      * it is a rare call and always returns a fresh row.
