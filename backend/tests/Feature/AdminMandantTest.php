@@ -369,6 +369,24 @@ class AdminMandantTest extends TestCase
         ]);
     }
 
+    public function test_adding_domain_clears_negative_host_cache(): void
+    {
+        // A previous failed lookup caches a MISSING sentinel for this host.
+        $this->assertNull(MandantContext::resolve('frisch.domain.test'));
+        $this->assertTrue(Cache::has('mandant.domain.frisch.domain.test'));
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/domains', [
+                'hostname' => 'frisch.domain.test',
+            ])
+            ->assertStatus(201);
+
+        // The negative cache entry must be dropped so the new domain resolves.
+        $this->assertFalse(Cache::has('mandant.domain.frisch.domain.test'));
+        $this->assertNotNull(MandantContext::resolve('frisch.domain.test'));
+        $this->assertSame($this->mandantA->id, MandantContext::resolve('frisch.domain.test')->id);
+    }
+
     public static function invalidHostnameProvider(): array
     {
         return [

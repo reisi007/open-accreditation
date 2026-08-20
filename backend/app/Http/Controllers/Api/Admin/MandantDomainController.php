@@ -48,6 +48,11 @@ class MandantDomainController extends Controller
             'hostname' => strtolower($validated['hostname']),
         ]);
 
+        // Drop any cached MISSING sentinel for this host so the freshly added
+        // domain is resolvable immediately instead of returning the negative
+        // cache entry for NEGATIVE_CACHE_TTL_SECONDS.
+        MandantContext::forgetHost($domain->hostname);
+
         return (new MandantDomainResource($domain))
             ->response()
             ->setStatusCode(201);
