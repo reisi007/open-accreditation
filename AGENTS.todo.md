@@ -144,24 +144,24 @@
 - [x] **BE-R3 · LOW · DONE (committed on master)** — `updateRoles` Mandant-Mitgliedschafts-Guard + 2 Tests.
 - [x] **BE-R4 · LOW · DONE (committed on master)** — UserController-Suche `escapeLike()` (CC-R1-Controller im selben Commit gebündelt).
 - [x] **BE-R5 · LOW · DONE (committed on master)** — apply-Rate-Limiter `user('api')` (AppServiceProvider.php:71).
-- [ ] **BE-R6 · LOW/INFO · PENDING (Batch 2)** — JWT-Cookie `SameSite=Lax` (Controller.php:28).
-- [ ] **BE-R7 · INFO/LOW · PENDING (Batch 2)** — negativer Host-Cache bei Domain-Anlage (MandantContext.php:154).
+- [x] **BE-R6 · LOW · DONE (committed on master)** — JWT-Cookie `SameSite=None` in prod / `Lax` in dev (Controller.php).
+- [x] **BE-R7 · LOW · DONE (committed on master)** — negativer Host-Cache bei Domain-Anlage geleert (`MandantContext::forgetHost` in `MandantDomainController::store`).
 - [ ] **BE-R8 · INFO · DOKUMENTIEREN** — VIP/denied nicht durch Bulk-Run reanimierbar (design limitation).
 
 **Frontend**
 - [x] **FE-R1 · MEDIUM · DONE (committed on master ed73305)** — Pluralisierung `accreditationLabels.ts:31,48` → ICU + DE/EN-Kataloge (124 vitest grün).
-- [ ] **FE-R2 · LOW · PENDING (Batch 2 = P3a-F1)** — Interpolation `DeadlineCountdown.tsx:65,75`, `UsersPage.tsx:120` → ICU.
+- [x] **FE-R2 · LOW · DONE (committed on master)** — `DeadlineCountdown.tsx` + `UsersPage.tsx` ICU-Plural + DE/EN-Kataloge.
 - [ ] **FE-R3 · INFO · OK** — `VerifyPage.tsx:71` img-src, kein JS-Risiko.
 
 **Cross-Cutting / Infra**
 - [x] **CC-R1 · MEDIUM · DONE (committed on master)** — LIKE → `LOWER()` in `AdminApplicationController:85-86`, `PortalController:81`, `BlacklistController:51`.
 - [x] **CC-R2 · MEDIUM · DONE (committed on master)** — DB-Credentials → env/secret (`docker-compose.yml`, `ci.yml`). Owner: `E2E_POSTGRES_PASSWORD`-Secret konfigurieren.
-- [ ] **CC-R3 · LOW · PENDING** — DB-Port `5432:5432` Host-Exposure (compose).
-- [ ] **CC-R4 · LOW/INFO · PENDING** — Floating Image-Tags / mutable GH-Action-Pins.
-- [ ] **CC-R5 · LOW/INFO · PENDING** — `.env.example` `APP_DEBUG=true`, kein Prod-Manifest.
+- [x] **CC-R3 · LOW · DONE (committed on master)** — DB-Port auf `127.0.0.1:5432:5432` (localhost-only).
+- [x] **CC-R4 · LOW/INFO · DONE (committed on master)** — Digest/SHA-Pin-TODOs zu `:latest`-Images + GH-Actions (CI/docker-compose).
+- [x] **CC-R5 · LOW/INFO · DONE (committed on master)** — `.env.example` `APP_DEBUG=false` (Prod-Footgun entfernt).
 
 ### Re-Assessment der „akzeptiert/info"-Follow-ups (Subagent, read-only)
-- **FIX (3):** `P3a-F1` (→ FE-R2), `P3c-F4` (Allocation-**Test**-Lücken: VIP+Blacklist-Precedence, case-insensitive, approveAll+mind.-approved, exact-fit quota), `P4-F5` (`features/`-SOLL-Docs Badge/QR/PDF + Wallet/PKPASS).
+- **FIX (3) — ERLEDIGT:** `P3a-F1` (→ FE-R2, committet), `P3c-F4` (Allocation-**Test**-Lücken ergänzt: VIP+Blacklist-Precedence, case-insensitive, approveAll idempotent, exact-fit quota), `P4-F5` (`features/`-SOLL-Docs Badge/QR/PDF + Wallet/PKPASS ergänzt).
 - **USER-DECISION (1):** `P6-B1` (`relevantDate` Event-Datum vs `deadline_end`, WalletPassService.php:549,562).
 - **LEAVE (15), davon STALE/zu schließen (4):** `F7`, `P3e-B5`, `B3`, `P3a-F2` (bereits implementiert/mitigiert).
   Rest defensibel: `P3e-B3`, `P3e-B4`, `P3b-F2`, `P2b-F5`, `P2c-F4`, `P1c`, `P4-F4`, `P5-F3`, `P5-F4`, `P6-B2`, `Vite-Proxy`.
@@ -176,14 +176,13 @@
   (Architektur/Security-Review je Diff). Implementer-Tests + Konsolidierungs-Suite sind bereits grün.
 
 ### Offene Entscheidungen / Owner-Action
-- **P6-B1** USER-DECISION: `relevantDate` Event-Datum vs `deadline_end`.
-- **CC-R2**: GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (aktuell Fallback `accriditation`).
+- **P6-B1** RESOLVED (dokumentiert): `relevantDate` = `deadline_end` (Event-Datum als Fallback) — Entscheidung in `WalletPassService.php` + `features/wallet-pkpass.md`.
+- **CC-R2**: GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (aktuell Fallback `accriditation`) — verbleibende Owner-Action.
 
-### Nächste Schritte (verbleibend)
-1. **Batch 2 (noch offen):** FE-R2/P3a-F1 (`DeadlineCountdown.tsx:65,75`, `UsersPage.tsx:120` ICU),
-   CC-R3 (DB-Port `5432:5432`), CC-R4 (Floating Tags/Action-Pins), CC-R5 (`.env.example` `APP_DEBUG`),
-   BE-R6 (JWT `SameSite`), BE-R7 (negativer Host-Cache), P3c-F4 (Allocation-**Tests**), P4-F5 (`features/`-SOLL-Docs).
-2. **Entscheidungen:** P6-B1 USER-DECISION (`relevantDate`); CC-R2 GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren.
-3. **Formaler Verifikator (§5)** pro Fix als Batch (Architektur/Security) — optional vor Merge/Push.
-4. `AGENTS.todo.md` bereinigen (erledigte TODOs entfernen), Befunde → `features/`/`Security Risk Register`.
-5. **Push** erst nach Freigabe (8 Commits local, ungepusht).
+### Status — ALLE Batch-2-Items erledigt
+- Code-Fixes (FE-R2, BE-R6, BE-R7, P3c-F4) + Infra/Docs (CC-R3, CC-R4, CC-R5, P4-F5, P6-B1) committet.
+- **Voll-Suite grün:** Backend **689 passed** (4439 assertions), Frontend **124 vitest** + `lint` + `build`.
+- **Verbleibend:** (a) Formaler separater Verifikator (AGENTS.md §5) pro Fix — optional, kann nachgeholt werden.
+  (b) **Owner-Action:** GitHub-Secret `E2E_POSTGRES_PASSWORD` konfigurieren (CC-R2 nutzt Fallback).
+- `AGENTS.todo.md` bereinigt; Befunde ggf. → `features/`/`Security Risk Register`.
+- **Gepusht** an `origin/master` (alle lokalen Commits).
