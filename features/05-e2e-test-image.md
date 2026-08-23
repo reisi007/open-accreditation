@@ -43,7 +43,7 @@ wäre dann konstant 24s+ pro Run, Image-Pull bleibt konstant ~22s).
    - Playwright-Chromium inkl. apt-Deps (`PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`,
      Version == `@playwright/test` via Build-Arg)
 2. **`.github/workflows/e2e-image.yml`** — Rebuild-Trigger:
-   - Push auf master: `deployment/Dockerfile.e2e`, Workflow selbst, `frontend/pnpm-lock.yaml`
+   - Push auf main: `deployment/Dockerfile.e2e`, Workflow selbst, `frontend/pnpm-lock.yaml`
      (Dependabot-Playwright-Bumps → Browser müssen im Image nachziehen)
    - Weekly (Mo 02:00 UTC) als Frische-Untergrenze (analog zur daily 01:00 UTC
      für `accriditation-base` in `base-image.yml`)

@@ -13,7 +13,7 @@ name: Build and Push accriditation-e2e Image
 #   * workflow_dispatch manuell
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
     paths:
       - 'deployment/Dockerfile.e2e'
       - '.github/workflows/e2e-image.yml'
