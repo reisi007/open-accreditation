@@ -205,3 +205,14 @@
 - **Nebenwirkung:** GC von obsoleten Katalogeinträgen bewusst NICHT durchgeführt
   (`extract --clean`), da dies der bestehende Repo-Standard ist (alte Keys bleiben im
   kompilierten JS als Restbestand — unschädlich).
+
+## 📦 Dependency-Update — 2026-08-23
+
+Durchgeführt (Branch `chore/deps-2026-08-23`, via PR gemergt):
+- **Frontend (pnpm):** `packageManager` pnpm@11.21.0 → pnpm@11.23.0; MAJOR `@testing-library/jest-dom` 6.9.1→7.0.1 und `jsdom` 29.1.1→30.0.1; Minor/Patch (daisyui, eslint, vite, vitest, @vitejs/plugin-react, @hookform/resolvers, react-hook-form, dompurify, @iconify-json/material-symbols, @testing-library/user-event, @vitest/coverage-v8).
+- **Backend (composer):** `php` ^8.4 → ^8.5; MAJOR `phpunit/phpunit` 11→13.3.1; `laravel/framework` 13.26.1 + Minor/Patch.
+
+Verzögert / blockiert (nicht Teil dieses PRs):
+- **typescript 6→7:** Repo bereits auf TS 6 (^6.0.3). 7.x nur migrieren, sobald Framework/Peer-Tooling es unterstützt — aktuell zu frisch.
+- `guzzlehttp/guzzle` 7→8: blockiert durch direkten Dep `http-interop/http-factory-guzzle` (nur psr7 ^1.7||^2.0, keine 3.0-fähige Version).
+- `brick/math` 0.18→0.19: gedeckelt durch `ramsey/uuid` (<=0.18).
