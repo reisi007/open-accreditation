@@ -33,7 +33,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v5  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
 
       - name: Extract build args from repository
         id: versions

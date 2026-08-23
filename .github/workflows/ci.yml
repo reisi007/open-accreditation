@@ -32,7 +32,7 @@ jobs:
           - 1025:1025
           - 8025:8025
     steps:
-      - uses: actions/checkout@v5  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
       - name: Setup PHP
         uses: shivammathur/setup-php@v2  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
@@ -59,12 +59,12 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
       - name: Setup pnpm
         uses: pnpm/action-setup@v6  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           package_json_file: frontend/package.json
-      - uses: actions/setup-node@v5  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
+      - uses: actions/setup-node@v7  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
         with:
           node-version: 26
           cache: pnpm
@@ -129,7 +129,7 @@ jobs:
           - 1025:1025
           - 8025:8025
     steps:
-      - uses: actions/checkout@v5  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
       - name: Install backend dependencies
         working-directory: backend
         # Composer ist im Image (COPY --from=composer:2); PHP aus dem Test-Image
@@ -176,7 +176,7 @@ jobs:
         uses: pnpm/action-setup@v6  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           package_json_file: frontend/package.json
-      - uses: actions/setup-node@v5  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
+      - uses: actions/setup-node@v7  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
         with:
           node-version: 26
           cache: pnpm
