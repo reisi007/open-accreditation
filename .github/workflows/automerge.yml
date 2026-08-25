@@ -64,9 +64,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 60
-          # E2E-Job dauert mehrere Minuten - Timeout großzügig (Sekunden)
-          timeout: 2400
-          allowed-conclusions: success
+          # Der eigene Job registriert einen Check mit Job-Namen - ohne
+          # Exclusion wartet die Action auf sich selbst (Deadlock).
+          running-workflow-name: automerge
+          # Pfad-gefilterte Duplicate-Runs (push + pull_request) enden
+          # legitim auf "skipped" und duerfen nicht blockieren.
+          allowed-conclusions: success,skipped
 
       - name: Merge Dependabot PR
         if: steps.should-merge.outputs.merge == 'true'
