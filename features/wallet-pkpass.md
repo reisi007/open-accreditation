@@ -30,6 +30,104 @@ kontrolliert (siehe `config/wallet.php`):
   erzeugt — das Format, das die Google-Wallet-API verlangt. Der JWK wird via
   `jwkToPem()` in einen PKCS#1-PEM-Private-Key gewandelt.
 
+## Google Wallet Issuer Setup (Owner-Checkliste)
+
+> **Status:** Externer Owner-Schritt (P6-B2, USER-DECISION: JETZT einleiten).
+> Die Code-Seite ist fertig — bis die Credentials unten vorliegen, bleibt
+> alles im kontrollierten Degradations-/Preview-Modus (siehe oben).
+
+### Was der Code heute tut (gegen den Code verifiziert)
+
+- **Config-Keys** (`config/wallet.php`):
+  - `wallet.google.issuer_id` ← `GOOGLE_ISSUER_ID`
+  - `wallet.google.service_account_email` ← `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+  - `wallet.google.service_account_key` ← `GOOGLE_SERVICE_ACCOUNT_KEY`
+  - `wallet.google.class_id` ← `GOOGLE_CLASS_ID` (Default `accriditation`)
+- **Build-Pfad** (`WalletPassService::buildGooglePass()`): Das
+  `EventTicketObject` wird immer gebaut; die Antwort hängt von den
+  Service-Account-Credentials ab:
+  - **Ohne** Service-Account (E-Mail *oder* Key fehlt): rohes
+    `EventTicketObject`-JSON als Antwort (**Preview** — strukturell valide,
+    aber nicht in eine Wallet installierbar).
+  - **Mit** E-Mail + Key: **lokal signierter RS256-JWT** (`typ: savetowallet`,
+    `aud: google`, Payload `eventTicketObjects`) — das Format, das die Google
+    Wallet API erwartet. Es findet **niemals** ein API-Call zu Google statt;
+    der Service erzeugt/signiert nur und liefert das Ergebnis an den Endpoint
+    zurück.
+- **Einbau der Issuer-ID:** `$classId = "{issuerId}.{classId}"`,
+  `id = "{classId}.{serial}"`.
+  **Verifizierte Aussage:** Ohne `GOOGLE_ISSUER_ID` wird der Issuer-Teil zum
+  Leerstring → `classId = ".accriditation"`,
+  `id = ".accriditation.main-{applicationId}"` (leerer Präfix mit führendem
+  Punkt). Präzise gilt also: Der **Preview-Modus** hängt an den
+  **Service-Account-Credentials**, der **leere id-Präfix** an der **fehlenden
+  Issuer-ID** — zwei unabhängige Degradationen. Eine Issuer-ID allein aktiviert
+  keinen Produktiv-Pfad; erst E-Mail **und** Key zusammen schalten den
+  JWT-Pfad frei.
+- **Keine automatische Klassen-Registration:** Der Code legt weder
+  `EventTicketClass` noch andere Ressourcen bei Google an. Die Klasse
+  `{issuerId}.{classId}` muss extern einmalig existieren, sonst weist Google
+  gespeicherte Objekte zurück.
+- **Key-Format-Falle (wichtig):** `WalletPassService::googlePrivateKey()`
+  erkennt **ausschließlich** (a) einen PEM-String/-Dateiinhalt ab
+  `-----BEGIN` oder (b) eine **bare RSA-JWK** (`kty: "RSA"` mit
+  `n/e/d/p/q/dp/dq/qi`). Die beim Download übliche **GCP-Service-Account-
+  JSON** (`{"type": "service_account", …, "private_key": …}) wird **nicht**
+  erkannt — der Service degradiert dann still in den Preview-Modus. Owner muss
+  das `private_key`-Feld der JSON als PEM-Datei extrahieren (empfohlen) oder
+  eine bare JWK liefern.
+
+### Owner-Aktionen (extern, einmalig)
+
+1. **Issuer-Account anlegen:** Google Pay & Wallet Console
+   (`pay.google.com/business/console`) öffnen, mit dem Google-Konto des
+   Verbands anmelden und den Zugang zur Google Wallet API beantragen
+   (Organisationsname, Land, Kontakt, Use Case). Google prüft den Antrag.
+2. **Issuer ID notieren:** Nach Freischaltung steht in der Console die
+   numerische **Issuer ID** (Beispielformat 16-stellig, vgl. Test-Fixture
+   `3388000000000000`).
+3. **Cloud-Projekt vorbereiten:** Google-Cloud-Projekt wählen/anlegen und die
+   **Google Wallet API** aktivieren.
+4. **Service Account + Key erzeugen:** Service Account im Cloud-Projekt
+   anlegen, RSA-Key erstellen und gemäß „Key-Format-Falle" als **PEM-Datei**
+   bereitstellen. Key niemals committen — ausschließlich `.env`/Secret-Store
+   (Invarianten unten).
+5. **Service Account mit dem Issuer verknüpfen:** In der Wallet Console die
+   Service-Account-E-Mail als Nutzer des Issuer-Accounts hinterlegen
+   („Developer"-Zugriff), damit JWTs mit `iss = {service-account-email}` für
+   diesen Issuer akzeptiert werden.
+6. **EventTicketClass einmalig registrieren:** Klasse
+   `{ISSUER_ID}.accriditation` (oder eigener `GOOGLE_CLASS_ID`) via Console
+   bzw. Wallet-API-Insert anlegen — automatisiert der Code **nicht**.
+7. **Env setzen** (Backend) und Config-Cache leeren (`php artisan config:clear`),
+   falls aktiv:
+   ```env
+   GOOGLE_ISSUER_ID=<numerische Issuer ID>
+   GOOGLE_SERVICE_ACCOUNT_EMAIL=<sa-name>@<project>.iam.gserviceaccount.com
+   GOOGLE_SERVICE_ACCOUNT_KEY=</absoluter/pfad/private-key.pem>
+   # optional (Default accriditation):
+   GOOGLE_CLASS_ID=accriditation
+   ```
+
+### Danach — automatisierte Code-Seite (ohne weiteres Zutun)
+
+- `/api/applications/{application}/wallet/google` antwortet statt des
+  Preview-JSON mit dem signierten `savetowallet`-JWT
+  (`WalletController::google`, Content-Type `application/json`).
+- Apple-Seite bleibt unberührt (eigene Cert-Chain, siehe Credential-Degradation).
+
+### Offene Code-Punkte (noch NICHT implementiert)
+
+- **Save-to-Wallet-Erlebnis:** Das Frontend bietet den Google-Button derzeit
+  nur als Datei-Download (`MyAccreditationsPage`, `download="wallet.json"`).
+  Für echte Wallet-Installationen fehlt der Deep-Link
+  (`https://pay.google.com/gp/v/save/{jwt}`) bzw. ein entsprechender Button —
+  Follow-up, sobald der Issuer existiert.
+- **Google-Pass für Sub-Akkreditierungen:** Park-/Sitzkarten haben aktuell nur
+  den Apple-Endpoint (`routes/api.php` — `/sub-applications/{subApplication}/wallet`);
+  ein Google-Äquivalent fehlt. Der Service selbst unterstützt `park`/`seat`
+  bereits (`ALLOWED_TYPES`).
+
 ## Pass-Struktur — Apple (`applePassData`)
 
 | Feld | Wert |

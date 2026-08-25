@@ -57,7 +57,8 @@ QR-Position template-adressierbar wird. Bis dahin gilt die Fixposition unten
 rechts (`right: 5mm; bottom: 5mm`, **20 × 20 mm**) — ein dort platziertes
 Template-Feld kann vom QR überlappt werden (siehe Limitation unten); die
 Kollisionsvermeidung liegt solange beim Template-Autor (untere rechte Ecke
-freilassen).
+freilassen). Die vollständige SOLL-Spec für das Schema v2 und den frei
+positionierbaren Feld-Editor (Drag & Drop) liegt in `badge-template-editor.md`.
 
 ## Rendering — `BadgeRenderService` (P4)
 
