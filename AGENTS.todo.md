@@ -328,18 +328,16 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > QR-Position, Feld-Überlappung, Abschneiden, Kontrast, Skalierung). Besonders relevant für **FE1** (Render-Kontrakt).
 
 - **Tool-Befund lokal (macOS):**
-  - `magick`/`convert` (ImageMagick) **installiert**, aber PDF-Rendering **scheitert**: ImageMagicks PDF-Delegate ist
-    Ghostscript (`gs`) → `gs` fehlt (`brew install ghostscript` würde `magick` PDF-fähig machen, mit `-r 150..300`
-    DPI-Kontrolle + Multi-Page).
-  - `pdftoppm` (poppler) nicht installiert — wäre die hochwertigste Option (`brew install poppler`; im CI-Image via
-    apt `poppler-utils`).
-  - ✅ **`sips` (macOS-Bordmittel) funktioniert out-of-the-box**: dompdf-Test-PDF (A6 landscape) → sauberes PNG
-    (420×298 @72dpi). Für einseitige Badge-PDFs ausreichend; erste Seite only.
+  - ✅ **`magick` + Ghostscript (10.07.1) installiert und verifiziert** (User hat `brew install ghostscript`
+    ausgeführt): `magick -density 200 t.pdf t-magick.png` rendert sauber — **primäre Methode** (hohe DPI,
+    A6-Test: 1165×827 px vs. 420×298 @72dpi via sips → Schrift/QR-Details für die Vision-Analyse gut lesbar).
+  - `sips` (macOS-Bordmittel) funktioniert ebenfalls out-of-the-box (nur erste Seite, ~72dpi) → **Fallback**.
+  - `pdftoppm` (poppler) nicht installiert — nur relevant für den CI-Pfad (`poppler-utils` im E2E-Image).
 - **Fixture-Pfad:** Badge-PDF wird backend-seitig erzeugt (dompdf ^3.1 verifiziert): entweder über den auth-geschützten
   Badge-Endpoint im laufenden Dev-Stack oder per PHPUnit/Artisan-Fixture in eine temp Datei gerendert → `sips` → PNG.
 - **SOLL-Pipeline (FE1-Verifikation + künftige PDF-Änderungen):**
-  1. Badge-PDF generieren (Dev-Stack/Fixture), 2. `sips -s format png x.pdf --out x.png` (lokal) bzw. `magick -density 200`
-     nach Ghostscript-Installation, 3. PNG(s) an `vision`-Subagent mit PDF-Checkliste (QR unten rechts 20×20 mm,
+  1. Badge-PDF generieren (Dev-Stack/Fixture), 2. `magick -density 200 x.pdf x.png` (primär, Multi-Page-fähig) bzw.
+     `sips -s format png` als Fallback, 3. PNG(s) an `vision`-Subagent mit PDF-Checkliste (QR unten rechts 20×20 mm,
      Felder ohne Überlappung/Abschneidung, Font-Skalierung, Rückwärtskompatibles Default-Layout),
   4. Findings-Report wie beim UI-Review (critical/high blockieren APPROVED), 5. bei Fixes: neu rendern + old-vs-new-Diff.
 - **CI (optional, Follow-up):** für automatisierte PDF-Vision-Checks im E2E-Job `poppler-utils` (pdftoppm) ins
