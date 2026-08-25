@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BlacklistResource;
 use App\Models\Blacklist;
+use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,7 @@ class BlacklistController extends Controller
         $query = Blacklist::query()->forMandant($mandantId);
 
         if ($request->filled('search')) {
-            $term = $this->escapeLike((string) $request->input('search'));
+            $term = LikeSearch::escape((string) $request->input('search'));
             $query->where(function (Builder $q) use ($term) {
                 // CC-R1: `LOWER()` on both sides pins case-insensitive search
                 // and keeps Postgres (LIKE is case-sensitive) in sync with
@@ -150,15 +151,5 @@ class BlacklistController extends Controller
         abort_if($user === null, 401);
 
         abort_unless($user->isSuperAdmin() || $user->isMandantAdmin($mandantId), 403);
-    }
-
-    /**
-     * Escape LIKE wildcards so a search for literal `%`/`_` does not act as a
-     * pattern. Applied with an explicit `ESCAPE '\'` clause (portable across
-     * Postgres and SQLite — see the PortalController pattern).
-     */
-    private function escapeLike(string $term): string
-    {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
     }
 }

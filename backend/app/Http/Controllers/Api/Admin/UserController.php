@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,7 +48,7 @@ class UserController extends Controller
             ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])]);
 
         if ($request->filled('search')) {
-            $term = $this->escapeLike((string) $request->input('search'));
+            $term = LikeSearch::escape((string) $request->input('search'));
             $query->where(
                 fn (Builder $q) => $q
                     ->whereRaw("users.name like ? escape '\\'", ["%{$term}%"])
@@ -185,15 +186,5 @@ class UserController extends Controller
         }
 
         return $entries;
-    }
-
-    /**
-     * Escape LIKE wildcards so a search for literal `%`/`_` does not act as a
-     * pattern. Applied with an explicit `ESCAPE '\'` clause (portable across
-     * Postgres and SQLite — mirrors AdminApplicationController / BlacklistController).
-     */
-    private function escapeLike(string $term): string
-    {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
     }
 }

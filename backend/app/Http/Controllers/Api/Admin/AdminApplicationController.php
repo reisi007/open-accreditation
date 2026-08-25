@@ -12,6 +12,7 @@ use App\Models\Application;
 use App\Services\AllocationService;
 use App\Services\MandantMailerService;
 use App\Services\QrTokenService;
+use App\Support\LikeSearch;
 use App\Support\VerifyLink;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -80,7 +81,7 @@ class AdminApplicationController extends Controller
         }
 
         if (array_key_exists('search', $validated) && $validated['search'] !== '') {
-            $term = $this->escapeLike((string) $validated['search']);
+            $term = LikeSearch::escape((string) $validated['search']);
             $query->where(function (Builder $q) use ($term) {
                 // CC-R1: `LOWER()` on both sides pins case-insensitive search
                 // and keeps Postgres (LIKE is case-sensitive) in sync with
@@ -220,15 +221,5 @@ class AdminApplicationController extends Controller
         }
 
         abort_unless($query->exists(), 422);
-    }
-
-    /**
-     * Escape LIKE wildcards so a search for literal `%`/`_` does not act as a
-     * pattern. Applied with an explicit `ESCAPE '\'` clause (portable across
-     * Postgres and SQLite — see the PortalController pattern).
-     */
-    private function escapeLike(string $term): string
-    {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
     }
 }

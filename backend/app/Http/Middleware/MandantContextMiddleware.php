@@ -30,6 +30,9 @@ class MandantContextMiddleware
      * testing environments a loopback host (e.g. `php artisan serve` on
      * 127.0.0.1 or a forwarded local port) falls back to the primary mandant
      * instead of 404, so dev servers and CI probes never hit the 404 path.
+     * P3e-B3: this includes `*.localhost` subdomains — RFC 6761 reserves the
+     * whole "localhost" TLD to the local device, so Vite dev-server origins
+     * like `foo.localhost:5173` resolve to the primary mandant in dev.
      */
     public function handle(Request $request, Closure $next): Response
     {
@@ -90,17 +93,26 @@ class MandantContextMiddleware
     }
 
     /**
-     * Whether the host is a loopback address (localhost / IPv4 / IPv6
-     * loopback), tolerating an optional port suffix. Used as the local/testing
-     * fallback so dev servers and CI probes hitting 127.0.0.1 (which never
-     * match a mandant domain) resolve to the primary mandant instead of 404.
+     * Whether the host behaves like loopback for the local/testing fallback:
+     * localhost / IPv4 / IPv6 loopback plus any `*.localhost` subdomain.
+     * P3e-B3: RFC 6761 reserves the whole "localhost" TLD to the local
+     * device, so the Vite dev server's per-mandant origins
+     * (`foo.localhost:5173`) must resolve to the primary mandant instead of
+     * failing host resolution. An optional port suffix is tolerated (Symfony
+     * and `parse_url` keep it, only the hostname comparison strips it).
+     * Consulted ONLY in the `local`/`testing` environments — production keeps
+     * strict host resolution.
      */
     private function isLoopback(string $host): bool
     {
         $hostname = parse_url('http://'.strtolower(trim($host)), PHP_URL_HOST)
             ?? strtolower(trim($host));
 
-        return in_array($hostname, ['localhost', '127.0.0.1', '::1'], true);
+        if (in_array($hostname, ['localhost', '127.0.0.1', '::1'], true)) {
+            return true;
+        }
+
+        return str_ends_with($hostname, '.localhost');
     }
 
     /**

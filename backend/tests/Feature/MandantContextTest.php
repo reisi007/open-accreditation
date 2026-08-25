@@ -325,6 +325,44 @@ class MandantContextTest extends TestCase
         $this->assertNull(MandantContext::current());
     }
 
+    public function test_vite_dev_subdomain_host_resolves_primary_mandant_in_local(): void
+    {
+        app()->detectEnvironment(fn () => 'local');
+
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        // P3e-B3: the Vite dev server serves *.localhost:5173 origins; RFC
+        // 6761 reserves the whole "localhost" TLD to the local device, so
+        // such hosts fall back to the primary mandant in local dev instead
+        // of failing host resolution.
+        $this->get('http://foo.localhost:5173/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_localhost_subdomain_host_sets_primary_mandant_in_testing(): void
+    {
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        $this->get('http://bar.localhost/')->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
+    public function test_localhost_subdomain_host_returns_404_in_production(): void
+    {
+        app()->detectEnvironment(fn () => 'production');
+        $this->setRunningInConsole(false);
+
+        Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        // Dev-only convenience: outside local/testing the *.localhost
+        // fallback must NOT apply — an unknown host keeps the 404.
+        $this->get('http://foo.localhost/')->assertNotFound();
+
+        $this->assertNull(MandantContext::current());
+    }
+
     private function setRunningInConsole(bool $value): void
     {
         $reflection = new \ReflectionClass($this->app);

@@ -9,6 +9,7 @@ use App\Http\Resources\PortalEventResource;
 use App\Models\Event;
 use App\Models\Mandant;
 use App\Models\Team;
+use App\Support\LikeSearch;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,7 +74,7 @@ class PortalController extends Controller
         }
 
         if ($request->filled('competition')) {
-            $term = $this->escapeLike((string) $request->input('competition'));
+            $term = LikeSearch::escape((string) $request->input('competition'));
             // Portable LIKE: `LOWER()` on both sides pins case-insensitive
             // search (Postgres LIKE is case-sensitive, SQLite is not), and
             // `ESCAPE '\'` keeps wildcard escaping identical on both engines
@@ -110,15 +111,5 @@ class PortalController extends Controller
         abort_if($mandant === null, 404, 'Mandant not found');
 
         return $mandant;
-    }
-
-    /**
-     * Escape LIKE wildcards so a `competition` search for literal `%`/`_`
-     * does not act as a pattern. The caller applies the escaped term with an
-     * explicit `ESCAPE '\'` clause (portable across Postgres and SQLite).
-     */
-    private function escapeLike(string $term): string
-    {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
     }
 }
