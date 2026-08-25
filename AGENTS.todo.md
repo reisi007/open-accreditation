@@ -275,8 +275,6 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
-
 ### Low Follow-ups (info, aus Verifikation)
 - [ ] **P1c-F1 (low)** — `profile.spec.ts:53`: `createActivatedSession` liefert `email` zurück, ungenutzt (Design-Nit, belassen).
 - [ ] **P1c-F2 (low)** — `profile.spec.ts:88`: Assertion auf exakten String `Profil aktualisiert.` koppelt E2E an Backend-Copy; bei Copy-Änderung anpassen.

@@ -51,8 +51,11 @@ class UserController extends Controller
             $term = LikeSearch::escape((string) $request->input('search'));
             $query->where(
                 fn (Builder $q) => $q
-                    ->whereRaw("users.name like ? escape '\\'", ["%{$term}%"])
-                    ->orWhereRaw("users.email like ? escape '\\'", ["%{$term}%"]),
+                    // CC-R1: `LOWER()` on both sides pins case-insensitive search
+                    // and keeps Postgres (LIKE is case-sensitive) in sync with
+                    // SQLite (LIKE is case-insensitive by default) — portable.
+                    ->whereRaw("LOWER(users.name) like LOWER(?) escape '\\'", ["%{$term}%"])
+                    ->orWhereRaw("LOWER(users.email) like LOWER(?) escape '\\'", ["%{$term}%"]),
             );
         }
 
