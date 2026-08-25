@@ -275,8 +275,6 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **P3e-B3** — `escapeLike()`-Duplikate (4 Admin-Controller) in shared Helper konsolidieren → PHPUnit (Regression: case-insensitive Suche bleibt grün). [Subagent A, Verifikation läuft]
-- [ ] **Vite-Proxy** — `MandantContextMiddleware` akzeptiert `*.localhost`-Hosts (Dev-QoL) → PHPUnit (Middleware-Test). [Subagent A, Verifikation läuft]
 - [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C]
 - [ ] **P1c** — `@feature:profile` Playwright-E2E ergänzen (getaggt). [Subagent D, läuft]
 - [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
@@ -284,6 +282,7 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 
 ### ✅ Completed & Verified (aus offener Liste entfernt, committed)
 - **Docs-Batch [Subagent B]** — P3e-B5, P3b-F2, P2b-F5, BE-R8, P4-F4, Logo-E-Mail-Varianten: alle in `features/` + `scripts/e2e-up.sh` dokumentiert, separater Verifikator **APPROVED** (0 critical/high), commit `5cab0fa` (gepusht).
+- **Backend [Subagent A]** — P3e-B3 (`LikeSearch`-Helper, 4 Controller konsolidiert) + Vite-Proxy (`*.localhost`-Hosts in `MandantContextMiddleware`, Prod-404-Guard): separater Verifikator **APPROVED** (696 passed/4466 assertions, 0 critical/high), commit `6a1d24c` (gepusht).
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
