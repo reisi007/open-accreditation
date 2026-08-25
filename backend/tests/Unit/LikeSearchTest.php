@@ -33,7 +33,7 @@ class LikeSearchTest extends TestCase
         // Every metacharacter must come out escaped exactly once: the input's
         // own backslash doubles, while the escapes inserted for `%`/`_` keep
         // their single leading backslash.
-        $this->assertSame('x\%y\_z\\\\', LikeSearch::escape("x%y_z\\"));
+        $this->assertSame('x\%y\_z\\\\', LikeSearch::escape('x%y_z\\'));
     }
 
     public function test_case_insensitive_like_with_the_controller_clause_finds_rows(): void
