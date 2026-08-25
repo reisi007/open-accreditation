@@ -51,6 +51,14 @@ Feld-Auflösung (`BadgeRenderService::valueFor`):
 | `photo` | Portrait des Bewerbers (siehe unten) |
 | `status` | deutsche Status-Beschriftung |
 
+**SOLL-Erweiterung (offen, P4-F4):** Das Layout-Schema erhält künftig ein
+optionales **`qr`-Feld** (eigener Entry mit `x/y/w/h` in mm), damit die
+QR-Position template-adressierbar wird. Bis dahin gilt die Fixposition unten
+rechts (`right: 5mm; bottom: 5mm`, **20 × 20 mm**) — ein dort platziertes
+Template-Feld kann vom QR überlappt werden (siehe Limitation unten); die
+Kollisionsvermeidung liegt solange beim Template-Autor (untere rechte Ecke
+freilassen).
+
 ## Rendering — `BadgeRenderService` (P4)
 
 - **Kartenformat:** A6, **105 × 148 mm**, Hochformat. Jede Karte ist ein
@@ -85,6 +93,8 @@ Die Verify-URL ist `{scheme}://{host}/verify/{token}`:
 ein dort platziertes Nutzer-Feld (z. B. `photo`) überlappen. Das Layout-Schema
 kennt die QR-Position nicht; eine Kollisionsvermeidung ist bewusst nicht
 implementiert (Templates sollten die untere rechte Ecke freilassen).
+Geplante Gegenmaßnahme: das optionale `qr`-Layout-Feld (P4-F4, siehe
+Layout-Schema oben) — bis dahin bleibt es bei der Fixposition.
 
 ## Export — `BadgeExportService` (P4)
 

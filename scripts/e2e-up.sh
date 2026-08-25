@@ -10,6 +10,19 @@
 #
 # The seeder reads ADMIN_EMAIL/ADMIN_PASSWORD from the real environment
 # (takes precedence over .env) or falls back to the .env values.
+#
+# Rate-Limiter-Determinismus (P3e-B5):
+# Named rate-limiter counters (login/register/apply/...) persist in the DB
+# cache store (config/cache.php, default CACHE_STORE=database) — observed
+# persistence up to 7 days. Back-to-back local E2E / screenshot runs against
+# the persistent dev Postgres can therefore hit login-throttle 429s although
+# each suite run starts "fresh". For deterministic runs, clear the cache
+# BEFORE launching the E2E suite:
+#
+#   cd backend && php artisan cache:clear
+#
+# The CI e2e job is unaffected: it migrates a fresh database per job (empty
+# cache table), so no limiter state carries over.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

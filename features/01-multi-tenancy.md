@@ -15,6 +15,23 @@
   (eigene Domain) — kein Cross-Mandant-Login (403 beim Login auf fremder
   Domain, siehe `features/auth/01-auth-and-roles.md`).
 
+## Kategorie-Override & `is_team_override` (Ist P2/P3, P2b-F5)
+
+Kategorien liegen mandant-scoped; eine Team-Kategorie überschreibt die
+Verbands-Kategorie desselben `slug` (z. B. andere Quota/Frist). Der Flag im
+Admin-API ist dabei rein **abgeleitet**, kein DB-Feld:
+
+- `CategoryResource` (Admin-API): **`is_team_override` = `team_id !== null`**
+  (`backend/app/Http/Resources/CategoryResource.php`). Er markiert jede
+  Kategorie-Zeile auf **Team-Ebene** — unabhängig davon, ob fachlich ein
+  Verbands-Datensatz mit gleichem Slug tatsächlich „überschrieben" wird.
+- **UI-Folge (bewusst akzeptiert):** Das „Team-Override"-Badge
+  (`frontend/src/pages/admin/CategoriesPage.tsx`, `badge-warning`) erscheint
+  auf **jeder** Team-Kategorie — auch wenn es streng genommen nur ein
+  „Team-Level"-Flag ist. Semantik-Kosmetik, kein Schema-/API-Change nötig;
+  der Flag darf nicht als Nachweis eines echten Slug-Overrides missdeutet
+  werden.
+
 ## Host-Resolution (Ist P1)
 
 - Auflösung über **`mandant_domains.hostname`** (DB): `MandantContext::resolve()`

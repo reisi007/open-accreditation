@@ -19,7 +19,7 @@
   | `apple-touch-icon.png` | iOS Home-Screen (opak, 180×180) |
   | `android-chrome-192x192.png`, `android-chrome-512x512.png` | PWA-Icons (Manifest) |
   | `site.webmanifest` | PWA-Manifest (theme_color = Brand-Primary `#863bff`) |
-  | `logo-email-64.png`, `logo-email-128.png` | Reserviert für E-Mail (späterer Workflow) |
+  | `logo-email-64.png`, `logo-email-128.png` | Reserviert für E-Mail-Embeds (Workflow siehe unten, SOLL) |
   | `browserconfig.xml`, `mstile-150x150.png` | Windows-Tile (opak) |
 
 - **Homepage-Logik (P8):** `getHomepageLogo(mandant, logoFailed)`
@@ -28,6 +28,31 @@
   angezeigt; andernfalls fällt die Startseite auf das statische React-Logo
   `/logo.svg` zurück (immer sichtbar). Header-Bild verhält sich unverändert
   (nur wenn hochgeladen).
+
+## Logo-E-Mail-Varianten (`logo-email-64/128.png`) — Workflow (SOLL)
+
+Die beiden PNG-Raster-Varianten sind **reserviert für E-Mail-Embeds** und
+noch nicht implementiert — der Workflow folgt mit dem E-Mail-Ausbau
+(Mailables P5). Festgezogen:
+
+- **Zweck:** Mail-Clients rendern kein SVG; externe Bilder werden teils gar
+  nicht nachgeladen. Die kleinen Raster-Varianten (**64 px / 128 px Breite**)
+  sind die Embed-Formate für Mails (Freigabe-/Ablehnungs-/Aktivierungs-Mails).
+- **Ablage (Fallback-Quelle):** `frontend/public/logo-email-64.png` bzw.
+  `frontend/public/logo-email-128.png` — gleiche Fallback-Kette wie alle
+  Brand-Files: Vite kopiert `public/` unverändert nach `dist/`, Caddy liefert
+  die Root-Pfade pro Mandant aus (Overrides siehe unten).
+- **Referenzierung:** Mails werden serverseitig erzeugt (Backend,
+  MandantMailerService je Mandant-SMTP). Das Logo wird daher als **CID-Embed**
+  (`$message->embed()`) aus einer Server-seitig lesbaren Quelle eingebunden —
+  nicht als öffentliche URL. Quelle kann die Fallback-Datei oder das
+  hochgeladene Mandant-Logo sein; die Fallback-Entscheidung (analog
+  `getHomepageLogo`) ist bei Implementierung festzulegen (offen).
+- **Caddy-Hinweis:** Die beiden Pfade sind aktuell **nicht** im
+  `(brand_overrides)`-Matcher (`@brand_files`) enthalten. Soll ein Mandant
+  sie überschreiben können, müssen `/logo-email-64.png` und
+  `/logo-email-128.png` dort ergänzt werden (immutable Cache-Control wie die
+  übrigen Brand-Files).
 
 ## Caddy (Produktion, geplant — Plan auf Basis `~/dev/caddyfile/Caddyfile`)
 

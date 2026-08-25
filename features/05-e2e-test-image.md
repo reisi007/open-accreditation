@@ -66,6 +66,19 @@ wäre dann konstant 24s+ pro Run, Image-Pull bleibt konstant ~22s).
      bei Versionsdrift zwischen Dependabot-Bump und Image-Rebuild; ohne `--with-deps`,
      da apt-Deps im Image gebacken sind)
 
+## Rate-Limiter-State (P3e-B5)
+
+Named Rate-Limiter (u. a. `login`) persistieren ihre Zähler im **DB-Cache-
+Store** (`backend/config/cache.php`, Default `CACHE_STORE=database`) mit
+beobachteter Persistenz bis zu **7 Tagen**. Lokale Back-to-Back-E2E-/
+Screenshot-Läufe gegen den persistenten Dev-Postgres können dadurch
+Login-Throttle-**429**s produzieren, obwohl jeder Lauf „frisch" startet.
+
+**Vor jedem lokalen E2E-Lauf:** `php artisan cache:clear` (festgehalten als
+Hinweis in `scripts/e2e-up.sh`). Der CI-E2E-Job ist nicht betroffen: er
+migriert je Job eine frische Datenbank (leere Cache-Tabelle) — es gibt keinen
+übertragenen Limiter-State zwischen Runs.
+
 ## Invarianten (nicht regredieren)
 
 - **Nur die Umgebung einbacken** — nie App-Code, `node_modules/`, `vendor/`.

@@ -47,10 +47,65 @@
 
 ### P7 — Polish + Deploy 🟡 **AUF HALT — Go-Live wartet auf Benutzer-Freigabe**
 > **Einziger verbleibender Block:** Alle Umsetzungsphasen P1–P6 + UI-Polish + P7-Hardening sind
-> abgeschlossen (verifiziert, APPROVED). P7 (Caddy multi-Domain, Prod-Deploy) wird erst nach expliziter
-> Freigabe des Benutzers umgesetzt — dieser Block wartet auf die Benutzer-Freigabe.
+> abgeschlossen (verifiziert, APPROVED). P7 wird erst nach expliziter Freigabe des Benutzers umgesetzt.
+> Operativer Plan: siehe §🚀 Go-Live-Plan (unten). Caddy-SOLL: `features/03-caddy-brand-files.md`.
 
-- [ ] Caddy/Reverse-Proxy-Konfig (multi-Domain) + Prod-Deploy (Go-Live)
+- [ ] Go-Live gemäß §🚀 Go-Live-Plan (Pre-Prod → Prod → Long-running)
+
+---
+
+## 🚀 Go-Live-Plan (2026-08-25)
+
+> Zielbild: identisches/similar Infrastruktur-Muster wie `portal.reisinger.pictures`
+> (globale `~/dev/caddyfile/Caddyfile`, Snippets `security_headers`/`compress`/`spa`,
+> FastCGI `/api*` → Backend), erweitert um **per-Mandant austauschbare Brand-Ressourcen**
+> (Logo/Favicon/Webmanifest pro Subdomain) via `brand_overrides`-Snippet
+> (SOLL: `features/03-caddy-brand-files.md`). Verzeichnis-Keying: `/srv/websites/accreditation.<slug>`.
+
+### Phase A — Pre-Prod-Deploy
+
+**Infrastruktur**
+- [ ] Pre-Prod-Subdomain festlegen (z. B. `preprod.accreditation.reisinger.pictures`) + DNS
+- [ ] Site-Block im globalen `~/dev/caddyfile/Caddyfile` nach Portal-Muster (`security_headers`, `compress`, `/api*` fastcgi → `accreditation_backend:9000`, `spa`, `brand_overrides`)
+- [ ] Server-Voraussetzungen: `/srv/websites/accreditation.<slug>`-Verzeichnisse (Frontend-Dist), Docker-Netzwerk für Caddy ↔ Backend, Volumes für DB + Media (private Disk)
+- [ ] `caddy validate` vor Reload (Docker), Deploy-Mechanik wie Referenz (`sync.sh`)
+
+**Umgebung & Config**
+- [ ] `.env.preprod`: `APP_KEY`, `JWT_SECRET`, DB-Creds (Postgres-Container), Mail (Mailpit), `APP_ENV=staging`, `APP_URL` + Mandant-Domain-Hosts
+- [ ] Frontend-Build für Pre-Prod (Vite `dist`) + Deploy-Pfad
+
+**Verifikation vor Prod (Gates)**
+- [ ] **USER-DECISION BE-R1**: globale vs. Per-Mandant `email`-Unique (`AuthController.php:39`) — MUSS vor erstem echten User-Data entschieden sein
+- [ ] **Postgres-Portabilitäts-Gate:** Integration-/E2E-Lauf gegen echte Postgres (nicht nur SQLite-Testsuite), §2-Regel verifiziert
+- [ ] **Multi-Domain-UX-Gate (P2c-F4):** Admin-Zugriff auf Nicht-Primär-Domain prüfen (Teams-Anzeige super_admin)
+- [ ] **Brand-Override-Gate:** `brand_overrides` live testen — Mandant A mit eigenem Logo, Mandant B auf React-Fallback; Austausch (Upload Self-Service `POST /api/mandant/logo` → Datei im Dist-Ordner ersetzen/ergänzen) ohne Reload nachvollziehen
+- [ ] Full E2E `@regression` grün gegen Pre-Prod (inkl. `@smoke`, Badge-PDF, QR-Verify, PKPASS)
+
+### Phase B — Prod-Deploy
+
+- [ ] Backup/Rollback-Basis: DB-Dump + alte Dist-Ordner vor jedem Deploy
+- [ ] Prod-DNS für alle initialen Mandant-Domains + TLS (Caddy ACME automatisch)
+- [ ] Site-Blöcke pro Mandant-Domain im globalen Caddyfile (Muster aus Phase A) — `caddy validate` + Reload
+- [ ] `.env.production` auf Server (Secrets NUR serverseitig): `APP_KEY`, `JWT_SECRET`, DB, SMTP je Mandant (`smtp_config` JSON), SameSite=None-Cookie (BE-R6 bereits implementiert)
+- [ ] `docker compose -f deployment/docker-compose.yml up -d` (Backend + Postgres), `php artisan migrate --force`, Storage-Link, `config:cache route:cache`
+- [ ] Frontend-Dist je Mandant deployen (Fallback-Dist + optionale Overrides)
+- [ ] Smoke gegen Prod: `@smoke`-E2E + manueller Check Login/Guest/QR/PDF/Wallet
+- [ ] Monitoring/Basics: Log-Zugriff, Mail-Zustellung, Rate-Limiter-Verhalten in Prod
+
+### Phase C — Long-running / Post-Go-Live
+
+- [ ] **P3e-B3:** `escapeLike()`-Duplikate (4 Controller) konsolidieren (Refactoring-Kandidat)
+- [ ] **P3e-B4:** dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`)
+- [ ] **P3e-B5:** `cache:clear`-Hinweis in `e2e-up.sh`/CI-Doku dokumentieren
+- [ ] **P3b-F2:** `features/02-domain-model.md` auf `created_at` präzisieren
+- [ ] **P2b-F5:** `is_team_override`-Semantik dokumentieren
+- [ ] **P1c:** `@feature:profile`-Playwright-E2E
+- [ ] **P4-F4:** Layout-Schema um `qr`-Feld erweitern (Fixposition vs. Template-Überlappung)
+- [ ] **Google-Wallet-Issuer-Setup** (extern, P6-B2) — falls Wallet ab Tag 1 aktiv sein soll, in Phase B vorziehen
+- [ ] **P5-F4:** Queue-Integration für Mails (aktuell synkron als MVP-Entscheidung)
+- [ ] **BE-R8:** Doku zur Bulk-Reanimations-Limitation in `features/` ergänzen
+- [ ] **Vite-Proxy/MandantContext:** Backend akzeptiert `*.localhost:5173`-Referer (Dev-QoL)
+- [ ] **Logo-E-Mail-Varianten** (`logo-email-64/128.png`): Workflow für E-Mail-Embeds (reserviert in SOLL-Doku)
 
 ---
 
@@ -72,24 +127,17 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
-- [ ] **F7 (info)** Mandant-Check nur beim Login — P2/P3: Ressourcen (Teams, Kategorien, Events, Akkreditierungen) pro Request über `forCurrentMandant()`-Scopes scopen.
-- [ ] **P3a-F1 (info)** Countdown-Plural-Workaround in `DeadlineCountdown.tsx` (String-Interpolation statt Lingui-ICU-Plural) → akzeptiert.
-- [ ] **P3a-F2 (info)** E2E-Daten-Ansammlung: `ensurePrimaryMandantActivePortalEvent` erzeugt Events ohne Cleanup → lokale Kosmetik, akzeptiert.
-- [ ] **P3c-F4 (info)** Test-Coverage-Nuancen (Blacklist+VIP-Kombi, case-insensitiv, approveAll mit bestehenden approved, `mode` fehlt/non-int limit, Exakt-Fit Quota) → optional nachziehen (P3e-Paket oder später).
 - [ ] **P3e-B3 (info)** Controller-Scope-/`EscapeLike`-Duplikation (4 Admin-Controller) → Refactoring-Kandidat (P7).
 - [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
 - [ ] **P3e-B5 (info)** E2E-Rate-Limiter-State: 7-Tage-TTL im DB-Cache → Login-Throttle-429 bei Back-to-Back-E2E/Screenshot-Läufen: `php artisan cache:clear` vor E2E-Läufen in `e2e-up.sh`/CI-Doku fest dokumentieren (Determinismus).
 - [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
 - [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
-- [ ] **B3 (info)** Prod: `trustHosts()` aus `mandant_domains` befüllen → P7.
 - [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
 
 - [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
-- [ ] **P4-F5 (info)** `features/`-SOLL-Doku: P6-Wallet-Vertrag (PKPASS) + Badges/QR-SOLL fehlen → Doku-Batch (P7-Vorbereitung).
 - [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
 - [ ] **P5-F4 (info)** Queue-Integration (synchroner Versand als MVP-Entscheidung) → später/Post-MVP.
-- [ ] **P6-B1 (info)** `relevantDate`-Semantik: nutzt `deadline_end` statt Event-Datum → mit Benutzer abstimmen (P7/Produkt).
 - [ ] **P6-B2 (info)** ohne `GOOGLE_ISSUER_ID` leeres id-Präfix im Preview-Modus → dokumentiert, kein Risiko.
 
 - [ ] **Vite-Proxy / MandantContextMiddleware (info)** `*.localhost:5173`-Hosts in lokalem Dev unerreichbar (Vite `changeOrigin` rewritet Host → Primary-Mandant); Screenshot-Harness umgeht das mit `emptyMock`-Stubs → Zukunft: Backend akzeptiert `*.localhost:5173`-Referer (dokumentierte Verbesserung).
@@ -216,3 +264,38 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 - **typescript 6→7:** Repo bereits auf TS 6 (^6.0.3). 7.x nur migrieren, sobald Framework/Peer-Tooling es unterstützt — aktuell zu frisch.
 - `guzzlehttp/guzzle` 7→8: blockiert durch direkten Dep `http-interop/http-factory-guzzle` (nur psr7 ^1.7||^2.0, keine 3.0-fähige Version).
 - `brick/math` 0.18→0.19: gedeckelt durch `ramsey/uuid` (<=0.18).
+
+---
+
+## 🛠️ Session 2026-08-25 — Follow-up-Batch (Orchestrator, ohne Go-Live + User-Abnahme)
+
+> User-Auftrag: Alle offenen TODOs umsetzen, die **keinen** User-Input brauchen (P7 Go-Live +
+> finale Abnahme + offene Entscheidungen BE-R1/Feld-Editor/Google-Wallet ausgenommen). Umsetzung
+> als Orchestrator → delegiert an Implementer, separat verifiziert (§5). Konsolidierung auf `master`,
+> keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
+
+### TODO-Liste (actionable, mit Test-Forderung)
+- [ ] **P3e-B3** — `escapeLike()`-Duplikate (4 Admin-Controller) in shared Helper konsolidieren → PHPUnit (Regression: case-insensitive Suche bleibt grün). [Subagent A]
+- [ ] **Vite-Proxy** — `MandantContextMiddleware` akzeptiert `*.localhost:5173`-Referer/Host (Dev-QoL) → PHPUnit (Middleware-Test). [Subagent A]
+- [ ] **P3e-B5** — `cache:clear`-Hinweis (7-Tage-Throttle-TTL) in `e2e-up.sh`/CI-Doku dokumentieren. [Subagent B / Docs]
+- [ ] **P3b-F2** — `features/02-domain-model.md` auf `created_at` präzisieren (`applied_at` vs `created_at`). [Subagent B / Docs]
+- [ ] **P2b-F5** — `is_team_override`-Semantik (`team_id !== null`) in `features/` dokumentieren. [Subagent B / Docs]
+- [ ] **BE-R8** — Bulk-Reanimations-Limitation (VIP/denied) in `features/` dokumentieren. [Subagent B / Docs]
+- [ ] **P4-F4** — Layout-Schema um `qr`-Feld erweitern (Fixposition vs Template-Überlappung) in `features/` (Badge-Doku). [Subagent B / Docs]
+- [ ] **Logo-E-Mail-Varianten** — Workflow für `logo-email-64/128.png` E-Mail-Embeds in `features/` dokumentieren. [Subagent B / Docs]
+- [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C]
+- [ ] **P1c** — `@feature:profile` Playwright-E2E ergänzen (getaggt). [Subagent D]
+- [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
+- [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
+
+### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
+- P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
+- Feld-Editor-Umfang (P4, User-Klärung) · Google-Wallet-Issuer (extern)
+- P5-F4 Queue-Integration (braucht Queue-Worker → Go-Live-Infra, Post-MVP belassen) · P5-F3/P6-B2 (bereits dokumentierte MVP-Entscheidungen)
+
+### Wave-Plan (erweitert, max. 2 parallel, disjunkte Ziel-Dateien)
+- **Wave 1 (parallel, 2):** Subagent A (Backend: escapeLike + Vite-Proxy) ∥ Subagent B (Docs-Batch) — **DONE + B verifiziert (APPROVED)**
+- **Laufend:** A-Verifikator (Backend) ∥ Subagent D (Frontend: P1c E2E)
+- **Wave 2 (parallel, 2):** Subagent C (Backend: P3e-B4 Filter-Endpoint) ∥ Subagent E (Docs: P2c-F4)
+- **Wave 3 (parallel, 2):** Subagent F (Backend: Portabilitäts-Audit) ∥ Verifikator C ∥ Verifikator D (sofern Kapazität; sonst sequenziell)
+- **Verifikation:** je Umsetzung separater Verifikator-Subagent (§5: Architektur + Security + Tests/Lint/Build)

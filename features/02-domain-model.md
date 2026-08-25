@@ -49,3 +49,24 @@ Schema/Queries bleiben zwischen **Postgres (Dev/Prod)** und **SQLite
 JSON-Spalten via Laravel `json`-Type, Datumsarithmetik über Query-Builder/
 Eloquent. Wo Postgres-Features nötig sind → Service-Abstraktion + separater
 Integrationstest.
+
+## Applications: `created_at` ist der Antragszeitpunkt (kein `applied_at`, P3b-F2)
+
+Die Tabelle `applications` besitzt **kein** eigenes `applied_at`-Feld — der
+Antragszeitpunkt **ist** `created_at` (Laravel-Timestamps): beim Anlegen des
+Antrags (`POST …/apply`) gesetzt und danach unveränderlich; Statuswechsel der
+Engine/Admin-Aktionen schreiben nur `status`/`reason` (und `updated_at`
+als Nebenprodukt), nie `created_at`.
+
+- **API-Vertrag:** Exponiert wird ausschließlich **`created_at`**
+  (ISO-8601, `ApplicationResource`). Ein Feld `applied_at` existiert weder im
+  Schema noch in der API — Client-Seite darf sich darauf nicht stützen.
+- **FCFS-Ordering:** Die Allocation-Engine nutzt `created_at ASC` als
+  Eingangsreihenfolge (= Antragseingang), siehe
+  `accreditation/01-allocation-engine.md`.
+- **Kein Decision-Zeitstempel:** Der Freigabe-/Ablehnungszeitpunkt wird
+  aktuell **nicht** persistiert oder exponiert (`updated_at` ist kein
+  verlässlicher Ersatz — z. B. ändert eine spätere VIP-Setzung via
+  `setPriority` den Wert ohne Statuswechsel). Wird ein Audit-Zeitstempel für
+  die Freigabe-Entscheidung benötigt → eigene neue Spalte (SOLL, P3e-Cleanup),
+  kein Überladen von `created_at`.

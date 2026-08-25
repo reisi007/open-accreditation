@@ -51,6 +51,30 @@ Schedule (`backend/routes/console.php`).
 - **`blacklisted` wird von der Engine nie gesetzt** — der Status ist für die
   **Blacklist-Verwaltung in P3e** reserviert (Block auf Mandant-Ebene).
 
+### Bulk-Reanimations-Limitation (BE-R8, Design-Entscheidung)
+
+> ⚠️ **Limitation:** Bulk-Läufe können `denied`-Anträge **nicht reanimieren**.
+
+Alle Bulk-Pfade (`approveSelection`, `approveAllEligible` — manuell wie
+automatisch) kandidieren ausschließlich über `eligibleRequested()`, d. h. nur
+Zeilen im Status **`requested`**. Konsequenzen:
+
+- Ein `denied`-Antrag bleibt durch jeden weiteren Bulk-Run — auch nach
+  Quota-Erhöhung oder Blacklist-Löschung — **dauerhaft `denied`**. Das gilt
+  ausdrücklich auch für Anträge mit VIP-Priorität: `priority = true` schützt
+  nicht vor dem Verbleib in `denied`; VIP wird nur unter den `requested`-
+  Kandidaten bevorzugt sortiert, nie re-geprüft.
+- Ebenso sind `approved`-/`blacklisted`-Zeilen nie Bulk-Kandidaten
+  (Idempotenz, siehe Kernregel 7).
+
+**Einziger Reanimationsweg:** die Einzelaktion
+`AllocationService::approveApplication()` (P3e), die als Ausgangsstatus
+explizit `requested | denied` zulässt (Blacklist-Guard und Quota-Check laufen
+dort erneut). Die Massenfreigabe ist bewusst vom Reanimationsweg
+ausgeschlossen: Bulk-Läufe bleiben deterministisch und idempotent, die
+Reaktivierung abgelehnter Anträge ist eine bewusste Admin-Entscheidung im
+Einzelfall — keine Design-Lücke, sondern gewollte Trennung.
+
 ## Service-API
 
 ### `App\Services\AllocationService`
