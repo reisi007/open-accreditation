@@ -295,3 +295,27 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 - **Wave 2 (parallel, 2):** Subagent C (Backend: P3e-B4 Filter-Endpoint) ∥ Subagent E (Docs: P2c-F4)
 - **Wave 3 (parallel, 2):** Subagent F (Backend: Portabilitäts-Audit) ∥ Verifikator C ∥ Verifikator D (sofern Kapazität; sonst sequenziell)
 - **Verifikation:** je Umsetzung separater Verifikator-Subagent (§5: Architektur + Security + Tests/Lint/Build)
+
+---
+
+## 🛠️ Session 2026-08-25b — User-Entscheidungen (interaktiv geklärt) + Umsetzung
+
+> Entscheidungen vom Benutzer: **BE-R1 = Per-Mandant `email`-unique** · **Google-Wallet jetzt einleiten** ·
+> **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
+
+### TODO-Liste (actionable, mit Test-Forderung)
+- [ ] **BE-R1 (MEDIUM, Entscheidung: per Mandant unique)** — Registrierung/Login auf `(mandant_id, email)` umstellen:
+  Migration (global `users.email`-Unique → composite `unique(mandant_id, email)`, portable), `AuthController::register`
+  Validierung per Mandant scopen, Login/E-Mail-Lookup über den Host-Mandant auflösen. → PHPUnit:
+  gleiche E-Mail auf 2 Mandanten ok, Duplikat im selben Mandant 422, Login host-gescoped, Cross-Mandant-Leak ausgeschlossen.
+  [Subagent G]
+- [ ] **Google-Wallet-Issuer-Setup vorbereiten** — Schritt-für-Schritt-Issuer-Setup-Checkliste in `features/wallet-pkpass.md`
+  ergänzen (externe Owner-Aktion: Issuer-Account anlegen, `GOOGLE_ISSUER_ID` setzen), Config-Keys/Preview-Fallback dokumentieren.
+  [Subagent H / Docs]
+- [ ] **Feld-Editor SOLL-Spec (P4, Entscheidung: voll frei positionierbar)** — `features/`-Spec für Drag&Drop-Feld-Editor
+  (X/Y-Positionen im Template-Schema inkl. `qr`-Feld aus P4-F4, Feldtypen, Validierung, PDF-Render-Kontrakt). Erst Spec,
+  danach Umsetzung in Folgewellen. [Subagent H / Docs]
+
+### Bewusst NICHT in diesem Batch
+- P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme
+- P5-F4 Queue-Integration (Go-Live-Infra, Post-MVP) · Feld-Editor-Umsetzung erst nach SOLL-Spec-Verifikation
