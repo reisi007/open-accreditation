@@ -49,30 +49,41 @@ jobs:
             // und werden bewusst NIE auto-gemergt
             const notDocker = !dependencyGroup.includes('docker');
 
-            const shouldMerge = (safeGroup || safeIndividual) && notDocker;
-            // WICHTIG: Output darf NICHT `result` heissen - das ist der
-            // reservierte Return-Value-Output von actions/github-script und
-            // wuerde nach der Ausführung mit dem (leeren) Rueckgabewert
-            // ueberschrieben -> Bedingungen unten evaluierten immer false.
-            core.setOutput('merge', String(shouldMerge));
-            console.log('automerge decision:', { updateType, dependencyGroup, shouldMerge });
+            // WICHTIG: `return` statt core.setOutput('result', ...) - github-script
+            // reserviert den Output-Namen "result" für den Script-Rückgabewert und
+            // überschreibt ein manuell gesetztes Output "result" sonst mit "".
+            // (Bewiesen im Debug-Lauf 2026-08-25; ohne Fix werden die Merge-Schritte
+            // still geskippt, obwohl der Run "success" meldet.)
+            return (safeGroup || safeIndividual) && notDocker;
 
+      # running-workflow-name verhindert, dass wait-on-check auf SICH SELBST
+      # wartet (der AutomERGE-Run hängt am head-sha). allowed-conclusions
+      # inkl. "skipped": sonst blockiert ein übersprungener Deploy-Job den Merge.
+      # ACHTUNG: v1.9.1 kennt KEINEN "timeout"-Input (würde ignoriert -> potenziell
+      # 6h-Hängen). Warte-Zeit nur über wait-interval (Sekunden zwischen Polls) +
+      # das absichtlich kurze CI-Fenster im Repo begrenzt.
       - name: Wait for CI checks
-        if: steps.should-merge.outputs.merge == 'true'
+        if: steps.should-merge.outputs.result == 'true'
         uses: lewagon/wait-on-check-action@v1.9.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          wait-interval: 60
-          # Der eigene Job registriert einen Check mit Job-Namen - ohne
-          # Exclusion wartet die Action auf sich selbst (Deadlock).
           running-workflow-name: automerge
-          # Pfad-gefilterte Duplicate-Runs (push + pull_request) enden
-          # legitim auf "skipped" und duerfen nicht blockieren.
+          wait-interval: 60
           allowed-conclusions: success,skipped
 
+      # pull_request_target checkt per Default KEIN Repo aus -> "gh pr merge"
+      # scheitert mit "not a git repository". Daher main auschecken (nur Metadaten/
+      # API-Merge, KEIN PR-Code -> weiterhin sicher).
+      - name: Checkout main (for gh pr merge)
+        if: steps.should-merge.outputs.result == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          sparse-checkout: .github
+
       - name: Merge Dependabot PR
-        if: steps.should-merge.outputs.merge == 'true'
+        if: steps.should-merge.outputs.result == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge "${{ github.event.pull_request.number }}" --squash --delete-branch
