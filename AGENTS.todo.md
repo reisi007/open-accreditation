@@ -316,6 +316,27 @@ Verzögert / blockiert (nicht Teil dieses PRs):
   (X/Y-Positionen im Template-Schema inkl. `qr`-Feld aus P4-F4, Feldtypen, Validierung, PDF-Render-Kontrakt). Erst Spec,
   danach Umsetzung in Folgewellen. [Subagent H / Docs]
 
+### Feld-Editor Umsetzung — Etappenplan (je Etappe: Implementer ∥ nichts, separater Verifikator, UI-Review-Skill)
+> **UI-Test-Regel (STRICT) für jede Etappe:** Nach Umsetzung (a) funktionale Tests (PHPUnit/Vitest/Playwright
+> getaggt `@feature:badge-editor`), dann (b) **UI-Review-Skill**: `cd frontend && pnpm test:screenshots`
+> (nur betroffene Routen, manifest-getrieben) → PNGs an `vision`-Subagent in Batches ≤ 10 (erst filled, dann empty;
+> desktop vor mobile) → Findings-Report (critical/high blockieren APPROVED) → Fixes → Re-Capture betroffener Routen +
+> Vision old-vs-new-Diff. Erst wenn Vision-Loop sauber: nächste Etappe.
+
+- [ ] **FE1 — Template-Schema + Backend-Render-Kontrakt:** Felder mit `x`/`y`/`width`/`height`/`fontSize`/`alignment`
+  (mm-basiert) im Template-Schema inkl. `qr`-Fixfeld (P4-F4); API-Validierung (Bounds, Mindestgröße); PDF-Render nutzt
+  Koordinaten (`BadgeRenderService`); Rückwärtskompatibilität (Default-Layout wenn keine Koordinaten).
+  Tests: PHPUnit (Schema/API/PDF-Regression) + Vitest (Schema-Utils). [Implementer I]
+- [ ] **FE2 — Editor-Basis-UI:** Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
+  Auswahl + Eigenschaften-Panel (X/Y/Breite/Höhe/Font/Alignment als Zahleneingaben), Persistenz-Roundtrip.
+  Tests: Vitest + Playwright `@feature:badge-editor` + UI-Review (Vorschau-Seite, filled/empty, Desktop+Mobile). [Implementer J]
+- [ ] **FE3 — Drag&Drop:** Freies Ziehen der Felder auf der Vorschau mit Grid/Snap, Bounds-Clamping, Überlappungs-Warnung;
+  Positionen synchronisieren Panel ↔ Vorschau ↔ Speicherung. Tests: Playwright `@feature:badge-editor` (+`@regression`)
+  + UI-Review mit Vision old-vs-new-Diff der Editor-Routen. [Implementer K]
+- [ ] **FE4 — Polish + Full-Regression:** Resize-Griffe, Alignment-Hilfslinien, Tastatur-Nudging (Pfeiltasten), i18n DE/EN,
+  leere/zustandsreiche Templates; abschließender **kompletter** UI-Review-Lauf (alle betroffenen Routen + `@smoke`/
+  `@regression` E2E) + Findings-Report + Fix-Loop bis 0 critical/high. [Implementer L]
+
 ### Bewusst NICHT in diesem Batch
 - P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme
 - P5-F4 Queue-Integration (Go-Live-Infra, Post-MVP) · Feld-Editor-Umsetzung erst nach SOLL-Spec-Verifikation
