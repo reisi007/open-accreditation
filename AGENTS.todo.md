@@ -323,6 +323,28 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > desktop vor mobile) → Findings-Report (critical/high blockieren APPROVED) → Fixes → Re-Capture betroffener Routen +
 > Vision old-vs-new-Diff. Erst wenn Vision-Loop sauber: nächste Etappe.
 
+### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
+> Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
+> QR-Position, Feld-Überlappung, Abschneiden, Kontrast, Skalierung). Besonders relevant für **FE1** (Render-Kontrakt).
+
+- **Tool-Befund lokal (macOS):**
+  - `magick`/`convert` (ImageMagick) **installiert**, aber PDF-Rendering **scheitert**: ImageMagicks PDF-Delegate ist
+    Ghostscript (`gs`) → `gs` fehlt (`brew install ghostscript` würde `magick` PDF-fähig machen, mit `-r 150..300`
+    DPI-Kontrolle + Multi-Page).
+  - `pdftoppm` (poppler) nicht installiert — wäre die hochwertigste Option (`brew install poppler`; im CI-Image via
+    apt `poppler-utils`).
+  - ✅ **`sips` (macOS-Bordmittel) funktioniert out-of-the-box**: dompdf-Test-PDF (A6 landscape) → sauberes PNG
+    (420×298 @72dpi). Für einseitige Badge-PDFs ausreichend; erste Seite only.
+- **Fixture-Pfad:** Badge-PDF wird backend-seitig erzeugt (dompdf ^3.1 verifiziert): entweder über den auth-geschützten
+  Badge-Endpoint im laufenden Dev-Stack oder per PHPUnit/Artisan-Fixture in eine temp Datei gerendert → `sips` → PNG.
+- **SOLL-Pipeline (FE1-Verifikation + künftige PDF-Änderungen):**
+  1. Badge-PDF generieren (Dev-Stack/Fixture), 2. `sips -s format png x.pdf --out x.png` (lokal) bzw. `magick -density 200`
+     nach Ghostscript-Installation, 3. PNG(s) an `vision`-Subagent mit PDF-Checkliste (QR unten rechts 20×20 mm,
+     Felder ohne Überlappung/Abschneidung, Font-Skalierung, Rückwärtskompatibles Default-Layout),
+  4. Findings-Report wie beim UI-Review (critical/high blockieren APPROVED), 5. bei Fixes: neu rendern + old-vs-new-Diff.
+- **CI (optional, Follow-up):** für automatisierte PDF-Vision-Checks im E2E-Job `poppler-utils` (pdftoppm) ins
+  `deployment/Dockerfile.e2e` aufnehmen — nicht blockierend für FE1, lokale Verifikation genügt zunächst.
+
 - [ ] **FE1 — Template-Schema + Backend-Render-Kontrakt:** Felder mit `x`/`y`/`width`/`height`/`fontSize`/`alignment`
   (mm-basiert) im Template-Schema inkl. `qr`-Fixfeld (P4-F4); API-Validierung (Bounds, Mindestgröße); PDF-Render nutzt
   Koordinaten (`BadgeRenderService`); Rückwärtskompatibilität (Default-Layout wenn keine Koordinaten).
