@@ -275,10 +275,13 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C]
-- [ ] **P1c** — `@feature:profile` Playwright-E2E ergänzen (getaggt). [Subagent D, läuft]
+- [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C, Verifikation läuft]
 - [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
 - [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
+
+### Low Follow-ups (info, aus Verifikation)
+- [ ] **P1c-F1 (low)** — `profile.spec.ts:53`: `createActivatedSession` liefert `email` zurück, ungenutzt (Design-Nit, belassen).
+- [ ] **P1c-F2 (low)** — `profile.spec.ts:88`: Assertion auf exakten String `Profil aktualisiert.` koppelt E2E an Backend-Copy; bei Copy-Änderung anpassen.
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
