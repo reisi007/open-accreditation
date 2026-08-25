@@ -281,6 +281,8 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 - [ ] **P3e-B4-F1 (low)** — `SubAccreditationController.php:256`: `assertAccreditationFilter()` dupliziert `AdminApplicationController.php:212` (Mirror); langfristig in `ResolvesAdminTeamScope`-Concern.
 - [ ] **P3e-B4-F2 (low)** — `ApprovalsPage.tsx:872`: statischer SWR-Key statt alter `accreditations.length`-Abhängigkeit (nur Dropdown-Optionen, harmlos).
 - [ ] **P3e-B4-F3 (low)** — `SubAccreditationController.php:132`: globales `orderBy('id')` statt Gruppierung nach Akkreditierung → evtl. andere Dropdown-Reihenfolge.
+- [ ] **P2-F1 (low)** — `UserController.php:57`: Non-ASCII-Divergenz — SQLite `LOWER()` faltet nur ASCII (Suche `müller`≠`MÜLLER` im Test-Engine, auf PG ok). Trade-off der Portabilitätsregel; ggf. als akzeptiertes Risiko in `features/` dokumentieren.
+- [ ] **P2-F2 (low)** — `UserController.php:57`: `LOWER(col)` verhindert b-tree-Index-Nutzung auf PG; bei wachsenden User-Beständen funktionalen Index `LOWER(name)` ergänzen (portabel). Nicht blockierend.
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
