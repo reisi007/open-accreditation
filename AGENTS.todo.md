@@ -275,7 +275,6 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
 - [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
 
 ### Low Follow-ups (info, aus Verifikation)

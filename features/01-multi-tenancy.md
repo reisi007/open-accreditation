@@ -30,7 +30,9 @@ Admin-API ist dabei rein **abgeleitet**, kein DB-Feld:
   auf **jeder** Team-Kategorie — auch wenn es streng genommen nur ein
   „Team-Level"-Flag ist. Semantik-Kosmetik, kein Schema-/API-Change nötig;
   der Flag darf nicht als Nachweis eines echten Slug-Overrides missdeutet
-  werden.
+  werden. Eine zweite, davon unabhängige bewusst akzeptierte UI-Approximation
+  im gleichen Formular-Umfeld: die Multi-Domain-Admin-UX-Limitation
+  (siehe unten).
 
 ## Host-Resolution (Ist P1)
 
@@ -60,6 +62,45 @@ Admin-API ist dabei rein **abgeleitet**, kein DB-Feld:
   laufen über explizite `scopeForMandant()`/`scopeForTeam()` (siehe `RoleUser`)
   — Cross-Mandant-Lecks sind damit ausgeschlossen, die Isolationsgarantie darf
   nicht regredieren.
+
+## Bekannte Limitation: Multi-Domain-Admin-UX (Ist P2c, P2c-F4)
+
+**Bewusst akzeptierte Limitation** (Design-Entscheidung, kein Bug): Ein
+`super_admin` hat keinen mandant-scoped Rollenkontext (`mandant_id = NULL`,
+global). Die Admin-UX nähert den „aktuellen Mandant" daher im Frontend an:
+`useAdminTeams()` (`frontend/src/logic/useAdminTeams.ts`) wählt für ihn den
+**Primär-Mandant** (`is_primary = true`) als Quelle der Team-Listen und
+Team-Auswahlen (Kategorien, Events, Rollen-, Akkreditierungs-Formulare). Das
+Backend selbst löst korrekt host-basiert auf (`MandantContext::currentId()`
+in den Admin-Controllern, siehe Host-Resolution) — die Approximation liegt
+rein im SPA.
+
+**Folge:** Greift ein `super_admin` über eine **Nicht-Primär-Domain**
+(z. B. `bundesliga.test`) zu, zeigt die Team-Auflistung fälschlicherweise die
+Teams des **Primär-Mandanten** — nicht die des über die Domain adressierten
+Mandanten. In Dev/Local ist das unsichtbar: Der Loopback-Fallback der
+`MandantContextMiddleware` mapped `localhost`/`127.0.0.1`/`::1` ohnehin auf
+den Primär-Mandant, damit ist die Frontend-Approximation dort korrekt
+(Dev-ok). Die Mandant-Detail-Seite (`MandantDetailPage`) ist nicht betroffen
+— sie adressiert den Mandanten explizit über die URL
+(`/api/admin/mandants/{id}/teams`).
+
+**Keine Isolationslücke:** Jeder Write wird backend-seitig gegen den
+host-abgeleiteten aktuellen Mandanten validiert
+(`ResolvesAdminTeamScope::assertTeamOfMandant()`, Cross-Mandant-IDs → 404).
+Eine falsche Team-Vorauswahl führt also zu verwirrender UX (404 beim Speichern
+gegen fremden Kontext), nie zu Daten in einem anderen Mandanten.
+
+**Einordnung & Lösungspfad:** Kein Defekt, sondern eine dokumentierte
+Einschränkung bis zur späteren Multi-Domain-Admin-UX-Phase. Die saubere
+Lösung — Domain→Mandant-Auflösung auch für die Admin-Routen des SPA nutzen
+(der Host liegt vor, das Backend liefert die Auflösung bereits korrekt) —
+erfolgt in dieser späteren Phase. Bis dahin verwaltet ein `super_admin`
+Nicht-Primär-Mandanten über die Mandant-CRUD-Oberfläche
+(`/admin/mandants/{id}`), die den Mandanten ebenfalls explizit adressiert.
+
+Gleiche Kategorie bewusst akzeptierter UI-Approximationen wie der
+`is_team_override`-Flag (siehe oben).
 
 ## Seed (Ist P1)
 
