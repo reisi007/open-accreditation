@@ -59,8 +59,9 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 - **Task & Test Tracking:** Every feature requires actionable TODOs in `AGENTS.todo.md`. You MUST
   explicitly include TODOs for writing test cases (PHPUnit backend, Vitest, Playwright E2E).
 - **Completed-TODO Cleanup (STRICT):** Abgeschlossene **und** verifizierte TODOs (Implementierung + Tests
-  grün + Verifikator-Approval) werden aus `AGENTS.todo.md` **entfernt** — nicht abgehakt stehengelassen.
-  Befunde/Erkenntnisse aus der Verifikation wandern als offene Follow-ups oder Notizen in
+  grün + Verifikator-Approval) werden aus `AGENTS.todo.md` **vollständig entfernt** — nicht abgehakt
+  stehengelassen und **nicht** in einen eigenen „Completed"/„Erledigt"-Bereich verschoben. Befunde/Erkenntnisse
+  aus der Verifikation wandern als offene Follow-ups oder Notizen in
   `AGENTS.todo.md` bzw. dauerhaft gültige Entscheidungen in `features/`. Die Bereinigung führt ein
   **Subagent** aus (Build-Agent muss sie nicht selbst übernehmen).
 - **Zero Pre-existing Failures Policy (STRICT):** Pre-existing Test-Failures (PHPUnit, Vitest, Playwright)
