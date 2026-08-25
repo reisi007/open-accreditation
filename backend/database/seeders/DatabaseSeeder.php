@@ -119,7 +119,15 @@ class DatabaseSeeder extends Seeder
         }
 
         return User::firstOrCreate(
-            ['email' => (string) ($email ?? 'admin@example.com')],
+            [
+                'email' => (string) ($email ?? 'admin@example.com'),
+                // BE-R1: emails are unique per mandant — the bootstrap admin
+                // is the GLOBAL account (mandant_id null, matching its global
+                // super_admin role_user row below). Scoping the match prevents
+                // attaching the super_admin role to a mandant-scoped account
+                // that happens to share the same address.
+                'mandant_id' => null,
+            ],
             [
                 'name' => 'Admin',
                 'password' => (string) ($password ?? 'admin'),

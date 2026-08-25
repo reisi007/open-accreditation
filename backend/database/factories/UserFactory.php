@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Mandant;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -40,6 +41,18 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /**
+     * Bind the account to a mandant — the per-mandant email uniqueness scope
+     * (BE-R1). `null` creates a global account (`mandant_id = null`, e.g.
+     * bootstrap super admin); that is also the implicit factory default.
+     */
+    public function forMandant(?Mandant $mandant): static
+    {
+        return $this->state(fn (): array => [
+            'mandant_id' => $mandant?->id,
         ]);
     }
 }

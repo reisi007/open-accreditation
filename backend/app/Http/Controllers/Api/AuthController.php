@@ -31,16 +31,46 @@ class AuthController extends Controller
      * Creates a user inside the current mandant (role `user` scoped to the
      * mandant), generates an activation token and sends the activation mail.
      * The account only becomes login-capable after the mail link was clicked.
+     *
+     * BE-R1: emails are unique PER MANDANT, not globally — the same person
+     * may register the same address on two different mandant domains and gets
+     * two independent accounts. The uniqueness scope is anchored on
+     * `users.mandant_id`, which is set from `MandantContext` (host-derived,
+     * never user input).
      */
     public function register(Request $request): JsonResponse
     {
+        // BE-R1: emails are unique PER MANDANT, not globally — the same person
+        // may register the same address on two different mandant domains and
+        // gets two independent accounts. The uniqueness scope is anchored on
+        // `users.mandant_id`, which comes from `MandantContext`
+        // (host-derived via MandantContextMiddleware, never user input).
+        //
+        // Order matters: base field validation runs FIRST (so an empty payload
+        // yields the usual field errors regardless of the domain), then the
+        // mandant guard rejects domains without a resolvable mandant.
+        $mandant = MandantContext::current();
+
+        // Lowercase BEFORE validation so the per-mandant unique rule cannot be
+        // bypassed with a case variant ("Alice@X.COM" vs "alice@x.com") — both
+        // Postgres and SQLite compare text case-sensitively here. Registration
+        // already persisted lowercased emails before BE-R1.
+        if (is_string($request->input('email'))) {
+            $request->merge(['email' => strtolower(trim($request->input('email')))]);
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email' => [
+                'required', 'string', 'email', 'max:255',
+                // Scoped uniqueness only applies where a mandant could be
+                // resolved; without one the guard below rejects anyway.
+                ...($mandant === null
+                    ? []
+                    : [Rule::unique('users', 'email')->where('mandant_id', $mandant->id)]),
+            ],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
-
-        $mandant = MandantContext::current();
 
         if ($mandant === null) {
             return response()->json([
@@ -58,6 +88,10 @@ class AuthController extends Controller
             $user = User::create([
                 'name' => $validated['name'],
                 'email' => strtolower($validated['email']),
+                // BE-R1: bind the account to the current mandant — the
+                // uniqueness anchor for (mandant_id, email) and the login
+                // lookup scope.
+                'mandant_id' => $mandant->id,
                 'password' => $validated['password'],
                 'email_verified_at' => null,
                 'activation_token' => hash('sha256', $token),
@@ -125,6 +159,13 @@ class AuthController extends Controller
      * Validates credentials and returns the JWT in the httpOnly `accr_jwt`
      * cookie. Only activated users may log in; accounts of another mandant
      * are rejected (mandant isolation).
+     *
+     * BE-R1: since emails are unique per mandant (not globally), the lookup
+     * is HOST-SCOPED — on a mandant domain only that mandant's accounts (plus
+     * global `mandant_id = null` accounts such as the bootstrap super admin)
+     * are addressable. An email that exists only on ANOTHER mandant's domain
+     * yields the generic 401, exactly like an unknown email: this deliberately
+     * removes the previous cross-tenant existence oracle (401 vs 403).
      */
     public function login(Request $request): JsonResponse
     {
@@ -133,7 +174,7 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::query()->where('email', strtolower($credentials['email']))->first();
+        $user = $this->findLoginUser(strtolower(trim($credentials['email'])));
 
         if ($user === null || ! Hash::check($credentials['password'], $user->password)) {
             return response()->json([
@@ -154,6 +195,32 @@ class AuthController extends Controller
         }
 
         return $this->respondWithToken(auth('api')->login($user));
+    }
+
+    /**
+     * Resolve the login candidate for an email under the current host.
+     *
+     * With a resolved mandant context (BE-R1): prefer THIS mandant's account
+     * for the email (the domain-local identity), falling back to a global
+     * account (`mandant_id = null`, e.g. the bootstrap super admin). The
+     * `(mandant_id, email)` unique guarantees at most one mandant-scoped hit;
+     * several global rows sharing one email are legal via NULL semantics but
+     * pathological — the seeder prevents them.
+     *
+     * WITHOUT a resolved context (CLI, tests, hosts outside any mandant): the
+     * legacy unrestricted email lookup applies. Authorization still runs
+     * through `mayLogInOnCurrentMandant()` afterwards in every case.
+     */
+    private function findLoginUser(string $email): ?User
+    {
+        $mandantId = MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return User::query()->where('email', $email)->first();
+        }
+
+        return User::query()->where('email', $email)->where('mandant_id', $mandantId)->first()
+            ?? User::query()->where('email', $email)->whereNull('mandant_id')->first();
     }
 
     /**

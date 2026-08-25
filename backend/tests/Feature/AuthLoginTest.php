@@ -165,4 +165,122 @@ class AuthLoginTest extends TestCase
             'password' => 'password',
         ])->assertOk();
     }
+
+    /* ---------------------------------------------------------------------
+     | BE-R1: per-mandant accounts — host-scoped login lookups.
+     |
+     | Emails are unique per mandant, so the same address may exist as two
+     | independent accounts (one per mandant domain). The login lookup is
+     | therefore host-scoped: it resolves the CURRENT mandant's account for
+     | the email (falling back to global `mandant_id = null` accounts such
+     | as the bootstrap super admin) and never an account that only exists
+     | on another mandant's domain.
+     -------------------------------------------------------------------- */
+
+    public function test_login_resolves_the_account_of_the_current_mandants_domain(): void
+    {
+        $mandantA = Mandant::factory()->create(['slug' => 'verband-a']);
+        $mandantB = Mandant::factory()->create(['slug' => 'verband-b']);
+
+        // Two independent accounts sharing one email — exactly what per-mandant
+        // registration produces, including each account's own role assignment.
+        $userRole = Role::query()->where('slug', 'user')->firstOrFail();
+        $userA = User::factory()->forMandant($mandantA)->create(['email' => 'alice@x.com']);
+        $userB = User::factory()->forMandant($mandantB)->create(['email' => 'alice@x.com', 'password' => 'other-pass']);
+        foreach ([$userA, $userB] as $account) {
+            RoleUser::create([
+                'user_id' => $account->id,
+                'role_id' => $userRole->id,
+                'mandant_id' => $account->mandant_id,
+                'team_id' => null,
+            ]);
+        }
+
+        // On mandant A's domain the mandant-A account is used …
+        MandantContext::set($mandantA);
+        $this->postJson('/api/auth/login', [
+            'email' => 'alice@x.com',
+            'password' => 'password',
+        ])->assertOk();
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'alice@x.com',
+            'password' => 'other-pass',
+        ])->assertStatus(401);
+
+        // … and on mandant B's domain the mandant-B account with ITS OWN password.
+        MandantContext::set($mandantB);
+        $this->postJson('/api/auth/login', [
+            'email' => 'alice@x.com',
+            'password' => 'other-pass',
+        ])->assertOk();
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'alice@x.com',
+            'password' => 'password',
+        ])->assertStatus(401);
+
+        // Sanity: both independent accounts really exist side by side.
+        $this->assertSame($mandantA->id, $userA->fresh()->mandant_id);
+        $this->assertSame($mandantB->id, $userB->fresh()->mandant_id);
+    }
+
+    public function test_login_rejects_an_email_that_only_exists_on_another_mandant(): void
+    {
+        $mandantA = Mandant::factory()->create(['slug' => 'verband-a']);
+        $mandantB = Mandant::factory()->create(['slug' => 'verband-b']);
+
+        User::factory()->forMandant($mandantA)->create(['email' => 'alice@x.com']);
+
+        // On mandant B's domain this email does not exist — and it must NOT be
+        // leaked whether it exists elsewhere: generic invalid-credentials 401,
+        // identical to a fully unknown email.
+        MandantContext::set($mandantB);
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'alice@x.com',
+            'password' => 'password',
+        ])->assertStatus(401)
+            ->assertJsonPath('message', 'Ungültige Zugangsdaten.');
+    }
+
+    public function test_login_prefers_the_current_mandants_account_over_the_global_one(): void
+    {
+        $mandant = Mandant::factory()->create(['slug' => 'verband']);
+
+        // Global account (bootstrap-super-admin style, mandant_id NULL) AND a
+        // local account of this very mandant share one email.
+        $globalAdmin = User::factory()->create(['email' => 'chief@x.com']);
+        $localUser = User::factory()->forMandant($mandant)->create(['email' => 'chief@x.com']);
+
+        $superAdminRole = Role::query()->where('slug', 'super_admin')->firstOrFail();
+        $userRole = Role::query()->where('slug', 'user')->firstOrFail();
+        RoleUser::create([
+            'user_id' => $globalAdmin->id,
+            'role_id' => $superAdminRole->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+        RoleUser::create([
+            'user_id' => $localUser->id,
+            'role_id' => $userRole->id,
+            'mandant_id' => $mandant->id,
+            'team_id' => null,
+        ]);
+
+        MandantContext::set($mandant);
+
+        // The domain-local identity wins over the global account.
+        $login = $this->postJson('/api/auth/login', [
+            'email' => 'chief@x.com',
+            'password' => 'password',
+        ])->assertOk();
+
+        $token = $login->getCookie(config('jwt.cookie_key_name'), false)->getValue();
+
+        $this->withCookie(config('jwt.cookie_key_name'), $token)
+            ->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $localUser->id);
+    }
 }

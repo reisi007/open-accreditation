@@ -304,17 +304,15 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **BE-R1 (MEDIUM, Entscheidung: per Mandant unique)** — Registrierung/Login auf `(mandant_id, email)` umstellen:
-  Migration (global `users.email`-Unique → composite `unique(mandant_id, email)`, portable), `AuthController::register`
-  Validierung per Mandant scopen, Login/E-Mail-Lookup über den Host-Mandant auflösen. → PHPUnit:
-  gleiche E-Mail auf 2 Mandanten ok, Duplikat im selben Mandant 422, Login host-gescoped, Cross-Mandant-Leak ausgeschlossen.
-  [Subagent G]
-- [ ] **Google-Wallet-Issuer-Setup vorbereiten** — Schritt-für-Schritt-Issuer-Setup-Checkliste in `features/wallet-pkpass.md`
-  ergänzen (externe Owner-Aktion: Issuer-Account anlegen, `GOOGLE_ISSUER_ID` setzen), Config-Keys/Preview-Fallback dokumentieren.
-  [Subagent H / Docs]
-- [ ] **Feld-Editor SOLL-Spec (P4, Entscheidung: voll frei positionierbar)** — `features/`-Spec für Drag&Drop-Feld-Editor
-  (X/Y-Positionen im Template-Schema inkl. `qr`-Feld aus P4-F4, Feldtypen, Validierung, PDF-Render-Kontrakt). Erst Spec,
-  danach Umsetzung in Folgewellen. [Subagent H / Docs]
+_(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung folgt als FE1–FE4, siehe Etappenplan oben.)_
+
+### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
+- [ ] **BE-R1-F1 (low)** — `users.mandant_id` ohne FK (Migration-Order-Begründung dokumentiert); optional dedizierte FK-Migration nach Präzedenz `2026_08_14_000010_add_team_foreign_key_to_role_user`.
+- [ ] **BE-R1-F2 (low)** — Mehrere globale Konten (`mandant_id=NULL`, gleiche E-Mail) wären legal (NULL-Semantik) und träfen per willkürlichem `first()`; Seeder verhindert sie — optional hartes Guard (`AuthController.php:222`).
+- [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
+- [ ] **DOC-H-F1 (low)** — Editor-Spec-Zeile 77: Ist-Prämisse `vest_number` nach Gs Merge nochmals quergreifen (Feld existiert bereits aus P2).
+- [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
+- [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
 
 ### Feld-Editor Umsetzung — Etappenplan (je Etappe: Implementer ∥ nichts, separater Verifikator, UI-Review-Skill)
 > **UI-Test-Regel (STRICT) für jede Etappe:** Nach Umsetzung (a) funktionale Tests (PHPUnit/Vitest/Playwright

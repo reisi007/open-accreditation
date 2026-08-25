@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -18,6 +19,7 @@ use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
 #[Fillable([
     'name',
+    'mandant_id',
     'email',
     'email_verified_at',
     'password',
@@ -76,6 +78,18 @@ class User extends Authenticatable implements JWTSubject
             'vest_available' => 'boolean',
             'activation_token_expires_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The owning mandant ("home" mandant) of this account — the anchor for
+     * the per-mandant email uniqueness (BE-R1) and the host-scoped login
+     * lookup. Authorization itself still flows exclusively through the
+     * mandant-scoped `role_user` assignments (union semantics), not through
+     * this column.
+     */
+    public function mandant(): BelongsTo
+    {
+        return $this->belongsTo(Mandant::class);
     }
 
     /**
