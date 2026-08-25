@@ -275,13 +275,15 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C, Verifikation läuft]
 - [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
 - [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
 
 ### Low Follow-ups (info, aus Verifikation)
 - [ ] **P1c-F1 (low)** — `profile.spec.ts:53`: `createActivatedSession` liefert `email` zurück, ungenutzt (Design-Nit, belassen).
 - [ ] **P1c-F2 (low)** — `profile.spec.ts:88`: Assertion auf exakten String `Profil aktualisiert.` koppelt E2E an Backend-Copy; bei Copy-Änderung anpassen.
+- [ ] **P3e-B4-F1 (low)** — `SubAccreditationController.php:256`: `assertAccreditationFilter()` dupliziert `AdminApplicationController.php:212` (Mirror); langfristig in `ResolvesAdminTeamScope`-Concern.
+- [ ] **P3e-B4-F2 (low)** — `ApprovalsPage.tsx:872`: statischer SWR-Key statt alter `accreditations.length`-Abhängigkeit (nur Dropdown-Optionen, harmlos).
+- [ ] **P3e-B4-F3 (low)** — `SubAccreditationController.php:132`: globales `orderBy('id')` statt Gruppierung nach Akkreditierung → evtl. andere Dropdown-Reihenfolge.
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)

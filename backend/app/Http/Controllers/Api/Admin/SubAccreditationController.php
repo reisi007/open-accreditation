@@ -8,6 +8,8 @@ use App\Http\Resources\SubAccreditationResource;
 use App\Models\Accreditation;
 use App\Models\SubAccreditation;
 use App\Services\SubAllocationService;
+use App\Support\LikeSearch;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -44,6 +46,90 @@ class SubAccreditationController extends Controller
             ->get();
 
         return SubAccreditationResource::collection($subs);
+    }
+
+    /**
+     * P3e-B4: mandant-wide sub-accreditation list with server-side filters —
+     * one request instead of N parallel per-accreditation requests from the
+     * admin approval view. Same resource shape as `index()`
+     * (SubAccreditationResource incl. applications_count/available), scoped
+     * to the current mandant via MandantContext; a team_admin only sees the
+     * sub-accreditations of his own teams' accreditations.
+     *
+     *   GET /api/admin/sub-accreditations
+     *       ?accreditation_id=&category_id=&event_id=&team_id=
+     *       &type=park|seat&active=0|1&search=
+     *
+     * A foreign `?accreditation_id` is rejected (422, or 403 for a
+     * team_admin) like in AdminApplicationController; the remaining filters
+     * are plain portable query-builder conditions (no raw PG SQL).
+     */
+    public function indexAll(Request $request): AnonymousResourceCollection
+    {
+        $mandantId = $this->currentMandantId();
+        $teamIds = $this->teamIds($request);
+
+        $validated = $request->validate([
+            'accreditation_id' => ['nullable', 'integer'],
+            'category_id' => ['nullable', 'integer'],
+            'event_id' => ['nullable', 'integer'],
+            'team_id' => ['nullable', 'integer'],
+            'type' => ['nullable', Rule::in(['park', 'seat'])],
+            'active' => ['nullable', 'boolean'],
+            'search' => ['nullable', 'string'],
+        ]);
+
+        $query = SubAccreditation::query()
+            ->forMandant($mandantId)
+            ->withCount('subApplications');
+
+        if ($teamIds !== []) {
+            $query->whereHas('accreditation', fn (Builder $q) => $q->whereIn('accreditations.team_id', $teamIds));
+        }
+
+        if (array_key_exists('accreditation_id', $validated)) {
+            $accreditationId = (int) $validated['accreditation_id'];
+            $this->assertAccreditationFilter($accreditationId, $mandantId, $teamIds);
+            $query->where('sub_accreditations.accreditation_id', $accreditationId);
+        }
+
+        // Parent-accreditation attribute filters (category/event/team) share
+        // one whereHas so several filters combine into a single EXISTS.
+        $parentFilters = array_intersect_key($validated, array_flip(['category_id', 'event_id', 'team_id']));
+
+        if ($parentFilters !== []) {
+            $query->whereHas('accreditation', function (Builder $q) use ($parentFilters): void {
+                foreach ($parentFilters as $column => $value) {
+                    $q->where("accreditations.{$column}", (int) $value);
+                }
+            });
+        }
+
+        if (array_key_exists('type', $validated)) {
+            $query->where('sub_accreditations.type', (string) $validated['type']);
+        }
+
+        if (array_key_exists('active', $validated)) {
+            $query->where('sub_accreditations.active', (bool) $validated['active']);
+        }
+
+        if (array_key_exists('search', $validated) && $validated['search'] !== '') {
+            $term = LikeSearch::escape((string) $validated['search']);
+            $query->where(function (Builder $q) use ($term): void {
+                // CC-R1: `LOWER()` on both sides pins case-insensitive search
+                // and keeps Postgres (LIKE is case-sensitive) in sync with
+                // SQLite (LIKE is case-insensitive by default) — portable.
+                $q->whereHas(
+                    'accreditation.category',
+                    fn (Builder $cq) => $cq->whereRaw("LOWER(categories.name) like LOWER(?) escape '\\'", ["%{$term}%"]),
+                )->orWhereHas(
+                    'accreditation.event',
+                    fn (Builder $eq) => $eq->whereRaw("LOWER(events.title) like LOWER(?) escape '\\'", ["%{$term}%"]),
+                );
+            });
+        }
+
+        return SubAccreditationResource::collection($query->orderBy('id')->get());
     }
 
     public function store(Request $request, Accreditation $accreditation): JsonResponse
@@ -159,5 +245,25 @@ class SubAccreditationController extends Controller
         $this->assertOwnership($sub->accreditation, $teamIds);
 
         return $sub;
+    }
+
+    /**
+     * An `?accreditation_id` filter of `indexAll()` must reference an
+     * accreditation of the current mandant (422 otherwise); a team_admin may
+     * only filter within his own teams (403 otherwise). Mirrors
+     * AdminApplicationController::assertAccreditationFilter().
+     */
+    private function assertAccreditationFilter(int $accreditationId, int $mandantId, array $teamIds): void
+    {
+        $query = Accreditation::query()->forMandant($mandantId)->whereKey($accreditationId);
+
+        if ($teamIds !== []) {
+            $query->whereIn('team_id', $teamIds);
+            abort_unless($query->exists(), 403);
+
+            return;
+        }
+
+        abort_unless($query->exists(), 422);
     }
 }

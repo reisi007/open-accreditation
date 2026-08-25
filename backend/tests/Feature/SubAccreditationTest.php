@@ -1104,6 +1104,231 @@ class SubAccreditationTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | P3e-B4: mandant-wide filtered list (GET /api/admin/sub-accreditations)
+     | ------------------------------------------------------------------- */
+
+    public function test_admin_sub_accreditations_filter_endpoint_requires_authentication(): void
+    {
+        $this->getJson('/api/admin/sub-accreditations')->assertStatus(401);
+    }
+
+    public function test_admin_sub_accreditations_filter_endpoint_forbidden_for_user_and_verifier(): void
+    {
+        foreach ([UserRole::USER, UserRole::VERIFIER] as $role) {
+            $user = $this->createUserWithRole($role->value, $this->mandantA->id);
+
+            $this->actingAsApi($user)
+                ->getJson('/api/admin/sub-accreditations')
+                ->assertStatus(403, "expected 403 for {$role->value} on the sub-accreditations filter index");
+        }
+    }
+
+    public function test_admin_sub_accreditations_filter_scopes_to_current_mandant(): void
+    {
+        $accreditationA1 = $this->createAccreditation(['quota' => 20]);
+        $accreditationA2 = $this->createAccreditation(['quota' => 20]);
+        $subA1 = $accreditationA1->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+        $subA2 = $accreditationA2->subAccreditations()->create(['type' => 'seat', 'quota' => 10]);
+
+        // Rows of another mandant never leak into the response.
+        $categoryB = $this->mandantB->categories()->create(['name' => 'Presse', 'slug' => 'presse-b']);
+        $accreditationB = $this->mandantB->accreditations()->create(['category_id' => $categoryB->id, 'scope' => 'season', 'quota' => 20]);
+        $subB = $accreditationB->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+
+        $response = $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $ids = collect($response->json('data'))->pluck('id')->all();
+        $this->assertSame([$subA1->id, $subA2->id], $ids);
+        $this->assertNotContains($subB->id, $ids);
+
+        // Same resource shape as the per-accreditation index endpoint.
+        $response
+            ->assertJsonPath('data.0.accreditation_id', $accreditationA1->id)
+            ->assertJsonPath('data.0.type', 'park')
+            ->assertJsonPath('data.0.quota', 5)
+            ->assertJsonPath('data.0.applications_count', 0)
+            ->assertJsonPath('data.0.available', 5)
+            ->assertJsonPath('data.0.active', true);
+    }
+
+    public function test_admin_sub_accreditations_filter_includes_counts_and_available(): void
+    {
+        $sub = $this->createSubAccreditation(['quota' => 3]);
+        $this->subRequest($sub, User::factory()->create());
+        $this->subRequest($sub, User::factory()->create());
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $sub->id)
+            ->assertJsonPath('data.0.applications_count', 2)
+            ->assertJsonPath('data.0.available', 1);
+    }
+
+    public function test_admin_sub_accreditations_filter_by_type_and_active(): void
+    {
+        $parkActive = $this->createSubAccreditation(['type' => 'park', 'quota' => 5]);
+        $seatInactive = $this->createSubAccreditation(['type' => 'seat', 'quota' => 8, 'active' => false]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?type=seat')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $seatInactive->id);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?active=0')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $seatInactive->id);
+
+        // Filters combine (AND semantics).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?active=1&type=park')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $parkActive->id);
+
+        // An unknown type is rejected like on the CRUD endpoints.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?type=banana')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('type');
+    }
+
+    public function test_admin_sub_accreditations_filter_by_accreditation_category_event_team(): void
+    {
+        $event = $this->mandantA->events()->create(['title' => 'Finale']);
+        $withRefs = $this->createAccreditation(['quota' => 20, 'event_id' => $event->id, 'team_id' => $this->teamA->id]);
+        $plain = $this->createAccreditation(['quota' => 20]);
+
+        $subWithRefs = $withRefs->subAccreditations()->create(['type' => 'park', 'quota' => 2]);
+        $plain->subAccreditations()->create(['type' => 'park', 'quota' => 3]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?accreditation_id='.$withRefs->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subWithRefs->id);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?event_id='.$event->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subWithRefs->id);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?category_id='.$withRefs->category_id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subWithRefs->id);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?team_id='.$this->teamA->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subWithRefs->id);
+
+        // An id without any matching parent yields an empty list.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?team_id='.$this->teamB->id.'&event_id='.$event->id)
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_admin_sub_accreditations_search_filters_by_parent_category_or_event(): void
+    {
+        $category = $this->mandantA->categories()->create(['name' => 'Sonderpresse', 'slug' => 'sonderpresse']);
+        $byCategory = $this->mandantA->accreditations()->create(['category_id' => $category->id, 'scope' => 'season', 'quota' => 20]);
+        $subCategory = $byCategory->subAccreditations()->create(['type' => 'park', 'quota' => 2]);
+
+        $event = $this->mandantA->events()->create(['title' => 'Weltpokalfinale']);
+        $byEvent = $this->createAccreditation(['quota' => 20, 'event_id' => $event->id]);
+        $subEvent = $byEvent->subAccreditations()->create(['type' => 'seat', 'quota' => 4]);
+
+        // Default helper category ("Presse-<seq>"), no event → no match below.
+        $other = $this->createAccreditation(['quota' => 20]);
+        $other->subAccreditations()->create(['type' => 'park', 'quota' => 6]);
+
+        // Case-insensitive substring match on the parent category name.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?search='.rawurlencode('SONDER'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subCategory->id);
+
+        // Match on the parent event title.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?search='.rawurlencode('pokal'))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $subEvent->id);
+
+        // LIKE wildcards are escaped — "%" matches literally, nothing else.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?search='.rawurlencode('%'))
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        // No match anywhere → empty list, not an error.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?search=nirgendwo')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_admin_sub_accreditations_foreign_accreditation_filter_is_rejected(): void
+    {
+        $categoryB = $this->mandantB->categories()->create(['name' => 'Presse', 'slug' => 'presse-b']);
+        $foreign = $this->mandantB->accreditations()->create(['category_id' => $categoryB->id, 'scope' => 'season', 'quota' => 20]);
+
+        // super_admin/mandant_admin: a cross-mandant filter target is 422.
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?accreditation_id='.$foreign->id)
+            ->assertStatus(422);
+
+        // Unknown-but-valid ids are rejected identically (no silent bypass).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?accreditation_id=999999')
+            ->assertStatus(422);
+    }
+
+    public function test_admin_sub_accreditations_team_admin_sees_only_own_teams(): void
+    {
+        $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id);
+
+        $ownAccreditation = $this->createAccreditation(['quota' => 20, 'team_id' => $this->teamA->id]);
+        $foreignTeamAccreditation = $this->createAccreditation(['quota' => 20, 'team_id' => $this->teamB->id]);
+        $mandantLevel = $this->createAccreditation(['quota' => 20]);
+
+        $own = $ownAccreditation->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+        $foreignTeamAccreditation->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+        $mandantLevel->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+
+        $this->actingAsApi($teamAdmin)
+            ->getJson('/api/admin/sub-accreditations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $own->id);
+
+        // The filter cannot widen the team scope (mandant-level row → 403).
+        $this->actingAsApi($teamAdmin)
+            ->getJson('/api/admin/sub-accreditations?accreditation_id='.$mandantLevel->id)
+            ->assertStatus(403);
+
+        // Filtering within his own teams works.
+        $this->actingAsApi($teamAdmin)
+            ->getJson('/api/admin/sub-accreditations?accreditation_id='.$ownAccreditation->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $own->id);
+    }
+
+    /* ---------------------------------------------------------------------
      | Meine Sub-Akkreditierungen — list + withdraw
      | ------------------------------------------------------------------- */
 

@@ -343,6 +343,23 @@ export const listSubAccreditations = (accreditationId: number): Promise<SubAccre
 export const listAdminSubAccreditations = (accreditationId: number): Promise<SubAccreditation[]> =>
     request<SubAccreditation[]>(`/api/admin/accreditations/${accreditationId}/sub-accreditations`);
 
+export interface AdminSubAccreditationsParams {
+    accreditation_id?: number;
+    category_id?: number;
+    event_id?: number;
+    team_id?: number;
+    type?: SubType;
+    active?: boolean;
+    search?: string;
+}
+
+/**
+ * P3e-B4: mandant-wide filtered sub-accreditation list — one request with
+ * server-side filters instead of N parallel per-accreditation requests.
+ */
+export const listAllAdminSubAccreditations = (params?: AdminSubAccreditationsParams): Promise<SubAccreditation[]> =>
+    request<SubAccreditation[]>(`/api/admin/sub-accreditations${buildQuery(params)}`);
+
 export const createSubAccreditation = (accreditationId: number, payload: SubAccreditationPayload): Promise<SubAccreditation> =>
     request<SubAccreditation>(`/api/admin/accreditations/${accreditationId}/sub-accreditations`, {
         method: 'POST',

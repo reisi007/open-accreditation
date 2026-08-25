@@ -205,6 +205,10 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         // trigger (mode=all | mode=first, identical contract to P3c).
         Route::get('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'index'])->name('accreditations.sub-accreditations.index');
         Route::post('/accreditations/{accreditation}/sub-accreditations', [AdminSubAccreditationController::class, 'store'])->middleware('throttle:admin')->name('accreditations.sub-accreditations.store');
+        // P3e-B4: mandant-wide sub-accreditation filter endpoint — one
+        // request with server-side filters instead of N parallel
+        // per-accreditation requests from the approval view.
+        Route::get('/sub-accreditations', [AdminSubAccreditationController::class, 'indexAll'])->name('sub-accreditations.index');
         Route::put('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'update'])->middleware('throttle:admin')->name('sub-accreditations.update');
         Route::delete('/sub-accreditations/{sub}', [AdminSubAccreditationController::class, 'destroy'])->middleware('throttle:admin')->name('sub-accreditations.destroy');
         Route::post('/sub-accreditations/{sub}/allocate', [AdminSubAccreditationController::class, 'allocate'])->middleware('throttle:admin')->name('sub-accreditations.allocate');

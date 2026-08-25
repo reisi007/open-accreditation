@@ -13,8 +13,8 @@ import {
     listAdminAccreditations,
     listAdminApplicationMedia,
     listAdminApplications,
-    listAdminSubAccreditations,
     listAdminSubApplications,
+    listAllAdminSubAccreditations,
     listBadgeTemplates,
     listBlacklists,
     resendApplicationMail,
@@ -100,12 +100,6 @@ function formatDateTime(iso: string, i18n: I18n): string {
     }
 
     return date.toLocaleString(i18n.locale ?? undefined);
-}
-
-async function fetchAllAdminSubAccreditations(accreditations: Accreditation[]): Promise<SubAccreditation[]> {
-    const lists = await Promise.all(accreditations.map((accreditation) => listAdminSubAccreditations(accreditation.id)));
-
-    return lists.flat();
 }
 
 const PAGE_SIZE = 20;
@@ -872,9 +866,11 @@ function SubApplicationsTab() {
 
     const { data: accreditations } = useSWR<Accreditation[]>('/api/admin/accreditations', () => listAdminAccreditations());
 
-    const { data: allSubs } = useSWR<SubAccreditation[]>(
-        accreditations ? ['/api/admin/sub-accreditations', accreditations.length] : null,
-        () => (accreditations ? fetchAllAdminSubAccreditations(accreditations) : Promise.resolve([])),
+    // P3e-B4: the sub-accreditation dropdown options come from the dedicated
+    // filter endpoint — one mandant-scoped request instead of one request per
+    // accreditation.
+    const { data: allSubs } = useSWR<SubAccreditation[]>('/api/admin/sub-accreditations', () =>
+        listAllAdminSubAccreditations(),
     );
 
     const { data, error, isLoading, mutate } = useSWR<AdminSubApplication[]>(
