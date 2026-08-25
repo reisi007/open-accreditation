@@ -275,18 +275,15 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-- [ ] **P3e-B3** — `escapeLike()`-Duplikate (4 Admin-Controller) in shared Helper konsolidieren → PHPUnit (Regression: case-insensitive Suche bleibt grün). [Subagent A]
-- [ ] **Vite-Proxy** — `MandantContextMiddleware` akzeptiert `*.localhost:5173`-Referer/Host (Dev-QoL) → PHPUnit (Middleware-Test). [Subagent A]
-- [ ] **P3e-B5** — `cache:clear`-Hinweis (7-Tage-Throttle-TTL) in `e2e-up.sh`/CI-Doku dokumentieren. [Subagent B / Docs]
-- [ ] **P3b-F2** — `features/02-domain-model.md` auf `created_at` präzisieren (`applied_at` vs `created_at`). [Subagent B / Docs]
-- [ ] **P2b-F5** — `is_team_override`-Semantik (`team_id !== null`) in `features/` dokumentieren. [Subagent B / Docs]
-- [ ] **BE-R8** — Bulk-Reanimations-Limitation (VIP/denied) in `features/` dokumentieren. [Subagent B / Docs]
-- [ ] **P4-F4** — Layout-Schema um `qr`-Feld erweitern (Fixposition vs Template-Überlappung) in `features/` (Badge-Doku). [Subagent B / Docs]
-- [ ] **Logo-E-Mail-Varianten** — Workflow für `logo-email-64/128.png` E-Mail-Embeds in `features/` dokumentieren. [Subagent B / Docs]
+- [ ] **P3e-B3** — `escapeLike()`-Duplikate (4 Admin-Controller) in shared Helper konsolidieren → PHPUnit (Regression: case-insensitive Suche bleibt grün). [Subagent A, Verifikation läuft]
+- [ ] **Vite-Proxy** — `MandantContextMiddleware` akzeptiert `*.localhost`-Hosts (Dev-QoL) → PHPUnit (Middleware-Test). [Subagent A, Verifikation läuft]
 - [ ] **P3e-B4** — Dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`) → PHPUnit. [Subagent C]
-- [ ] **P1c** — `@feature:profile` Playwright-E2E ergänzen (getaggt). [Subagent D]
+- [ ] **P1c** — `@feature:profile` Playwright-E2E ergänzen (getaggt). [Subagent D, läuft]
 - [ ] **P2c-F4** — Multi-Domain-Admin-UX als bekannte Limitation in `features/` dokumentieren (super_admin Nicht-Primär-Domain zeigt falsche Teams). [Subagent E / Docs]
 - [ ] **Portabilitäts-Audit (§2)** — Migrationen/Queries auf PG-spezifisches SQL scannen, Trivialfälle fixen, Bericht. [Subagent F / Backend]
+
+### ✅ Completed & Verified (aus offener Liste entfernt, committed)
+- **Docs-Batch [Subagent B]** — P3e-B5, P3b-F2, P2b-F5, BE-R8, P4-F4, Logo-E-Mail-Varianten: alle in `features/` + `scripts/e2e-up.sh` dokumentiert, separater Verifikator **APPROVED** (0 critical/high), commit `5cab0fa` (gepusht).
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
