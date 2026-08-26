@@ -311,6 +311,22 @@ class MandantContextTest extends TestCase
         $this->assertTrue(MandantContext::current()?->is($main));
     }
 
+    public function test_local_env_vite_subdomain_referer_is_honored_over_the_host_header(): void
+    {
+        app()->detectEnvironment(fn () => 'local');
+
+        $main = Mandant::factory()->create(['slug' => 'main', 'is_primary' => true]);
+
+        // P3e-B4: the Vite dev server serves per-mandant origins like
+        // `foo.localhost:5173`. The Referer `*.localhost:5173` must be accepted
+        // (like `localhost:5173`) and resolve to the primary mandant via the
+        // loopback fallback — the Host (`unknown.invalid`) would resolve to NO
+        // mandant on its own.
+        $this->get('http://unknown.invalid/', ['Referer' => 'http://foo.localhost:5173/'])->assertOk();
+
+        $this->assertTrue(MandantContext::current()?->is($main));
+    }
+
     public function test_local_env_foreign_referer_is_ignored(): void
     {
         app()->detectEnvironment(fn () => 'local');

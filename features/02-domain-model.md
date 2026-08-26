@@ -105,6 +105,27 @@ als Nebenprodukt), nie `created_at`.
   die Freigabe-Entscheidung benötigt → eigene neue Spalte (SOLL, P3e-Cleanup),
   kein Überladen von `created_at`.
 
+## BE-R8 — Bulk-Reanimations-Limitation (bewusste Design-Entscheidung)
+
+Alle Bulk-Pfade der Allocation-Engine (`approveSelection`, `approveAllEligible`
+— manuell wie automatisch) kandidieren ausschließlich über `eligibleRequested()`,
+d. h. nur Zeilen im Status **`requested`**. `denied`-Anträge (inkl. VIP-Priorität)
+bleiben durch jeden weiteren Bulk-Run dauerhaft `denied` — auch nach Quota-Erhöhung
+oder Blacklist-Löschung. `approved`-/`blacklisted`-Zeilen sind ebenfalls nie
+Bulk-Kandidaten (Idempotenz).
+
+**Warum:** Bulk-Läufe bleiben deterministisch und idempotent; die Reaktivierung
+abgelehnter Anträge ist eine bewusste Admin-Entscheidung im Einzelfall
+(Sicherheit/Datenintegrität — keine versehentliche Massen-Reaktivierung).
+
+**Workaround:** Einzel-Reanimation via `AllocationService::approveApplication()`
+(erlässt als Ausgangsstatus `requested | denied`, Blacklist- und Quota-Check
+laufen erneut) oder manueller Status-Reset.
+
+**Referenz:** Detail-Dokumentation in
+`features/accreditation/01-allocation-engine.md` (Abschnitt
+"Bulk-Reanimations-Limitation").
+
 ## `is_team_override` Semantik (P2b-F5)
 
 `CategoryResource` exponiert einen abgeleiteten Boolean **`is_team_override`** —

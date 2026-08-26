@@ -10,11 +10,13 @@ use Symfony\Component\HttpFoundation\Response;
 class MandantContextMiddleware
 {
     /**
-     * P1a-B2: the ONLY Referer host accepted in the local-env fallback — the
-     * Vite dev server origin (host + port; the port is significant, Symfony
-     * and `parse_url` keep it in the origin, only getHost() strips it).
+     * P1a-B2: the Vite dev server port. The local-env Referer fallback accepts
+     * `localhost:{port}` AND any `*.localhost:{port}` subdomain (RFC 6761
+     * reserves the whole "localhost" TLD to the local device). The port is
+     * significant — Symfony and `parse_url` keep it in the origin, only
+     * getHost() strips it.
      */
-    private const VITE_DEV_ORIGIN = 'localhost:5173';
+    private const VITE_DEV_PORT = '5173';
 
     /**
      * Resolve the mandant from the request host and set it as the current
@@ -70,9 +72,13 @@ class MandantContextMiddleware
      * Host header — the Referer header (sent automatically by browsers) still
      * carries the original host, so we prefer it (mirrors the portal's
      * BrandContextMiddleware). P1a-B2: ONLY the Vite dev origin
-     * (`localhost:5173`) is accepted as Referer host — a foreign Referer
-     * (spoofable via any request) must never steer host resolution; anything
-     * else falls back to the Host-header path.
+     * (`localhost:5173`) and any `*.localhost:5173` subdomain are accepted as
+     * Referer host — a foreign Referer (spoofable via any request) must never
+     * steer host resolution; anything else falls back to the Host-header path.
+     *
+     * The `*.localhost` subdomains are per-mandant Vite dev origins (RFC 6761
+     * reserves the whole "localhost" TLD to the local device). They resolve to
+     * the primary mandant via the loopback fallback in `handle()`.
      */
     private function resolveHost(Request $request): string
     {
@@ -83,13 +89,26 @@ class MandantContextMiddleware
                 $refererHost = strtolower((string) $referer['host'])
                     .(isset($referer['port']) ? ':'.$referer['port'] : '');
 
-                if ($refererHost === self::VITE_DEV_ORIGIN) {
+                if ($this->isViteDevOrigin($refererHost)) {
                     return $refererHost;
                 }
             }
         }
 
         return strtolower($request->getHost());
+    }
+
+    /**
+     * Whether the Referer host is a trusted Vite dev-server origin: exact
+     * `localhost:{port}` or any `*.localhost:{port}` subdomain. Consulted ONLY
+     * in the `local` environment — production keeps strict host resolution.
+     */
+    private function isViteDevOrigin(string $refererHost): bool
+    {
+        $suffix = '.localhost:'.self::VITE_DEV_PORT;
+
+        return $refererHost === 'localhost:'.self::VITE_DEV_PORT
+            || str_ends_with($refererHost, $suffix);
     }
 
     /**
