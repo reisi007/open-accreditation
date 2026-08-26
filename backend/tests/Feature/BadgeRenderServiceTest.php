@@ -135,6 +135,38 @@ class BadgeRenderServiceTest extends TestCase
         $this->assertSame(1, substr_count($html, '<img src="data:image/png;base64,'));
     }
 
+    public function test_qr_renders_after_overlapping_fields_top_z_order(): void
+    {
+        // A data field overlaps the QR position. The QR must render AFTER it in
+        // the DOM (top z-order) so the verification code stays scannable — it
+        // must never be hidden beneath an overlapping field.
+        $template = $this->makeTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            // Photo box deliberately overlaps the QR position (78/121 + 22×22).
+            ['field' => 'photo', 'x' => 70, 'y' => 115, 'w' => 30, 'h' => 30, 'size' => 12, 'align' => 'left'],
+            ['field' => 'qr', 'x' => 78, 'y' => 121, 'w' => 22, 'h' => 22],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        // The QR div (left:78.00mm;top:121.00mm) MUST appear AFTER the
+        // overlapping photo div (left:70.00mm;top:115.00mm) in the DOM — later
+        // = top z-order for absolutely positioned siblings.
+        $photoPos = strpos($html, 'left:70.00mm;top:115.00mm');
+        $qrPos = strpos($html, 'left:78.00mm;top:121.00mm');
+
+        $this->assertNotFalse($photoPos, 'overlapping photo field must be present');
+        $this->assertNotFalse($qrPos, 'qr block must be present');
+        $this->assertGreaterThan(
+            $photoPos,
+            $qrPos,
+            'QR must render after overlapping fields (top z-order) so it stays scannable.',
+        );
+
+        // Sanity: exactly one QR image on the card.
+        $this->assertSame(1, substr_count($html, '<img src="data:image/png;base64,'));
+    }
+
     public function test_full_pdf_still_renders_with_a_coordinated_template(): void
     {
         $template = $this->makeTemplate([

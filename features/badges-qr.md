@@ -51,14 +51,18 @@ Feld-Auflösung (`BadgeRenderService::valueFor`):
 | `photo` | Portrait des Bewerbers (siehe unten) |
 | `status` | deutsche Status-Beschriftung |
 
-**SOLL-Erweiterung (offen, P4-F4):** Das Layout-Schema erhält künftig ein
+**Implementiert (P4-F4, Schema v2):** Das Layout-Schema unterstützt ein
 optionales **`qr`-Feld** (eigener Entry mit `x/y/w/h` in mm), damit die
-QR-Position template-adressierbar wird. Bis dahin gilt die Fixposition unten
-rechts (`right: 5mm; bottom: 5mm`, **20 × 20 mm**) — ein dort platziertes
-Template-Feld kann vom QR überlappt werden (siehe Limitation unten); die
-Kollisionsvermeidung liegt solange beim Template-Autor (untere rechte Ecke
-freilassen). Die vollständige SOLL-Spec für das Schema v2 und den frei
-positionierbaren Feld-Editor (Drag & Drop) liegt in `badge-template-editor.md`.
+QR-Position template-adressierbar wird. Der Renderer positioniert den QR am
+Entry (`left/top/width/height` mm); ohne Entry gilt weiterhin die historische
+Fixposition unten rechts (`right: 5mm; bottom: 5mm`, **20 × 20 mm**) —
+Bestandstemplates rendern unverändert. Kollisionsvermeidung: der QR-Block wird
+IMMER als letztes Element gerendert (oberste Z-Ebene), sodass er über
+überlappenden Feldern liegt und scannbar bleibt; ob ein `qr`-Entry mit einem
+anderen Feld überlappt, meldet der Editor eine soft Warning (gleiche Logik wie
+bei Datenfeldern). Maximal ein `qr`-Entry pro Template (Validierung). Die
+vollständige SOLL-Spec für das Schema v2 und den frei positionierbaren Feld-
+Editor (Drag & Drop) liegt in `badge-template-editor.md`.
 
 ## Rendering — `BadgeRenderService` (P4)
 
@@ -90,12 +94,13 @@ Die Verify-URL ist `{scheme}://{host}/verify/{token}`:
 - `token` = deterministisch via `QrTokenService::make(application)` (gleiche
   Application → gleicher Token).
 
-**Bekannte Limitation (P4-F2):** Da der QR fest unten rechts liegt, kann er
-ein dort platziertes Nutzer-Feld (z. B. `photo`) überlappen. Das Layout-Schema
-kennt die QR-Position nicht; eine Kollisionsvermeidung ist bewusst nicht
-implementiert (Templates sollten die untere rechte Ecke freilassen).
-Geplante Gegenmaßnahme: das optionale `qr`-Layout-Feld (P4-F4, siehe
-Layout-Schema oben) — bis dahin bleibt es bei der Fixposition.
+**Historische Fixposition (Fallback):** Templates ohne `qr`-Entry rendern
+den QR an der festen Position unten rechts. Ein dort platziertes Nutzer-Feld
+kann den QR überlappen — der QR wird aber als oberste Z-Ebene gerendert
+(scannbar bleibt). Die Kollisionsvermeidung geschieht bewusst über das
+optionale `qr`-Layout-Feld (P4-F4, implementiert): der Template-Autor verschiebt
+den QR an eine freie Position. Die Fixposition bleibt bestehen, solange
+Bestandstemplates ohne `qr`-Entry existieren (Rückwärtskompatibilität).
 
 ## Export — `BadgeExportService` (P4)
 

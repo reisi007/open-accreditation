@@ -676,6 +676,18 @@ describe('boxesOverlap / findOverlappingIndices', () => {
         expect(findOverlappingIndices([{ ...base, x: Number.NaN }, base]).size).toBe(0);
         expect(findOverlappingIndices([]).size).toBe(0);
     });
+
+    it('flags overlapping qr entries like any other field', () => {
+        // A qr entry that overlaps a data field must be flagged — the soft
+        // overlap warning applies to qr exactly like to text/photo/image.
+        const rows: BadgeRowValues[] = [
+            { ...validTextRow, field: 'qr', x: 80, y: 123, w: 20, h: 20 },
+            { ...validTextRow, field: 'photo', x: 70, y: 115, w: 30, h: 30 },
+        ];
+        const indices = findOverlappingIndices(rows);
+        expect(indices.has(0)).toBe(true);
+        expect(indices.has(1)).toBe(true);
+    });
 });
 
 describe('buildBadgeTemplatePayload', () => {
