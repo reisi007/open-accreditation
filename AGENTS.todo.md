@@ -94,17 +94,14 @@
 
 ### Phase C — Long-running / Post-Go-Live
 
-- [ ] **P3e-B3:** `escapeLike()`-Duplikate (4 Controller) konsolidieren (Refactoring-Kandidat)
+> Abgeschlossene Punkte entfernt: P3e-B3 (LikeSearch), P3e-B5 (e2e-up.sh), P3b-F2 (domain-model.md), P2b-F5 (domain-model.md), P1c (Profile-E2E).
+
 - [ ] **P3e-B4:** dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`)
-- [ ] **P3e-B5:** `cache:clear`-Hinweis in `e2e-up.sh`/CI-Doku dokumentieren
-- [ ] **P3b-F2:** `features/02-domain-model.md` auf `created_at` präzisieren
-- [ ] **P2b-F5:** `is_team_override`-Semantik dokumentieren
-- [ ] **P1c:** `@feature:profile`-Playwright-E2E
 - [ ] **P4-F4:** Layout-Schema um `qr`-Feld erweitern (Fixposition vs. Template-Überlappung)
-- [ ] **Google-Wallet-Issuer-Setup** (extern, P6-B2) — falls Wallet ab Tag 1 aktiv sein soll, in Phase B vorziehen
-- [ ] **P5-F4:** Queue-Integration für Mails (aktuell synkron als MVP-Entscheidung)
 - [ ] **BE-R8:** Doku zur Bulk-Reanimations-Limitation in `features/` ergänzen
 - [ ] **Vite-Proxy/MandantContext:** Backend akzeptiert `*.localhost:5173`-Referer (Dev-QoL)
+- [ ] **P5-F4:** Queue-Integration für Mails (aktuell synkron als MVP-Entscheidung) → Post-MVP
+- [ ] **Google-Wallet-Issuer-Setup** (extern, P6-B2) — externer Schritt
 - [ ] **Logo-E-Mail-Varianten** (`logo-email-64/128.png`): Workflow für E-Mail-Embeds (reserviert in SOLL-Doku)
 
 ---
@@ -127,17 +124,10 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
-> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert), P3e-B3 (bereits in `Support/LikeSearch.php` konsolidiert), P1c (Profile-Media-E2E `17498c4`), RV-U3 (key=index dokumentiert `17498c4`).
+> Abgeschlossene Punkte entfernt: P3e-B5, P3b-F2, P2b-F5, P3e-B3, P1c, RV-U3, P5-F3 (bereit dokumentiert in SendReminders.php), P6-B2 (bereit dokumentiert), FE-R3 (assessed OK).
 
 - [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
-
-- [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
-- [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
-- [ ] **P5-F4 (info)** Queue-Integration (synchroner Versand als MVP-Entscheidung) → später/Post-MVP.
-- [ ] **P6-B2 (info)** ohne `GOOGLE_ISSUER_ID` leeres id-Präfix im Preview-Modus → dokumentiert, kein Risiko.
-
-- [ ] **Vite-Proxy / MandantContextMiddleware (info)** `*.localhost:5173`-Hosts in lokalem Dev unerreichbar (Vite `changeOrigin` rewritet Host → Primary-Mandant); Screenshot-Harness umgeht das mit `emptyMock`-Stubs → Zukunft: Backend akzeptiert `*.localhost:5173`-Referer (dokumentierte Verbesserung).
 
 ---
 
@@ -163,9 +153,9 @@
 
 ## 📌 Offene Punkte / Risiken
 
-- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt (Verzeichnis war bereits korrekt; String-Refs in package.json/.env/READMEs/e2e-up.sh/AGENTS-Docs + stale Blade-Views gecleared; opencode-DB + Session zeigten bereits korrekten Pfad). GitHub-Remote `reisi007/open-accreditation` bestätigt (existiert, korrekt benannt, Work gepusht) — Repo-URL final.
-- [ ] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel aus `AGENTS.md` §2 durchsetzen
-- [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4)
+- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt.
+- [x] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel §2 durchgesetzt (keine PG-spezifischen Features in Migrationen/Queries; SQLite-Testsuite läuft).
+- [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4) — **User-Input nötig**
 - [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)
 
 ---
@@ -291,9 +281,8 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`; FK-Migration: `8e487ca`; Profile-E2E+BadgeCanvas: `17498c4`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487ca`), DOC-H-F1 (bereits korrekt), DOC-H-F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`).
+> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487ca`), DOC-H-F1/F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`), BE-R1-F3 (by-design: Tests nutzen `:memory:`, sqlite-Datei ist Dev-Artefakt).
 - [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
-- [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
 > Alle Punkte abgeschlossen (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`, RV-U3 dokumentiert `17498c4`).
