@@ -94,15 +94,10 @@
 
 ### Phase C — Long-running / Post-Go-Live
 
-> Abgeschlossene Punkte entfernt: P3e-B3 (LikeSearch), P3e-B5 (e2e-up.sh), P3b-F2 (domain-model.md), P2b-F5 (domain-model.md), P1c (Profile-E2E).
+> Abgeschlossene Punkte entfernt: P3e-B3 (LikeSearch), P3e-B5 (e2e-up.sh), P3b-F2 (domain-model.md), P2b-F5 (domain-model.md), P1c (Profile-E2E), P3e-B4 (indexAll Endpoint), BE-R8 (domain-model.md), Vite-Proxy (Middleware).
 
-- [ ] **P3e-B4:** dedizierter Filter-Endpoint statt N paralleler Requests (`fetchAllAdminSubAccreditations`)
 - [ ] **P4-F4:** Layout-Schema um `qr`-Feld erweitern (Fixposition vs. Template-Überlappung)
-- [ ] **BE-R8:** Doku zur Bulk-Reanimations-Limitation in `features/` ergänzen
-- [ ] **Vite-Proxy/MandantContext:** Backend akzeptiert `*.localhost:5173`-Referer (Dev-QoL)
-- [ ] **P5-F4:** Queue-Integration für Mails (aktuell synkron als MVP-Entscheidung) → Post-MVP
-- [ ] **Google-Wallet-Issuer-Setup** (extern, P6-B2) — externer Schritt
-- [ ] **Logo-E-Mail-Varianten** (`logo-email-64/128.png`): Workflow für E-Mail-Embeds (reserviert in SOLL-Doku)
+- [ ] **P2c-F4:** super_admin Multi-Domain-UX (Nicht-Primär-Domain zeigt falsche Teams)
 
 ---
 
@@ -124,9 +119,8 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
-> Abgeschlossene Punkte entfernt: P3e-B5, P3b-F2, P2b-F5, P3e-B3, P1c, RV-U3, P5-F3 (bereit dokumentiert in SendReminders.php), P6-B2 (bereit dokumentiert), FE-R3 (assessed OK).
+> Abgeschlossene Punkte entfernt: P3e-B5, P3b-F2, P2b-F5, P3e-B3, P1c, RV-U3, P5-F3 (bereit dokumentiert in SendReminders.php), P6-B2 (bereit dokumentiert), FE-R3 (assessed OK), P3e-B4 (bereits umgesetzt: indexAll()-Endpoint, N→1), Vite-Proxy (Middleware `83479b0`), BE-R8 (Doku `83479b0`).
 
-- [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 
 ---
