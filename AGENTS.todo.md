@@ -127,9 +127,8 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
-> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert).
+> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert), P3e-B3 (bereits in `Support/LikeSearch.php` konsolidiert).
 
-- [ ] **P3e-B3 (info)** Controller-Scope-/`EscapeLike`-Duplikation (4 Admin-Controller) → Refactoring-Kandidat (P7).
 - [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 - [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
@@ -293,9 +292,8 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), DOC-H-F1 (bereits korrekt), DOC-H-F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`).
+> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487ca`), DOC-H-F1 (bereits korrekt), DOC-H-F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`).
 - [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
-- [ ] **BE-R1-F1 (low)** — `users.mandant_id` ohne FK (Migration-Order-Begründung dokumentiert); optional dedizierte FK-Migration nach Präzedenz `2026_08_14_000010_add_team_foreign_key_to_role_user`.
 - [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
