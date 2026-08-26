@@ -304,10 +304,9 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; offener Rest: `badge_images`-Backend-Slice, siehe FE-IMG/RV-A1.)_
+_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-- [ ] **FE-IMG (User-Entscheidung, 2026-08-26)** — Frei platzierte Bilder: Spec ✅ (`features/badge-template-editor.md`, Elementtyp `image`) + Editor-UI ✅ (FE2, Quelle Upload/Brand + fit) — **offen: `badge_images`-Backend-Slice** (Migration, Upload-API, Renderer-Zweig, `image_id`-Mandanten-Scoping). Dabei RV-S2 (nested src-Validierung) und RV-A1/RV-U1 (Upload-UI-Sackgasse) mitliefern.
 - [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
 - [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
 - [ ] **FE1-F4 (low, pre-existing)** — `BadgeRenderService::host()` macht pro Karte eine Domains-Query (N+1 beim Export); Cache pro Render-Lauf als Follow-up.
@@ -320,14 +319,9 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
 - [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
-- [ ] **RV-S1 (low)** — `BadgeTemplate` hat keinen `resolveRouteBindingQuery`-Override (BE-R2-Safety-Net-Lücke; heute kompensiert durch `assertMandantScope`). Hardening beim nächsten Modellkontakt nachziehen + `TenantIsolationBindingTest` erweitern.
-- [ ] **RV-S2 (low, an badge_images-Slice koppeln)** — `layout.*.src` gilt für jeden Entry-Typ, Inner-Keys werden nicht gefiltert (`evil_url` persistiert). Beim `badge_images`-Slice: Nested-Rules (`src.kind/ref/image_id`) + per-Typ-Conditional + Mandanten-Scoping `image_id`.
-- [ ] **RV-S3 (low, USER-DECISION)** — Global-Account-Shadowing: Registrierung mit E-Mail eines globalen Kontos (`mandant_id=NULL`) schattiert dessen Login domain-lokal. Fix (Registrierung gegen `whereNull('mandant_id')` ablehnen) ODER als akzeptiertes Risiko ins Security Risk Register (§10). → Benutzer fragen.
-- [ ] **RV-S4 (info)** — `BadgeRenderService.php:209`: Foto-Data-URI ohne `e()` (heute nicht angreifbar, Mimes-Whitelist) — kostenfreie Härtung.
-- [ ] **RV-A1 (low) / RV-U1 (medium conditional)** — Bildquellen-UI (Upload) shipped vor `badge_images`-Backend-Slice → Sackgasse („Bilder konnten nicht geladen werden."). Slice zeitnah ziehen, dabei RV-S2 + `image_id`-Scoping mitliefern; oder Upload-UI bis dahin zurückhalten.
-- [ ] **RV-A2 (info)** — `BadgeTemplate.php`-Docblock beschreibt noch Schema v1 → auf v2 heben (team/vest_number/qr/image).
-- [ ] **RV-U2 (low)** — `BadgePropertiesPanel.tsx:78,94`: „X (mm)"/„Y (mm)" hart kodiert statt via `t` (Nachbar-Labels laufen durch Lingui).
+> Abgeschlossene Punkte (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`) entfernt.
 - [ ] **RV-U3 (info)** — `BadgeCanvas.tsx:455`: `key={index}` — erst bei Reordering relevant (dann stabile Keys).
+- [ ] **E2E-Hygiene (low, aus Verifikation badge_images-Slice)** — Upload-E2E-Test hinterlässt `badge_images`-Row + Datei auf private Disk; `purgeAllE2EArtifacts` bereinigt nicht `badge_images`. afterAll erstellte IDs tracken + `deleteBadgeImage(id)` aufrufen.
 
 ### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
 > Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
