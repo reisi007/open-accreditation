@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Application;
+use App\Models\BadgeImage;
 use App\Models\BadgeTemplate;
 use App\Models\Mandant;
 use App\Models\User;
@@ -28,6 +29,11 @@ use Tests\TestCase;
  * - New data fields: `team` (accreditation team name) and `vest_number`
  *   (user) render their source value or an empty string when absent,
  *   escaped like every interpolated value.
+ * - Freely placed `image` entries render as absolutely positioned,
+ *   Base64-embedded `<img>` blocks: `brand` sources resolve through the
+ *   mandant's brand media, `upload` sources through the mandant-scoped
+ *   `badge_images` row; `fit` defaults to `contain`, a missing source
+ *   renders an empty box at the layout position.
  */
 class BadgeRenderServiceTest extends TestCase
 {
@@ -240,6 +246,135 @@ class BadgeRenderServiceTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | Freely placed `image` entries — brand & upload sources, fit, fallback
+     | ------------------------------------------------------------------- */
+
+    public function test_brand_image_renders_from_mandant_logo(): void
+    {
+        $bytes = $this->storeRealPng('mandants/verband-a/logo.png');
+        $this->mandant->update(['logo_path' => 'mandants/verband-a/logo.png']);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ]));
+
+        // Base64 data URI of the brand logo, object-fit defaults to contain.
+        $this->assertStringContainsString(
+            '<div style="position:absolute;left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;">'
+            .'<img src="data:image/png;base64,'.base64_encode($bytes).'" style="width:100%;height:100%;object-fit:contain;"></div>',
+            $html,
+        );
+    }
+
+    public function test_brand_image_with_cover_fit_renders_object_fit_cover(): void
+    {
+        $bytes = $this->storeRealPng('mandants/verband-a/header.png');
+        $this->mandant->update(['header_path' => 'mandants/verband-a/header.png']);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            [
+                'field' => 'image',
+                'x' => 0,
+                'y' => 0,
+                'w' => 105,
+                'h' => 20,
+                'src' => ['kind' => 'brand', 'ref' => 'header'],
+                'fit' => 'cover',
+            ],
+        ]));
+
+        $this->assertStringContainsString('object-fit:cover', $html);
+        $this->assertStringContainsString(base64_encode($bytes), $html);
+    }
+
+    public function test_brand_image_without_stored_file_renders_empty_box(): void
+    {
+        // No logo_path set — the brand source resolves to an empty box at its
+        // layout position. The QR still renders its own <img> below, so we
+        // assert the image box specifically carries no <img>.
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ]));
+
+        $this->assertStringContainsString(
+            '<div style="position:absolute;left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;"></div>',
+            $html,
+        );
+        // The image box is empty — no data: URI inside it (the QR further down
+        // is the only <img> on the card).
+        $this->assertStringNotContainsString('left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;"><img', $html);
+    }
+
+    public function test_upload_image_renders_from_badge_images_row(): void
+    {
+        $bytes = $this->storeRealPng('badge-images/verband-a/upload.png');
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            ['field' => 'image', 'x' => 40, 'y' => 130, 'w' => 15, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id], 'fit' => 'cover'],
+        ]));
+
+        $this->assertStringContainsString(
+            '<div style="position:absolute;left:40.00mm;top:130.00mm;width:15.00mm;height:12.00mm;overflow:hidden;">'
+            .'<img src="data:image/png;base64,'.base64_encode($bytes).'" style="width:100%;height:100%;object-fit:cover;"></div>',
+            $html,
+        );
+    }
+
+    public function test_upload_image_from_foreign_mandant_renders_empty_box(): void
+    {
+        $bytes = $this->storeRealPng('badge-images/other/foreign.png');
+        $otherMandant = Mandant::factory()->create(['slug' => 'other', 'name' => 'Other']);
+        $foreignImage = BadgeImage::create([
+            'mandant_id' => $otherMandant->id,
+            'path' => 'badge-images/other/foreign.png',
+            'mime' => 'image/png',
+            'original_name' => 'foreign.png',
+        ]);
+
+        // The current mandant may not resolve another tenant's upload — empty
+        // box, the foreign bytes never leak into the markup. The QR still
+        // renders its own <img>, so we assert the foreign bytes specifically
+        // are absent and the image box carries no <img>.
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $foreignImage->id]],
+        ]));
+
+        $this->assertStringNotContainsString(base64_encode($bytes), $html);
+        $this->assertStringNotContainsString('left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;"><img', $html);
+    }
+
+    public function test_image_entry_is_not_rendered_as_a_data_field(): void
+    {
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $this->makeTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ]));
+
+        // The image entry carries no font-size (it is NOT a data field).
+        $this->assertSame(1, substr_count($html, 'font-size'), 'only the data field carries font-size');
+    }
+
+    public function test_legacy_layout_without_image_entry_renders_unchanged(): void
+    {
+        // Regression: a template without any `image` entry renders exactly as
+        // before — the image branch is purely additive.
+        $template = $this->makeTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        $this->assertStringNotContainsString('overflow:hidden', $html);
+        $this->assertSame(1, substr_count($html, '<img'), 'only the QR renders an image');
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 
@@ -323,6 +458,32 @@ class BadgeRenderServiceTest extends TestCase
             'size' => strlen($bytes),
             'original_name' => 'portrait.png',
         ]);
+
+        return $bytes;
+    }
+
+    /**
+     * Store a REAL decodable PNG at an arbitrary private-disk path (brand
+     * media, badge image) without registering a media row — returns the
+     * exact bytes that must survive into the markup.
+     *
+     * @return string the exact PNG bytes written to the private disk
+     */
+    private function storeRealPng(string $path): string
+    {
+        $image = imagecreatetruecolor(60, 60);
+        $background = imagecolorallocate($image, 40, 90, 160);
+        $accent = imagecolorallocate($image, 230, 200, 150);
+
+        imagefilledrectangle($image, 0, 0, 59, 59, $background);
+        imagefilledellipse($image, 30, 30, 28, 28, $accent);
+
+        ob_start();
+        imagepng($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+
+        Storage::disk('private')->put($path, $bytes);
 
         return $bytes;
     }

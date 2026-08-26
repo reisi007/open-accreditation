@@ -6,11 +6,13 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BadgeTemplateResource;
+use App\Models\BadgeImage;
 use App\Models\BadgeTemplate;
 use App\Models\RoleUser;
 use App\Services\BadgeRenderService;
 use App\Services\BadgeTemplateService;
 use App\Support\MandantContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -41,10 +43,10 @@ use Symfony\Component\HttpFoundation\Response;
  * fixed bottom-right position. Bounds derive from the renderer's A6 constants
  * (no duplicated magic numbers). The `image` source is a strict union:
  * `{kind: brand, ref: logo|header}` or `{kind: upload, image_id: int}` — never
- * client-controlled paths/URLs. NOTE: existence + mandant-scoping checks for
- * `upload.image_id` land together with the `badge_images` infrastructure slice;
- * until then only the union structure is validated here. `is_default` follows
- * the one-default-per-mandant rule via `BadgeTemplateService`.
+ * client-controlled paths/URLs. For `upload` sources the referenced badge
+ * image must exist AND belong to the current mandant (a foreign-mandant id is
+ * rejected with 422 — RV-S2). `is_default` follows the one-default-per-mandant
+ * rule via `BadgeTemplateService`.
  */
 class BadgeTemplateController extends Controller
 {
@@ -286,13 +288,31 @@ class BadgeTemplateController extends Controller
             // mandant's brand media (`{kind: brand, ref: logo|header}`) or an
             // uploaded badge image (`{kind: upload, image_id: <int>}`).
             // Client-controlled paths/URLs are never accepted (SSRF/path
-            // traversal/cross-mandant leak protection). Existence + mandant
-            // scoping of `image_id` land with the badge_images infrastructure
-            // slice; the union structure is enforced here already.
+            // traversal/cross-mandant leak protection). For `upload` sources
+            // the referenced badge image must exist AND belong to the current
+            // mandant — a foreign-mandant id is rejected (422) so one tenant
+            // can never address another tenant's uploads through the layout
+            // JSON (RV-S2).
             if ($field === 'image') {
                 $srcError = $this->imageSourceError($entry['src'] ?? null);
                 if ($srcError !== null) {
                     $errors[$at('src')] = $srcError;
+                } elseif (is_array($entry['src'] ?? null) && ($entry['src']['kind'] ?? null) === 'upload') {
+                    $imageId = $entry['src']['image_id'] ?? null;
+                    $mandantId = MandantContext::currentId();
+
+                    $exists = is_int($imageId) && $imageId >= 1
+                        && BadgeImage::query()
+                            ->where('id', $imageId)
+                            ->when(
+                                $mandantId !== null,
+                                fn (Builder $q) => $q->where('mandant_id', $mandantId),
+                            )
+                            ->exists();
+
+                    if (! $exists) {
+                        $errors[$at('src')] = 'The referenced badge image does not exist.';
+                    }
                 }
             }
         }
@@ -303,8 +323,22 @@ class BadgeTemplateController extends Controller
     }
 
     /**
+     * The allowed leaf keys of an `image` entry's `src` union per kind — the
+     * src shape is validated strictly so a client cannot smuggle extra keys
+     * (e.g. a `url`) past the enum union (RV-S2).
+     *
+     * @var array<string, list<string>>
+     */
+    private const IMAGE_SRC_ALLOWED_KEYS = [
+        'brand' => ['kind', 'ref'],
+        'upload' => ['kind', 'image_id'],
+    ];
+
+    /**
      * The validation error of one `image` entry's `src` union, or null when
-     * the source is structurally valid.
+     * the source is structurally valid. The shape is strict: only the keys
+     * documented for the discriminator are accepted — extra keys (a client-
+     * controlled `url`, for example) are rejected.
      *
      * @param  mixed  $src  the raw `src` value of an image entry
      */
@@ -316,21 +350,31 @@ class BadgeTemplateController extends Controller
 
         $kind = $src['kind'] ?? null;
 
+        if ($kind !== 'brand' && $kind !== 'upload') {
+            return 'The image source kind must be brand or upload.';
+        }
+
+        // Strict shape: reject any key that is not part of the documented
+        // union branch (defends against smuggled client-controlled keys).
+        $allowed = self::IMAGE_SRC_ALLOWED_KEYS[$kind];
+        $extra = array_diff(array_keys($src), $allowed);
+
+        if ($extra !== []) {
+            return 'The image source contains unexpected keys.';
+        }
+
         if ($kind === 'brand') {
             return in_array($src['ref'] ?? null, self::IMAGE_BRAND_REFS, true)
                 ? null
                 : 'The brand source must reference logo or header.';
         }
 
-        if ($kind === 'upload') {
-            $imageId = $src['image_id'] ?? null;
+        // kind === 'upload'
+        $imageId = $src['image_id'] ?? null;
 
-            return is_int($imageId) && $imageId >= 1
-                ? null
-                : 'The upload source must carry a positive integer image id.';
-        }
-
-        return 'The image source kind must be brand or upload.';
+        return is_int($imageId) && $imageId >= 1
+            ? null
+            : 'The upload source must carry a positive integer image id.';
     }
 
     /**

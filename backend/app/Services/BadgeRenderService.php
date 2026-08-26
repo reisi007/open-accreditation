@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\BadgeImage;
 use App\Models\BadgeTemplate;
 use App\Support\MandantContext;
 use Dompdf\Dompdf;
 use Endroid\QrCode\Builder\Builder;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
@@ -40,6 +42,14 @@ use Illuminate\Support\Facades\Storage;
  * bottom-right (`QR_FALLBACK_*`) so existing templates keep rendering
  * identically.
  *
+ * Freely placed `image` entries render as absolutely positioned, Base64-
+ * embedded `<img>` blocks (private disk — no network access in the render
+ * path). The source is resolved server-side from the `src` discriminator:
+ * `{kind: brand, ref: logo|header}` → the mandant's brand media, `{kind:
+ * upload, image_id: <int>}` → the mandant-scoped `badge_images` row. `fit`
+ * defaults to `contain` (logos are untouched); a missing source renders an
+ * empty box at the layout position (the card still prints).
+ *
  * The verify URL is `{scheme}://{host}/verify/{token}`: `host` is the current
  * mandant's first domain or, without a domain, the host of `config('app.url')'.
  */
@@ -54,7 +64,10 @@ final class BadgeRenderService
 
     public const QR_FALLBACK_SIZE_MM = 20;
 
-    public function __construct(private readonly QrTokenService $tokens) {}
+    public function __construct(
+        private readonly QrTokenService $tokens,
+        private readonly MandantMediaService $mandantMedia,
+    ) {}
 
     /**
      * The full verify URL of one application (used by the QR and the CSV
@@ -119,6 +132,7 @@ final class BadgeRenderService
     {
         $fields = '';
         $qrEntry = null;
+        $imageEntries = [];
 
         foreach ((array) $template->layout as $field) {
             // The `qr` entry is not a data field; the dedicated QR block below
@@ -129,11 +143,25 @@ final class BadgeRenderService
                 continue;
             }
 
+            // Freely placed `image` entries are rendered by the dedicated
+            // image block below (source-resolved, never as a text field).
+            if (is_array($field) && ($field['field'] ?? null) === 'image') {
+                $imageEntries[] = $field;
+
+                continue;
+            }
+
             $fields .= $this->renderField($application, $field);
+        }
+
+        $images = '';
+        foreach ($imageEntries as $imageEntry) {
+            $images .= $this->renderImage($imageEntry);
         }
 
         return '<div class="card">'
             .$fields
+            .$images
             .$this->renderQr($application, $qrEntry)
             .'</div>';
     }
@@ -216,6 +244,115 @@ final class BadgeRenderService
             $style,
             e($dataUri),
         );
+    }
+
+    /**
+     * One freely placed `image` layout entry: an absolutely positioned,
+     * `overflow:hidden` div with a Base64-`<img>` from the private disk (the
+     * same technique as `photo`/QR — no network access in the render path).
+     *
+     * The source is resolved server-side from a discriminator that NEVER
+     * carries client-controlled paths/URLs (SSRF/path-traversal/cross-mandant
+     * leak protection, features/badge-template-editor.md):
+     *
+     * - `{kind: brand, ref: logo|header}` → the mandant's brand media via
+     *   `MandantMediaService` (empty box when none is stored),
+     * - `{kind: upload, image_id: <int>}` → the mandant-scoped `badge_images`
+     *   row (empty box when the row/file is gone).
+     *
+     * `fit` defaults to `contain` (logos are not cropped); `cover` opts into
+     * the fill-and-crop behaviour.
+     *
+     * @param  array<string, mixed>  $entry  one validated `image` layout entry
+     */
+    private function renderImage(array $entry): string
+    {
+        $style = sprintf(
+            'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;overflow:hidden;',
+            $this->mm((float) ($entry['x'] ?? 0)),
+            $this->mm((float) ($entry['y'] ?? 0)),
+            $this->mm((float) ($entry['w'] ?? 0)),
+            $this->mm((float) ($entry['h'] ?? 0)),
+        );
+
+        $dataUri = $this->resolveImageSource($entry['src'] ?? null);
+
+        if ($dataUri === null) {
+            return sprintf('<div style="%s"></div>', $style);
+        }
+
+        $fit = ($entry['fit'] ?? null) === 'cover' ? 'cover' : 'contain';
+
+        return sprintf(
+            '<div style="%s"><img src="%s" style="width:100%%;height:100%%;object-fit:%s;"></div>',
+            $style,
+            e($dataUri),
+            $fit,
+        );
+    }
+
+    /**
+     * Resolve an `image` entry's `src` discriminator to a Base64 data URI from
+     * the private disk, or null when the source is absent/invalid. Brand refs
+     * resolve through `MandantMediaService`; upload ids resolve against the
+     * current mandant's `badge_images` rows only (never a raw path/URL).
+     *
+     * @param  mixed  $src  the raw `src` discriminator of an image entry
+     */
+    private function resolveImageSource(mixed $src): ?string
+    {
+        if (! is_array($src)) {
+            return null;
+        }
+
+        $kind = $src['kind'] ?? null;
+
+        if ($kind === 'brand') {
+            $ref = $src['ref'] ?? null;
+
+            if ($ref !== 'logo' && $ref !== 'header') {
+                return null;
+            }
+
+            $mandant = MandantContext::current();
+
+            if ($mandant === null) {
+                return null;
+            }
+
+            $path = $this->mandantMedia->path($mandant, $ref);
+
+            if ($path === null || ! Storage::disk('private')->exists($path)) {
+                return null;
+            }
+
+            return 'data:'.(string) Storage::disk('private')->mimeType($path).';base64,'
+                .base64_encode((string) Storage::disk('private')->get($path));
+        }
+
+        if ($kind === 'upload') {
+            $imageId = $src['image_id'] ?? null;
+
+            if (! is_int($imageId) || $imageId < 1) {
+                return null;
+            }
+
+            $image = BadgeImage::query()
+                ->when(
+                    MandantContext::hasCurrent(),
+                    fn (EloquentBuilder $q) => $q->where('mandant_id', MandantContext::currentId()),
+                )
+                ->find($imageId);
+
+            if ($image === null || ! Storage::disk('private')->exists($image->path)) {
+                return null;
+            }
+
+            return 'data:'.$image->mime.';base64,'
+                .base64_encode((string) Storage::disk('private')->get($image->path));
+        }
+
+        return null;
     }
 
     /**

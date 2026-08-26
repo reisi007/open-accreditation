@@ -468,10 +468,10 @@ export const deleteBadgeTemplate = (id: number): Promise<void> =>
 
 /**
  * Mandant-owned badge images for freely placed `image` layout entries
- * (features/badge-template-editor.md, "Upload-Infrastruktur"). NOTE: the
- * backend slice (migration + upload/delivery API) is pending — until it
- * lands these endpoints answer 404 and the editor surfaces a load/upload
- * error; brand sources (`logo`/`header`) work without this API.
+ * (features/badge-template-editor.md, "Upload-Infrastruktur"). Backed by the
+ * `badge_images` table + auth-gated admin API (`GET/POST/DELETE /api/admin/
+ * badge-images`, `GET /api/admin/badge-images/{id}/file`); brand sources
+ * (`logo`/`header`) resolve through the mandant media service.
  */
 export interface BadgeImage {
     id: number;

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Models\BadgeImage;
 use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
@@ -28,8 +29,8 @@ use Tests\TestCase;
  * `{kind: brand, ref: logo|header}` or `{kind: upload, image_id: int}` — plus
  * the optional `fit` switch (contain/cover). Like `qr` it may omit the
  * meaningless `size`/`align`, uses the box minimum (10 × 10 mm) and may occur
- * multiple times. Existence/mandant-scoping of `image_id` lands with the
- * badge_images infrastructure slice; here the union structure is validated.
+ * multiple times. The `upload` source's `image_id` must exist AND belong to
+ * the current mandant (RV-S2: a foreign/non-existent id is rejected with 422).
  */
 class BadgeTemplateSchemaV2Test extends TestCase
 {
@@ -110,6 +111,13 @@ class BadgeTemplateSchemaV2Test extends TestCase
 
     public function test_image_entries_are_accepted_and_persisted(): void
     {
+        $upload = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
         $response = $this->postTemplate([
             ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
             // Brand source without fit (defaults to contain renderer-side) and
@@ -121,7 +129,7 @@ class BadgeTemplateSchemaV2Test extends TestCase
                 'y' => 130,
                 'w' => 15,
                 'h' => 12,
-                'src' => ['kind' => 'upload', 'image_id' => 17],
+                'src' => ['kind' => 'upload', 'image_id' => $upload->id],
                 'fit' => 'cover',
             ],
         ])->assertStatus(201);
@@ -137,7 +145,7 @@ class BadgeTemplateSchemaV2Test extends TestCase
             ->assertJsonPath('data.0.layout.1.src.ref', 'logo')
             ->assertJsonPath('data.0.layout.2.field', 'image')
             ->assertJsonPath('data.0.layout.2.src.kind', 'upload')
-            ->assertJsonPath('data.0.layout.2.src.image_id', 17)
+            ->assertJsonPath('data.0.layout.2.src.image_id', $upload->id)
             ->assertJsonPath('data.0.layout.2.fit', 'cover');
 
         $this->assertDatabaseHas('badge_templates', ['id' => $templateId]);
@@ -362,6 +370,69 @@ class BadgeTemplateSchemaV2Test extends TestCase
             ])
             ->assertStatus(422)
             ->assertJsonValidationErrors('layout.1.field');
+    }
+
+    /* ---------------------------------------------------------------------
+     | RV-S2 — image_id existence + mandant scoping
+     | ------------------------------------------------------------------- */
+
+    public function test_image_upload_source_with_existing_same_mandant_id_is_accepted(): void
+    {
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/ok.png',
+            'mime' => 'image/png',
+            'original_name' => 'ok.png',
+        ]);
+
+        $this->postTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id]],
+        ])->assertStatus(201)->assertJsonPath('data.layout.1.src.image_id', $image->id);
+    }
+
+    public function test_image_upload_source_with_non_existent_id_is_rejected(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => 9999]],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+
+        $this->assertDatabaseCount('badge_templates', 0);
+    }
+
+    public function test_image_upload_source_with_foreign_mandant_id_is_rejected(): void
+    {
+        // A second mandant owns this image — the current mandant may not
+        // address it through its layout JSON (no cross-mandant leak, RV-S2).
+        $otherMandant = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+        $foreignImage = BadgeImage::create([
+            'mandant_id' => $otherMandant->id,
+            'path' => 'badge-images/verband-b/foreign.png',
+            'mime' => 'image/png',
+            'original_name' => 'foreign.png',
+        ]);
+
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $foreignImage->id]],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+
+        $this->assertDatabaseCount('badge_templates', 0);
+    }
+
+    public function test_image_with_evil_url_in_src_is_rejected(): void
+    {
+        // Client-controlled paths/URLs are never accepted — only the enum
+        // union (brand ref / upload id) is addressable.
+        $this->postTemplate([
+            [
+                'field' => 'image',
+                'x' => 5,
+                'y' => 130,
+                'w' => 20,
+                'h' => 12,
+                'src' => ['kind' => 'brand', 'ref' => 'logo', 'url' => 'https://evil.example/x.png'],
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
     }
 
     /* ---------------------------------------------------------------------

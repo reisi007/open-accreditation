@@ -9,22 +9,25 @@ Pentaho-artig Drag & Drop auf einer Ausweis-Vorschau bieten (X/Y in mm),
 statt Positionen nur über Zahlenfelder zu pflegen. Enthält die Umsetzung des
 offenen Punkts **P4-F4** (`qr`-Layout-Feld, siehe `badges-qr.md`).
 
-**Erweiterung (User-Entscheidung 2026-08-26, SOLL — noch nicht
-implementiert):** Der Editor unterstützt neben Datenfeldern auch **selbst
-platzierte Bilder** (Logos, Vereinswappen, Hintergründe) — neuer Elementtyp
-`image`, frei positionierbar mit `x/y/w/h` in mm und wählbarer Bildquelle
-(Upload oder Mandant-Brand-Bild). Details im Abschnitt „Elementtyp `image`",
-Einplanung im Phasing (FE2/FE3).
+**Erweiterung (User-Entscheidung 2026-08-26, IST — implementiert):** Der
+Editor unterstützt neben Datenfeldern auch **selbst platzierte Bilder**
+(Logos, Vereinswappen, Hintergründe) — neuer Elementtyp `image`, frei
+positionierbar mit `x/y/w/h` in mm und wählbarer Bildquelle (Upload oder
+Mandant-Brand-Bild). Backend-Infrastruktur (Migration `badge_images` +
+Upload-/Delivery-API), Validierung (`src`-Union + Mandanten-Scoping der
+`image_id`, RV-S2) und Renderer-Zweig (Base64-Embed, `object-fit` contain/
+cover) sind umgesetzt; Editor-Integration (FE2/FE3) folgt. Details im
+Abschnitt „Elementtyp `image`".
 
 ## Ist (verifiziert, Stand dieser Spec)
 
 | Baustein | Ort | Ist-Zustand |
 |---|---|---|
-| Schema/Validierung | `BadgeTemplateController` (`layout`-Rules) | Flat Array `[{field, x, y, w, h, size, align}]`; Whitelist `name/category/event/date/photo/status`; `x/y/w/h` numeric **≥ 0** (0 erlaubt!), `size` int ≥ 1, `align ∈ left/center/right`, `min:1` Felder — alles required, keine Bounds nach oben |
-| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk); QR **fix** unten rechts (`right:5mm; bottom:5mm; 20×20mm`) unabhängig vom Layout |
-| Datenmodell | Migration `badge_templates` | `layout` ist Laravel-`json`-Spalte → Schema-Erweiterung braucht **keine Migration** |
-| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` | Tabelle mit Number-Inputs (X/Y/W/H/Größe/Ausrichtung) je Feldzeile + read-only `BadgePreview`; zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Defaults neue Zeile: `x0 y0 w40 h8 size12 left` |
-| Vorschau-Projektion | `BadgePreview.tsx` + `@utility aspect-a6` | Karten-Aspect 105/148, aber Koordinaten werden auf eine **virtuelle 85×121-mm-Karte** projiziert — die Projektionsbasis weicht vom PDF-Format ab |
+| Schema/Validierung | `BadgeTemplateController` (`layout`-Rules) | Schema v2: Whitelist inkl. `qr`/`team`/`vest_number`/`image`; A6-Bounds (`x+w ≤ 105`, `y+h ≤ 148`), Mindestgrößen (Text 5×3, Box 10×10 mm), max. ein `qr`-Entry; `image.src` Union-Validierung inkl. Existenz + Mandanten-Scoping der `image_id` (RV-S2) |
+| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
+| Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
+| API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
+| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | interaktiver Canvas (Drag&Drop, Resize, Snap), Palette (10 Typen inkl. `image`), Eigenschaften-Panel mit Bildquellen-Auswahl (Upload/Brand) + Fit-Umschalter; zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
 
 ## Zielbild
 
@@ -97,11 +100,14 @@ erfordern entweder eigene Users-Spalten (Migration) oder definierte Split-
 Logik auf `users.name` — beides hat Migrations-/Datenqualitäts-Folgen und ist
 hier nicht vorgegeben. Bis dahin bleibt `name` das einzige Namens-Feld.
 
-## Elementtyp `image` — frei platzierte Bilder (SOLL)
+## Elementtyp `image` — frei platzierte Bilder (IST)
 
-**Status: SOLL (User-Entscheidung 2026-08-26) — noch nicht implementiert.**
-Ergänzung des SOLL-Spektrums: eigene Bildelemente ohne Datenfeld-Bezug,
-identische Geometrie-Mechanik wie die Datenfelder.
+**Status: IST (User-Entscheidung 2026-08-26) — Backend implementiert.**
+Eigene Bildelemente ohne Datenfeld-Bezug, identische Geometrie-Mechanik wie
+die Datenfelder. Backend-Infrastruktur (Migration + API), Controller-
+Validierung inkl. Mandanten-Scoping der `image_id` (RV-S2) und Renderer-
+Zweig (Base64, `object-fit`) sind umgesetzt; Editor-UI-Integration
+(Quellenwahl, Upload-Flow) folgt im FE2/FE3-Zyklus.
 
 ### Eigenschaften
 

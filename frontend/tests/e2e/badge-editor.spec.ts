@@ -11,9 +11,9 @@ import { loginAdminApi } from './helpers/admin-data';
  * nudging (1 mm / Shift = 5 mm), alignment guide lines while dragging and the
  * auto-fit sample text (FE3-F1 — text never overflows its box vertically).
  *
- * The badge-images backend slice (upload/delivery API) is pending per spec —
- * its endpoints are STUBBED via page.route so the FE2 upload flow is
- * verifiable end-to-end at the UI level.
+ * The badge-images backend slice (upload/delivery API) is implemented — the
+ * upload flow test exercises the real `POST /api/admin/badge-images` endpoint
+ * with a tiny PNG fixture.
  *
  * Style note: tests/e2e files are parsed by ESLint with the plain-ES2020
  * parser (no TS syntax) while tsc strict-checks them — so everything stays
@@ -243,30 +243,9 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(main.getByRole('row', { name: /E2E Editor Overlap/ })).toBeVisible();
     });
 
-    test('saves an image element from an uploaded source and restores it', {
-        tag: ['@feature:badge-editor'],
+    test('uploads a badge image and persists it as a layout source across reopen', {
+        tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {
-        // The badge-images API is stubbed until the backend slice lands.
-        await page.route('**/api/admin/badge-images**', (route) => {
-            if (route.request().method() === 'POST') {
-                return route.fulfill({
-                    status: 201,
-                    contentType: 'application/json',
-                    body: JSON.stringify({ data: { id: 42, original_name: 'e2e-upload.png', mime: 'image/png' } }),
-                });
-            }
-            return route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify({
-                    data: [
-                        { id: 17, original_name: 'wappen.png', mime: 'image/png' },
-                        { id: 42, original_name: 'e2e-upload.png', mime: 'image/png' },
-                    ],
-                }),
-            });
-        });
-
         await page.goto('/admin/badge-templates');
         await expect(page).toHaveURL(/\/login$/);
 
@@ -285,17 +264,26 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
         await dialog.getByLabel('Quelle').selectOption('upload');
 
-        // Existing uploads are listed; picking one fills the required id.
-        const imageSelect = dialog.getByLabel('Vorhandenes Bild');
-        await expect(imageSelect).toBeEnabled();
-        await expect(imageSelect.locator('option', { hasText: 'wappen.png' })).toBeAttached();
-
-        // Upload a new file through the file input + upload button.
+        // Upload a real tiny PNG through the file input + upload button —
+        // the backend persists it on the private disk and returns its id.
+        const uploadResponse = page.waitForResponse(
+            (resp) => resp.url().includes('/api/admin/badge-images')
+                && resp.request().method() === 'POST'
+                && resp.status() === 201,
+        );
         await dialog
             .getByLabel('Neues Bild hochladen')
             .setInputFiles({ name: 'e2e-upload.png', mimeType: 'image/png', buffer: Buffer.from(TINY_PNG_BASE64, 'base64') });
         await dialog.getByRole('button', { name: 'Bild hochladen', exact: true }).click();
-        await expect(imageSelect).toHaveValue('42');
+        const uploaded = await uploadResponse;
+        const uploadedBody = await uploaded.json();
+        const uploadedId = Number(uploadedBody?.data?.id);
+
+        // The freshly uploaded image is now selectable in the existing-images
+        // dropdown and carries the uploaded filename.
+        const imageSelect = dialog.getByLabel('Vorhandenes Bild');
+        await expect(imageSelect).toHaveValue(String(uploadedId));
+        await expect(imageSelect.locator('option', { hasText: 'e2e-upload.png' })).toBeAttached();
 
         await dialog.getByLabel('Skalierung').selectOption({ label: 'Einpassen' });
 
@@ -308,7 +296,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const editCanvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
         await editCanvas.getByRole('button', { name: 'Feld Bild' }).click();
         await expect(dialog.getByLabel('Quelle')).toHaveValue('upload');
-        await expect(dialog.getByLabel('Vorhandenes Bild')).toHaveValue('42');
+        await expect(dialog.getByLabel('Vorhandenes Bild')).toHaveValue(String(uploadedId));
         await expect(dialog.getByLabel('Skalierung')).toHaveValue('contain');
     });
 

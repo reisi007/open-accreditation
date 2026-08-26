@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\AdminApplicationController;
 use App\Http\Controllers\Api\Admin\AdminMediaController;
 use App\Http\Controllers\Api\Admin\AdminSubApplicationController;
 use App\Http\Controllers\Api\Admin\BadgeExportController;
+use App\Http\Controllers\Api\Admin\BadgeImageController;
 use App\Http\Controllers\Api\Admin\BadgeTemplateController;
 use App\Http\Controllers\Api\Admin\BlacklistController;
 use App\Http\Controllers\Api\Admin\CategoryController;
@@ -238,6 +239,14 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/badge-templates', [BadgeTemplateController::class, 'store'])->middleware('throttle:admin')->name('badge-templates.store');
         Route::put('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'update'])->middleware('throttle:admin')->name('badge-templates.update');
         Route::delete('/badge-templates/{badgeTemplate}', [BadgeTemplateController::class, 'destroy'])->middleware('throttle:admin')->name('badge-templates.destroy');
+
+        // P4: mandant-owned badge images for freely placed `image` layout
+        // entries — upload/delivery surface. The delivery route is read-only
+        // (no throttle:admin) so editor thumbnails load unthrottled.
+        Route::get('/badge-images', [BadgeImageController::class, 'index'])->name('badge-images.index');
+        Route::post('/badge-images', [BadgeImageController::class, 'store'])->middleware('throttle:admin')->name('badge-images.store');
+        Route::get('/badge-images/{badgeImage}/file', [BadgeImageController::class, 'showFile'])->name('badge-images.show-file');
+        Route::delete('/badge-images/{badgeImage}', [BadgeImageController::class, 'destroy'])->middleware('throttle:admin')->name('badge-images.destroy');
 
         Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->middleware('throttle:admin')->name('accreditations.badges.export');
     });
