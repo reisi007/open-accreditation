@@ -17,28 +17,42 @@ use Illuminate\Support\Facades\Storage;
  *
  *   [{field, x, y, w, h, size, align}]   — x/y/w/h in mm, size in pt
  *
+ * CSS mm/pt are physical units for dompdf: 1 layout-mm prints as exactly
+ * 1 mm on the fixed 105 × 148 mm card (`@page A6, margin 0`) — no server-side
+ * scaling step. Missing keys stay defensively defaulted (`?? 0` / defaults).
+ *
  * `field` values are resolved from the application graph:
  *
- *   name     → user name
- *   category → accreditation.category.name
- *   event    → accreditation.event.title
- *   date     → event date (d.m.Y)
- *   photo    → the applicant's portrait from the private disk (base64 data URI;
- *              an empty box when no portrait exists — the layout position stays)
- *   status   → human German status label
+ *   name        → user name
+ *   category    → accreditation.category.name
+ *   event       → accreditation.event.title
+ *   date        → event date (d.m.Y)
+ *   photo       → the applicant's portrait from the private disk (base64 data URI;
+ *                 an empty box when no portrait exists — the layout position stays)
+ *   status      → human German status label
+ *   team        → accreditation.team.name (empty string without a team)
+ *   vest_number → user.vest_number (empty string when unset)
  *
- * Every card additionally carries the verification QR code (PNG, data URI of
- * the verify URL) in a fixed bottom-right position — the layout schema only
- * addresses the six data fields, so the QR is a standard element of the card.
+ * The verification QR code (PNG, data URI of the verify URL) is part of every
+ * card (schema v2, features/badge-template-editor.md): a dedicated `qr`
+ * layout entry positions it (`left/top/width/height`, `size`/`align` are
+ * ignored); without such an entry it renders at the historical fixed position
+ * bottom-right (`QR_FALLBACK_*`) so existing templates keep rendering
+ * identically.
  *
  * The verify URL is `{scheme}://{host}/verify/{token}`: `host` is the current
- * mandant's first domain or, without a domain, the host of `config('app.url')`.
+ * mandant's first domain or, without a domain, the host of `config('app.url')'.
  */
 final class BadgeRenderService
 {
     public const A6_WIDTH_MM = 105;
 
     public const A6_HEIGHT_MM = 148;
+
+    /** Historical QR fallback geometry: bottom-right, 5 mm margin, 20 × 20 mm. */
+    public const QR_FALLBACK_MARGIN_MM = 5;
+
+    public const QR_FALLBACK_SIZE_MM = 20;
 
     public function __construct(private readonly QrTokenService $tokens) {}
 
@@ -86,7 +100,7 @@ final class BadgeRenderService
         $cards = '';
 
         foreach ($applications as $application) {
-            $cards .= $this->card($application, $template);
+            $cards .= $this->cardHtml($application, $template);
         }
 
         return '<html><head><meta charset="UTF-8"><style>'
@@ -96,21 +110,65 @@ final class BadgeRenderService
             .'</style></head><body>'.$cards.'</body></html>';
     }
 
-    private function card(Application $application, BadgeTemplate $template): string
+    /**
+     * The HTML of one badge card — the exact markup dompdf prints. Public so
+     * the render contract (absolute mm positions, qr placement, field values)
+     * can be asserted precisely without decoding the PDF binary.
+     */
+    public function cardHtml(Application $application, BadgeTemplate $template): string
     {
         $fields = '';
+        $qrEntry = null;
 
         foreach ((array) $template->layout as $field) {
+            // The `qr` entry is not a data field; the dedicated QR block below
+            // renders it (defensively only once, validation guarantees max one).
+            if (is_array($field) && ($field['field'] ?? null) === 'qr') {
+                $qrEntry ??= $field;
+
+                continue;
+            }
+
             $fields .= $this->renderField($application, $field);
         }
 
         return '<div class="card">'
             .$fields
-            .sprintf(
-                '<div style="position:absolute;right:5mm;bottom:5mm;width:20mm;height:20mm;"><img src="%s" style="width:100%%;height:100%%;"></div>',
-                $this->qrDataUri($application),
-            )
+            .$this->renderQr($application, $qrEntry)
             .'</div>';
+    }
+
+    /**
+     * The verification QR block — positioned by its `qr` layout entry when
+     * present (`left/top/width/height` in mm, `size`/`align` ignored),
+     * otherwise at the historical fixed spot bottom-right so templates
+     * without the entry keep rendering identically.
+     *
+     * @param  array<string, mixed>|null  $entry  the first `qr` layout entry, if any
+     */
+    private function renderQr(Application $application, ?array $entry): string
+    {
+        $style = $entry === null
+            ? sprintf(
+                'position:absolute;right:%dmm;bottom:%dmm;width:%dmm;height:%dmm;',
+                self::QR_FALLBACK_MARGIN_MM,
+                self::QR_FALLBACK_MARGIN_MM,
+                self::QR_FALLBACK_SIZE_MM,
+                self::QR_FALLBACK_SIZE_MM,
+            )
+            : sprintf(
+                'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;',
+                $this->mm((float) ($entry['x'] ?? 0)),
+                $this->mm((float) ($entry['y'] ?? 0)),
+                $this->mm((float) ($entry['w'] ?? 0)),
+                $this->mm((float) ($entry['h'] ?? 0)),
+            );
+
+        return sprintf(
+            '<div style="%s"><img src="%s" style="width:100%%;height:100%%;"></div>',
+            $style,
+            $this->qrDataUri($application),
+        );
     }
 
     /**
@@ -159,7 +217,8 @@ final class BadgeRenderService
 
     /**
      * The field value of a layout field, or null when the source is absent
-     * (e. g. an accreditation without an event).
+     * (e. g. an accreditation without an event). Null renders as an empty
+     * string — consistent for `event`, `date`, `team` and `vest_number`.
      */
     private function valueFor(Application $application, string $field): ?string
     {
@@ -168,6 +227,10 @@ final class BadgeRenderService
             'category' => $application->accreditation?->category?->name,
             'event' => $application->accreditation?->event?->title,
             'date' => $application->accreditation?->event?->date?->format('d.m.Y'),
+            // `accreditations.team_id` is nullable — a mandant-level
+            // accreditation has no team and the field stays empty.
+            'team' => $application->accreditation?->team?->name,
+            'vest_number' => $application->user?->vest_number,
             'status' => $this->statusLabel((string) $application->status),
             default => null,
         };

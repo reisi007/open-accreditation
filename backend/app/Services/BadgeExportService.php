@@ -50,7 +50,7 @@ final class BadgeExportService
         return Application::query()
             ->where('accreditation_id', $accreditation->id)
             ->where('status', 'approved')
-            ->with(['user.media', 'accreditation.category', 'accreditation.event'])
+            ->with(['user.media', 'accreditation.category', 'accreditation.event', 'accreditation.team'])
             ->orderBy('id')
             ->get();
     }

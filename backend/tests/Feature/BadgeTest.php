@@ -182,8 +182,10 @@ class BadgeTest extends TestCase
         ];
 
         $cases = [
+            // Schema v2 (badge-template-editor.md) whitelists `qr`, `team`
+            // and `vest_number` — `sponsor` stands in for any unknown field.
             'unknown field' => [
-                'layout' => [array_replace($base['layout'][0], ['field' => 'qr'])],
+                'layout' => [array_replace($base['layout'][0], ['field' => 'sponsor'])],
                 'error' => 'layout.0.field',
             ],
             'negative x' => [
