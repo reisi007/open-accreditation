@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Mandant;
+use App\Models\MandantDomain;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Support\MandantContext;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -60,5 +62,37 @@ class AuthMeTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.roles.0.slug', 'verifier')
             ->assertJsonPath('data.roles.0.mandant_id', $mandant->id);
+    }
+
+    public function test_me_exposes_current_mandant_id_from_host_resolution(): void
+    {
+        $mandant = Mandant::factory()->create(['slug' => 'verband']);
+        MandantDomain::factory()->create([
+            'mandant_id' => $mandant->id,
+            'hostname' => 'verband.test',
+        ]);
+
+        $user = User::factory()->create();
+
+        // MandantContext is set by MandantContextMiddleware in production;
+        // here we simulate the resolved mandant for the request host.
+        MandantContext::set($mandant);
+
+        $this->actingAsApi($user)
+            ->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.current_mandant_id', $mandant->id);
+    }
+
+    public function test_me_exposes_null_current_mandant_id_without_context(): void
+    {
+        $user = User::factory()->create();
+
+        MandantContext::reset();
+
+        $this->actingAsApi($user)
+            ->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.current_mandant_id', null);
     }
 }

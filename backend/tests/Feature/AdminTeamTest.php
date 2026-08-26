@@ -330,6 +330,37 @@ class AdminTeamTest extends TestCase
             ->assertJsonPath('data.0.name', 'Eigener');
     }
 
+    /**
+     * P2c-F4: super_admin on a non-primary domain must see the teams of the
+     * CURRENT mandant (resolved from the host), not the primary mandant's. The
+     * frontend derives the current mandant from `/me` → `current_mandant_id`;
+     * this test asserts the backend resolves that mandant's teams correctly and
+     * never leaks the primary mandant's teams.
+     */
+    public function test_super_admin_on_non_primary_domain_sees_current_mandants_teams(): void
+    {
+        // mandantA is the current context (non-primary in this scenario).
+        $this->mandantA->update(['is_primary' => false]);
+        $primary = Mandant::factory()->create(['slug' => 'primary', 'is_primary' => true]);
+
+        $this->mandantA->teams()->create(['name' => 'Aktueller Verein', 'slug' => 'aktueller']);
+        $primary->teams()->create(['name' => 'Primärer Verein', 'slug' => 'primaerer']);
+
+        // The frontend calls /me and gets current_mandant_id = mandantA (the host).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.current_mandant_id', $this->mandantA->id);
+
+        // Then fetches teams for THAT mandant — only mandantA's teams, never the
+        // primary mandant's (no cross-mandant leak).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Aktueller Verein');
+    }
+
     /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */

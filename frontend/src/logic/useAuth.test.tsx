@@ -8,6 +8,7 @@ const mePayload = {
     id: 1,
     name: 'Admin',
     email: 'admin@example.com',
+    current_mandant_id: 1,
     roles: [{ slug: 'super_admin', name: 'Super Admin', mandant_id: null, team_id: null }],
 };
 

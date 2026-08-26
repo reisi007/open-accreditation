@@ -9,6 +9,12 @@ export interface User {
     id: number;
     name: string;
     email: string;
+    /**
+     * The mandant resolved from the request host (backend MandantContext).
+     * Null when no mandant matches the host. super_admin uses this to show the
+     * teams/resources of the CURRENT mandant instead of the primary one.
+     */
+    current_mandant_id: number | null;
     roles: UserRole[];
 }
 

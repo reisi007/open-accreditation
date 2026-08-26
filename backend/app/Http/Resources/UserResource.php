@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\MandantContext;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -38,6 +39,12 @@ class UserResource extends JsonResource
             'position' => $this->position,
             'vest_available' => (bool) $this->vest_available,
             'vest_number' => $this->vest_number,
+
+            // The mandant resolved from the request host (MandantContextMiddleware).
+            // Null when no mandant matches the host (e.g. global routes without a
+            // tenant context). The frontend uses this for super_admin to show the
+            // teams/resources of the CURRENT mandant instead of the primary one.
+            'current_mandant_id' => MandantContext::currentId(),
 
             'roles' => $this->whenLoaded('roles', fn () => $this->roles->map(
                 fn ($role) => [

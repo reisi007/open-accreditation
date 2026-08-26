@@ -8,6 +8,10 @@ const teamsPayload = [
     { id: 11, mandant_id: 5, slug: 'gast', name: 'Gastverein', home_venue: null, created_at: '2026-01-01T00:00:00Z' },
 ];
 
+const otherTeamsPayload = [
+    { id: 20, mandant_id: 9, slug: 'other', name: 'Otherverein', home_venue: null, created_at: '2026-01-01T00:00:00Z' },
+];
+
 function AdminTeamsProbe() {
     const { teams, isLoading, error, currentTeamIds } = useAdminTeams();
 
@@ -44,6 +48,12 @@ function stubFetch(mePayload: unknown) {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+        if (url === '/api/admin/mandants/9/teams') {
+            return new Response(JSON.stringify({ data: otherTeamsPayload }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
         return new Response(JSON.stringify({ message: 'not found' }), {
             status: 404,
             headers: { 'Content-Type': 'application/json' },
@@ -63,6 +73,7 @@ describe('useAdminTeams', () => {
             id: 2,
             name: 'Team Admin',
             email: 'team@example.com',
+            current_mandant_id: 5,
             roles: [
                 { slug: 'team_admin', name: 'Team-Admin', mandant_id: 5, team_id: 10 },
                 { slug: 'team_admin', name: 'Team-Admin', mandant_id: 5, team_id: 11 },
@@ -73,7 +84,7 @@ describe('useAdminTeams', () => {
         await waitFor(() => expect(screen.getByTestId('teams')).toHaveTextContent('10:Heimverein|11:Gastverein'));
         expect(screen.getByTestId('teamIds')).toHaveTextContent('10,11');
         expect(screen.getByTestId('error')).toHaveTextContent('false');
-        // The mandant list is super_admin-only — must not be fetched.
+        // The mandant list is no longer fetched for team_admin.
         expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/mandants')).toBe(false);
     });
 
@@ -82,6 +93,7 @@ describe('useAdminTeams', () => {
             id: 3,
             name: 'Mandant Admin',
             email: 'mandant@example.com',
+            current_mandant_id: 5,
             roles: [{ slug: 'mandant_admin', name: 'Mandant-Admin', mandant_id: 5, team_id: null }],
         });
         renderProbe();
@@ -90,5 +102,49 @@ describe('useAdminTeams', () => {
         expect(screen.getByTestId('teamIds')).toHaveTextContent('');
         expect(screen.getByTestId('error')).toHaveTextContent('false');
         expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/mandants')).toBe(false);
+    });
+
+    it('super_admin uses current_mandant_id from /me (NOT the primary mandant)', async () => {
+        // P2c-F4: super_admin on a non-primary domain (current_mandant_id = 9)
+        // must see the teams of mandant 9, NOT the primary mandant's teams.
+        const fetchMock = stubFetch({
+            id: 1,
+            name: 'Super Admin',
+            email: 'admin@example.com',
+            current_mandant_id: 9,
+            roles: [{ slug: 'super_admin', name: 'Super Admin', mandant_id: null, team_id: null }],
+        });
+        renderProbe();
+
+        await waitFor(() => expect(screen.getByTestId('teams')).toHaveTextContent('20:Otherverein'));
+        expect(screen.getByTestId('teamIds')).toHaveTextContent('');
+        expect(screen.getByTestId('error')).toHaveTextContent('false');
+        // The mandant list must NOT be fetched — super_admin uses current_mandant_id.
+        expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/mandants')).toBe(false);
+        // Teams are fetched for the CURRENT mandant (9), not any primary.
+        expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/mandants/9/teams')).toBe(true);
+        expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/mandants/5/teams')).toBe(false);
+    });
+
+    it('super_admin without current_mandant_id fetches no teams', async () => {
+        // When no mandant is resolved (current_mandant_id = null), super_admin
+        // sees no teams rather than falling back to the primary mandant.
+        const fetchMock = stubFetch({
+            id: 1,
+            name: 'Super Admin',
+            email: 'admin@example.com',
+            current_mandant_id: null,
+            roles: [{ slug: 'super_admin', name: 'Super Admin', mandant_id: null, team_id: null }],
+        });
+        renderProbe();
+
+        await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+        expect(screen.getByTestId('teams')).toHaveTextContent('');
+        expect(
+            fetchMock.mock.calls.some(([url]) => {
+                const href = typeof url === 'string' ? url : url instanceof URL ? url.href : String(url);
+                return href.startsWith('/api/admin/mandants/') && href.endsWith('/teams');
+            }),
+        ).toBe(false);
     });
 });

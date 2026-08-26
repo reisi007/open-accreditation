@@ -1,6 +1,6 @@
 import useSWR from 'swr';
-import { listMandants, listTeams } from '../api/client';
-import type { Mandant, Team } from '../api/types';
+import { listTeams } from '../api/client';
+import type { Team } from '../api/types';
 import { useAuth } from './useAuth';
 
 export interface UseAdminTeamsResult {
@@ -18,9 +18,10 @@ export interface UseAdminTeamsResult {
 /**
  * The teams a super_admin / mandant_admin / team_admin may assign categories
  * and events to. The current mandant is resolved from the domain on the
- * backend; the frontend approximates it as:
- *   - super_admin  → the primary mandant (the domain-derived current mandant
- *     in local/dev, where the loopback host falls back to the primary)
+ * backend; the frontend uses it as:
+ *   - super_admin  → `current_mandant_id` from `/me` (the host-derived mandant
+ *     from MandantContext — on a non-primary domain this is that mandant, not
+ *     the primary one)
  *   - mandant_admin → `mandant_id` of his role assignment (all teams)
  *   - team_admin    → `mandant_id` of his team_admin assignment; the backend
  *     (`teams.view`) returns only his own teams
@@ -33,11 +34,11 @@ export function useAdminTeams(): UseAdminTeamsResult {
     const mandantAdminRole = roles.find((role) => role.slug === 'mandant_admin');
     const teamAdminRole = roles.find((role) => role.slug === 'team_admin');
 
-    const { data: mandants } = useSWR<Mandant[]>(isSuperAdmin ? '/api/admin/mandants' : null, () => listMandants());
-    const primaryMandantId = (mandants ?? []).find((mandant) => mandant.is_primary)?.id ?? null;
-
+    // super_admin: use the current mandant resolved from the request host
+    // (backend MandantContext via `/me`). On a non-primary domain this is the
+    // host's mandant — not the primary mandant's teams.
     const mandantId = isSuperAdmin
-        ? primaryMandantId
+        ? (user?.current_mandant_id ?? null)
         : (mandantAdminRole?.mandant_id ?? teamAdminRole?.mandant_id ?? null);
     const teamKey = mandantId === null ? null : `/api/admin/mandants/${mandantId}/teams`;
     const teamFetcher = mandantId === null ? null : () => listTeams(mandantId);
