@@ -451,6 +451,8 @@ export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onM
                     ></div>
                 ))}
                 {rows.map((row, index) => (
+                    // key=index ok: no reordering, static list (insertion order only;
+                    // rows are added at the end or removed by filter — never reordered).
                     <CanvasBox
                         key={index}
                         row={row}
