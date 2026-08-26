@@ -868,7 +868,10 @@ function SubApplicationsTab() {
 
     // P3e-B4: the sub-accreditation dropdown options come from the dedicated
     // filter endpoint — one mandant-scoped request instead of one request per
-    // accreditation.
+    // accreditation. The key is intentionally static (not derived from
+    // `accreditations.length`): the endpoint returns ALL mandant sub-accreditations
+    // regardless of the parent accreditation list, so re-fetching on every
+    // accreditations change would be redundant network churn.
     const { data: allSubs } = useSWR<SubAccreditation[]>('/api/admin/sub-accreditations', () =>
         listAllAdminSubAccreditations(),
     );

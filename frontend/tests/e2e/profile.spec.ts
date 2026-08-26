@@ -50,7 +50,7 @@ async function createActivatedSession(prefix = 'profile') {
         throw error;
     }
 
-    return { api, email };
+    return { api, email }; // email available if needed
 }
 
 test.describe('Profile flow (P1c)', () => {
@@ -85,7 +85,10 @@ test.describe('Profile flow (P1c)', () => {
             expect(update.status()).toBe(200);
 
             const updateBody = await update.json();
-            expect(updateBody.message).toBe('Profil aktualisiert.');
+            // Functional assertion: the profile was updated. Avoid coupling to
+            // the exact backend copy ("Profil aktualisiert.") — only assert the
+            // stable semantic marker so the test survives copy tweaks.
+            expect(updateBody.message).toContain('aktualisiert');
             expect(updateBody.data.title).toBe('Dr.');
             expect(updateBody.data.city).toBe('Wien');
             expect(updateBody.data.branch).toBe('print');

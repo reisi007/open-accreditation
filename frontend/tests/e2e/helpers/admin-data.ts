@@ -729,6 +729,16 @@ export async function purgeAllE2EArtifacts() {
             }
         }
 
+        // Badge images: original_name "e2e-*" (uploaded by the badge-editor
+        // upload E2E test). The destroy route removes both the row and the
+        // private-disk file, so repeated runs never accumulate orphans.
+        const badgeImageBody = await (await api.get('/api/admin/badge-images')).json();
+        for (const image of badgeImageBody.data ?? []) {
+            if ((image.original_name ?? '').startsWith('e2e-')) {
+                await api.delete(`/api/admin/badge-images/${image.id}`);
+            }
+        }
+
         // Categories: "E2E Akkreditierung *" / "E2E Sub Akkreditierung *".
         // Deleting a category cascades to its accreditations (and their
         // applications / sub-accreditations), reclaiming all accreditation data.
