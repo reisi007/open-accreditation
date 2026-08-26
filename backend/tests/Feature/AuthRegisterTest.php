@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Mail\ActivationMail;
 use App\Models\Mandant;
 use App\Models\MandantDomain;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\User;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
@@ -225,5 +227,122 @@ class AuthRegisterTest extends TestCase
             'password_confirmation' => 'different',
         ])->assertStatus(422)
             ->assertJsonValidationErrors(['email', 'password']);
+    }
+
+    /* ---------------------------------------------------------------------
+     | RV-S3: registrations must never shadow a GLOBAL account.
+     |
+     | The bootstrap super admin exists as a global account
+     | (`users.mandant_id = null`, cf. `DatabaseSeeder::resolveAdmin()`).
+     | Because `findLoginUser` prefers the current mandant's row, a
+     | domain-local registration with the global account's email would lock
+     | it out of its login on this domain — such registrations are rejected.
+     -------------------------------------------------------------------- */
+
+    private function createGlobalSuperAdmin(string $email): User
+    {
+        // Mirrors DatabaseSeeder::resolveAdmin(): global user (mandant_id
+        // null is the factory default) + global super_admin role assignment.
+        $admin = User::factory()->create([
+            'email' => $email,
+            'password' => 'bootstrap-secret',
+        ]);
+        $this->assertNull($admin->fresh()->mandant_id);
+
+        RoleUser::create([
+            'user_id' => $admin->id,
+            'role_id' => Role::query()->where('slug', 'super_admin')->firstOrFail()->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        return $admin;
+    }
+
+    public function test_register_rejects_the_email_of_a_global_account(): void
+    {
+        Mail::fake();
+
+        $this->createGlobalSuperAdmin('admin@example.com');
+
+        foreach (['admin@example.com', 'ADMIN@Example.com'] as $email) {
+            $response = $this->postJson('/api/auth/register', [
+                'name' => 'Max Mustermann',
+                'email' => $email,
+                'password' => 'secret-pass-123',
+                'password_confirmation' => 'secret-pass-123',
+            ]);
+
+            $response->assertStatus(422)
+                ->assertJsonValidationErrors('email');
+
+            // Understandable, dedicated message — not the generic duplicate hint.
+            $this->assertStringContainsString(
+                'systemweites Konto',
+                collect($response->json('errors.email'))->implode(' '),
+            );
+        }
+
+        // No shadow account was created; only the global one remains.
+        $this->assertDatabaseCount('users', 1);
+        $this->assertDatabaseHas('users', ['email' => 'admin@example.com', 'mandant_id' => null]);
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_register_allows_the_email_of_another_mandants_account(): void
+    {
+        // RV-S3 regression: the new global-account guard must not tighten the
+        // per-mandant semantics (BE-R1) — an address that already exists ONLY
+        // on ANOTHER mandant's domain stays registrable on this domain.
+        Mail::fake();
+
+        $bundesliga = Mandant::factory()->create(['slug' => 'bundesliga']);
+        User::factory()->forMandant($bundesliga)->create(['email' => 'alice@x.com']);
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Alice Lokal',
+            'email' => 'alice@x.com',
+            'password' => 'secret-pass-123',
+            'password_confirmation' => 'secret-pass-123',
+        ])->assertCreated()
+            ->assertJsonPath('message', 'Registrierung erfolgreich. Bitte prüfe deine E-Mail zur Aktivierung.');
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'alice@x.com',
+            'mandant_id' => $this->mandant->id,
+        ]);
+
+        Mail::assertSent(ActivationMail::class);
+    }
+
+    public function test_global_account_still_logs_in_after_a_rejected_shadow_registration(): void
+    {
+        // RV-S3 end-to-end: the guard rejects the shadowing attempt, so the
+        // global account keeps resolving (and logging in) exactly as before.
+        $admin = $this->createGlobalSuperAdmin('chief@example.com');
+
+        $this->postJson('/api/auth/register', [
+            'name' => 'Shadow Attempt',
+            'email' => 'chief@example.com',
+            'password' => 'secret-pass-123',
+            'password_confirmation' => 'secret-pass-123',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors('email');
+
+        MandantContext::set($this->mandant);
+
+        $login = $this->postJson('/api/auth/login', [
+            'email' => 'chief@example.com',
+            'password' => 'bootstrap-secret',
+        ])->assertOk()
+            ->assertCookie(config('jwt.cookie_key_name'));
+
+        $token = $login->getCookie(config('jwt.cookie_key_name'), false)->getValue();
+
+        $this->withCookie(config('jwt.cookie_key_name'), $token)
+            ->getJson('/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $admin->id);
     }
 }

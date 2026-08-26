@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
 use App\Support\MandantContext;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -65,9 +66,22 @@ class AuthController extends Controller
                 'required', 'string', 'email', 'max:255',
                 // Scoped uniqueness only applies where a mandant could be
                 // resolved; without one the guard below rejects anyway.
-                ...($mandant === null
-                    ? []
-                    : [Rule::unique('users', 'email')->where('mandant_id', $mandant->id)]),
+                ...($mandant === null ? [] : [
+                    Rule::unique('users', 'email')->where('mandant_id', $mandant->id),
+                    // RV-S3: a GLOBAL account (mandant_id null, e.g. the
+                    // bootstrap super admin) must never be shadowed by a
+                    // domain-local registration — findLoginUser prefers the
+                    // current mandant's row, which would lock the global
+                    // account out of its login on this domain. Equivalent
+                    // portable query (works on Postgres and SQLite alike),
+                    // expressed as a closure so the failure can carry its own
+                    // German message instead of the generic "already taken".
+                    function (string $attribute, mixed $value, Closure $fail): void {
+                        if (User::query()->where('email', $value)->whereNull('mandant_id')->exists()) {
+                            $fail('Für diese E-Mail-Adresse existiert bereits ein systemweites Konto. Bitte registriere dich mit einer anderen Adresse.');
+                        }
+                    },
+                ]),
             ],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
