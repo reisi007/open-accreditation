@@ -1,18 +1,19 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
+import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import type { BadgeTemplate } from '../../api/types';
-import { BadgePreview } from './BadgePreview';
+import { BadgeCanvas } from './BadgeCanvas';
+import { BadgePropertiesPanel } from './BadgePropertiesPanel';
 import {
-    BADGE_ALIGNS,
-    BADGE_FIELD_KEYS,
-    addBadgeFieldRow,
-    badgeAlignLabel,
+    BADGE_ENTRY_KEYS,
     badgeFieldLabel,
     badgeTemplateFormDefaults,
     createBadgeTemplateSchema,
-    removeBadgeFieldRow,
+    createDefaultBadgeRow,
+    isSpecialEntry,
+    type BadgeEntryKey,
     type BadgeTemplateFormValues,
 } from './badgeTemplateFormUtils';
 
@@ -24,9 +25,18 @@ interface BadgeTemplateFormProps {
     onCancel: () => void;
 }
 
+/**
+ * Badge template editor (schema v2 basis UI — FE2, features/badge-template-
+ * editor.md): element palette + mm-scaled A6 canvas with selectable boxes +
+ * a properties panel. Drag & drop arrives with FE3; positions are edited
+ * canonically via the panel's number inputs. State stays in react-hook-form
+ * (single source of truth), validation mirrors the server-authoritative
+ * schema v2 rules.
+ */
 export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit, onCancel }: BadgeTemplateFormProps) {
     const { i18n } = useLingui();
     const schema = createBadgeTemplateSchema();
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
     const {
         register,
@@ -40,14 +50,24 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
     });
 
     const fieldRows = useWatch<BadgeTemplateFormValues, 'fields'>({ control, name: 'fields' }) ?? [];
+    const selectedRow = selectedIndex !== null ? fieldRows[selectedIndex] : undefined;
+    const qrExists = fieldRows.some((row) => row.field === 'qr');
 
-    const handleAddField = () => {
-        setValue('fields', addBadgeFieldRow(fieldRows));
+    const handleAddField = (key: BadgeEntryKey) => {
+        if (isSpecialEntry(key) && key === 'qr' && qrExists) return;
+        const rows = [...fieldRows, createDefaultBadgeRow(key, fieldRows)];
+        setValue('fields', rows, { shouldValidate: true });
+        setSelectedIndex(rows.length - 1);
     };
 
-    const handleRemoveField = (index: number) => {
-        if (fieldRows.length <= 1) return;
-        setValue('fields', removeBadgeFieldRow(fieldRows, index));
+    const handleRemoveSelected = () => {
+        if (selectedIndex === null) return;
+        setValue(
+            'fields',
+            fieldRows.filter((_, rowIndex) => rowIndex !== selectedIndex),
+            { shouldValidate: true },
+        );
+        setSelectedIndex(null);
     };
 
     return (
@@ -86,139 +106,51 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                 </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-                <div className="overflow-x-auto">
-                    <table className="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>{i18n._(t`Feld`)}</th>
-                                <th>X</th>
-                                <th>Y</th>
-                                <th>W</th>
-                                <th>H</th>
-                                <th>{i18n._(t`Größe`)}</th>
-                                <th>{i18n._(t`Ausrichtung`)}</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {fieldRows.map((_, index) => (
-                                <tr key={index}>
-                                    <td>
-                                        <select
-                                            aria-label={i18n._(t`Feld Typ`)}
-                                            className={`select select-sm ${errors.fields?.[index]?.field ? 'select-error' : ''}`}
-                                            {...register(`fields.${index}.field`)}
-                                        >
-                                            {BADGE_FIELD_KEYS.map((key) => (
-                                                <option key={key} value={key}>
-                                                    {badgeFieldLabel(key, i18n)}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.fields?.[index]?.field ? (
-                                            <span className="label-text-alt text-error">
-                                                {errors.fields?.[index]?.field?.message}
-                                            </span>
-                                        ) : null}
-                                    </td>
-                                    <td>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            aria-label={i18n._(t`X (mm)`)}
-                                            className={`input input-sm w-16 ${errors.fields?.[index]?.x ? 'input-error' : ''}`}
-                                            {...register(`fields.${index}.x`, { valueAsNumber: true })}
-                                            required
-                                        />
-                                    </td>
-                                    <td>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            aria-label={i18n._(t`Y (mm)`)}
-                                            className={`input input-sm w-16 ${errors.fields?.[index]?.y ? 'input-error' : ''}`}
-                                            {...register(`fields.${index}.y`, { valueAsNumber: true })}
-                                            required
-                                        />
-                                    </td>
-                                    <td>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            aria-label={i18n._(t`Breite (mm)`)}
-                                            className={`input input-sm w-16 ${errors.fields?.[index]?.w ? 'input-error' : ''}`}
-                                            {...register(`fields.${index}.w`, { valueAsNumber: true })}
-                                            required
-                                        />
-                                    </td>
-                                    <td>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            aria-label={i18n._(t`Höhe (mm)`)}
-                                            className={`input input-sm w-16 ${errors.fields?.[index]?.h ? 'input-error' : ''}`}
-                                            {...register(`fields.${index}.h`, { valueAsNumber: true })}
-                                            required
-                                        />
-                                    </td>
-                                    <td>
-                                        <input
-                                            type="number"
-                                            step="any"
-                                            aria-label={i18n._(t`Schriftgröße (pt)`)}
-                                            className={`input input-sm w-16 ${errors.fields?.[index]?.size ? 'input-error' : ''}`}
-                                            {...register(`fields.${index}.size`, { valueAsNumber: true })}
-                                            required
-                                        />
-                                    </td>
-                                    <td>
-                                        <select
-                                            aria-label={i18n._(t`Ausrichtung`)}
-                                            className={`select select-sm ${errors.fields?.[index]?.align ? 'select-error' : ''}`}
-                                            {...register(`fields.${index}.align`)}
-                                        >
-                                            {BADGE_ALIGNS.map((align) => (
-                                                <option key={align} value={align}>
-                                                    {badgeAlignLabel(align, i18n)}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="btn btn-ghost btn-sm"
-                                            aria-label={i18n._(t`Feld entfernen`)}
-                                            onClick={() => handleRemoveField(index)}
-                                        >
-                                            <span className="iconify mdi--trash-can-outline text-lg"></span>
-                                        </button>
-                                    </td>
-                                </tr>
+            <div className="grid gap-4 lg:grid-cols-3">
+                <div className="flex flex-col items-center gap-3 lg:col-span-2">
+                    <fieldset className="w-full">
+                        <legend className="mb-1 text-xs font-medium uppercase tracking-wide text-base-content/60">
+                            {i18n._(t`Elemente`)}
+                        </legend>
+                        <div className="flex flex-wrap gap-1.5">
+                            {BADGE_ENTRY_KEYS.map((key) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    className="btn btn-outline btn-xs"
+                                    disabled={key === 'qr' && qrExists}
+                                    title={key === 'qr' && qrExists ? i18n._(t`Es darf nur einen QR-Code geben.`) : undefined}
+                                    onClick={() => handleAddField(key)}
+                                >
+                                    <span className="iconify mdi--plus text-sm"></span>
+                                    {badgeFieldLabel(key, i18n)}
+                                </button>
                             ))}
-                        </tbody>
-                    </table>
-                    {errors.fields ? (
-                        <p role="alert" className="mt-1 text-sm text-error">
+                        </div>
+                    </fieldset>
+
+                    <div className="w-full max-w-xs">
+                        <BadgeCanvas rows={fieldRows} selectedIndex={selectedIndex} onSelect={setSelectedIndex} />
+                    </div>
+                    <p className="text-center text-xs text-base-content/60">
+                        {i18n._(t`Live-Vorschau (DIN A6, Maße in mm)`)}
+                    </p>
+
+                    {errors.fields?.message ? (
+                        <p role="alert" className="text-sm text-error">
                             {errors.fields.message}
                         </p>
                     ) : null}
                 </div>
 
-                <div className="flex flex-col items-center gap-2 self-start lg:sticky lg:top-4">
-                    <BadgePreview fields={fieldRows} />
-                    <p className="text-center text-xs text-base-content/60">
-                        {i18n._(t`Live-Vorschau (A6, Maße in mm)`)}
-                    </p>
-                </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-                <button type="button" className="btn btn-sm btn-outline" onClick={handleAddField}>
-                    <span className="iconify mdi--plus text-xl"></span>
-                    {i18n._(t`Feld hinzufügen`)}
-                </button>
+                <BadgePropertiesPanel
+                    index={selectedIndex}
+                    row={selectedRow}
+                    errors={errors}
+                    register={register}
+                    setValue={setValue}
+                    onDelete={handleRemoveSelected}
+                />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

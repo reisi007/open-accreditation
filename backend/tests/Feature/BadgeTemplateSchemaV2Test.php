@@ -22,6 +22,14 @@ use Tests\TestCase;
  * derived from the render service constants), minimum box sizes (text 5 × 3 mm,
  * photo/qr 10 × 10 mm) and the historical size/align requirement for data
  * fields. Legacy layouts stay valid unchanged.
+ *
+ * Freely placed images (user decision 2026-08-26, features/badge-template-
+ * editor.md): the `image` entry carries a required source union —
+ * `{kind: brand, ref: logo|header}` or `{kind: upload, image_id: int}` — plus
+ * the optional `fit` switch (contain/cover). Like `qr` it may omit the
+ * meaningless `size`/`align`, uses the box minimum (10 × 10 mm) and may occur
+ * multiple times. Existence/mandant-scoping of `image_id` lands with the
+ * badge_images infrastructure slice; here the union structure is validated.
  */
 class BadgeTemplateSchemaV2Test extends TestCase
 {
@@ -97,6 +105,48 @@ class BadgeTemplateSchemaV2Test extends TestCase
     {
         $this->postTemplate([
             ['field' => 'qr', 'x' => 70, 'y' => 120, 'w' => 25, 'h' => 25, 'size' => 12, 'align' => 'center'],
+        ])->assertStatus(201);
+    }
+
+    public function test_image_entries_are_accepted_and_persisted(): void
+    {
+        $response = $this->postTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            // Brand source without fit (defaults to contain renderer-side) and
+            // without the meaningless size/align — spec example shapes.
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+            [
+                'field' => 'image',
+                'x' => 40,
+                'y' => 130,
+                'w' => 15,
+                'h' => 12,
+                'src' => ['kind' => 'upload', 'image_id' => 17],
+                'fit' => 'cover',
+            ],
+        ])->assertStatus(201);
+
+        // Roundtrip: coordinates + source union + fit survive storage and
+        // serialization.
+        $templateId = $response->json('data.id');
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/badge-templates')
+            ->assertOk()
+            ->assertJsonPath('data.0.layout.1.field', 'image')
+            ->assertJsonPath('data.0.layout.1.src.kind', 'brand')
+            ->assertJsonPath('data.0.layout.1.src.ref', 'logo')
+            ->assertJsonPath('data.0.layout.2.field', 'image')
+            ->assertJsonPath('data.0.layout.2.src.kind', 'upload')
+            ->assertJsonPath('data.0.layout.2.src.image_id', 17)
+            ->assertJsonPath('data.0.layout.2.fit', 'cover');
+
+        $this->assertDatabaseHas('badge_templates', ['id' => $templateId]);
+    }
+
+    public function test_image_entry_with_header_brand_ref_is_accepted(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 0, 'y' => 0, 'w' => 105, 'h' => 20, 'src' => ['kind' => 'brand', 'ref' => 'header'], 'fit' => 'contain'],
         ])->assertStatus(201);
     }
 
@@ -189,6 +239,85 @@ class BadgeTemplateSchemaV2Test extends TestCase
         $this->postTemplate([
             ['field' => 'qr', 'x' => 10, 'y' => 10, 'w' => 9, 'h' => 20],
         ])->assertStatus(422)->assertJsonValidationErrors('layout.0.w');
+    }
+
+    public function test_image_below_minimum_size_is_rejected(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 0, 'y' => 0, 'w' => 9.9, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.w');
+
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 0, 'y' => 0, 'w' => 20, 'h' => 9.9, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.h');
+    }
+
+    public function test_image_beyond_the_card_bounds_is_rejected(): void
+    {
+        // x + w = 110 > 105.
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 0, 'w' => 105, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.w');
+
+        // y + h = 150 > 148.
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 0, 'y' => 140, 'w' => 20, 'h' => 10, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.h');
+    }
+
+    public function test_image_without_source_is_rejected(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+
+        $this->assertDatabaseCount('badge_templates', 0);
+    }
+
+    public function test_image_with_invalid_brand_ref_is_rejected(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'footer']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+    }
+
+    public function test_image_with_unknown_kind_is_rejected(): void
+    {
+        // Client-controlled paths/URLs are never accepted — only the enum
+        // union (brand ref / upload id) is addressable.
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'url', 'url' => 'https://evil.example/x.png']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+    }
+
+    public function test_image_upload_source_requires_positive_integer_id(): void
+    {
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => 0]],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+
+        $this->postTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => 'abc']],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.src');
+    }
+
+    public function test_image_with_invalid_fit_is_rejected(): void
+    {
+        $this->postTemplate([
+            [
+                'field' => 'image',
+                'x' => 5,
+                'y' => 130,
+                'w' => 20,
+                'h' => 12,
+                'src' => ['kind' => 'brand', 'ref' => 'logo'],
+                'fit' => 'stretch',
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('layout.0.fit');
     }
 
     public function test_font_size_above_72_is_rejected(): void

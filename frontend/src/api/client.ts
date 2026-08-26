@@ -8,7 +8,7 @@ import type {
     AllocationResult,
     Application,
     ApplicationAction,
-    BadgeField,
+    BadgeLayoutEntry,
     BadgeTemplate,
     Blacklist,
     Category,
@@ -446,7 +446,7 @@ export const allocateAccreditation = (id: number, payload: AllocationPayload): P
 
 export interface BadgeTemplatePayload {
     name: string;
-    layout: BadgeField[];
+    layout: BadgeLayoutEntry[];
     is_default?: boolean;
 }
 
@@ -465,6 +465,34 @@ export const updateBadgeTemplate = (id: number, payload: BadgeTemplatePayload): 
 
 export const deleteBadgeTemplate = (id: number): Promise<void> =>
     request<void>(`/api/admin/badge-templates/${id}`, { method: 'DELETE' });
+
+/**
+ * Mandant-owned badge images for freely placed `image` layout entries
+ * (features/badge-template-editor.md, "Upload-Infrastruktur"). NOTE: the
+ * backend slice (migration + upload/delivery API) is pending — until it
+ * lands these endpoints answer 404 and the editor surfaces a load/upload
+ * error; brand sources (`logo`/`header`) work without this API.
+ */
+export interface BadgeImage {
+    id: number;
+    original_name: string;
+    mime: string;
+}
+
+/** Auth-gated file URL of one badge image (editor thumbnails/previews). */
+export const badgeImageFileUrl = (id: number): string => `/api/admin/badge-images/${id}/file`;
+
+export const listBadgeImages = (): Promise<BadgeImage[]> => request<BadgeImage[]>('/api/admin/badge-images');
+
+export const uploadBadgeImage = (file: File): Promise<BadgeImage> => {
+    const body = new FormData();
+    body.append('file', file);
+
+    return request<BadgeImage>('/api/admin/badge-images', { method: 'POST', body });
+};
+
+export const deleteBadgeImage = (id: number): Promise<void> =>
+    request<void>(`/api/admin/badge-images/${id}`, { method: 'DELETE' });
 
 /**
  * Streams the badge export (PDF/CSV). The `request` helper only unwraps JSON

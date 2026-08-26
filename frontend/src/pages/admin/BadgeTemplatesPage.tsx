@@ -240,7 +240,7 @@ export function BadgeTemplatesPage() {
 
             {showForm ? (
                 <dialog className="modal modal-open">
-                    <div className="modal-box max-w-4xl">
+                    <div className="modal-box max-w-5xl">
                         <h3 className="text-lg font-bold">
                             {formTemplate ? i18n._(t`Template bearbeiten`) : i18n._(t`Neues Template`)}
                         </h3>

@@ -60,10 +60,10 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
 
         await dialog.getByLabel('Name', { exact: true }).fill('E2E Ausweis');
         await dialog.getByLabel('Standard-Template').check();
-        await dialog.getByRole('button', { name: 'Feld hinzufügen' }).click();
-        await dialog.getByLabel('Feld Typ').nth(1).selectOption('category');
-        await dialog.getByRole('button', { name: 'Feld hinzufügen' }).click();
-        await dialog.getByLabel('Feld Typ').nth(2).selectOption('date');
+        // The editor starts with one default name row; the palette adds the
+        // other two data fields.
+        await dialog.getByRole('button', { name: 'Kategorie', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Datum', exact: true }).click();
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
         const templateRow = main.getByRole('row', { name: /E2E Ausweis/ });

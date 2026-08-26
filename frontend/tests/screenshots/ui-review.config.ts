@@ -318,6 +318,32 @@ export const uiReviewConfig: UiReviewConfig = {
             note: 'Mandant-scoped list. The empty.localhost fixture is unreachable in local dev (F6, see module header), so the empty state stubs the badge-templates list to [] via emptyMock and runs on the primary tenant.',
         },
         {
+            name: 'admin-badge-editor-new',
+            path: '/admin/badge-templates',
+            states: ['filled'],
+            auth: 'admin',
+            viewports: ['desktop'],
+            nav: [
+                { kind: 'click', scope: 'complementary', role: 'link', name: 'Ausweis-Templates' },
+                { kind: 'click', scope: 'main', role: 'button', name: 'Neu' },
+            ],
+            seeds: { filled: seedBadgeTemplate },
+            note: 'Badge template EDITOR (FE2) opened via the "Neu" button — an empty editor over the seeded list. Desktop-only because the mobile harness bypass (navbar overflow H5) skips ALL nav steps, which would capture the plain list instead of the open modal; the list itself is covered by admin-badge-templates in both viewports.',
+        },
+        {
+            name: 'admin-badge-editor-edit',
+            path: '/admin/badge-templates',
+            states: ['filled'],
+            auth: 'admin',
+            viewports: ['desktop'],
+            nav: [
+                { kind: 'click', scope: 'complementary', role: 'link', name: 'Ausweis-Templates' },
+                { kind: 'click', scope: 'main', role: 'button', name: 'Bearbeiten' },
+            ],
+            seeds: { filled: seedBadgeTemplate },
+            note: 'Badge template EDITOR (FE2) with a SEEDED schema-v2 template loaded — canvas boxes + properties panel populated. Same desktop-only reasoning as admin-badge-editor-new.',
+        },
+        {
             name: 'admin-media',
             path: '/admin/media',
             states: ['filled'],

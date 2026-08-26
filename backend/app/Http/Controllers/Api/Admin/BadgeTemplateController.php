@@ -34,12 +34,17 @@ use Symfony\Component\HttpFoundation\Response;
  * `layout` follows schema v2 (see features/badge-template-editor.md) and stays
  * backwards compatible: every entry carries `field` + absolute coordinates
  * (`x/y/w/h` in mm on the A6 card), text fields additionally `size` (pt) +
- * `align`. The dedicated `qr` entry positions the verification QR and is the
- * only entry that may omit `size`/`align` (both are meaningless for it) — at
- * most one per template; without one the renderer falls back to the historical
+ * `align`. The dedicated `qr` entry positions the verification QR and — like
+ * the freely placed `image` entry (mandant brand media or uploaded badge
+ * image) — may omit `size`/`align` (both are meaningless for them); at most
+ * one `qr` per template; without one the renderer falls back to the historical
  * fixed bottom-right position. Bounds derive from the renderer's A6 constants
- * (no duplicated magic numbers). `is_default` follows the
- * one-default-per-mandant rule via `BadgeTemplateService`.
+ * (no duplicated magic numbers). The `image` source is a strict union:
+ * `{kind: brand, ref: logo|header}` or `{kind: upload, image_id: int}` — never
+ * client-controlled paths/URLs. NOTE: existence + mandant-scoping checks for
+ * `upload.image_id` land together with the `badge_images` infrastructure slice;
+ * until then only the union structure is validated here. `is_default` follows
+ * the one-default-per-mandant rule via `BadgeTemplateService`.
  */
 class BadgeTemplateController extends Controller
 {
@@ -53,9 +58,17 @@ class BadgeTemplateController extends Controller
 
     /**
      * `qr` is its own entry type (not a data field): it positions the
-     * verification QR and must appear at most once per template.
+     * verification QR and must appear at most once per template. `image` is
+     * the freely placed picture entry (brand ref or upload id as `src`); both
+     * may omit the meaningless `size`/`align`.
      */
-    private const LAYOUT_FIELDS = [...self::DATA_FIELDS, 'qr'];
+    private const LAYOUT_FIELDS = [...self::DATA_FIELDS, 'qr', 'image'];
+
+    /** Valid refs for an `image` entry with a `{kind: brand}` source. */
+    private const IMAGE_BRAND_REFS = ['logo', 'header'];
+
+    /** Valid values of the optional `image` object-fit switch. */
+    private const IMAGE_FITS = ['contain', 'cover'];
 
     /**
      * Minimum box sizes in mm (spec: text fields 5 × 3, photo/qr 10 × 10 —
@@ -164,10 +177,13 @@ class BadgeTemplateController extends Controller
             'layout.*.w' => ['required', 'numeric', 'min:0'],
             'layout.*.h' => ['required', 'numeric', 'min:0'],
             // `size`/`align` stay optional at the scalar layer only for the
-            // qr entry (they are meaningless there); data fields require both
-            // (historical contract) — enforced in `validateLayoutGeometry`.
+            // qr/image entries (they are meaningless there); data fields
+            // require both (historical contract) — enforced in
+            // `validateLayoutGeometry`.
             'layout.*.size' => ['nullable', 'integer', 'min:'.self::MIN_FONT_SIZE_PT, 'max:'.self::MAX_FONT_SIZE_PT],
             'layout.*.align' => ['nullable', Rule::in(['left', 'center', 'right'])],
+            'layout.*.src' => ['nullable', 'array'],
+            'layout.*.fit' => ['nullable', Rule::in(self::IMAGE_FITS)],
             'is_default' => ['sometimes', 'boolean'],
         ];
     }
@@ -178,11 +194,13 @@ class BadgeTemplateController extends Controller
      *
      * - A6 bounds: `x + w ≤ width` and `y + h ≤ height` (constants from the
      *   render service — no duplicated magic-number pair),
-     * - minimum box sizes (text 5 × 3 mm, photo/qr 10 × 10 mm),
+     * - minimum box sizes (text 5 × 3 mm, photo/qr/image 10 × 10 mm),
      * - data fields carry `size` + `align` (historical contract), the `qr`
-     *   entry may omit both,
+     *   and `image` entries may omit both,
      * - at most one `qr` entry; omitting it selects the renderer's fixed
-     *   fallback position.
+     *   fallback position,
+     * - every `image` entry carries a valid source union (`brand`+ref or
+     *   `upload`+integer id).
      *
      * Failures are reported on exact leaf keys (`layout.<i>.<key>`) so clients
      * can highlight the offending input.
@@ -212,12 +230,13 @@ class BadgeTemplateController extends Controller
             }
 
             $at = fn (string $key): string => 'layout.'.$index.'.'.$key;
-            $isBox = ($entry['field'] ?? null) === 'qr' || ($entry['field'] ?? null) === 'photo';
+            $field = $entry['field'] ?? null;
+            $isBox = $field === 'qr' || $field === 'photo' || $field === 'image';
 
             // Data fields always carry font size + alignment (historical
-            // contract); only the qr entry may omit them (ignored by the
+            // contract); the qr/image entries may omit them (ignored by the
             // renderer).
-            if (($entry['field'] ?? null) !== 'qr') {
+            if ($field !== 'qr' && $field !== 'image') {
                 if (! isset($entry['size'])) {
                     $errors[$at('size')] = 'Data fields require a font size.';
                 }
@@ -255,18 +274,63 @@ class BadgeTemplateController extends Controller
             }
 
             // At most one qr entry per template.
-            if (($entry['field'] ?? null) === 'qr') {
+            if ($field === 'qr') {
                 if ($firstQrIndex !== null) {
                     $errors[$at('field')] = 'Only one qr field is allowed per template.';
                 }
 
                 $firstQrIndex ??= $index;
             }
+
+            // The image entry requires a valid source union — either the
+            // mandant's brand media (`{kind: brand, ref: logo|header}`) or an
+            // uploaded badge image (`{kind: upload, image_id: <int>}`).
+            // Client-controlled paths/URLs are never accepted (SSRF/path
+            // traversal/cross-mandant leak protection). Existence + mandant
+            // scoping of `image_id` land with the badge_images infrastructure
+            // slice; the union structure is enforced here already.
+            if ($field === 'image') {
+                $srcError = $this->imageSourceError($entry['src'] ?? null);
+                if ($srcError !== null) {
+                    $errors[$at('src')] = $srcError;
+                }
+            }
         }
 
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    /**
+     * The validation error of one `image` entry's `src` union, or null when
+     * the source is structurally valid.
+     *
+     * @param  mixed  $src  the raw `src` value of an image entry
+     */
+    private function imageSourceError(mixed $src): ?string
+    {
+        if (! is_array($src)) {
+            return 'The image field requires a source.';
+        }
+
+        $kind = $src['kind'] ?? null;
+
+        if ($kind === 'brand') {
+            return in_array($src['ref'] ?? null, self::IMAGE_BRAND_REFS, true)
+                ? null
+                : 'The brand source must reference logo or header.';
+        }
+
+        if ($kind === 'upload') {
+            $imageId = $src['image_id'] ?? null;
+
+            return is_int($imageId) && $imageId >= 1
+                ? null
+                : 'The upload source must carry a positive integer image id.';
+        }
+
+        return 'The image source kind must be brand or upload.';
     }
 
     /**

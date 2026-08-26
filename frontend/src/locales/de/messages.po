@@ -247,7 +247,7 @@ msgstr "Anzahl"
 msgid "Apple Wallet"
 msgstr "Apple Wallet"
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Ausrichtung"
 msgstr "Ausrichtung"
 
@@ -259,6 +259,10 @@ msgstr "Ausweis-Export"
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "Ausweis-Templates"
 msgstr "Ausweis-Templates"
+
+#: src/pages/admin/BadgeCanvas.tsx
+msgid "Ausweis-Vorschau"
+msgstr "Ausweis-Vorschau"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
@@ -314,17 +318,41 @@ msgstr "Benutzer suchen"
 msgid "Beschreibung"
 msgstr "Beschreibung"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Bild"
+msgstr "Bild"
+
 #: src/components/MediaField.tsx
 msgid "Bild auswählen"
 msgstr "Bild auswählen"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Bild hochladen"
+msgstr "Bild hochladen"
 
 #: src/components/MediaField.tsx
 msgid "Bild konnte nicht entfernt werden."
 msgstr "Bild konnte nicht entfernt werden."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Bild-ID muss eine Zahl sein."
+msgstr "Bild-ID muss eine Zahl sein."
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Bilder konnten nicht geladen werden."
+msgstr "Bilder konnten nicht geladen werden."
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Bildquelle"
+msgstr "Bildquelle"
+
 #: src/pages/admin/AccreditationForm.tsx
 msgid "Bitte auswählen"
 msgstr "Bitte auswählen"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Bitte ein hochgeladenes Bild auswählen."
+msgstr "Bitte ein hochgeladenes Bild auswählen."
 
 #: src/pages/admin/userRoleFormUtils.ts
 msgid "Bitte ein Team auswählen."
@@ -345,6 +373,10 @@ msgstr "Bitte eine gültige Portnummer angeben."
 #: src/pages/admin/RoleForm.tsx
 msgid "Bitte Team auswählen"
 msgstr "Bitte Team auswählen"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Bitte wählen"
+msgstr "Bitte wählen"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Blacklist"
@@ -370,7 +402,7 @@ msgstr "Blacklist-Eintrag konnte nicht gelöscht werden."
 msgid "Blacklist-Eintrag wirklich löschen?"
 msgstr "Blacklist-Eintrag wirklich löschen?"
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Breite (mm)"
 msgstr "Breite (mm)"
 
@@ -378,15 +410,31 @@ msgstr "Breite (mm)"
 msgid "Breite muss 0 oder größer sein."
 msgstr "Breite muss 0 oder größer sein."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Breite muss eine Zahl sein."
+msgstr "Breite muss eine Zahl sein."
+
 #: src/pages/VerifyPage.tsx
 msgid "Code"
 msgstr "Code"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Das Bild konnte nicht hochgeladen werden."
+msgstr "Das Bild konnte nicht hochgeladen werden."
 
 #: src/pages/admin/accreditationFormUtils.ts
 #: src/pages/admin/accreditationSubFormUtils.ts
 #: src/pages/admin/eventFormUtils.ts
 msgid "Das Ende der Frist muss nach dem Beginn liegen."
 msgstr "Das Ende der Frist muss nach dem Beginn liegen."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Das Feld ragt über den rechten Rand hinaus."
+msgstr "Das Feld ragt über den rechten Rand hinaus."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Das Feld ragt über den unteren Rand hinaus."
+msgstr "Das Feld ragt über den unteren Rand hinaus."
 
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/portal/PortalHomePage.tsx
@@ -401,6 +449,22 @@ msgstr "Datenschutzerklärung"
 #: src/pages/VerifyPage.tsx
 msgid "Datum"
 msgstr "Datum"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Die Mindestbreite beträgt 10 mm."
+msgstr "Die Mindestbreite beträgt 10 mm."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Die Mindestbreite beträgt 5 mm."
+msgstr "Die Mindestbreite beträgt 5 mm."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Die Mindesthöhe beträgt 10 mm."
+msgstr "Die Mindesthöhe beträgt 10 mm."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Die Mindesthöhe beträgt 3 mm."
+msgstr "Die Mindesthöhe beträgt 3 mm."
 
 #: src/pages/admin/RoleForm.tsx
 msgid "Die Rolle Super Admin wird global über den Seeder vergeben und kann hier nicht zugewiesen werden."
@@ -463,13 +527,25 @@ msgstr "E-Mail wurde erneut gesendet."
 msgid "Ebene"
 msgstr "Ebene"
 
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Eigenschaften"
+msgstr "Eigenschaften"
+
 #: src/pages/admin/MandantForm.tsx
 #~ msgid "Ein Passwort ist gespeichert. Es kann hier nicht geändert werden."
 #~ msgstr "Ein Passwort ist gespeichert. Es kann hier nicht geändert werden."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Einpassen"
+msgstr "Einpassen"
+
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Einstellungen"
 msgstr "Einstellungen"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Elemente"
+msgstr "Elemente"
 
 #: src/components/MediaField.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -492,6 +568,11 @@ msgstr "Erste X freigeben"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Erstellt"
 msgstr "Erstellt"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Es darf nur einen QR-Code geben."
+msgstr "Es darf nur einen QR-Code geben."
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/badgeTemplateFormUtils.ts
@@ -537,21 +618,21 @@ msgstr "Events konnten nicht geladen werden."
 msgid "Export fehlgeschlagen."
 msgstr "Export fehlgeschlagen."
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgeCanvas.tsx
 msgid "Feld"
 msgstr "Feld"
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Feld entfernen"
 msgstr "Feld entfernen"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Feld hinzufügen"
-msgstr "Feld hinzufügen"
+#~ msgid "Feld hinzufügen"
+#~ msgstr "Feld hinzufügen"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Feld Typ"
-msgstr "Feld Typ"
+#~ msgid "Feld Typ"
+#~ msgstr "Feld Typ"
 
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "Felder"
@@ -608,6 +689,14 @@ msgstr "Frist Beginn"
 msgid "Frist Ende"
 msgstr "Frist Ende"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Füllen"
+msgstr "Füllen"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Für das Bild muss eine Quelle gewählt werden."
+msgstr "Für das Bild muss eine Quelle gewählt werden."
+
 #: src/pages/admin/resendMailUtils.ts
 msgid "Für diesen Antrag kann keine E-Mail gesendet werden."
 msgstr "Für diesen Antrag kann keine E-Mail gesendet werden."
@@ -632,8 +721,8 @@ msgid "Google Wallet"
 msgstr "Google Wallet"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Größe"
-msgstr "Größe"
+#~ msgid "Größe"
+#~ msgstr "Größe"
 
 #: src/pages/admin/DenyModal.tsx
 msgid "Grund für die Ablehnung"
@@ -652,17 +741,25 @@ msgstr "Header"
 msgid "Heimstätte"
 msgstr "Heimstätte"
 
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Hochgeladenes Bild"
+msgstr "Hochgeladenes Bild"
+
 #: src/components/MediaField.tsx
 msgid "Hochladen"
 msgstr "Hochladen"
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Höhe (mm)"
 msgstr "Höhe (mm)"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Höhe muss 0 oder größer sein."
 msgstr "Höhe muss 0 oder größer sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Höhe muss eine Zahl sein."
+msgstr "Höhe muss eine Zahl sein."
 
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/portal/PortalHomePage.tsx
@@ -718,6 +815,10 @@ msgstr "Kategorien konnten nicht geladen werden."
 #: src/components/MediaField.tsx
 msgid "Kein Bild hinterlegt."
 msgstr "Kein Bild hinterlegt."
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Kein Feld ausgewählt. Klicke ein Feld auf der Vorschau an."
+msgstr "Kein Feld ausgewählt. Klicke ein Feld auf der Vorschau an."
 
 #: src/pages/admin/MandantMediaPage.tsx
 msgid "Kein Mandanten-Kontext vorhanden."
@@ -775,6 +876,10 @@ msgstr "Keine Veranstaltungen"
 msgid "Kontakt"
 msgstr "Kontakt"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Kopfbild"
+msgstr "Kopfbild"
+
 #: src/pages/admin/MandantForm.tsx
 msgid "Leer = unverändert"
 msgstr "Leer = unverändert"
@@ -805,8 +910,12 @@ msgid "Links"
 msgstr "Links"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Live-Vorschau (A6, Maße in mm)"
-msgstr "Live-Vorschau (A6, Maße in mm)"
+#~ msgid "Live-Vorschau (A6, Maße in mm)"
+#~ msgstr "Live-Vorschau (A6, Maße in mm)"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Live-Vorschau (DIN A6, Maße in mm)"
+msgstr "Live-Vorschau (DIN A6, Maße in mm)"
 
 #: src/pages/admin/MandantDetailPage.tsx
 #: src/pages/admin/MandantListPage.tsx
@@ -869,6 +978,18 @@ msgstr "Mandanten"
 #: src/pages/admin/MandantListPage.tsx
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "Mandanten konnten nicht geladen werden."
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Mandanten-Bild"
+msgstr "Mandanten-Bild"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Mandanten-Bild (Logo/Kopfbild)"
+msgstr "Mandanten-Bild (Logo/Kopfbild)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Mandanten-Logo"
+msgstr "Mandanten-Logo"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Massenfreigabe"
@@ -952,6 +1073,10 @@ msgstr "Neuer Eintrag"
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Neuer Mandant"
 msgstr "Neuer Mandant"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Neues Bild hochladen"
+msgstr "Neues Bild hochladen"
 
 #: src/pages/admin/EventsPage.tsx
 msgid "Neues Event"
@@ -1108,6 +1233,14 @@ msgstr "Prüfen"
 msgid "Prüfung fehlgeschlagen."
 msgstr "Prüfung fehlgeschlagen."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "QR-Code"
+msgstr "QR-Code"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Quelle"
+msgstr "Quelle"
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
@@ -1152,9 +1285,21 @@ msgstr "Saison"
 msgid "Schließen"
 msgstr "Schließen"
 
-#: src/pages/admin/BadgeTemplateForm.tsx
+#: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Schriftgröße (pt)"
 msgstr "Schriftgröße (pt)"
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Schriftgröße darf höchstens 72 sein."
+msgstr "Schriftgröße darf höchstens 72 sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Schriftgröße muss eine ganze Zahl sein."
+msgstr "Schriftgröße muss eine ganze Zahl sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Schriftgröße muss eine Zahl sein."
+msgstr "Schriftgröße muss eine Zahl sein."
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Schriftgröße muss mindestens 1 sein."
@@ -1188,6 +1333,10 @@ msgstr "Seitennavigation"
 #: src/pages/admin/SubAccreditationForm.tsx
 msgid "Sitzkarte"
 msgstr "Sitzkarte"
+
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Skalierung"
+msgstr "Skalierung"
 
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/CategoryForm.tsx
@@ -1372,6 +1521,7 @@ msgstr "Sub-Anträge konnten nicht geladen werden."
 #~ msgstr "Tage"
 
 #: src/pages/admin/AccreditationForm.tsx
+#: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
@@ -1540,6 +1690,10 @@ msgstr "VIP"
 msgid "VIP-Status konnte nicht geändert werden."
 msgstr "VIP-Status konnte nicht geändert werden."
 
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Vorhandenes Bild"
+msgstr "Vorhandenes Bild"
+
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Wallet-Downloads"
 msgstr "Wallet-Downloads"
@@ -1559,6 +1713,10 @@ msgstr "Warteliste"
 msgid "Weiter"
 msgstr "Weiter"
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Westennummer"
+msgstr "Westennummer"
+
 #: src/pages/admin/EventForm.tsx
 #: src/pages/portal/EventDetailPage.tsx
 #: src/pages/portal/PortalHomePage.tsx
@@ -1570,20 +1728,28 @@ msgstr "Wettbewerb"
 #~ msgstr "Willkommen bei der Akkreditierungs-Plattform."
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "X (mm)"
-msgstr "X (mm)"
+#~ msgid "X (mm)"
+#~ msgstr "X (mm)"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "X muss 0 oder größer sein."
 msgstr "X muss 0 oder größer sein."
 
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "X muss eine Zahl sein."
+msgstr "X muss eine Zahl sein."
+
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Y (mm)"
-msgstr "Y (mm)"
+#~ msgid "Y (mm)"
+#~ msgstr "Y (mm)"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Y muss 0 oder größer sein."
 msgstr "Y muss 0 oder größer sein."
+
+#: src/pages/admin/badgeTemplateFormUtils.ts
+msgid "Y muss eine Zahl sein."
+msgstr "Y muss eine Zahl sein."
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Zentriert"

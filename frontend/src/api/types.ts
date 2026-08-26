@@ -295,10 +295,17 @@ export interface AllocationResult {
     skipped_blacklist: number;
 }
 
-export type BadgeFieldKey = 'name' | 'category' | 'event' | 'date' | 'photo' | 'status';
+/**
+ * Data fields of a badge layout entry (schema v2 whitelist, features/
+ * badge-template-editor.md): the six historical fields plus `team` and
+ * `vest_number`. The dedicated `qr`/`image` entries are NOT data fields —
+ * they are separate members of `BadgeLayoutEntry`.
+ */
+export type BadgeFieldKey = 'name' | 'category' | 'event' | 'date' | 'photo' | 'status' | 'team' | 'vest_number';
 
 export type BadgeAlign = 'left' | 'center' | 'right';
 
+/** A positioned data field: coordinates in mm, font size in pt. */
 export interface BadgeField {
     field: BadgeFieldKey;
     x: number;
@@ -309,10 +316,49 @@ export interface BadgeField {
     align: BadgeAlign;
 }
 
+/**
+ * The verification-QR layout entry (schema v2): positions the QR block on
+ * the A6 card; `size`/`align` are allowed by the API but meaningless. At most
+ * one per template.
+ */
+export interface BadgeQrEntry {
+    field: 'qr';
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+export type BadgeImageRef = 'logo' | 'header';
+
+export type BadgeImageFit = 'contain' | 'cover';
+
+/**
+ * The source of an `image` layout entry — a strict union of enum refs only
+ * (never client-controlled paths/URLs): either the mandant's uploaded brand
+ * media or an uploaded badge image by id.
+ */
+export type BadgeImageSource =
+    | { kind: 'brand'; ref: BadgeImageRef }
+    | { kind: 'upload'; image_id: number };
+
+/** A freely placed picture entry (schema v2, user decision 2026-08-26). */
+export interface BadgeImageEntry {
+    field: 'image';
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    src: BadgeImageSource;
+    fit?: BadgeImageFit;
+}
+
+export type BadgeLayoutEntry = BadgeField | BadgeQrEntry | BadgeImageEntry;
+
 export interface BadgeTemplate {
     id: number;
     name: string;
-    layout: BadgeField[];
+    layout: BadgeLayoutEntry[];
     is_default: boolean;
     updated_at: string | null;
 }
