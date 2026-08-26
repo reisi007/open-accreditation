@@ -308,7 +308,7 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
 - [ ] **FE-IMG (User-Entscheidung, 2026-08-26)** — Der Editor soll **auch selbst platzierte Bilder** unterstützen (Logos, Vereinswappen, Hintergründe — frei positionierbar wie Datenfelder, mit x/y/w/h + Bildquelle: Upload oder Mandant-Brand-Bild). Spec-Erweiterung in `features/badge-template-editor.md` (neuer Elementtyp `image`), Umsetzung im FE2/FE3-Zyklus (Schema-Erweiterung ggf. nach FE1).
-- [ ] **FE1-DEP1 (MEDIUM, FE2-Blocker!)** — Frontend-zod-Spiegel (`badgeTemplateFormUtils.ts`) kennt Schema v2 noch nicht (qr ohne size/align, team/vest_number): v2-Templates lassen sich im Modal-Editor nicht re-speichern + keine Labels. **MUSS mit FE2 geschlossen werden, bevor Schema v2 + Editor zusammen releasen.**
+- [x] **FE1-DEP1 (MEDIUM, FE2-Blocker)** — ✅ mit FE2 geschlossen: zod-Spiegel (`badgeTemplateFormUtils.ts`) spiegelt Schema v2 vollständig (qr ohne size/align, team/vest_number, Bounds, Mindestgrößen, max-1-qr, image-Union).
 - [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
 - [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
 - [ ] **FE1-F4 (low, pre-existing)** — `BadgeRenderService::host()` macht pro Karte eine Domains-Query (N+1 beim Export); Cache pro Render-Lauf als Follow-up.
@@ -319,6 +319,7 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 - [ ] **DOC-H-F1 (low)** — Editor-Spec-Zeile 77: Ist-Prämisse `vest_number` nach Gs Merge nochmals quergreifen (Feld existiert bereits aus P2).
 - [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
 - [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
+- [ ] **FE2-F1 (low)** — Palette lässt „+ Foto" mehrfach hinzufügen (im Gegensatz zu „+ QR-Code", das Single-Instance blockiert); Konsistenz: photo ebenfalls Single-Instance oder bewusst erlauben (dann Doku).
 
 ### Feld-Editor Umsetzung — Etappenplan (je Etappe: Implementer ∥ nichts, separater Verifikator, UI-Review-Skill)
 > **UI-Test-Regel (STRICT) für jede Etappe:** Nach Umsetzung (a) funktionale Tests (PHPUnit/Vitest/Playwright
@@ -348,9 +349,9 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
   `deployment/Dockerfile.e2e` aufnehmen — nicht blockierend für FE1, lokale Verifikation genügt zunächst.
 
 - [x] **FE1 — Template-Schema + Backend-Render-Kontrakt** ✅ `a17332b` — Schema v2 (x/y/w/h/fontSize/alignment, mm) inkl. `qr`-Feld (P4-F4); team/vest_number; A6-Bounds-Validierung; PDF-Render nutzt Koordinaten; Rückwärtskompatibilität. 734 passed, Pint PASS; Code+Vision-Verifier APPROVED. _Vision-medium: Datum-Feld im koordinierten Fixture nicht gesetzt (Fixture-Subset, kein Renderer-Bug) → künftige Fixtures alle Feldtypen abdecken._
-- [ ] **FE2 — Editor-Basis-UI:** Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
+- [x] **FE2 — Editor-Basis-UI** ✅ `eb88cbc` — Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
   Auswahl + Eigenschaften-Panel (X/Y/Breite/Höhe/Font/Alignment als Zahleneingaben), Persistenz-Roundtrip.
-  Tests: Vitest + Playwright `@feature:badge-editor` + UI-Review (Vorschau-Seite, filled/empty, Desktop+Mobile). [Implementer J]
+  Backend: Whitelist + image-Regeln (additiv). Tests: 743 PHPUnit / 143 Vitest / 3 Playwright `@feature:badge-editor` / smoke 17 grün. _Vision-low: kein Grid/Overlap-Warnung (→ FE3)._
 - [ ] **FE3 — Drag&Drop:** Freies Ziehen der Felder auf der Vorschau mit Grid/Snap, Bounds-Clamping, Überlappungs-Warnung;
   Positionen synchronisieren Panel ↔ Vorschau ↔ Speicherung. Tests: Playwright `@feature:badge-editor` (+`@regression`)
   + UI-Review mit Vision old-vs-new-Diff der Editor-Routen. [Implementer K]
