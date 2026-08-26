@@ -307,6 +307,11 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung folgt als FE1–FE4, siehe Etappenplan oben.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
+- [ ] **FE1-DEP1 (MEDIUM, FE2-Blocker!)** — Frontend-zod-Spiegel (`badgeTemplateFormUtils.ts`) kennt Schema v2 noch nicht (qr ohne size/align, team/vest_number): v2-Templates lassen sich im Modal-Editor nicht re-speichern + keine Labels. **MUSS mit FE2 geschlossen werden, bevor Schema v2 + Editor zusammen releasen.**
+- [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
+- [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
+- [ ] **FE1-F4 (low, pre-existing)** — `BadgeRenderService::host()` macht pro Karte eine Domains-Query (N+1 beim Export); Cache pro Render-Lauf als Follow-up.
+- [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
 - [ ] **BE-R1-F1 (low)** — `users.mandant_id` ohne FK (Migration-Order-Begründung dokumentiert); optional dedizierte FK-Migration nach Präzedenz `2026_08_14_000010_add_team_foreign_key_to_role_user`.
 - [ ] **BE-R1-F2 (low)** — Mehrere globale Konten (`mandant_id=NULL`, gleiche E-Mail) wären legal (NULL-Semantik) und träfen per willkürlichem `first()`; Seeder verhindert sie — optional hartes Guard (`AuthController.php:222`).
 - [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
