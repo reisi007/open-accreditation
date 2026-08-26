@@ -251,24 +251,4 @@ class SubAccreditationController extends Controller
 
         return $sub;
     }
-
-    /**
-     * An `?accreditation_id` filter of `indexAll()` must reference an
-     * accreditation of the current mandant (422 otherwise); a team_admin may
-     * only filter within his own teams (403 otherwise). Mirrors
-     * AdminApplicationController::assertAccreditationFilter().
-     */
-    private function assertAccreditationFilter(int $accreditationId, int $mandantId, array $teamIds): void
-    {
-        $query = Accreditation::query()->forMandant($mandantId)->whereKey($accreditationId);
-
-        if ($teamIds !== []) {
-            $query->whereIn('team_id', $teamIds);
-            abort_unless($query->exists(), 403);
-
-            return;
-        }
-
-        abort_unless($query->exists(), 422);
-    }
 }

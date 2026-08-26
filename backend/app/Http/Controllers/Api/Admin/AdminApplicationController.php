@@ -7,7 +7,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminApplicationResource;
 use App\Mail\ApplicationDeniedMail;
 use App\Mail\PassMail;
-use App\Models\Accreditation;
 use App\Models\Application;
 use App\Services\AllocationService;
 use App\Services\MandantMailerService;
@@ -202,24 +201,5 @@ class AdminApplicationController extends Controller
         }
 
         return $application;
-    }
-
-    /**
-     * A `?accreditation_id` filter must reference an accreditation of the
-     * current mandant (422 otherwise); a team_admin may only filter within
-     * his own teams (403 otherwise).
-     */
-    private function assertAccreditationFilter(int $accreditationId, int $mandantId, array $teamIds): void
-    {
-        $query = Accreditation::query()->forMandant($mandantId)->whereKey($accreditationId);
-
-        if ($teamIds !== []) {
-            $query->whereIn('team_id', $teamIds);
-            abort_unless($query->exists(), 403);
-
-            return;
-        }
-
-        abort_unless($query->exists(), 422);
     }
 }

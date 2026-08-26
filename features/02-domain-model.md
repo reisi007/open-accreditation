@@ -66,6 +66,24 @@ PG-only Trigram-Index (mit Service-Abstraktion + separatem
 Integrationstest) vorzusehen. Bis dahin ist der Seq-Scan tragbar
 (Users/Mandant ist klein, Suche ist Admin-only).
 
+## P2-F1 — User-Suche: Non-ASCII-Divergenz (akzeptiertes Risiko)
+
+`LOWER()` in SQLite faltet **nur ASCII** (`A-Z` → `a-z`); nicht-lateinische
+Zeichen wie `Ü`, `Ö`, `Ä`, `ß` bleiben unverändert. Postgres `LOWER()` ist
+Unicode-aware und faltet auch Non-ASCII. Die portable `LOWER(col) LIKE
+LOWER(?)`-Kontrakt (CC-R1) ist daher für ASCII-Terme identisch, divergiert
+aber bei Non-ASCII:
+
+- SQLite: Suche nach `müller` matcht **nicht** `MÜLLER` (weil `LOWER('Ü') = 'Ü'`).
+- Postgres: Suche nach `müller` matcht `MÜLLER` (weil `LOWER('Ü') = 'ü'`).
+
+**Akzeptiertes Risiko:** Die SQLite-Testsuite (PHPUnit, `SQLite :memory:`)
+validiert daher den ASCII-Pfad; der Non-ASCII-Pfad ist gegen Postgres
+manuell/integrationstest zu prüfen. Für die anfängliche Admin-Suche (kleine
+User-Zahlen/Mandant, ASCII-Domänen) tragbar. Sauberer Fix: `mb_strtolower()`
+im Service-Layer (PHP-seitig, engine-unabhängig) — folgt später, wird hier
+als Portabilitäts-Trade-off dokumentiert.
+
 ## Applications: `created_at` ist der Antragszeitpunkt (kein `applied_at`, P3b-F2)
 
 Die Tabelle `applications` besitzt **kein** eigenes `applied_at`-Feld — der
@@ -86,3 +104,20 @@ als Nebenprodukt), nie `created_at`.
   `setPriority` den Wert ohne Statuswechsel). Wird ein Audit-Zeitstempel für
   die Freigabe-Entscheidung benötigt → eigene neue Spalte (SOLL, P3e-Cleanup),
   kein Überladen von `created_at`.
+
+## `is_team_override` Semantik (P2b-F5)
+
+`CategoryResource` exponiert einen abgeleiteten Boolean **`is_team_override`** —
+kein DB-Feld, definiert als `team_id !== null`
+(`backend/app/Http/Resources/CategoryResource.php`). Er markiert jede
+Kategorie-Zeile auf **Team-Ebene** (Verein), unabhängig davon, ob fachlich
+ein Verbands-Datensatz mit gleichem Slug tatsächlich „überschrieben" wird.
+
+- **Semantik-Kosmetik (bewusst akzeptiert):** Das „Team-Override"-Badge in der
+  Admin-UI (`frontend/src/pages/admin/CategoriesPage.tsx`) erscheint auf
+  **jeder** Team-Kategorie — auch wenn es streng genommen nur ein
+  „Team-Level"-Flag ist. Der Flag darf nicht als Nachweis eines echten
+  Slug-Overrides missdeutet werden.
+- **UI-Konsequenz:** Team-Kategorien werden visuell als Override gekennzeichnet,
+  obwohl sie ggf. nur eine erste Team-Level-Instanz sind. Kein Schema-/API-
+  Change nötig; Details in `features/01-multi-tenancy.md`.
