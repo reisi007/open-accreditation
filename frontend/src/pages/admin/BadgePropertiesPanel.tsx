@@ -75,7 +75,7 @@ export function BadgePropertiesPanel({
                 <div className="grid grid-cols-2 gap-2">
                     <div className="form-control">
                         <label className="label pb-1" htmlFor={`badge-field-${index}-x`}>
-                            <span className="label-text">X (mm)</span>
+                            <span className="label-text">{i18n._(t`X (mm)`)}</span>
                         </label>
                         <input
                             id={`badge-field-${index}-x`}
@@ -91,7 +91,7 @@ export function BadgePropertiesPanel({
                     </div>
                     <div className="form-control">
                         <label className="label pb-1" htmlFor={`badge-field-${index}-y`}>
-                            <span className="label-text">Y (mm)</span>
+                            <span className="label-text">{i18n._(t`Y (mm)`)}</span>
                         </label>
                         <input
                             id={`badge-field-${index}-y`}

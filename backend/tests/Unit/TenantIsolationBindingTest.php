@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Accreditation;
 use App\Models\Application;
+use App\Models\BadgeTemplate;
 use App\Models\Blacklist;
 use App\Models\Category;
 use App\Models\Event;
@@ -52,6 +53,7 @@ class TenantIsolationBindingTest extends TestCase
         $eventB = $this->mandantB->events()->create(['title' => 'E']);
         $teamB = $this->mandantB->teams()->create(['name' => 'T', 'slug' => 't-b']);
         $blacklistB = Blacklist::create(['mandant_id' => $this->mandantB->id, 'email' => 'x@y.z']);
+        $badgeTemplateB = BadgeTemplate::create(['mandant_id' => $this->mandantB->id, 'name' => 'BT-B', 'layout' => []]);
 
         MandantContext::set($this->mandantA);
 
@@ -59,10 +61,13 @@ class TenantIsolationBindingTest extends TestCase
         $this->assertNull((new Event)->resolveRouteBinding((string) $eventB->id));
         $this->assertNull((new Team)->resolveRouteBinding((string) $teamB->id));
         $this->assertNull((new Blacklist)->resolveRouteBinding((string) $blacklistB->id));
+        $this->assertNull((new BadgeTemplate)->resolveRouteBinding((string) $badgeTemplateB->id));
 
         // A model of the current mandant still resolves normally.
         $catA = $this->mandantA->categories()->create(['name' => 'C', 'slug' => 'c-a']);
+        $badgeTemplateA = BadgeTemplate::create(['mandant_id' => $this->mandantA->id, 'name' => 'BT-A', 'layout' => []]);
         $this->assertNotNull((new Category)->resolveRouteBinding((string) $catA->id));
+        $this->assertNotNull((new BadgeTemplate)->resolveRouteBinding((string) $badgeTemplateA->id));
     }
 
     public function test_relation_scoped_models_reject_foreign_binding(): void

@@ -1736,9 +1736,9 @@ msgstr "Competition"
 #~ msgid "Willkommen bei der Akkreditierungs-Plattform."
 #~ msgstr "Welcome to the accreditation platform."
 
-#: src/pages/admin/BadgeTemplateForm.tsx
-#~ msgid "X (mm)"
-#~ msgstr "X (mm)"
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "X (mm)"
+msgstr "X (mm)"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "X muss 0 oder größer sein."
@@ -1748,9 +1748,9 @@ msgstr "X must be 0 or greater."
 msgid "X muss eine Zahl sein."
 msgstr "X must be a number."
 
-#: src/pages/admin/BadgeTemplateForm.tsx
-#~ msgid "Y (mm)"
-#~ msgstr "Y (mm)"
+#: src/pages/admin/BadgePropertiesPanel.tsx
+msgid "Y (mm)"
+msgstr "Y (mm)"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Y muss 0 oder größer sein."

@@ -206,12 +206,15 @@ final class BadgeRenderService
             return sprintf('<div style="%s"></div>', $style);
         }
 
+        // `e()` hardening: the data URI is base64 today (escape-neutral), but
+        // escaping keeps the src attribute safe should the mime/source path
+        // ever change.
         $dataUri = 'data:'.$portrait->mime.';base64,'.base64_encode((string) Storage::disk('private')->get($portrait->path));
 
         return sprintf(
             '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:cover;"></div>',
             $style,
-            $dataUri,
+            e($dataUri),
         );
     }
 
