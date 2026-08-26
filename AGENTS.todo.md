@@ -127,11 +127,10 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
-> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert), P3e-B3 (bereits in `Support/LikeSearch.php` konsolidiert).
+> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert), P3e-B3 (bereits in `Support/LikeSearch.php` konsolidiert), P1c (Profile-Media-E2E `17498c4`), RV-U3 (key=index dokumentiert `17498c4`).
 
 - [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
-- [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
 
 - [ ] **P4-F4 (info)** QR-Fixposition (20 mm unten rechts) kann Template-Felder überlappen → Layout-Schema um `qr`-Feld erweitern (später).
 - [ ] **P5-F3 (info)** Reminder-Dedup ist pro Tag (bis 4 Mails im 3-Tage-Fenster) — bewusste MVP-Entscheidung (dokumentiert in `SendReminders.php`).
@@ -289,7 +288,7 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`.)_
+_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`; FK-Migration: `8e487ca`; Profile-E2E+BadgeCanvas: `17498c4`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
 > Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487ca`), DOC-H-F1 (bereits korrekt), DOC-H-F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`).
@@ -297,8 +296,7 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
 - [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
-> Abgeschlossene Punkte entfernt: RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`.
-- [ ] **RV-U3 (info)** — `BadgeCanvas.tsx:455`: `key={index}` — erst bei Reordering relevant (dann stabile Keys).
+> Alle Punkte abgeschlossen (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`, RV-U3 dokumentiert `17498c4`).
 
 ### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
 > Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
