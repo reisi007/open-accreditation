@@ -129,7 +129,12 @@ class SubAccreditationController extends Controller
             });
         }
 
-        return SubAccreditationResource::collection($query->orderBy('id')->get());
+        // P3e-B4-F3: grouped by parent accreditation first, then by id within
+        // each accreditation — the admin dropdown lists sub-accreditations per
+        // accreditation, a flat `orderBy('id')` scrambles that grouping.
+        return SubAccreditationResource::collection(
+            $query->orderBy('accreditation_id')->orderBy('id')->get(),
+        );
     }
 
     public function store(Request $request, Accreditation $accreditation): JsonResponse

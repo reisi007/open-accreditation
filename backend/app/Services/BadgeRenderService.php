@@ -64,6 +64,18 @@ final class BadgeRenderService
 
     public const QR_FALLBACK_SIZE_MM = 20;
 
+    /**
+     * In-memory host cache for one render run (FE1-F4). The verify URL's host
+     * depends only on the current mandant's first domain (or app.url) — without
+     * caching, every card issues the same `domains` query (N+1 on export). Keyed
+     * by mandant id so a single service instance stays correct even when the
+     * mandant context changes between renders. Not persisted — rebuilt per
+     * request when Laravel re-resolves the service.
+     *
+     * @var array<int|string, string>
+     */
+    private array $hostCache = [];
+
     public function __construct(
         private readonly QrTokenService $tokens,
         private readonly MandantMediaService $mandantMedia,
@@ -390,10 +402,19 @@ final class BadgeRenderService
 
     private function host(): string
     {
+        $mandantId = MandantContext::currentId() ?? 'global';
+
+        if (array_key_exists($mandantId, $this->hostCache)) {
+            return $this->hostCache[$mandantId];
+        }
+
         $domain = MandantContext::current()?->domains()->orderBy('id')->value('hostname');
         $host = $domain ?? (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+        $resolved = $host === '' ? 'localhost' : $host;
 
-        return $host === '' ? 'localhost' : $host;
+        $this->hostCache[$mandantId] = $resolved;
+
+        return $resolved;
     }
 
     private function scheme(): string

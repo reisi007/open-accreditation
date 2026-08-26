@@ -373,6 +373,30 @@ class BadgeTemplateSchemaV2Test extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | FE1-F3 — float boundary robustness at the exact A6 edge
+     | ------------------------------------------------------------------- */
+
+    public function test_decimal_mm_box_at_exact_edge_is_accepted_despite_fp_rounding(): void
+    {
+        // 33.333... + 71.666... = 105.0 exactly in real arithmetic, but FP
+        // rounding of the decimal inputs can push the sum a hair OVER 105 —
+        // the epsilon guard must absorb that and still accept the layout.
+        $this->postTemplate([
+            ['field' => 'name', 'x' => 33.3333, 'y' => 49.3333, 'w' => 71.6667, 'h' => 98.6667, 'size' => 14, 'align' => 'left'],
+        ])->assertStatus(201);
+    }
+
+    public function test_box_beyond_epsilon_past_the_edge_is_still_rejected(): void
+    {
+        // 0.01 mm beyond the card (epsilon is 0.001) — genuinely out of bounds.
+        $this->postTemplate([
+            ['field' => 'name', 'x' => 0, 'y' => 0, 'w' => 105.02, 'h' => 8, 'size' => 12, 'align' => 'left'],
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('layout.0.w');
+    }
+
+    /* ---------------------------------------------------------------------
      | RV-S2 — image_id existence + mandant scoping
      | ------------------------------------------------------------------- */
 

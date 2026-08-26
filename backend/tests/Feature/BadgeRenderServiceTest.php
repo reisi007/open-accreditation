@@ -12,6 +12,7 @@ use App\Services\BadgeRenderService;
 use App\Support\MandantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -372,6 +373,42 @@ class BadgeRenderServiceTest extends TestCase
 
         $this->assertStringNotContainsString('overflow:hidden', $html);
         $this->assertSame(1, substr_count($html, '<img'), 'only the QR renders an image');
+    }
+
+    /* ---------------------------------------------------------------------
+     | FE1-F4 — host() resolves the mandant domain only once per render run
+     | ------------------------------------------------------------------- */
+
+    public function test_verify_url_host_is_resolved_once_across_many_cards(): void
+    {
+        $this->mandant->domains()->create(['hostname' => 'verband-a.test', 'is_primary' => true]);
+
+        $template = $this->makeTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            ['field' => 'qr', 'x' => 78, 'y' => 121, 'w' => 22, 'h' => 22],
+        ]);
+
+        $applications = new Collection([
+            $this->approvedApplication(),
+            $this->approvedApplication(),
+            $this->approvedApplication(),
+        ]);
+
+        // Query-count spy: count how many queries hit the `domains` table
+        // during the multi-card render. Without the host cache (FE1-F4) each
+        // card would re-issue the same domains query (N+1 on export).
+        DB::enableQueryLog();
+        $pdf = $this->renderer->renderPdf($applications, $template);
+        $domainQueries = count(array_filter(
+            DB::getQueryLog(),
+            fn (array $q) => str_contains($q['query'], 'domains'),
+        ));
+        DB::disableQueryLog();
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        // Three cards sharing one mandant → exactly one domains lookup, the
+        // second and third card hit the in-memory host cache (FE1-F4).
+        $this->assertSame(1, $domainQueries, 'domain query must run once, not once per card');
     }
 
     /* ---------------------------------------------------------------------

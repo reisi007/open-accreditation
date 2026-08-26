@@ -89,6 +89,14 @@ class BadgeTemplateController extends Controller
 
     private const MAX_FONT_SIZE_PT = 72;
 
+    /**
+     * Float-comparison epsilon for A6 bounds checks (mm). A box at the exact
+     * card edge (`x + w = WIDTH`) must pass — without this guard FP rounding
+     * of decimal mm inputs can push `x + w` a hair OVER the limit and reject
+     * a legal layout (FE1-F3).
+     */
+    private const BOUNDS_EPSILON_MM = 0.001;
+
     public function __construct(private readonly BadgeTemplateService $templates) {}
 
     public function index(): AnonymousResourceCollection
@@ -253,12 +261,14 @@ class BadgeTemplateController extends Controller
             $w = (float) ($entry['w'] ?? 0);
             $h = (float) ($entry['h'] ?? 0);
 
-            // A6 portrait bounds: the box must stay on the card.
-            if ($x + $w > BadgeRenderService::A6_WIDTH_MM) {
+            // A6 portrait bounds: the box must stay on the card. An epsilon
+            // guards the exact-edge case (`x + w = WIDTH`) against FP rounding
+            // of decimal mm inputs (FE1-F3).
+            if ($x + $w > BadgeRenderService::A6_WIDTH_MM + self::BOUNDS_EPSILON_MM) {
                 $errors[$at('w')] = 'The field extends beyond the right card edge.';
             }
 
-            if ($y + $h > BadgeRenderService::A6_HEIGHT_MM) {
+            if ($y + $h > BadgeRenderService::A6_HEIGHT_MM + self::BOUNDS_EPSILON_MM) {
                 $errors[$at('h')] = 'The field extends beyond the bottom card edge.';
             }
 

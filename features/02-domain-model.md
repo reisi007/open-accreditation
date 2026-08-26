@@ -50,6 +50,22 @@ JSON-Spalten via Laravel `json`-Type, Datumsarithmetik über Query-Builder/
 Eloquent. Wo Postgres-Features nötig sind → Service-Abstraktion + separater
 Integrationstest.
 
+## P2-F2 — User-Suche: akzeptiertes Risiko (kein Index bei führendem Wildcard)
+
+Die Admin-User-Suche filtert mit `LOWER(users.name) LIKE '%term%'` (führendes
+Wildcard). Ein B-Tree-Index — auch funktional auf `LOWER(name)` — kann eine
+`LIKE`-Prädikat mit führendem `%` weder in SQLite noch in Postgres bedienen:
+beide Engines sequenz-scannen die Tabelle. Ein Trigram-/GIN-Index wäre
+rein PG-only und verletzt die Portabilitätsregel (§2).
+
+**Akzeptiertes Risiko:** Der Index wurde bewusst aus der `users`-Migration
+entfernt — er würde nur Write-Amplifikation erzeugen, ohne die Ziel-Query
+zu beschleunigen. Bei wachsendem Bestand (>10⁵ User/Mandant) ist ein
+dedizierter Suchservice (z. B. Meilisearch/Elasticsearch) oder ein
+PG-only Trigram-Index (mit Service-Abstraktion + separatem
+Integrationstest) vorzusehen. Bis dahin ist der Seq-Scan tragbar
+(Users/Mandant ist klein, Suche ist Admin-only).
+
 ## Applications: `created_at` ist der Antragszeitpunkt (kein `applied_at`, P3b-F2)
 
 Die Tabelle `applications` besitzt **kein** eigenes `applied_at`-Feld — der
