@@ -127,11 +127,10 @@
 
 ## 🔍 Open Follow-ups (verifiziert, aber offen)
 
+> Abgeschlossene Punkte entfernt: P3e-B5 (cache:clear bereits in `scripts/e2e-up.sh` dokumentiert), P3b-F2 (created_at bereits präzise in `features/02-domain-model.md`), P2b-F5 (is_team_override bereits dokumentiert).
+
 - [ ] **P3e-B3 (info)** Controller-Scope-/`EscapeLike`-Duplikation (4 Admin-Controller) → Refactoring-Kandidat (P7).
 - [ ] **P3e-B4 (info)** `fetchAllAdminSubAccreditations` macht N parallele Requests → dedizierter Filter-Endpoint (später).
-- [ ] **P3e-B5 (info)** E2E-Rate-Limiter-State: 7-Tage-TTL im DB-Cache → Login-Throttle-429 bei Back-to-Back-E2E/Screenshot-Läufen: `php artisan cache:clear` vor E2E-Läufen in `e2e-up.sh`/CI-Doku fest dokumentieren (Determinismus).
-- [ ] **P3b-F2 (info)** `applied_at` vs `created_at`: API exponiert `created_at`; `features/02-domain-model.md` ggf. auf `created_at` präzisieren → P3e-Cleanup.
-- [ ] **P2b-F5 (info)** `is_team_override` = `team_id !== null` (Semantik-Kosmetik: Badge auf jeder Team-Kategorie) → akzeptiert/dokumentieren.
 - [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 - [ ] **P1c (info)** `@feature:profile`-Playwright-E2E folgt nach Frontend-UI (P2).
 
@@ -276,21 +275,12 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 
 ### TODO-Liste (actionable, mit Test-Forderung)
 ### Low Follow-ups (info, aus Verifikation)
-> Abgeschlossene Punkte entfernt: P1c-F1 (email-Kommentar), P1c-F2 (robuste Assertion), P3e-B4-F2 (SWR-Key dokumentiert), P3e-B4-F3 (grouped orderBy), P2-F2 (akzeptiertes Risiko dokumentiert), E2E-Hygiene (badge_images purge).
-- [ ] **P3e-B4-F1 (low)** — `SubAccreditationController.php:256`: `assertAccreditationFilter()` dupliziert `AdminApplicationController.php:212` (Mirror); langfristig in `ResolvesAdminTeamScope`-Concern.
-- [ ] **P2-F1 (low)** — `UserController.php:57`: Non-ASCII-Divergenz — SQLite `LOWER()` faltet nur ASCII (Suche `müller`≠`MÜLLER` im Test-Engine, auf PG ok). Trade-off der Portabilitätsregel; ggf. als akzeptiertes Risiko in `features/` dokumentieren.
+> Abgeschlossene Punkte entfernt: P1c-F1 (email-Kommentar), P1c-F2 (robuste Assertion), P3e-B4-F2 (SWR-Key dokumentiert), P3e-B4-F3 (grouped orderBy), P3e-B4-F1 (Concern-Extraktion `d372693`), P2-F2 (akzeptiertes Risiko), P2-F1 (Non-ASCII dokumentiert `d372693`), P2b-F5 (is_team_override dokumentiert `d372693`), E2E-Hygiene (badge_images purge).
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
 - Feld-Editor-Umfang (P4, User-Klärung) · Google-Wallet-Issuer (extern)
 - P5-F4 Queue-Integration (braucht Queue-Worker → Go-Live-Infra, Post-MVP belassen) · P5-F3/P6-B2 (bereits dokumentierte MVP-Entscheidungen)
-
-### Wave-Plan (erweitert, max. 2 parallel, disjunkte Ziel-Dateien)
-- **Wave 1 (parallel, 2):** Subagent A (Backend: escapeLike + Vite-Proxy) ∥ Subagent B (Docs-Batch) — **DONE + B verifiziert (APPROVED)**
-- **Laufend:** A-Verifikator (Backend) ∥ Subagent D (Frontend: P1c E2E)
-- **Wave 2 (parallel, 2):** Subagent C (Backend: P3e-B4 Filter-Endpoint) ∥ Subagent E (Docs: P2c-F4)
-- **Wave 3 (parallel, 2):** Subagent F (Backend: Portabilitäts-Audit) ∥ Verifikator C ∥ Verifikator D (sofern Kapazität; sonst sequenziell)
-- **Verifikation:** je Umsetzung separater Verifikator-Subagent (§5: Architektur + Security + Tests/Lint/Build)
 
 ---
 
@@ -300,16 +290,13 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`.)_
+_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-> Abgeschlossene Punkte entfernt: FE1-F2 (Konstanten bereits vorhanden), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard `a9750c2` deckt das ab).
+> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), DOC-H-F1 (bereits korrekt), DOC-H-F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`).
 - [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
 - [ ] **BE-R1-F1 (low)** — `users.mandant_id` ohne FK (Migration-Order-Begründung dokumentiert); optional dedizierte FK-Migration nach Präzedenz `2026_08_14_000010_add_team_foreign_key_to_role_user`.
 - [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
-- [ ] **DOC-H-F1 (low)** — Editor-Spec-Zeile 77: Ist-Prämisse `vest_number` nach Gs Merge nochmals quergreifen (Feld existiert bereits aus P2).
-- [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
-- [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
 > Abgeschlossene Punkte entfernt: RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`.
