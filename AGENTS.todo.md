@@ -276,13 +276,9 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 
 ### TODO-Liste (actionable, mit Test-Forderung)
 ### Low Follow-ups (info, aus Verifikation)
-- [ ] **P1c-F1 (low)** — `profile.spec.ts:53`: `createActivatedSession` liefert `email` zurück, ungenutzt (Design-Nit, belassen).
-- [ ] **P1c-F2 (low)** — `profile.spec.ts:88`: Assertion auf exakten String `Profil aktualisiert.` koppelt E2E an Backend-Copy; bei Copy-Änderung anpassen.
+> Abgeschlossene Punkte entfernt: P1c-F1 (email-Kommentar), P1c-F2 (robuste Assertion), P3e-B4-F2 (SWR-Key dokumentiert), P3e-B4-F3 (grouped orderBy), P2-F2 (akzeptiertes Risiko dokumentiert), E2E-Hygiene (badge_images purge).
 - [ ] **P3e-B4-F1 (low)** — `SubAccreditationController.php:256`: `assertAccreditationFilter()` dupliziert `AdminApplicationController.php:212` (Mirror); langfristig in `ResolvesAdminTeamScope`-Concern.
-- [ ] **P3e-B4-F2 (low)** — `ApprovalsPage.tsx:872`: statischer SWR-Key statt alter `accreditations.length`-Abhängigkeit (nur Dropdown-Optionen, harmlos).
-- [ ] **P3e-B4-F3 (low)** — `SubAccreditationController.php:132`: globales `orderBy('id')` statt Gruppierung nach Akkreditierung → evtl. andere Dropdown-Reihenfolge.
 - [ ] **P2-F1 (low)** — `UserController.php:57`: Non-ASCII-Divergenz — SQLite `LOWER()` faltet nur ASCII (Suche `müller`≠`MÜLLER` im Test-Engine, auf PG ok). Trade-off der Portabilitätsregel; ggf. als akzeptiertes Risiko in `features/` dokumentieren.
-- [ ] **P2-F2 (low)** — `UserController.php:57`: `LOWER(col)` verhindert b-tree-Index-Nutzung auf PG; bei wachsenden User-Beständen funktionalen Index `LOWER(name)` ergänzen (portabel). Nicht blockierend.
 
 ### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
 - P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
@@ -304,24 +300,20 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`.)_
+_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-- [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
-- [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
-- [ ] **FE1-F4 (low, pre-existing)** — `BadgeRenderService::host()` macht pro Karte eine Domains-Query (N+1 beim Export); Cache pro Render-Lauf als Follow-up.
+> Abgeschlossene Punkte entfernt: FE1-F2 (Konstanten bereits vorhanden), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard `a9750c2` deckt das ab).
 - [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
 - [ ] **BE-R1-F1 (low)** — `users.mandant_id` ohne FK (Migration-Order-Begründung dokumentiert); optional dedizierte FK-Migration nach Präzedenz `2026_08_14_000010_add_team_foreign_key_to_role_user`.
-- [ ] **BE-R1-F2 (low)** — Mehrere globale Konten (`mandant_id=NULL`, gleiche E-Mail) wären legal (NULL-Semantik) und träfen per willkürlichem `first()`; Seeder verhindert sie — optional hartes Guard (`AuthController.php:222`).
 - [ ] **BE-R1-F3 (low, operational)** — `backend/database/database.sqlite` enthält Altschema (D17-Original-Migration angepasst); vor lokalem SQLite-Gebrauch einmalig `migrate:fresh --seed`. Tests unberührt (`:memory:`).
 - [ ] **DOC-H-F1 (low)** — Editor-Spec-Zeile 77: Ist-Prämisse `vest_number` nach Gs Merge nochmals quergreifen (Feld existiert bereits aus P2).
 - [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
 - [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
-> Abgeschlossene Punkte (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`) entfernt.
+> Abgeschlossene Punkte entfernt: RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`.
 - [ ] **RV-U3 (info)** — `BadgeCanvas.tsx:455`: `key={index}` — erst bei Reordering relevant (dann stabile Keys).
-- [ ] **E2E-Hygiene (low, aus Verifikation badge_images-Slice)** — Upload-E2E-Test hinterlässt `badge_images`-Row + Datei auf private Disk; `purgeAllE2EArtifacts` bereinigt nicht `badge_images`. afterAll erstellte IDs tracken + `deleteBadgeImage(id)` aufrufen.
 
 ### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
 > Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
