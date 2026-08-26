@@ -304,11 +304,10 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 > **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
 
 ### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung folgt als FE1–FE4, siehe Etappenplan oben.)_
+_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; offener Rest: `badge_images`-Backend-Slice, siehe FE-IMG/RV-A1.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-- [ ] **FE-IMG (User-Entscheidung, 2026-08-26)** — Der Editor soll **auch selbst platzierte Bilder** unterstützen (Logos, Vereinswappen, Hintergründe — frei positionierbar wie Datenfelder, mit x/y/w/h + Bildquelle: Upload oder Mandant-Brand-Bild). Spec-Erweiterung in `features/badge-template-editor.md` (neuer Elementtyp `image`), Umsetzung im FE2/FE3-Zyklus (Schema-Erweiterung ggf. nach FE1).
-- [x] **FE1-DEP1 (MEDIUM, FE2-Blocker)** — ✅ mit FE2 geschlossen: zod-Spiegel (`badgeTemplateFormUtils.ts`) spiegelt Schema v2 vollständig (qr ohne size/align, team/vest_number, Bounds, Mindestgrößen, max-1-qr, image-Union).
+- [ ] **FE-IMG (User-Entscheidung, 2026-08-26)** — Frei platzierte Bilder: Spec ✅ (`features/badge-template-editor.md`, Elementtyp `image`) + Editor-UI ✅ (FE2, Quelle Upload/Brand + fit) — **offen: `badge_images`-Backend-Slice** (Migration, Upload-API, Renderer-Zweig, `image_id`-Mandanten-Scoping). Dabei RV-S2 (nested src-Validierung) und RV-A1/RV-U1 (Upload-UI-Sackgasse) mitliefern.
 - [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
 - [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
 - [ ] **FE1-F4 (low, pre-existing)** — `BadgeRenderService::host()` macht pro Karte eine Domains-Query (N+1 beim Export); Cache pro Render-Lauf als Follow-up.
@@ -319,15 +318,16 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 - [ ] **DOC-H-F1 (low)** — Editor-Spec-Zeile 77: Ist-Prämisse `vest_number` nach Gs Merge nochmals quergreifen (Feld existiert bereits aus P2).
 - [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
 - [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
-- [ ] **FE2-F1 (low)** — Palette lässt „+ Foto" mehrfach hinzufügen (im Gegensatz zu „+ QR-Code", das Single-Instance blockiert); Konsistenz: photo ebenfalls Single-Instance oder bewusst erlauben (dann Doku).
-- [ ] **FE3-F1 (medium)** — Name-Feld-Text im Canvas-Preview vertikal abgeschnitten (Feldhöhe zu klein für Schriftgröße, kein Auto-Fit im Renderer) → in FE4 mit Auto-Shrink/Boxhöhe anpassen.
 
-### Feld-Editor Umsetzung — Etappenplan (je Etappe: Implementer ∥ nichts, separater Verifikator, UI-Review-Skill)
-> **UI-Test-Regel (STRICT) für jede Etappe:** Nach Umsetzung (a) funktionale Tests (PHPUnit/Vitest/Playwright
-> getaggt `@feature:badge-editor`), dann (b) **UI-Review-Skill**: `cd frontend && pnpm test:screenshots`
-> (nur betroffene Routen, manifest-getrieben) → PNGs an `vision`-Subagent in Batches ≤ 10 (erst filled, dann empty;
-> desktop vor mobile) → Findings-Report (critical/high blockieren APPROVED) → Fixes → Re-Capture betroffener Routen +
-> Vision old-vs-new-Diff. Erst wenn Vision-Loop sauber: nächste Etappe.
+### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
+- [ ] **RV-S1 (low)** — `BadgeTemplate` hat keinen `resolveRouteBindingQuery`-Override (BE-R2-Safety-Net-Lücke; heute kompensiert durch `assertMandantScope`). Hardening beim nächsten Modellkontakt nachziehen + `TenantIsolationBindingTest` erweitern.
+- [ ] **RV-S2 (low, an badge_images-Slice koppeln)** — `layout.*.src` gilt für jeden Entry-Typ, Inner-Keys werden nicht gefiltert (`evil_url` persistiert). Beim `badge_images`-Slice: Nested-Rules (`src.kind/ref/image_id`) + per-Typ-Conditional + Mandanten-Scoping `image_id`.
+- [ ] **RV-S3 (low, USER-DECISION)** — Global-Account-Shadowing: Registrierung mit E-Mail eines globalen Kontos (`mandant_id=NULL`) schattiert dessen Login domain-lokal. Fix (Registrierung gegen `whereNull('mandant_id')` ablehnen) ODER als akzeptiertes Risiko ins Security Risk Register (§10). → Benutzer fragen.
+- [ ] **RV-S4 (info)** — `BadgeRenderService.php:209`: Foto-Data-URI ohne `e()` (heute nicht angreifbar, Mimes-Whitelist) — kostenfreie Härtung.
+- [ ] **RV-A1 (low) / RV-U1 (medium conditional)** — Bildquellen-UI (Upload) shipped vor `badge_images`-Backend-Slice → Sackgasse („Bilder konnten nicht geladen werden."). Slice zeitnah ziehen, dabei RV-S2 + `image_id`-Scoping mitliefern; oder Upload-UI bis dahin zurückhalten.
+- [ ] **RV-A2 (info)** — `BadgeTemplate.php`-Docblock beschreibt noch Schema v1 → auf v2 heben (team/vest_number/qr/image).
+- [ ] **RV-U2 (low)** — `BadgePropertiesPanel.tsx:78,94`: „X (mm)"/„Y (mm)" hart kodiert statt via `t` (Nachbar-Labels laufen durch Lingui).
+- [ ] **RV-U3 (info)** — `BadgeCanvas.tsx:455`: `key={index}` — erst bei Reordering relevant (dann stabile Keys).
 
 ### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
 > Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
@@ -348,16 +348,6 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
   4. Findings-Report wie beim UI-Review (critical/high blockieren APPROVED), 5. bei Fixes: neu rendern + old-vs-new-Diff.
 - **CI (optional, Follow-up):** für automatisierte PDF-Vision-Checks im E2E-Job `poppler-utils` (pdftoppm) ins
   `deployment/Dockerfile.e2e` aufnehmen — nicht blockierend für FE1, lokale Verifikation genügt zunächst.
-
-- [x] **FE1 — Template-Schema + Backend-Render-Kontrakt** ✅ `a17332b` — Schema v2 (x/y/w/h/fontSize/alignment, mm) inkl. `qr`-Feld (P4-F4); team/vest_number; A6-Bounds-Validierung; PDF-Render nutzt Koordinaten; Rückwärtskompatibilität. 734 passed, Pint PASS; Code+Vision-Verifier APPROVED. _Vision-medium: Datum-Feld im koordinierten Fixture nicht gesetzt (Fixture-Subset, kein Renderer-Bug) → künftige Fixtures alle Feldtypen abdecken._
-- [x] **FE2 — Editor-Basis-UI** ✅ `eb88cbc` — Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
-  Auswahl + Eigenschaften-Panel (X/Y/Breite/Höhe/Font/Alignment als Zahleneingaben), Persistenz-Roundtrip.
-  Backend: Whitelist + image-Regeln (additiv). Tests: 743 PHPUnit / 143 Vitest / 3 Playwright `@feature:badge-editor` / smoke 17 grün. _Vision-low: kein Grid/Overlap-Warnung (→ FE3)._
-- [x] **FE3 — Drag&Drop** ✅ `pending-commit` — Pointer-Drag + 5-mm-Grid/Snap + Bounds-Clamp + Überlappungs-Warnung (nicht-blockierend) + Panel↔Canvas-Sync via react-hook-form SSOT; reine Geometrie-Utils `clampToBounds`/`snapToGrid`/`boxesOverlap` + Vitest. 159 Vitest / 5 Playwright `@feature:badge-editor` (+`@regression`) / 17 smoke grün; Code- + Vision-Verifier APPROVED (5-mm-Grid sichtbar, alle 9 Felder inkl. QR/Foto, keine Regression). _Vision-medium: Name-Feld-Text im Preview vertikal abgeschnitten (Feldhöhe < Font) → FE4 auto-fit. Harness-Seed `seedBadgeTemplateSchemaV2` für vollständige Editor-Captures ergänzt._
-  Tests: Playwright `@feature:badge-editor` (+`@regression`) + UI-Review mit Vision old-vs-new-Diff der Editor-Routen. [Implementer K]
-- [ ] **FE4 — Polish + Full-Regression:** Resize-Griffe, Alignment-Hilfslinien, Tastatur-Nudging (Pfeiltasten), i18n DE/EN,
-  leere/zustandsreiche Templates; abschließender **kompletter** UI-Review-Lauf (alle betroffenen Routen + `@smoke`/
-  `@regression` E2E) + Findings-Report + Fix-Loop bis 0 critical/high. [Implementer L]
 
 ### Bewusst NICHT in diesem Batch
 - P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme
