@@ -12,10 +12,12 @@ import {
     badgeTemplateFormDefaults,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
+    findDuplicateDataFieldIndices,
     findOverlappingIndices,
     isSpecialEntry,
     type BadgeEntryKey,
     type BadgeTemplateFormValues,
+    type MmRect,
 } from './badgeTemplateFormUtils';
 
 interface BadgeTemplateFormProps {
@@ -54,6 +56,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
     const selectedRow = selectedIndex !== null ? fieldRows[selectedIndex] : undefined;
     const qrExists = fieldRows.some((row) => row.field === 'qr');
     const overlapIndices = findOverlappingIndices(fieldRows);
+    const duplicateIndices = findDuplicateDataFieldIndices(fieldRows);
 
     const handleAddField = (key: BadgeEntryKey) => {
         if (isSpecialEntry(key) && key === 'qr' && qrExists) return;
@@ -73,7 +76,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
     };
 
     /**
-     * Live drag feedback (FE3): every pointer move writes the snapped/clamped
+     * Live drag feedback (FE3): every pointer move writes the snapped/aligned
      * position into the SAME form state the panel inputs are registered on —
      * canvas box, panel numbers and the saved layout stay one source of truth.
      * No per-move validation: dragging is hard-clamped into the A6 bounds, the
@@ -82,6 +85,14 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
     const handleMoveField = (index: number, x: number, y: number) => {
         setValue(`fields.${index}.x`, x);
         setValue(`fields.${index}.y`, y);
+    };
+
+    /** Live corner-resize feedback (FE4): writes the full rectangle back. */
+    const handleResizeField = (index: number, rect: MmRect) => {
+        setValue(`fields.${index}.x`, rect.x);
+        setValue(`fields.${index}.y`, rect.y);
+        setValue(`fields.${index}.w`, rect.w);
+        setValue(`fields.${index}.h`, rect.h);
     };
 
     return (
@@ -150,16 +161,29 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                             overlapIndices={overlapIndices}
                             onSelect={setSelectedIndex}
                             onMove={handleMoveField}
+                            onResize={handleResizeField}
                         />
                     </div>
                     <p className="text-center text-xs text-base-content/60">
                         {i18n._(t`Live-Vorschau (DIN A6, Maße in mm)`)}
+                    </p>
+                    <p className="text-center text-xs text-base-content/60">
+                        {i18n._(
+                            t`Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm).`,
+                        )}
                     </p>
 
                     {overlapIndices.size > 0 ? (
                         <p role="status" className="flex items-center justify-center gap-1 text-xs text-warning">
                             <span aria-hidden="true" className="iconify mdi--alert-outline text-base"></span>
                             {i18n._(t`Felder überschneiden sich.`)}
+                        </p>
+                    ) : null}
+
+                    {duplicateIndices.size > 0 ? (
+                        <p role="status" className="flex items-center justify-center gap-1 text-xs text-warning">
+                            <span aria-hidden="true" className="iconify mdi--alert-outline text-base"></span>
+                            {i18n._(t`Datenfeld ist mehrfach vorhanden.`)}
                         </p>
                     ) : null}
 

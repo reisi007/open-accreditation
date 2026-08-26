@@ -7,6 +7,10 @@ import { loginAdminApi } from './helpers/admin-data';
  * fields, the properties panel edits mm coordinates / source unions, and a
  * saved schema-v2 layout roundtrips through the server-authoritative API.
  *
+ * FE4 polish coverage: corner-resize handles (w/h roundtrip), keyboard
+ * nudging (1 mm / Shift = 5 mm), alignment guide lines while dragging and the
+ * auto-fit sample text (FE3-F1 — text never overflows its box vertically).
+ *
  * The badge-images backend slice (upload/delivery API) is pending per spec —
  * its endpoints are STUBBED via page.route so the FE2 upload flow is
  * verifiable end-to-end at the UI level.
@@ -306,5 +310,247 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Quelle')).toHaveValue('upload');
         await expect(dialog.getByLabel('Vorhandenes Bild')).toHaveValue('42');
         await expect(dialog.getByLabel('Skalierung')).toHaveValue('contain');
+    });
+
+    test('resizes a field with the corner handle and persists w/h across reopen', {
+        tag: ['@feature:badge-editor', '@regression'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Resize');
+
+        // Default name row: x=0, y=0, 40×8 mm. Selecting it shows the four
+        // corner resize handles.
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        const seHandle = nameBox.locator('[data-resize-handle="se"]');
+        await expect(seHandle).toBeVisible();
+
+        const box = await nameBox.boundingBox();
+        const handle = await seHandle.boundingBox();
+        if (!box || !handle) throw new Error('name box or se handle not rendered on the canvas');
+        const pxPerMm = box.width / 40; // rendered box width corresponds to w = 40 mm
+
+        // Corner drag: grows the box; the SE corner keeps x/y untouched.
+        const deltaX = 45;
+        const deltaY = 25;
+        await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(handle.x + handle.width / 2 + deltaX, handle.y + handle.height / 2 + deltaY, { steps: 8 });
+        await page.mouse.up();
+
+        const expectedW = Math.min(Math.round((40 + deltaX / pxPerMm) / 5) * 5, 105);
+        const expectedH = Math.min(Math.round((8 + deltaY / pxPerMm) / 5) * 5, 148);
+        expect(expectedW).toBeGreaterThan(40);
+        expect(expectedH).toBeGreaterThan(8);
+        await expect(dialog.getByLabel('Breite (mm)')).toHaveValue(String(expectedW));
+        await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue(String(expectedH));
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('0');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('0');
+
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        const templateRow = main.getByRole('row', { name: /E2E Editor Resize/ });
+        await expect(templateRow).toBeVisible();
+
+        // Roundtrip: the resized geometry survives save + reopen.
+        await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
+        await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
+        await dialog
+            .getByRole('group', { name: 'Ausweis-Vorschau' })
+            .getByRole('button', { name: 'Feld Name' })
+            .click();
+        await expect(dialog.getByLabel('Breite (mm)')).toHaveValue(String(expectedW));
+        await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue(String(expectedH));
+    });
+
+    test('nudges the selected field with arrow keys (1 mm, Shift = 5 mm)', {
+        tag: ['@feature:badge-editor', '@regression'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Nudge');
+
+        // Deterministic base position via the panel, then focus the box again.
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        await dialog.getByLabel('X (mm)').fill('10');
+        await dialog.getByLabel('Y (mm)').fill('10');
+        await nameBox.click();
+
+        await page.keyboard.press('ArrowRight');
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('11');
+        await page.keyboard.press('Shift+ArrowDown');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('15');
+        await page.keyboard.press('ArrowUp');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
+        await page.keyboard.press('ArrowLeft');
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
+
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        const templateRow = main.getByRole('row', { name: /E2E Editor Nudge/ });
+        await expect(templateRow).toBeVisible();
+
+        await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
+        await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
+        await dialog
+            .getByRole('group', { name: 'Ausweis-Vorschau' })
+            .getByRole('button', { name: 'Feld Name' })
+            .click();
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
+    });
+
+    test('shows alignment guides while a dragged edge is flush with another field', {
+        tag: ['@feature:badge-editor'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Guides');
+
+        await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
+        await dialog.getByLabel('Quelle').selectOption('brand');
+        // Park the image far from every alignment target first.
+        await dialog.getByLabel('X (mm)').fill('60');
+        await dialog.getByLabel('Y (mm)').fill('60');
+
+        const card = await canvas.boundingBox();
+        const imageBox = await canvas.getByRole('button', { name: 'Feld Bild' }).boundingBox();
+        if (!card || !imageBox) throw new Error('canvas or image box not rendered');
+        const pxPerMmX = card.width / 105;
+
+        // Drag left so the image's LEFT edge lands flush with the name row's
+        // RIGHT edge (x = 40 mm): grid snap brings it onto 40, the guide line
+        // appears while the pointer is still held down …
+        const startX = imageBox.x + imageBox.width / 2;
+        const startY = imageBox.y + imageBox.height / 2;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        await page.mouse.move(startX - 19.6 * pxPerMmX, startY, { steps: 8 });
+        await expect(canvas.locator('[data-badge-guide="vertical"]').first()).toBeVisible();
+
+        // … and disappears on release.
+        await page.mouse.up();
+        await expect(canvas.locator('[data-badge-guide]')).toHaveCount(0);
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('40');
+    });
+
+    test('auto-fits the sample text into small boxes (FE3-F1 regression)', {
+        tag: ['@feature:badge-editor'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Autofit');
+
+        // The FE3-F1 bug: 16 pt sample text in a 4 mm tall box was clipped.
+        // Regression setup: an authored size of 10 px in a WIDE (60 mm) box.
+        // On every editor canvas down to a ~240 px tall card both auto-fit
+        // caps sit ABOVE 10 px (desktop dialog canvas ≈ 312 × 443 px card:
+        // width cap ≈ 21 px, height cap ≈ 21 px), so squeezing the box to a
+        // 4 mm height must bind the height cap alone and shrink the font.
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        await dialog.getByLabel('Schriftgröße (pt)').fill('10');
+        await dialog.getByLabel('Breite (mm)').fill('60');
+        await dialog.getByLabel('Höhe (mm)').fill('4');
+
+        const shrunk = await nameBox.evaluate((el) => {
+            const inner = el.querySelector('span');
+            if (!inner) throw new Error('content wrapper missing');
+            return {
+                fontSize: parseFloat(getComputedStyle(inner).fontSize),
+                innerHeight: inner.getBoundingClientRect().height,
+                boxHeight: el.getBoundingClientRect().height,
+            };
+        });
+        expect(shrunk.fontSize).toBeLessThan(10);
+        expect(shrunk.innerHeight).toBeLessThanOrEqual(shrunk.boxHeight);
+
+        // A generous box keeps the authored size — no unnecessary shrink.
+        // At 60 × 20 mm neither cap can drop below 10 px on any supported
+        // viewport (break-even would be a card shorter than ~240 px), so
+        // `min()` must resolve to the authored value itself.
+        await dialog.getByLabel('Höhe (mm)').fill('20');
+        const keptFontSize = await nameBox.evaluate((el) => {
+            const inner = el.querySelector('span');
+            if (!inner) throw new Error('content wrapper missing');
+            return parseFloat(getComputedStyle(inner).fontSize);
+        });
+        expect(keptFontSize).toBe(10);
+    });
+
+    test('warns about duplicate data fields without blocking the save', {
+        tag: ['@feature:badge-editor'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Duplicate');
+
+        // Two Foto fields raise the soft duplicate warning (FE2-F1)…
+        await dialog.getByRole('button', { name: 'Foto', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Foto', exact: true }).click();
+        await expect(dialog.getByText('Datenfeld ist mehrfach vorhanden.')).toBeVisible();
+
+        // …which must NOT block saving (soft warning, server stays authoritative).
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        await expect(main.getByRole('row', { name: /E2E Editor Duplicate/ })).toBeVisible();
     });
 });

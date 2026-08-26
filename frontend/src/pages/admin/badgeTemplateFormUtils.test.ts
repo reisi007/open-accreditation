@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
+    ALIGNMENT_SNAP_THRESHOLD_MM,
+    BADGE_FIT_CHAR_WIDTH_EM,
+    BADGE_FIT_LINE_HEIGHT_FACTOR,
+    badgeCanvasFontSizeCss,
+    badgeCanvasMultiLineCapCqh,
+    badgeCanvasMultiLineSlackPx,
+    badgeCanvasOneLineCapCqw,
+    badgeCanvasOneLineSlackPx,
     badgeTemplateFormDefaults,
     boxesOverlap,
     buildBadgeTemplatePayload,
@@ -9,12 +17,19 @@ import {
     clampToBounds,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
+    computeAlignmentSnap,
     computeDragPosition,
+    computeDragResize,
+    computeNudgePosition,
+    findAlignedGuides,
+    findDuplicateDataFieldIndices,
     findFreePosition,
     findOverlappingIndices,
+    nudgeDirectionFromKey,
     snapToGrid,
     type BadgeRowValues,
     type BadgeTemplateFormValues,
+    type MmRect,
 } from './badgeTemplateFormUtils';
 
 const validTextRow: BadgeRowValues = {
@@ -311,6 +326,15 @@ describe('createDefaultBadgeRow', () => {
         expect(row).toMatchObject({ field: 'qr', x: 80, y: 123, w: 20, h: 20 });
     });
 
+    it('places a photo row as a portrait box above the 10 × 10 minimum (regression)', () => {
+        // Regression: photo used to inherit the text defaults (40 × 8) and was
+        // instantly invalid — box entries must never start below 10 × 10 mm.
+        const row = createDefaultBadgeRow('photo', []);
+        expect(row).toMatchObject({ field: 'photo', w: 30, h: 30 });
+        expect(row.w).toBeGreaterThanOrEqual(10);
+        expect(row.h).toBeGreaterThanOrEqual(10);
+    });
+
     it('places an image row without a source (save stays blocked until chosen)', () => {
         const row = createDefaultBadgeRow('image', []);
         expect(row).toMatchObject({ field: 'image', w: 30, h: 20, srcKind: 'none', fit: 'contain' });
@@ -423,6 +447,208 @@ describe('computeDragPosition', () => {
     });
 });
 
+describe('computeDragResize', () => {
+    const origin: MmRect = { x: 10, y: 10, w: 40, h: 20 };
+
+    it('grows w/h from the south-east corner (snapped onto the grid)', () => {
+        // right 50 + 13.4 → snap 65 → w = 55; bottom 30 − 2.8 → snap 25 → h = 15.
+        expect(computeDragResize(origin, 'se', { x: 13.4, y: -2.8 }, 5, 3)).toEqual({
+            x: 10,
+            y: 10,
+            w: 55,
+            h: 15,
+        });
+    });
+
+    it('moves the left/top edges from the north-west corner and keeps the fixed edges', () => {
+        // left 10 + 6.2 → snap 15; top 10 − 3.1 → snap 5.
+        expect(computeDragResize(origin, 'nw', { x: 6.2, y: -3.1 }, 5, 3)).toEqual({
+            x: 15,
+            y: 5,
+            w: 35,
+            h: 25,
+        });
+    });
+
+    it('keeps the left/bottom edges fixed from the north-east corner', () => {
+        // right 50 − 12.9 = 37.1 → snap 35; top 10 − 7.4 = 2.6 → snap 5.
+        const resized = computeDragResize(origin, 'ne', { x: -12.9, y: -7.4 }, 5, 3);
+        expect(resized).toEqual({ x: 10, y: 5, w: 25, h: 25 });
+    });
+
+    it('keeps the right/top edges fixed from the south-west corner', () => {
+        // left 10 − 3 = 7 → snap 5; bottom 30 + 9 = 39 → snap 40.
+        const resized = computeDragResize(origin, 'sw', { x: -3, y: 9 }, 5, 3);
+        expect(resized).toEqual({ x: 5, y: 10, w: 45, h: 30 });
+    });
+
+    it('hard-clamps a resize past the card edges (bounds win over snapping)', () => {
+        // Text minimum 5 × 3 mm; box already in the bottom-right corner.
+        const cornerBox: MmRect = { x: 95, y: 145, w: 5, h: 3 };
+        const resized = computeDragResize(cornerBox, 'se', { x: 20, y: 20 }, 5, 3);
+        expect(resized).toEqual({ x: 95, y: 145, w: A6_WIDTH_MM - 95, h: A6_HEIGHT_MM - 145 });
+    });
+
+    it('never shrinks below the per-type minimum sizes', () => {
+        const smallText: MmRect = { x: 0, y: 0, w: 8, h: 8 };
+        const shrunk = computeDragResize(smallText, 'se', { x: -10, y: -10 }, 5, 3);
+        expect(shrunk.w).toBe(5);
+        expect(shrunk.h).toBe(3);
+    });
+
+    it('keeps the minimum when the north-west corner is dragged far outside', () => {
+        const resized = computeDragResize(origin, 'nw', { x: -30, y: -30 }, 10, 10);
+        expect(resized.x).toBe(0);
+        expect(resized.y).toBe(0);
+        expect(resized.w).toBe(50); // fixed right edge (50) minus clamped left
+        expect(resized.h).toBe(30);
+    });
+
+    it('treats non-finite origins as 0 (NaN defense)', () => {
+        const resized = computeDragResize({ x: Number.NaN, y: 10, w: 40, h: 20 }, 'nw', { x: -5, y: -5 }, 5, 3);
+        expect(resized.x).toBe(0);
+        expect(resized.y).toBe(5);
+    });
+
+    it('keeps snapped origins on the grid', () => {
+        const resized = computeDragResize(origin, 'se', { x: 21.3, y: 13.7 }, 5, 3);
+        expect(resized.w % CANVAS_GRID_STEP_MM).toBe(0);
+        expect(resized.h % CANVAS_GRID_STEP_MM).toBe(0);
+    });
+});
+
+describe('computeAlignmentSnap / findAlignedGuides', () => {
+    it('snaps an edge flush onto a neighbouring edge within the threshold', () => {
+        const moving: MmRect = { x: 41, y: 0, w: 20, h: 10 };
+        const others: MmRect[] = [{ x: 0, y: 0, w: 40, h: 8 }];
+        // Moving left edge (41) is 1 mm from the neighbour's right edge (40).
+        expect(computeAlignmentSnap(moving, others)).toEqual({ offsetX: -1, offsetY: 0 });
+    });
+
+    it('prefers the closest match when several targets are in range', () => {
+        const moving: MmRect = { x: 38.6, y: 0, w: 20, h: 10 };
+        const others: MmRect[] = [
+            { x: 0, y: 0, w: 40, h: 8 }, // right edge 40 → distance 1.4
+            { x: 36, y: 20, w: 10, h: 8 }, // left edge 36 → distance 2.6 (out of range)
+            { x: 37, y: 40, w: 10, h: 8 }, // right edge 47, centre 42 …
+        ];
+        const snap = computeAlignmentSnap(moving, others);
+        expect(snap.offsetX).toBeCloseTo(1.4, 6); // → left edge exactly 40
+    });
+
+    it('attracts the rect centre to another centre and an edge to the card centre', () => {
+        // Centre of the moving rect (52.6) is 0.1 mm from the card centre (52.5).
+        const snap = computeAlignmentSnap({ x: 42.6, y: 72.5, w: 20, h: 20 }, []);
+        expect(snap.offsetX).toBeCloseTo(-0.1, 6);
+        // Top edge (72.5) is pulled up onto the horizontal card centre (74).
+        expect(snap.offsetY).toBeCloseTo(1.5, 6);
+    });
+
+    it('returns zero offsets beyond the threshold or without others', () => {
+        const far: MmRect = { x: 60, y: 60, w: 20, h: 10 };
+        expect(computeAlignmentSnap(far, [])).toEqual({ offsetX: 0, offsetY: 0 });
+        expect(computeAlignmentSnap(far, [{ x: 0, y: 0, w: 20, h: 10 }]).offsetX).toBe(0);
+        expect(ALIGNMENT_SNAP_THRESHOLD_MM).toBe(2);
+    });
+
+    it('is NaN-safe for in-progress edits', () => {
+        expect(computeAlignmentSnap({ x: Number.NaN, y: 0, w: 20, h: 10 }, [])).toEqual({
+            offsetX: 0,
+            offsetY: 0,
+        });
+        expect(findAlignedGuides({ x: 0, y: 0, w: Number.NaN, h: 10 }, []).vertical).toEqual([]);
+    });
+
+    it('lists exactly flush edges as guide lines (deduplicated, sorted)', () => {
+        const moving: MmRect = { x: 40, y: 0, w: 20, h: 8 };
+        const others: MmRect[] = [
+            { x: 0, y: 0, w: 40, h: 8 }, // right edge 40 == moving left; top edges shared
+            { x: 40, y: 60, w: 20, h: 8 }, // left/centre/end 40/50/60 all flush → deduped
+        ];
+        const guides = findAlignedGuides(moving, others);
+        expect(guides.vertical).toEqual([40, 50, 60]);
+        expect(guides.horizontal).toEqual([0, 4, 8]);
+    });
+
+    it('includes the card centre as a vertical/horizontal guide target', () => {
+        const guides = findAlignedGuides(
+            { x: 42.5, y: 64, w: 20, h: 20 },
+            [],
+        );
+        expect(guides.vertical).toEqual([A6_WIDTH_MM / 2]);
+        expect(guides.horizontal).toEqual([A6_HEIGHT_MM / 2]);
+    });
+
+    it('returns no guides for near-but-not-flush geometry (guides never lie)', () => {
+        const guides = findAlignedGuides({ x: 40.5, y: 0, w: 20, h: 8 }, [{ x: 0, y: 0, w: 40, h: 8 }]);
+        expect(guides.vertical).toEqual([]);
+    });
+});
+
+describe('computeNudgePosition / nudgeDirectionFromKey', () => {
+    it('maps only the arrow keys to nudge directions', () => {
+        expect(nudgeDirectionFromKey('ArrowLeft')).toBe('left');
+        expect(nudgeDirectionFromKey('ArrowRight')).toBe('right');
+        expect(nudgeDirectionFromKey('ArrowUp')).toBe('up');
+        expect(nudgeDirectionFromKey('ArrowDown')).toBe('down');
+        expect(nudgeDirectionFromKey('a')).toBe(null);
+        expect(nudgeDirectionFromKey('Escape')).toBe(null);
+    });
+
+    it('moves by exactly one step in each direction', () => {
+        const current = { x: 20, y: 30 };
+        expect(computeNudgePosition(current, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 19, y: 30 });
+        expect(computeNudgePosition(current, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 21, y: 30 });
+        expect(computeNudgePosition(current, 'up', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 29 });
+        expect(computeNudgePosition(current, 'down', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 31 });
+    });
+
+    it('supports the coarse Shift step (grid size) via the step parameter', () => {
+        expect(computeNudgePosition({ x: 20, y: 30 }, 'down', CANVAS_GRID_STEP_MM, { w: 40, h: 8 })).toEqual({
+            x: 20,
+            y: 35,
+        });
+    });
+
+    it('stops at the card edges without leaving the bounds', () => {
+        expect(computeNudgePosition({ x: 0, y: 0 }, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 0, y: 0 });
+        expect(computeNudgePosition({ x: A6_WIDTH_MM - 40, y: 0 }, 'right', 5, { w: 40, h: 8 })).toEqual({
+            x: A6_WIDTH_MM - 40,
+            y: 0,
+        });
+        expect(computeNudgePosition({ x: 50, y: A6_HEIGHT_MM - 8 }, 'down', 1, { w: 40, h: 8 }).y).toBe(
+            A6_HEIGHT_MM - 8,
+        );
+    });
+
+    it('is NaN-safe for in-progress edits', () => {
+        expect(computeNudgePosition({ x: Number.NaN, y: 10 }, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 1, y: 10 });
+    });
+});
+
+describe('findDuplicateDataFieldIndices', () => {
+    it('collects every row sharing a duplicated data field type', () => {
+        const indices = findDuplicateDataFieldIndices([
+            { field: 'name' },
+            { field: 'photo' },
+            { field: 'name' },
+            { field: 'category' },
+            { field: 'photo' },
+        ]);
+        expect([...indices].sort()).toEqual([0, 1, 2, 4]);
+    });
+
+    it('ignores unique fields and repeated qr/image entries', () => {
+        const indices = findDuplicateDataFieldIndices([
+            { field: 'name' },
+            { field: 'image' },
+            { field: 'image' },
+            { field: 'qr' },
+        ]);
+        expect(indices.size).toBe(0);
+    });
+});
+
 describe('boxesOverlap / findOverlappingIndices', () => {
     it('detects intersecting rectangles but not shared edges', () => {
         expect(boxesOverlap({ x: 0, y: 0, w: 40, h: 8 }, { x: 20, y: 4, w: 40, h: 8 })).toBe(true);
@@ -522,5 +748,73 @@ describe('buildBadgeTemplatePayload', () => {
             { field: 'image', x: 5, y: 130, w: 20, h: 12, src: { kind: 'brand', ref: 'logo' }, fit: 'contain' },
         ]);
         expect(payload.name).toBe('Roundtrip');
+    });
+});
+
+describe('badge canvas wrap-aware auto-fit', () => {
+    /** Reference render: editor canvas with a 500 px tall A6 card. */
+    const REF_CARD_HEIGHT_PX = 500;
+    /**
+     * Vertical/horizontal chrome of a canvas box (border `1px` × 2 +
+     * padding `p-0.5` = 4px) — container units resolve against the CONTENT
+     * box, so caps act on the remainder.
+     */
+    const BOX_CHROME_PX = 6;
+    const boxWidthPx = (wMm: number): number => (wMm / A6_WIDTH_MM) * REF_CARD_HEIGHT_PX * (A6_WIDTH_MM / A6_HEIGHT_MM);
+    const boxHeightPx = (hMm: number): number => (hMm / A6_HEIGHT_MM) * REF_CARD_HEIGHT_PX;
+
+    it('bounds the seed name font so even a wrapped sample fits vertically (FE4-F1 regression)', () => {
+        // Reported bug: „Max Mustermann" in a 40 × 8 mm box @ 14 pt wrapped and
+        // the second line crossed the selection frame.
+        const chars = 'Max Mustermann'.length;
+        const contentHeightPx = boxHeightPx(8) - BOX_CHROME_PX;
+        const contentWidthPx = boxWidthPx(40) - BOX_CHROME_PX;
+        const heightCap =
+            (badgeCanvasMultiLineCapCqh() / 100) * contentHeightPx - badgeCanvasMultiLineSlackPx();
+        const widthCap =
+            ((badgeCanvasOneLineCapCqw(chars) ?? 0) / 100) * contentWidthPx -
+            (badgeCanvasOneLineSlackPx(chars) ?? 0);
+        const effectiveFont = Math.min(14, Math.max(heightCap, 2), Math.max(widthCap, 2));
+
+        expect(effectiveFont).toBe(heightCap); // height binds for the narrow seed box
+        expect(effectiveFont).toBeGreaterThan(2);
+        // Worst case: the sample really wraps to BADGE_FIT_MAX_LINES lines —
+        // the block must stay inside the usable (content-box) height.
+        expect(2 * BADGE_FIT_LINE_HEIGHT_FACTOR * effectiveFont).toBeLessThanOrEqual(contentHeightPx);
+        // Model single line must also fit the usable box width.
+        expect(chars * BADGE_FIT_CHAR_WIDTH_EM * effectiveFont).toBeLessThanOrEqual(contentWidthPx);
+    });
+
+    it('keeps the authored size for boxes without wrap pressure', () => {
+        // 40 × 14 mm at 16 pt on a taller reference render (600 px card):
+        // neither cap may bind below the desired size.
+        const refCardHeightPx = 600;
+        const contentHeightPx = (14 / A6_HEIGHT_MM) * refCardHeightPx - BOX_CHROME_PX;
+        const heightCap = (badgeCanvasMultiLineCapCqh() / 100) * contentHeightPx - badgeCanvasMultiLineSlackPx();
+        expect(heightCap).toBeGreaterThanOrEqual(16);
+    });
+
+    it('emits one-line width cap, two-line height cap and 2px floor for text fields', () => {
+        expect(badgeCanvasFontSizeCss('name', 'Max Mustermann'.length, 14)).toBe(
+            'max(min(14px, calc(12.315cqw - 0.500px), calc(40.000cqh - 0.500px)), 2px)',
+        );
+        expect(badgeCanvasFontSizeCss('vest_number', '42'.length, 12)).toBe(
+            'max(min(12px, calc(86.207cqw - 0.500px), calc(40.000cqh - 0.500px)), 2px)',
+        );
+    });
+
+    it('omits the width cap when there is no sample text', () => {
+        expect(badgeCanvasOneLineCapCqw(0)).toBeNull();
+        expect(badgeCanvasOneLineCapCqw(Number.NaN)).toBeNull();
+        expect(badgeCanvasOneLineSlackPx(0)).toBeNull();
+        expect(badgeCanvasFontSizeCss('name', 0, 14)).toBe(
+            'max(min(14px, calc(40.000cqh - 0.500px)), 2px)',
+        );
+    });
+
+    it('keeps an equivalent single-line cap for picture boxes', () => {
+        expect(badgeCanvasFontSizeCss('qr', 0, 12)).toBe('min(12px, max(calc(80.000cqh - 0.500px), 2px))');
+        expect(badgeCanvasFontSizeCss('photo', 0, 18)).toBe('min(18px, max(calc(80.000cqh - 0.500px), 2px))');
+        expect(badgeCanvasFontSizeCss('image', 0, 12)).toBe('min(12px, max(calc(80.000cqh - 0.500px), 2px))');
     });
 });

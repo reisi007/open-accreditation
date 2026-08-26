@@ -50,6 +50,19 @@
     aspect-ratio: 105 / 148;
 }
 
+/* Size containment for the badge canvas card: the FE4 auto-fit font scaling
+   (FE3-F1) resolves `cqh` units against the REAL rendered card height. */
+@utility badge-canvas-container {
+    container-type: size;
+}
+
+/* Size containment per FIELD BOX: the wrap-aware auto-fit (FE4-F1) resolves
+   its one-line width cap (`cqw`) and multi-line height cap (`cqh`) against
+   each box itself, so fonts adapt to the live editor zoom level. */
+@utility badge-canvas-box {
+    container-type: size;
+}
+
 @layer base {
     [class*="mdi--"],
     [class*="material-symbols--"] {

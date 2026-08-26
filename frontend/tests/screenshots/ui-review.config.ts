@@ -345,6 +345,20 @@ export const uiReviewConfig: UiReviewConfig = {
             note: 'Badge template EDITOR (FE2) with a SEEDED full schema-v2 template loaded — all nine canvas boxes (photo top-left, qr top-right, seven data fields with size/align) + properties panel populated, non-overlapping inside the A6 bounds. Same desktop-only reasoning as admin-badge-editor-new; same shared seed so the newest-row click always lands on a complete layout.',
         },
         {
+            name: 'admin-badge-editor-selected',
+            path: '/admin/badge-templates',
+            states: ['filled'],
+            auth: 'admin',
+            viewports: ['desktop'],
+            nav: [
+                { kind: 'click', scope: 'complementary', role: 'link', name: 'Ausweis-Templates' },
+                { kind: 'click', scope: 'main', role: 'button', name: 'Bearbeiten' },
+                { kind: 'click', scope: 'main', role: 'button', name: 'Feld Name' },
+            ],
+            seeds: { filled: seedBadgeTemplateSchemaV2 },
+            note: 'Badge template EDITOR (FE4 polish): one canvas field SELECTED — four corner resize handles visible, properties panel populated, interaction hints (drag/resize/arrow-key nudge) below the preview. Desktop-only like the sibling editor routes; same shared schema-v2 seed so "Bearbeiten" opens a complete layout and the "Feld Name" click always finds that box.',
+        },
+        {
             name: 'admin-media',
             path: '/admin/media',
             states: ['filled'],

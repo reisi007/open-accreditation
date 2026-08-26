@@ -113,6 +113,207 @@ export function computeDragPosition(
     return { x: clamped.x, y: clamped.y };
 }
 
+/** Corner of a box acting as a resize handle (FE4). */
+export type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se';
+
+/**
+ * Resulting rectangle of a corner-resize drag (FE4): the two edges OPPOSITE
+ * the grabbed corner stay fixed, the grabbed edges follow the pointer delta
+ * (snapped onto the grid), then every moved edge is hard-clamped into the A6
+ * bounds while keeping at least the given minimum size between the fixed and
+ * the moved edge (bounds win over snapping).
+ */
+export function computeDragResize(
+    origin: MmRect,
+    corner: ResizeCorner,
+    deltaMm: { x: number; y: number },
+    minW: number,
+    minH: number,
+): MmRect {
+    const startLeft = Number.isFinite(origin.x) ? origin.x : 0;
+    const startTop = Number.isFinite(origin.y) ? origin.y : 0;
+    const startRight = startLeft + (Number.isFinite(origin.w) ? origin.w : 0);
+    const startBottom = startTop + (Number.isFinite(origin.h) ? origin.h : 0);
+
+    let left = startLeft;
+    let right = startRight;
+    let top = startTop;
+    let bottom = startBottom;
+
+    if (corner === 'ne' || corner === 'se') {
+        right = snapToGrid(startRight + deltaMm.x);
+    }
+    if (corner === 'nw' || corner === 'sw') {
+        left = snapToGrid(startLeft + deltaMm.x);
+    }
+    if (corner === 'sw' || corner === 'se') {
+        bottom = snapToGrid(startBottom + deltaMm.y);
+    }
+    if (corner === 'nw' || corner === 'ne') {
+        top = snapToGrid(startTop + deltaMm.y);
+    }
+
+    // Degenerate origins (fixed edge already violates the minimum or the card)
+    // collapse the allowed range to the card edge — validation flags those
+    // states, resizing must simply stay inside the card.
+    left = Math.min(Math.max(left, 0), Math.max(startRight - minW, 0));
+    right = Math.min(Math.max(right, Math.min(startLeft + minW, A6_WIDTH_MM)), A6_WIDTH_MM);
+    top = Math.min(Math.max(top, 0), Math.max(startBottom - minH, 0));
+    bottom = Math.min(Math.max(bottom, Math.min(startTop + minH, A6_HEIGHT_MM)), A6_HEIGHT_MM);
+
+    return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/**
+ * Magnetic alignment distance (mm, FE4): a moving edge within this distance
+ * of an alignment target snaps flush onto it and raises a guide line.
+ */
+export const ALIGNMENT_SNAP_THRESHOLD_MM = 2;
+
+/** Correction that makes an alignment exact (mm, 0 = nothing aligns). */
+export interface AlignmentSnapResult {
+    offsetX: number;
+    offsetY: number;
+}
+
+/** Guide line positions (mm) currently flush with the edited rect. */
+export interface AlignmentGuides {
+    vertical: number[];
+    horizontal: number[];
+}
+
+export const NO_ALIGNMENT_GUIDES: AlignmentGuides = { vertical: [], horizontal: [] };
+
+/** Coincidence tolerance for rendered guide lines (mm). */
+const GUIDE_EPSILON_MM = 0.01;
+
+/** Leading edge, centre and trailing edge of a rect on one axis. */
+function rectEdges(rect: MmRect, axis: 'x' | 'y'): [number, number, number] {
+    return axis === 'x'
+        ? [rect.x, rect.x + rect.w / 2, rect.x + rect.w]
+        : [rect.y, rect.y + rect.h / 2, rect.y + rect.h];
+}
+
+/**
+ * Alignment targets on one axis: every other rect's start/centre/end plus the
+ * card centre. Non-finite geometry (in-progress edits) yields no targets.
+ */
+function axisTargets(others: ReadonlyArray<MmRect>, axis: 'x' | 'y'): number[] {
+    const cardSize = axis === 'x' ? A6_WIDTH_MM : A6_HEIGHT_MM;
+    const targets = [cardSize / 2];
+    for (const other of others) {
+        const start = axis === 'x' ? other.x : other.y;
+        const size = axis === 'x' ? other.w : other.h;
+        if (!Number.isFinite(start) || !Number.isFinite(size)) {
+            continue;
+        }
+        targets.push(start, start + size / 2, start + size);
+    }
+    return targets;
+}
+
+/** Closest edge/target pair within the threshold → correction making it exact. */
+function snapAxisDelta(edges: readonly number[], targets: readonly number[]): number {
+    let bestDistance = ALIGNMENT_SNAP_THRESHOLD_MM;
+    let bestOffset = 0;
+    for (const edge of edges) {
+        for (const target of targets) {
+            const distance = Math.abs(target - edge);
+            if (distance <= bestDistance) {
+                bestDistance = distance;
+                bestOffset = target - edge;
+            }
+        }
+    }
+    return bestOffset;
+}
+
+/**
+ * Magnetic alignment (FE4): compares the moving rect's leading/centre/trailing
+ * edges against the other rows' edges/centres AND the card centre; the closest
+ * match within {@link ALIGNMENT_SNAP_THRESHOLD_MM} wins and is returned as a
+ * position correction that makes the alignment exact. NaN-safe: non-finite
+ * rects never snap (in-progress edits stay untouched).
+ */
+export function computeAlignmentSnap(rect: MmRect, others: ReadonlyArray<MmRect>): AlignmentSnapResult {
+    if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) {
+        return { offsetX: 0, offsetY: 0 };
+    }
+    return {
+        offsetX: snapAxisDelta(rectEdges(rect, 'x'), axisTargets(others, 'x')),
+        offsetY: snapAxisDelta(rectEdges(rect, 'y'), axisTargets(others, 'y')),
+    };
+}
+
+/**
+ * Guide lines for RENDERING (FE4): every target position exactly flush
+ * (± {@link GUIDE_EPSILON_MM}) with one of the rect's edges/centre —
+ * deduplicated, sorted. Unlike {@link computeAlignmentSnap} this is
+ * threshold-free, so guides never lie about the final geometry.
+ */
+export function findAlignedGuides(rect: MmRect, others: ReadonlyArray<MmRect>): AlignmentGuides {
+    if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) {
+        return NO_ALIGNMENT_GUIDES;
+    }
+    const collect = (edges: readonly number[], targets: readonly number[]): number[] => {
+        const rounded = new Set<number>();
+        for (const edge of edges) {
+            for (const target of targets) {
+                if (Math.abs(target - edge) < GUIDE_EPSILON_MM) {
+                    rounded.add(Math.round(target * 100) / 100);
+                }
+            }
+        }
+        return [...rounded].sort((a, b) => a - b);
+    };
+    return {
+        vertical: collect(rectEdges(rect, 'x'), axisTargets(others, 'x')),
+        horizontal: collect(rectEdges(rect, 'y'), axisTargets(others, 'y')),
+    };
+}
+
+/** Direction of a keyboard nudge (arrow keys). */
+export type NudgeDirection = 'left' | 'right' | 'up' | 'down';
+
+/** Maps an arrow-key name to its nudge direction (null for any other key). */
+export function nudgeDirectionFromKey(key: string): NudgeDirection | null {
+    switch (key) {
+        case 'ArrowLeft':
+            return 'left';
+        case 'ArrowRight':
+            return 'right';
+        case 'ArrowUp':
+            return 'up';
+        case 'ArrowDown':
+            return 'down';
+        default:
+            return null;
+    }
+}
+
+/**
+ * Position after nudging the box by `stepMm` in the given direction (FE4:
+ * arrow keys move 1 mm, Shift moves the 5 mm grid step — the step itself is a
+ * caller concern). Hard-clamped into the A6 bounds: a box pushed against the
+ * edge stays put instead of leaving the card. NaN-safe like the drag path.
+ */
+export function computeNudgePosition(
+    current: { x: number; y: number },
+    direction: NudgeDirection,
+    stepMm: number,
+    size: { w: number; h: number },
+): { x: number; y: number } {
+    const dx = direction === 'left' ? -stepMm : direction === 'right' ? stepMm : 0;
+    const dy = direction === 'up' ? -stepMm : direction === 'down' ? stepMm : 0;
+    const clamped = clampToBounds({
+        x: (Number.isFinite(current.x) ? current.x : 0) + dx,
+        y: (Number.isFinite(current.y) ? current.y : 0) + dy,
+        w: Number.isFinite(size.w) ? size.w : 0,
+        h: Number.isFinite(size.h) ? size.h : 0,
+    });
+    return { x: clamped.x, y: clamped.y };
+}
+
 /**
  * Two rectangles strictly intersect (shared edges do NOT count as overlap).
  * NaN-safe: any non-finite coordinate yields false, so in-progress edits
@@ -137,6 +338,28 @@ export function findOverlappingIndices(rows: ReadonlyArray<MmRect>): Set<number>
         }
     }
     return overlapping;
+}
+
+/**
+ * Indices of rows whose DATA field type appears more than once (soft warning,
+ * FE2-F1: repeated data fields are surfaced consistently instead of only `qr`
+ * being special-cased). Only `qr`/`image` entries are exempt — qr duplicates
+ * are hard-blocked by validation and repeated `image` entries are legitimate
+ * co-branding (features/badge-template-editor.md).
+ */
+export function findDuplicateDataFieldIndices(rows: ReadonlyArray<Pick<BadgeRowValues, 'field'>>): Set<number> {
+    const counts = new Map<BadgeEntryKey, number>();
+    for (const row of rows) {
+        if (isSpecialEntry(row.field)) continue;
+        counts.set(row.field, (counts.get(row.field) ?? 0) + 1);
+    }
+    const duplicates = new Set<number>();
+    rows.forEach((row, index) => {
+        if (!isSpecialEntry(row.field) && (counts.get(row.field) ?? 0) > 1) {
+            duplicates.add(index);
+        }
+    });
+    return duplicates;
 }
 
 /**
@@ -324,6 +547,7 @@ export function findFreePosition(
 /**
  * Default values of a newly added palette element: data fields get the
  * historical text defaults (`40 × 8`, 12 pt, left) at the next free position,
+ * `photo` starts as a 30 × 30 portrait box (box entries need ≥ 10 × 10 mm),
  * `qr` starts at the historical fixed fallback spot and `image` starts as a
  * 30 × 20 box WITHOUT a source (saving stays blocked until one is chosen).
  */
@@ -355,6 +579,13 @@ export function createDefaultBadgeRow(key: BadgeEntryKey, existingRows: readonly
     if (key === 'image') {
         const position = findFreePosition(existingRows, 30, 20);
         return { ...base, w: 30, h: 20, ...position };
+    }
+
+    if (key === 'photo') {
+        // Box entry: the text defaults (40 × 8) would violate the 10 × 10
+        // minimum immediately — start with a sane portrait box instead.
+        const position = findFreePosition(existingRows, 30, 30);
+        return { ...base, w: 30, h: 30, ...position };
     }
 
     const position = findFreePosition(existingRows, base.w, base.h);
@@ -486,4 +717,129 @@ export function badgeFitLabel(fit: BadgeImageFit, i18n: I18n): string {
         case 'cover':
             return i18n._(t`Füllen`);
     }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * FE4-F1 wrap-aware canvas auto-fit (consumed by BadgeCanvas)
+ * ---------------------------------------------------------------------------
+ * The editor canvas must never clip its sample text vertically — including
+ * when a narrow box FORCES the sample onto multiple lines (the reported bug:
+ * „Max Mustermann" wrapped in a 40 × 8 mm box and the second line crossed the
+ * selection frame). Exact text measurement is impossible during render, so
+ * the font is bounded by TWO independent container-relative constraints and
+ * CSS `min()` picks whichever binds first:
+ *
+ * 1. One-line WIDTH cap (cqw against the box itself):
+ *      chars × CHAR_WIDTH_EM × font ≤ usable box width
+ *    → the sample fits on a single line whenever the model says so.
+ * 2. Multi-line HEIGHT cap (cqh against the box itself):
+ *      MAX_LINES × LINE_HEIGHT_FACTOR × font ≤ safe box height
+ *    → even if real browser metrics are wider than the model and the text
+ *      wraps anyway, the wrapped block still fits the box VERTICALLY.
+ *
+ * Together this realizes "fits as a single line OR as an N-line wrap with
+ * N × lineHeight ≤ boxHeight" per render size: large boxes keep the authored
+ * `size` (both caps exceed it), narrow/short boxes shrink instead of
+ * clipping. Both caps resolve against the BOX (`.badge-canvas-box` sets
+ * `container-type: size`), so they adapt to the live editor zoom level.
+ */
+
+/** Tailwind `leading-tight` line-height factor used inside canvas boxes. */
+export const BADGE_FIT_LINE_HEIGHT_FACTOR = 1.25;
+
+/** Line count the height cap reserves wrap room for (conservative bound). */
+export const BADGE_FIT_MAX_LINES = 2;
+
+/**
+ * Sub-pixel rounding guard subtracted from the caps (px). Container units
+ * resolve against the box's CONTENT box, so its padding/border are already
+ * excluded — no further chrome compensation needed beyond hairline safety.
+ */
+export const BADGE_FIT_SLACK_PX = 0.5;
+
+/**
+ * Conservative average glyph advance (em) for the mixed-case Latin samples
+ * ("Max Mustermann" ≈ 0.55 em/char in semibold system fonts; 0.58 errs
+ * toward detecting wrap pressure earlier rather than later).
+ */
+export const BADGE_FIT_CHAR_WIDTH_EM = 0.58;
+
+/**
+ * Height-cap percentage for BOX entries (`qr` / `photo` / `image`), resolved
+ * against the box itself. Introduced WITH the wrap-aware auto-fit: before it,
+ * box entries rendered their authored size verbatim, so this is NEW behavior,
+ * not a ported legacy rule. Per entry:
+ * - `qr` carries no own glyph size class and therefore now scales DOWN with
+ *   its box instead of overflowing a short box — intended.
+ * - `photo` / `image` glyphs carry fixed `text-*` size classes, so they stay
+ *   visually unchanged; the capped font-size only affects what they inherit.
+ */
+const BOX_ENTRY_HEIGHT_CAP_CQH = 80;
+
+/**
+ * Height-cap coefficient in cqh (of the BOX) reserving wrap room for
+ * {@link BADGE_FIT_MAX_LINES} lines: `100 / (lines × lineHeight)` as a
+ * percentage. Pure ratio — deliberately independent of any mm geometry,
+ * because the box itself is the query container.
+ */
+export function badgeCanvasMultiLineCapCqh(): number {
+    return 100 / (BADGE_FIT_MAX_LINES * BADGE_FIT_LINE_HEIGHT_FACTOR);
+}
+
+const formatLength = (value: number, unit: string): string => `${value.toFixed(3)}${unit}`;
+
+/**
+ * Width cap coefficient in cqw for a single-line sample, or null when there
+ * is nothing textual to fit (picture boxes / empty samples).
+ */
+export function badgeCanvasOneLineCapCqw(sampleChars: number): number | null {
+    if (!Number.isFinite(sampleChars) || sampleChars <= 0) {
+        return null;
+    }
+    return 100 / (sampleChars * BADGE_FIT_CHAR_WIDTH_EM);
+}
+
+/** Padding share of the width cap in px (mirrors {@link badgeCanvasOneLineCapCqw}). */
+export function badgeCanvasOneLineSlackPx(sampleChars: number): number | null {
+    if (!Number.isFinite(sampleChars) || sampleChars <= 0) {
+        return null;
+    }
+    return BADGE_FIT_SLACK_PX;
+}
+
+/** Sub-pixel guard of the height cap in px. */
+export function badgeCanvasMultiLineSlackPx(): number {
+    return BADGE_FIT_SLACK_PX;
+}
+
+/**
+ * Complete `font-size` declaration for one canvas box (Tailwind-Only-Policy
+ * exception: every input is a runtime author value). Text fields get the
+ * one-line width cap plus the wrap-safe height cap; box entries (`qr`,
+ * `photo`, `image`) contain no sample text and get only the box-height cap
+ * ({@link BOX_ENTRY_HEIGHT_CAP_CQH}) — new with this auto-fit, so the `qr`
+ * glyph scales with its box, while photo/image glyphs keep their fixed
+ * `text-*` sizes regardless of this property.
+ */
+export function badgeCanvasFontSizeCss(
+    field: BadgeEntryKey,
+    sampleChars: number,
+    desiredSizePx: number,
+): string {
+    if (isBoxEntry(field)) {
+        return `min(${desiredSizePx}px, max(calc(${formatLength(BOX_ENTRY_HEIGHT_CAP_CQH, 'cqh')} - ${formatLength(BADGE_FIT_SLACK_PX, 'px')}), 2px))`;
+    }
+
+    const heightTerm =
+        `calc(${formatLength(badgeCanvasMultiLineCapCqh(), 'cqh')} - ${formatLength(badgeCanvasMultiLineSlackPx(), 'px')})`;
+    const capCqw = badgeCanvasOneLineCapCqw(sampleChars);
+    const widthTerm =
+        capCqw === null
+            ? null
+            : `calc(${formatLength(capCqw, 'cqw')} - ${formatLength(badgeCanvasOneLineSlackPx(sampleChars) ?? 0, 'px')})`;
+    const inner = widthTerm === null
+        ? `min(${desiredSizePx}px, ${heightTerm})`
+        : `min(${desiredSizePx}px, ${widthTerm}, ${heightTerm})`;
+    return `max(${inner}, 2px)`;
 }

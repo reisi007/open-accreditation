@@ -436,6 +436,10 @@ msgstr "The field extends beyond the right edge."
 msgid "Das Feld ragt über den unteren Rand hinaus."
 msgstr "The field extends beyond the bottom edge."
 
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Datenfeld ist mehrfach vorhanden."
+msgstr "A data field exists more than once."
+
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Datenschutzerklärung"
@@ -1759,6 +1763,10 @@ msgstr "Y must be a number."
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Zentriert"
 msgstr "Centered"
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm)."
+msgstr "Dragging moves the field, its corners resize it, arrow keys move it by 1 mm (Shift = 5 mm)."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
