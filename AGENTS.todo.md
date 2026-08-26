@@ -347,10 +347,7 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 - **CI (optional, Follow-up):** für automatisierte PDF-Vision-Checks im E2E-Job `poppler-utils` (pdftoppm) ins
   `deployment/Dockerfile.e2e` aufnehmen — nicht blockierend für FE1, lokale Verifikation genügt zunächst.
 
-- [ ] **FE1 — Template-Schema + Backend-Render-Kontrakt:** Felder mit `x`/`y`/`width`/`height`/`fontSize`/`alignment`
-  (mm-basiert) im Template-Schema inkl. `qr`-Fixfeld (P4-F4); API-Validierung (Bounds, Mindestgröße); PDF-Render nutzt
-  Koordinaten (`BadgeRenderService`); Rückwärtskompatibilität (Default-Layout wenn keine Koordinaten).
-  Tests: PHPUnit (Schema/API/PDF-Regression) + Vitest (Schema-Utils). [Implementer I]
+- [x] **FE1 — Template-Schema + Backend-Render-Kontrakt** ✅ `a17332b` — Schema v2 (x/y/w/h/fontSize/alignment, mm) inkl. `qr`-Feld (P4-F4); team/vest_number; A6-Bounds-Validierung; PDF-Render nutzt Koordinaten; Rückwärtskompatibilität. 734 passed, Pint PASS; Code+Vision-Verifier APPROVED. _Vision-medium: Datum-Feld im koordinierten Fixture nicht gesetzt (Fixture-Subset, kein Renderer-Bug) → künftige Fixtures alle Feldtypen abdecken._
 - [ ] **FE2 — Editor-Basis-UI:** Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
   Auswahl + Eigenschaften-Panel (X/Y/Breite/Höhe/Font/Alignment als Zahleneingaben), Persistenz-Roundtrip.
   Tests: Vitest + Playwright `@feature:badge-editor` + UI-Review (Vorschau-Seite, filled/empty, Desktop+Mobile). [Implementer J]
