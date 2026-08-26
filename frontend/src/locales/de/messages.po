@@ -638,6 +638,11 @@ msgstr "Feld entfernen"
 msgid "Felder"
 msgstr "Felder"
 
+#: src/pages/admin/BadgeCanvas.tsx
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Felder überschneiden sich."
+msgstr "Felder überschneiden sich."
+
 #: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/VerifyPage.tsx
 msgid "Foto"

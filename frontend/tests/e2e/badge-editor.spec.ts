@@ -143,6 +143,102 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(main.getByRole('row', { name: /E2E Editor Bounds/ })).toBeVisible();
     });
 
+    test('drags a field onto the grid and persists the snapped position', {
+        tag: ['@feature:badge-editor', '@regression'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Drag');
+
+        // The default name row starts at the origin (x=0, y=0, w=40 mm).
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        const box = await nameBox.boundingBox();
+        if (!box) throw new Error('name box not rendered on the canvas');
+
+        // Pointer drag (mouse): px delta scaled by the rendered box width
+        // (40 mm) → mm, so the expectation is resolution-independent.
+        const pxPerMm = box.width / 40;
+        const deltaX = 150;
+        const deltaY = 90;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + deltaX, box.y + box.height / 2 + deltaY, { steps: 8 });
+        await page.mouse.up();
+
+        // The panel mirrors the dragged position, snapped onto the 5 mm grid:
+        // raw x ≈ 150/pxPerMm → nearest multiple of 5, clamped to ≤ 65.
+        const expectedX = Math.min(Math.round(deltaX / pxPerMm / 5) * 5, 105 - 40);
+        const expectedY = Math.min(Math.round(deltaY / pxPerMm / 5) * 5, 148 - 8);
+        expect(expectedX).toBeGreaterThan(0);
+        expect(expectedY).toBeGreaterThan(0);
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue(String(expectedX));
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue(String(expectedY));
+
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        const templateRow = main.getByRole('row', { name: /E2E Editor Drag/ });
+        await expect(templateRow).toBeVisible();
+
+        // Roundtrip: the dragged position survives save + reopen.
+        await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
+        await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
+        const editCanvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+        await editCanvas.getByRole('button', { name: 'Feld Name' }).click();
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue(String(expectedX));
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue(String(expectedY));
+    });
+
+    test('warns about overlapping fields without blocking the save', {
+        tag: ['@feature:badge-editor'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+
+        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Overlap');
+
+        // A new image element is placed at a FREE position first (no warning).
+        await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
+        await expect(dialog.getByText('Felder überschneiden sich.')).toHaveCount(0);
+
+        // Moving it onto the default name row (0,0, 40×8) triggers the soft
+        // overlap warning…
+        await dialog.getByLabel('X (mm)').fill('0');
+        await dialog.getByLabel('Y (mm)').fill('0');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+        await expect(dialog.getByText('Felder überschneiden sich.')).toBeVisible();
+        await expect(canvas.getByRole('button', { name: 'Feld Bild' })).toHaveAttribute(
+            'title',
+            'Felder überschneiden sich.',
+        );
+
+        // …which must NOT block saving (server-authoritative validation only
+        // rejects hard rules like bounds/min sizes).
+        await dialog.getByLabel('Quelle').selectOption('brand');
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        await expect(main.getByRole('row', { name: /E2E Editor Overlap/ })).toBeVisible();
+    });
+
     test('saves an image element from an uploaded source and restores it', {
         tag: ['@feature:badge-editor'],
     }, async ({ page }) => {

@@ -320,6 +320,7 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 - [ ] **DOC-H-F2 (low)** — `wallet-pkpass.md:75`: schließende Klammer steht im Inline-Code-Span (kosmetisch).
 - [ ] **DOC-H-F3 (low)** — Editor-Spec Zeile 16: Controller-Vollpfad ergänzen (`Api/Admin/BadgeTemplateController.php`).
 - [ ] **FE2-F1 (low)** — Palette lässt „+ Foto" mehrfach hinzufügen (im Gegensatz zu „+ QR-Code", das Single-Instance blockiert); Konsistenz: photo ebenfalls Single-Instance oder bewusst erlauben (dann Doku).
+- [ ] **FE3-F1 (medium)** — Name-Feld-Text im Canvas-Preview vertikal abgeschnitten (Feldhöhe zu klein für Schriftgröße, kein Auto-Fit im Renderer) → in FE4 mit Auto-Shrink/Boxhöhe anpassen.
 
 ### Feld-Editor Umsetzung — Etappenplan (je Etappe: Implementer ∥ nichts, separater Verifikator, UI-Review-Skill)
 > **UI-Test-Regel (STRICT) für jede Etappe:** Nach Umsetzung (a) funktionale Tests (PHPUnit/Vitest/Playwright
@@ -352,9 +353,8 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung fo
 - [x] **FE2 — Editor-Basis-UI** ✅ `eb88cbc` — Template-Editor-Seite mit Ausweis-Vorschau (DIN-Format, mm-skaliert), Feldliste,
   Auswahl + Eigenschaften-Panel (X/Y/Breite/Höhe/Font/Alignment als Zahleneingaben), Persistenz-Roundtrip.
   Backend: Whitelist + image-Regeln (additiv). Tests: 743 PHPUnit / 143 Vitest / 3 Playwright `@feature:badge-editor` / smoke 17 grün. _Vision-low: kein Grid/Overlap-Warnung (→ FE3)._
-- [ ] **FE3 — Drag&Drop:** Freies Ziehen der Felder auf der Vorschau mit Grid/Snap, Bounds-Clamping, Überlappungs-Warnung;
-  Positionen synchronisieren Panel ↔ Vorschau ↔ Speicherung. Tests: Playwright `@feature:badge-editor` (+`@regression`)
-  + UI-Review mit Vision old-vs-new-Diff der Editor-Routen. [Implementer K]
+- [x] **FE3 — Drag&Drop** ✅ `pending-commit` — Pointer-Drag + 5-mm-Grid/Snap + Bounds-Clamp + Überlappungs-Warnung (nicht-blockierend) + Panel↔Canvas-Sync via react-hook-form SSOT; reine Geometrie-Utils `clampToBounds`/`snapToGrid`/`boxesOverlap` + Vitest. 159 Vitest / 5 Playwright `@feature:badge-editor` (+`@regression`) / 17 smoke grün; Code- + Vision-Verifier APPROVED (5-mm-Grid sichtbar, alle 9 Felder inkl. QR/Foto, keine Regression). _Vision-medium: Name-Feld-Text im Preview vertikal abgeschnitten (Feldhöhe < Font) → FE4 auto-fit. Harness-Seed `seedBadgeTemplateSchemaV2` für vollständige Editor-Captures ergänzt._
+  Tests: Playwright `@feature:badge-editor` (+`@regression`) + UI-Review mit Vision old-vs-new-Diff der Editor-Routen. [Implementer K]
 - [ ] **FE4 — Polish + Full-Regression:** Resize-Griffe, Alignment-Hilfslinien, Tastatur-Nudging (Pfeiltasten), i18n DE/EN,
   leere/zustandsreiche Templates; abschließender **kompletter** UI-Review-Lauf (alle betroffenen Routen + `@smoke`/
   `@regression` E2E) + Findings-Report + Fix-Loop bis 0 critical/high. [Implementer L]

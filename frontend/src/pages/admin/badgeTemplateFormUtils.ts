@@ -53,6 +53,93 @@ export const QR_FALLBACK_MARGIN_MM = 5;
 export const QR_FALLBACK_SIZE_MM = 20;
 
 /**
+ * Editor raster for the canvas grid AND the drag snap step (mm). FE4 adds the
+ * fine-positioning toggle; see features/badge-template-editor.md.
+ */
+export const CANVAS_GRID_STEP_MM = 5;
+
+/** Axis-aligned rectangle in millimetres on the A6 card. */
+export interface MmRect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+/**
+ * Rounds a coordinate onto the editor grid (nearest multiple of the step).
+ * Non-finite input snaps to 0 so an in-progress edit can never produce NaN
+ * positions.
+ */
+export function snapToGrid(value: number, step: number = CANVAS_GRID_STEP_MM): number {
+    if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+        return 0;
+    }
+    return Math.round(value / step) * step;
+}
+
+/**
+ * Hard-clamps a rectangle into the A6 card (`x/y ≥ 0`, `x+w ≤ width`,
+ * `y+h ≤ height`). An oversized rectangle anchors at the origin — dragging
+ * cannot fix its size; the zod mirror flags it instead.
+ */
+export function clampToBounds(rect: MmRect): MmRect {
+    const w = Number.isFinite(rect.w) && rect.w > 0 ? rect.w : 0;
+    const h = Number.isFinite(rect.h) && rect.h > 0 ? rect.h : 0;
+    return {
+        x: Math.min(Math.max(Number.isFinite(rect.x) ? rect.x : 0, 0), Math.max(A6_WIDTH_MM - w, 0)),
+        y: Math.min(Math.max(Number.isFinite(rect.y) ? rect.y : 0, 0), Math.max(A6_HEIGHT_MM - h, 0)),
+        w,
+        h,
+    };
+}
+
+/**
+ * Resulting position of a dragged box: origin + pointer delta (in mm),
+ * snapped onto the grid, then hard-clamped into the A6 bounds (bounds win
+ * over snapping).
+ */
+export function computeDragPosition(
+    origin: { x: number; y: number },
+    deltaMm: { x: number; y: number },
+    size: { w: number; h: number },
+): { x: number; y: number } {
+    const clamped = clampToBounds({
+        x: snapToGrid(origin.x + deltaMm.x),
+        y: snapToGrid(origin.y + deltaMm.y),
+        w: size.w,
+        h: size.h,
+    });
+    return { x: clamped.x, y: clamped.y };
+}
+
+/**
+ * Two rectangles strictly intersect (shared edges do NOT count as overlap).
+ * NaN-safe: any non-finite coordinate yields false, so in-progress edits
+ * never warn.
+ */
+export function boxesOverlap(a: MmRect, b: MmRect): boolean {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * Indices of all rows overlapping ANY other row — soft warning marker only
+ * (the server stays authoritative, saving remains allowed).
+ */
+export function findOverlappingIndices(rows: ReadonlyArray<MmRect>): Set<number> {
+    const overlapping = new Set<number>();
+    for (let i = 0; i < rows.length; i += 1) {
+        for (let j = i + 1; j < rows.length; j += 1) {
+            if (boxesOverlap(rows[i], rows[j])) {
+                overlapping.add(i);
+                overlapping.add(j);
+            }
+        }
+    }
+    return overlapping;
+}
+
+/**
  * Flat form model of one editor row. Data fields use `field/x/y/w/h/size/
  * align`; `qr` ignores `size`/`align`; `image` additionally uses the source
  * columns (`srcKind`/`srcRef`/`imageId`) and `fit`. Keeping the row flat maps
@@ -209,17 +296,9 @@ export const BADGE_IMAGE_REFS: readonly BadgeImageRef[] = ['logo', 'header'];
 
 export const BADGE_IMAGE_FITS: readonly BadgeImageFit[] = ['contain', 'cover'];
 
-/** Two-column overlap test of the mm rectangles (NaN-safe: non-finite rows never block). */
-function rectanglesOverlap(
-    a: { x: number; y: number; w: number; h: number },
-    b: { x: number; y: number; w: number; h: number },
-): boolean {
-    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-}
-
 /**
  * First free slot for a new `w × h` mm box, scanning top-left to bottom-right
- * on a coarse 5 mm grid so new elements don't stack invisibly on top of each
+ * on a coarse grid so new elements don't stack invisibly on top of each
  * other. Falls back to the card origin when nothing fits (validation then
  * guides the author to a valid spot).
  */
@@ -228,13 +307,12 @@ export function findFreePosition(
     w: number,
     h: number,
 ): { x: number; y: number } {
-    const GRID_STEP_MM = 5;
     const occupied = rows.filter((row) => [row.x, row.y, row.w, row.h].every(Number.isFinite));
 
-    for (let y = 0; y + h <= A6_HEIGHT_MM; y += GRID_STEP_MM) {
-        for (let x = 0; x + w <= A6_WIDTH_MM; x += GRID_STEP_MM) {
+    for (let y = 0; y + h <= A6_HEIGHT_MM; y += CANVAS_GRID_STEP_MM) {
+        for (let x = 0; x + w <= A6_WIDTH_MM; x += CANVAS_GRID_STEP_MM) {
             const candidate = { x, y, w, h };
-            if (!occupied.some((row) => rectanglesOverlap(candidate, row))) {
+            if (!occupied.some((row) => boxesOverlap(candidate, row))) {
                 return { x, y };
             }
         }

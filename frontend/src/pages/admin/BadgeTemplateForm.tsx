@@ -12,6 +12,7 @@ import {
     badgeTemplateFormDefaults,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
+    findOverlappingIndices,
     isSpecialEntry,
     type BadgeEntryKey,
     type BadgeTemplateFormValues,
@@ -26,12 +27,12 @@ interface BadgeTemplateFormProps {
 }
 
 /**
- * Badge template editor (schema v2 basis UI — FE2, features/badge-template-
- * editor.md): element palette + mm-scaled A6 canvas with selectable boxes +
- * a properties panel. Drag & drop arrives with FE3; positions are edited
- * canonically via the panel's number inputs. State stays in react-hook-form
- * (single source of truth), validation mirrors the server-authoritative
- * schema v2 rules.
+ * Badge template editor (schema v2 — FE3 drag & drop, features/badge-template-
+ * editor.md): element palette + mm-scaled A6 canvas with draggable boxes +
+ * a properties panel. Drag writes the grid-snapped/clamped position back via
+ * `setValue` (single source of truth in react-hook-form), overlapping boxes
+ * raise a soft warning that does not block saving. Validation mirrors the
+ * server-authoritative schema v2 rules.
  */
 export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit, onCancel }: BadgeTemplateFormProps) {
     const { i18n } = useLingui();
@@ -52,6 +53,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
     const fieldRows = useWatch<BadgeTemplateFormValues, 'fields'>({ control, name: 'fields' }) ?? [];
     const selectedRow = selectedIndex !== null ? fieldRows[selectedIndex] : undefined;
     const qrExists = fieldRows.some((row) => row.field === 'qr');
+    const overlapIndices = findOverlappingIndices(fieldRows);
 
     const handleAddField = (key: BadgeEntryKey) => {
         if (isSpecialEntry(key) && key === 'qr' && qrExists) return;
@@ -68,6 +70,18 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
             { shouldValidate: true },
         );
         setSelectedIndex(null);
+    };
+
+    /**
+     * Live drag feedback (FE3): every pointer move writes the snapped/clamped
+     * position into the SAME form state the panel inputs are registered on —
+     * canvas box, panel numbers and the saved layout stay one source of truth.
+     * No per-move validation: dragging is hard-clamped into the A6 bounds, the
+     * resolver runs at submit time anyway.
+     */
+    const handleMoveField = (index: number, x: number, y: number) => {
+        setValue(`fields.${index}.x`, x);
+        setValue(`fields.${index}.y`, y);
     };
 
     return (
@@ -130,11 +144,24 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                     </fieldset>
 
                     <div className="w-full max-w-xs">
-                        <BadgeCanvas rows={fieldRows} selectedIndex={selectedIndex} onSelect={setSelectedIndex} />
+                        <BadgeCanvas
+                            rows={fieldRows}
+                            selectedIndex={selectedIndex}
+                            overlapIndices={overlapIndices}
+                            onSelect={setSelectedIndex}
+                            onMove={handleMoveField}
+                        />
                     </div>
                     <p className="text-center text-xs text-base-content/60">
                         {i18n._(t`Live-Vorschau (DIN A6, Maße in mm)`)}
                     </p>
+
+                    {overlapIndices.size > 0 ? (
+                        <p role="status" className="flex items-center justify-center gap-1 text-xs text-warning">
+                            <span aria-hidden="true" className="iconify mdi--alert-outline text-base"></span>
+                            {i18n._(t`Felder überschneiden sich.`)}
+                        </p>
+                    ) : null}
 
                     {errors.fields?.message ? (
                         <p role="alert" className="text-sm text-error">

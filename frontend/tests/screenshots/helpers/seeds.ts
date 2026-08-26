@@ -59,6 +59,16 @@ export const seedPrimaryMandant = cachedSeed('primary-mandant', () => seedPrimar
 /** One badge template (cached per worker). */
 export const seedBadgeTemplate = cachedSeed('badge-template', () => seedBadgeTemplatesFilled());
 
+/**
+ * One COMPLETE schema-v2 badge template — every entry type the editor palette
+ * offers (cached per worker). Both badge EDITOR routes seed this shape so the
+ * "Bearbeiten" click (which opens the NEWEST row, id desc) can never land on
+ * the legacy three-field layout of `seedBadgeTemplate`.
+ */
+export const seedBadgeTemplateSchemaV2 = cachedSeed('badge-template-schema-v2', () =>
+    seedBadgeTemplateSchemaV2Filled(),
+);
+
 /** One approved application with a real QR token (cached per worker). */
 export const seedApprovedApplicationCached = cachedSeed('approved-application', () => seedApprovedApplication());
 
@@ -130,6 +140,41 @@ export async function seedBadgeTemplatesFilled(): Promise<Record<string, unknown
         });
         if (create.status() !== 201) {
             throw new Error(`Badge template seed failed with status ${create.status()}`);
+        }
+        return {};
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
+ * One complete schema-v2 badge template (FE3 screenshot seed): photo top-left,
+ * qr top-right (~78/8, 20 × 20), the seven data fields with size + align in
+ * the free canvas areas. Non-overlapping and inside the A6 bounds
+ * (105 × 148 mm), so the editor edit capture shows all nine boxes plus a
+ * clean properties panel without overlap warnings.
+ */
+export async function seedBadgeTemplateSchemaV2Filled(): Promise<Record<string, unknown>> {
+    const api = await loginAdminApi();
+    try {
+        const create = await api.post('/api/admin/badge-templates', {
+            data: {
+                name: `E2E Schema-v2 Volltemplate ${Date.now()}`,
+                layout: [
+                    { field: 'photo', x: 8, y: 8, w: 22, h: 28, size: 12, align: 'left' },
+                    { field: 'qr', x: 78, y: 8, w: 20, h: 20 },
+                    { field: 'name', x: 35, y: 8, w: 40, h: 8, size: 14, align: 'left' },
+                    { field: 'category', x: 35, y: 18, w: 40, h: 6, size: 10, align: 'left' },
+                    { field: 'event', x: 35, y: 26, w: 40, h: 6, size: 9, align: 'left' },
+                    { field: 'date', x: 35, y: 34, w: 40, h: 6, size: 9, align: 'left' },
+                    { field: 'status', x: 8, y: 42, w: 30, h: 6, size: 9, align: 'left' },
+                    { field: 'team', x: 8, y: 50, w: 60, h: 6, size: 9, align: 'left' },
+                    { field: 'vest_number', x: 8, y: 58, w: 30, h: 6, size: 9, align: 'left' },
+                ],
+            },
+        });
+        if (create.status() !== 201) {
+            throw new Error(`Schema-v2 badge template seed failed with status ${create.status()}`);
         }
         return {};
     } finally {

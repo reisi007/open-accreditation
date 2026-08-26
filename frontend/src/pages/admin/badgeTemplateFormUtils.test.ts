@@ -3,10 +3,16 @@ import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
     badgeTemplateFormDefaults,
+    boxesOverlap,
     buildBadgeTemplatePayload,
+    CANVAS_GRID_STEP_MM,
+    clampToBounds,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
+    computeDragPosition,
     findFreePosition,
+    findOverlappingIndices,
+    snapToGrid,
     type BadgeRowValues,
     type BadgeTemplateFormValues,
 } from './badgeTemplateFormUtils';
@@ -332,6 +338,117 @@ describe('findFreePosition', () => {
 
     it('ignores rows with non-finite values (in-progress edits)', () => {
         expect(findFreePosition([{ x: Number.NaN, y: 0, w: 105, h: 148 }], 40, 8)).toEqual({ x: 0, y: 0 });
+    });
+});
+
+describe('snapToGrid', () => {
+    it('rounds to the nearest grid multiple', () => {
+        expect(snapToGrid(12)).toBe(10);
+        expect(snapToGrid(13)).toBe(15);
+        expect(snapToGrid(0)).toBe(0);
+        expect(snapToGrid(-3)).toBe(-5);
+    });
+
+    it('keeps already snapped values stable', () => {
+        for (let value = 0; value <= 105; value += CANVAS_GRID_STEP_MM) {
+            expect(snapToGrid(value)).toBe(value);
+        }
+    });
+
+    it('honours a custom step', () => {
+        expect(snapToGrid(7, 10)).toBe(10);
+        expect(snapToGrid(4, 10)).toBe(0);
+    });
+
+    it('snaps non-finite values and invalid steps to 0 (NaN defense)', () => {
+        expect(snapToGrid(Number.NaN)).toBe(0);
+        expect(snapToGrid(Number.POSITIVE_INFINITY)).toBe(0);
+        expect(snapToGrid(12, Number.NaN)).toBe(0);
+        expect(snapToGrid(12, 0)).toBe(0);
+        expect(snapToGrid(12, -5)).toBe(0);
+    });
+});
+
+describe('clampToBounds', () => {
+    it('accepts a rectangle inside the A6 card unchanged', () => {
+        expect(clampToBounds({ x: 10, y: 20, w: 40, h: 8 })).toEqual({ x: 10, y: 20, w: 40, h: 8 });
+    });
+
+    it('pulls a rectangle beyond the right/bottom edge back into the bounds', () => {
+        // x + w = 110 > 105 → x = 65; y + h = 150 > 148 → y = 130.
+        expect(clampToBounds({ x: 70, y: 140, w: 40, h: 10 })).toEqual({
+            x: A6_WIDTH_MM - 40,
+            y: A6_HEIGHT_MM - 10,
+            w: 40,
+            h: 10,
+        });
+    });
+
+    it('clamps negative coordinates to the top/left edge', () => {
+        const clamped = clampToBounds({ x: -7, y: -1, w: 30, h: 20 });
+        expect(clamped.x).toBe(0);
+        expect(clamped.y).toBe(0);
+    });
+
+    it('anchors an oversized rectangle at the origin (size is flagged by validation)', () => {
+        expect(clampToBounds({ x: 50, y: 50, w: A6_WIDTH_MM + 10, h: A6_HEIGHT_MM + 10 })).toEqual({
+            x: 0,
+            y: 0,
+            w: A6_WIDTH_MM + 10,
+            h: A6_HEIGHT_MM + 10,
+        });
+    });
+
+    it('treats non-finite coordinates as 0 (NaN defense)', () => {
+        expect(clampToBounds({ x: Number.NaN, y: Number.NaN, w: 40, h: 8 })).toEqual({ x: 0, y: 0, w: 40, h: 8 });
+    });
+});
+
+describe('computeDragPosition', () => {
+    it('adds the pointer delta, snaps onto the grid and stays in bounds', () => {
+        // 23.4 mm → snap 25; -1 mm → snap 0.
+        expect(computeDragPosition({ x: 3, y: 2 }, { x: 20.4, y: -1 }, { w: 40, h: 8 })).toEqual({ x: 25, y: 0 });
+    });
+
+    it('hard-clamps a drag past the right/bottom edge (bounds win over snapping)', () => {
+        const position = computeDragPosition({ x: 60, y: 135 }, { x: 100, y: 100 }, { w: 40, h: 8 });
+        expect(position.x).toBe(A6_WIDTH_MM - 40);
+        expect(position.y).toBe(A6_HEIGHT_MM - 8);
+    });
+
+    it('never leaves the grid when starting from a snapped origin', () => {
+        const position = computeDragPosition({ x: 15, y: 45 }, { x: 13, y: -27 }, { w: 30, h: 20 });
+        expect(position.x % CANVAS_GRID_STEP_MM).toBe(0);
+        expect(position.y % CANVAS_GRID_STEP_MM).toBe(0);
+    });
+});
+
+describe('boxesOverlap / findOverlappingIndices', () => {
+    it('detects intersecting rectangles but not shared edges', () => {
+        expect(boxesOverlap({ x: 0, y: 0, w: 40, h: 8 }, { x: 20, y: 4, w: 40, h: 8 })).toBe(true);
+        // Touching right edge (x = 40) does NOT overlap.
+        expect(boxesOverlap({ x: 0, y: 0, w: 40, h: 8 }, { x: 40, y: 0, w: 40, h: 8 })).toBe(false);
+        // Touching bottom edge (y = 8) does NOT overlap.
+        expect(boxesOverlap({ x: 0, y: 0, w: 40, h: 8 }, { x: 0, y: 8, w: 40, h: 8 })).toBe(false);
+    });
+
+    it('is NaN-safe (in-progress edits never warn)', () => {
+        expect(boxesOverlap({ x: Number.NaN, y: 0, w: 40, h: 8 }, { x: 0, y: 0, w: 40, h: 8 })).toBe(false);
+    });
+
+    it('collects every index of mutually overlapping rows', () => {
+        const base = { x: 0, y: 0, w: 40, h: 8 };
+        const indices = findOverlappingIndices([base, { ...base, x: 10 }, { ...base, y: 50 }]);
+        expect(indices.has(0)).toBe(true);
+        expect(indices.has(1)).toBe(true);
+        expect(indices.has(2)).toBe(false);
+    });
+
+    it('returns an empty set without overlaps or for non-finite rows', () => {
+        const base = { x: 0, y: 0, w: 40, h: 8 };
+        expect(findOverlappingIndices([base, { ...base, x: 50 }]).size).toBe(0);
+        expect(findOverlappingIndices([{ ...base, x: Number.NaN }, base]).size).toBe(0);
+        expect(findOverlappingIndices([]).size).toBe(0);
     });
 });
 
