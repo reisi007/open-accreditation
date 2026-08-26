@@ -307,6 +307,7 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 _(Alle Tasks dieser Session umgesetzt + verifiziert — Feld-Editor-Umsetzung folgt als FE1–FE4, siehe Etappenplan oben.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
+- [ ] **FE-IMG (User-Entscheidung, 2026-08-26)** — Der Editor soll **auch selbst platzierte Bilder** unterstützen (Logos, Vereinswappen, Hintergründe — frei positionierbar wie Datenfelder, mit x/y/w/h + Bildquelle: Upload oder Mandant-Brand-Bild). Spec-Erweiterung in `features/badge-template-editor.md` (neuer Elementtyp `image`), Umsetzung im FE2/FE3-Zyklus (Schema-Erweiterung ggf. nach FE1).
 - [ ] **FE1-DEP1 (MEDIUM, FE2-Blocker!)** — Frontend-zod-Spiegel (`badgeTemplateFormUtils.ts`) kennt Schema v2 noch nicht (qr ohne size/align, team/vest_number): v2-Templates lassen sich im Modal-Editor nicht re-speichern + keine Labels. **MUSS mit FE2 geschlossen werden, bevor Schema v2 + Editor zusammen releasen.**
 - [ ] **FE1-F2 (low)** — Mindestgrößen als private Controller-Konstanten (`BadgeTemplateController.php:38`); mit FE2-zod-Spiegel ggf. zentral exportieren.
 - [ ] **FE1-F3 (low)** — Float-Grenzfall bei dezimalen mm-Werten an exakter Kante (FP-Rundung kann falsch rejecten); Epsilon-Toleranz oder dokumentierter Grenzfall (`BadgeTemplateController.php:236`).
