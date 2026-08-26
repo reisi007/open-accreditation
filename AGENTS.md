@@ -129,6 +129,40 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 **Max 3 Fix-Versuche für Tests (STRICT):** Nach 3 erfolglosen Versuchen MUSS der Agent an den Benutzer
 zurückgeben mit einer Analyse. Keine Endlos-Fix-Loops.
 
+**Visuelle Verifikation / UI-Review (Design-QA, STRICT):** Permanent verpflichtender Workflow nach jeder
+UI-Änderung (FE-Etappen, neue Seiten, Layout-/daisyUI-Anpassungen). Er ist **explizit getrennt** von den
+funktionalen Playwright-E2E-Tests: eigener Ordner `frontend/tests/screenshots/` (Route-Manifest =
+`ui-review.config.ts`, Quelle der Wahrheit für Routes × States × Viewports; generischer Spec
+`ui-screenshots.spec.ts`, alle Tests mit Tag `@screenshot`), eigene Config
+`playwright.screenshots.config.ts` (outputDir `test-results/ui-screenshots`; Desktop Chrome 1920×950 +
+Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle). Ausführen NUR via
+`cd frontend && pnpm test:screenshots` (= `playwright test -c playwright.screenshots.config.ts`) — läuft
+**nicht** in der Standard-E2E-Suite (`playwright.config.ts` / `tests/e2e`) und **nicht** im CI-E2E-Job.
+
+Loop (Schritte 1–4):
+
+1. **Capture:** Dev-Server + Backend starten → `cd frontend && pnpm test:screenshots`. Pro Route × State
+   (`filled`/`empty`) × Viewport entstehen ein **Full-Page-PNG** plus **Section-Captures**
+   (`<name>-secN.png`, Scroll in 80-%-Schritten, damit unterhalb des Folds nichts unlesbar skaliert):
+   `frontend/test-results/ui-screenshots/<state>/<viewport>/<name>.png`. Schlägt ein Screenshot-Test fehl,
+   ist Harness oder Seite kaputt — zuerst fixen.
+2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
+   immer via vision-Subagent). Max. **10 Bilder pro Batch**; Batching-Reihenfolge: erst nach State
+   (`filled` → `empty`), dann Viewport (desktop → mobile). Geprüft wird gegen die Checklist des
+   **UI-Review-Skills**
+   (`/Users/florianreisinger/dev/agents-skills/.agents/skills/ui-review/references/ui-review-checklist.md`).
+3. **Findings-Report:** Konsolidierter Bericht je Befund `Severity | Screenshot | Finding | Suggested fix`
+   (Template im Skill: `references/findings-report.md`); Severities `critical/high/medium/low`;
+   **`critical`/`high` blockieren das Verdict `APPROVED`** (→ eigene Fix-Todos, wie §5 Verifikations-Gate).
+4. **Fix-Loop:** Fixes delegieren (Implementer + separater Verifikator, §5) → **Re-Capture nur der
+   betroffenen Routen** (`cd frontend && pnpm test:screenshots -g <routenname>`) → `vision`-Subagent
+   vergleicht **old vs new** und bestätigt die Behebung bzw. meldet neue Befunde; gesamten betroffenen
+   Batch re-verifizieren, bevor der Loop geschlossen wird.
+
+**Abgrenzung (STRICT):** Dieser visuelle Loop ist **kein funktionaler Test** — er asserted kein Verhalten,
+sondern erzeugt ausschließlich Pixel zur Design-QA durch den vision-Subagenten. Er gate **nicht** CI oder
+Deployment; funktional verbindlich bleiben ausschließlich die E2E-Suiten dieses §7.
+
 ## 8. Domain-Modell (Kurzreferenz)
 
 Hierarchie: **Super Admin → Mandant (Verband, eigene Domain) → Team (Verein, optional je Mandant) →
