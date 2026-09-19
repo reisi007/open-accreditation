@@ -36,7 +36,15 @@ use App\Enums\UserRole;
 | surface (mandant always derived from MandantContext — never a request
 | parameter, so no IDOR). super_admin keeps full control over every mandant's
 | media through the existing admin surface (`mandants.manage`). team_admin,
-| user and verifier hold no media permission at all.
+| user and verifier hold no *mandant* media permission at all.
+|
+| `teams.media.manage` (W4-F1) opens the team logo writes. Unlike the tenant
+| team *CRUD* (`teams.manage`, super_admin-only), the logo is staffed
+| hierarchically: mandant_admin manages the logos of every team of HIS mandant
+| (team resolved via the mandant-scoped route binding, foreign mandant → 404),
+| team_admin only the logo of his own team(s) (`role_user.team_id`, sibling
+| team → 403). super_admin manages every team globally; user and verifier hold
+| no team media permission and are denied at the route gate.
 |
 */
 
@@ -54,11 +62,13 @@ return [
         'accreditations.view',
         'accreditations.manage',
         'mandant.media.manage',
+        'teams.media.manage',
     ],
 
     UserRole::TEAM_ADMIN->value => [
         'teams.view',
         'teams.manage',
+        'teams.media.manage',
         'categories.manage',
         'events.manage',
         'accreditations.manage',

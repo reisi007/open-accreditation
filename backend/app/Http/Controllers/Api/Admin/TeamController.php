@@ -21,19 +21,22 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Super Admin CRUD for the teams (Vereine) of a mandant.
+ * Team CRUD (Super Admin) plus the W4 team logo surface.
  *
  * The read endpoint (`index`) is guarded by `can:teams.view` (P2b-F1): a
  * mandant_admin may list all teams of his mandant, a team_admin only his own
- * team(s). Write endpoints stay on `can:teams.manage`, which in the permission
- * matrix is also granted to a team_admin *within his own team scope*. This
- * admin surface manages teams across arbitrary mandants, so every write
- * additionally requires the global super admin role — keeping the tenant-CRUD
- * semantics of this API and closing the cross-mandant manipulation gap.
+ * team(s). Team *CRUD* writes stay on `can:teams.manage`, which in the
+ * permission matrix is also granted to a team_admin *within his own team
+ * scope*. This admin surface manages teams across arbitrary mandants, so every
+ * CRUD write additionally requires the global super admin role — keeping the
+ * tenant-CRUD semantics of this API and closing the cross-mandant
+ * manipulation gap.
  *
  * W4 adds the team logo surface (`/api/admin/teams/{team}/logo`): auth-gated
- * delivery (`teams.view`) plus super_admin-only upload/delete, stored under the
- * W1 media layout (`<host>/teams/<slug>/logo.<ext>`).
+ * delivery (`teams.view`) plus hierarchical writes (`teams.media.manage`,
+ * W4-F1) — super_admin globally, mandant_admin for every team of his own
+ * mandant (MandantContext), team_admin for his own team(s) only. Stored under
+ * the W1 media layout (`<host>/teams/<slug>/logo.<ext>`).
  */
 class TeamController extends Controller
 {
@@ -101,8 +104,8 @@ class TeamController extends Controller
      * Auth-gated delivery of the team logo (inline). Read access follows
      * `teams.view` (route gate): super_admin, mandant_admin and team_admin may
      * open the image; the team is resolved through the tenant-guarded binding.
-     * Writes (`storeLogo`/`destroyLogo`) stay super_admin-only like the rest of
-     * this tenant-CRUD surface.
+     * Writes (`storeLogo`/`destroyLogo`) are hierarchical (W4-F1) — see
+     * `authorizeLogoWrite()`.
      */
     public function showLogo(Request $request, Team $team): StreamedResponse|JsonResponse
     {
@@ -129,11 +132,13 @@ class TeamController extends Controller
      * the public `media` disk under the W1 layout
      * (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`); the
      * previous file is removed only after the new one is stored.
+     *
+     * Authorization is hierarchical (W4-F1): `authorizeLogoWrite()`.
      */
     public function storeLogo(Request $request, Team $team): TeamResource
     {
-        $this->authorizeSuperAdmin($request);
         $this->assertTeamOfCurrentMandant($team);
+        $this->authorizeLogoWrite($request, $team);
 
         $request->validate([
             'file' => ['required', 'image', 'mimes:jpeg,png,webp', 'max:2048'],
@@ -163,12 +168,13 @@ class TeamController extends Controller
     }
 
     /**
-     * Delete the team logo file and reset `logo_path`.
+     * Delete the team logo file and reset `logo_path`. Authorization mirrors
+     * `storeLogo` (W4-F1): `authorizeLogoWrite()`.
      */
     public function destroyLogo(Request $request, Team $team): Response
     {
-        $this->authorizeSuperAdmin($request);
         $this->assertTeamOfCurrentMandant($team);
+        $this->authorizeLogoWrite($request, $team);
 
         if ($team->logo_path !== null) {
             Storage::disk(MediaPathService::DISK)->delete($team->logo_path);
@@ -307,6 +313,32 @@ class TeamController extends Controller
     private function authorizeSuperAdmin(Request $request): void
     {
         abort_unless($request->user()?->isSuperAdmin(), 403);
+    }
+
+    /**
+     * Authorization for logo writes (W4-F1), mirroring the self-service media
+     * pattern: super_admin globally, mandant_admin for every team of his own
+     * mandant (`MandantContext`, never a request parameter), team_admin for
+     * his own team(s) only (`role_user.team_id`). The team is resolved through
+     * the mandant-scoped route binding and re-checked via
+     * `assertTeamOfCurrentMandant()`, so a foreign mandant yields 404 and a
+     * sibling team of the same mandant yields 403. user/verifier never reach
+     * this method (route gate `teams.media.manage`).
+     */
+    private function authorizeLogoWrite(Request $request, Team $team): void
+    {
+        $user = $request->user();
+        abort_if($user === null, 401);
+
+        if ($user->isSuperAdmin() || $user->isMandantAdmin($this->currentMandantId())) {
+            return;
+        }
+
+        abort_unless(
+            in_array((int) $team->id, $this->teamIds($request), true),
+            403,
+            'You may only manage the logo of your own team.',
+        );
     }
 
     /**

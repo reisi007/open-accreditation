@@ -133,6 +133,8 @@ Route::middleware('auth:api')->group(function (): void {
 |   - mandants / domains / logo / header → `can:mandants.manage`
 |   - teams read (index)                  → `can:teams.view` (P2b-F1)
 |   - teams write                         → `can:teams.manage` (super_admin-only)
+|   - team logo write                     → `can:teams.media.manage` (W4-F1,
+|     hierarchical: mandant_admin whole mandant, team_admin own team)
 |   - categories                          → `can:categories.manage`
 |   - events                              → `can:events.manage`
 |   - users / roles                       → `can:users.manage` (P2c)
@@ -184,12 +186,14 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
     });
 
     // W4: team logo (Vereins-Logo). Read follows `teams.view` (the delivery is
-    // auth-gated inline); writes stay super_admin-only like the team CRUD.
+    // auth-gated inline); writes follow `teams.media.manage` (W4-F1) —
+    // mandant_admin manages every team of his mandant, team_admin only his own
+    // team(s), re-enforced inside the controller via the role assignments.
     // Files live on the public `media` disk under the W1 layout
     // (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`).
     Route::get('/teams/{team}/logo', [TeamController::class, 'showLogo'])->middleware('can:teams.view')->name('teams.logo');
-    Route::post('/teams/{team}/logo', [TeamController::class, 'storeLogo'])->middleware(['can:teams.manage', 'throttle:admin'])->name('teams.logo.store');
-    Route::delete('/teams/{team}/logo', [TeamController::class, 'destroyLogo'])->middleware(['can:teams.manage', 'throttle:admin'])->name('teams.logo.destroy');
+    Route::post('/teams/{team}/logo', [TeamController::class, 'storeLogo'])->middleware(['can:teams.media.manage', 'throttle:admin'])->name('teams.logo.store');
+    Route::delete('/teams/{team}/logo', [TeamController::class, 'destroyLogo'])->middleware(['can:teams.media.manage', 'throttle:admin'])->name('teams.logo.destroy');
 
     Route::middleware('can:categories.manage')->group(function (): void {
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');

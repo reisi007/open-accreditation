@@ -23,7 +23,9 @@ use Tests\TestCase;
  *
  * Team logos land on the public `media` disk under the W1 layout
  * (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`) and are
- * delivered auth-gated; writes stay super_admin-only like the team CRUD.
+ * delivered auth-gated. Writes are hierarchical (W4-F1): super_admin globally,
+ * mandant_admin for every team of his mandant, team_admin for his own team(s);
+ * user/verifier are denied, foreigners get 403/404.
  *
  * Participants are mandant-level content: a team_admin may read but every
  * write is 403 (mirrors W2 event types). Rows of a foreign mandant or of a
@@ -75,7 +77,7 @@ class AdminTeamParticipationTest extends TestCase
         $this->deleteJson('/api/admin/teams/'.$team->id.'/logo')->assertStatus(401);
     }
 
-    public function test_only_super_admin_can_write_team_logo_but_others_can_read(): void
+    public function test_all_viewers_can_read_team_logo(): void
     {
         $team = $this->makeTeam($this->mandantA, 'team-a');
 
@@ -91,22 +93,120 @@ class AdminTeamParticipationTest extends TestCase
                 ->assertOk()
                 ->assertHeader('Content-Type', 'image/png');
         }
+    }
+
+    public function test_mandant_admin_manages_team_logos_of_his_mandant(): void
+    {
+        $team = $this->makeTeam($this->mandantA, 'team-a');
 
         $this->actingAsApi($this->mandantAdmin())
             ->post('/api/admin/teams/'.$team->id.'/logo', [
                 'file' => UploadedFile::fake()->image('logo.png'),
             ])
+            ->assertOk()
+            ->assertJsonPath('data.logo_url', route('api.admin.teams.logo', ['team' => $team->id]));
+
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/teams/team-a/logo.png');
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->deleteJson('/api/admin/teams/'.$team->id.'/logo')
+            ->assertStatus(204);
+
+        Storage::disk(MediaPathService::DISK)->assertMissing('verband-a.test/teams/team-a/logo.png');
+        $this->assertNull($team->fresh()->logo_path);
+    }
+
+    public function test_team_admin_manages_only_his_own_team_logo(): void
+    {
+        $own = $this->makeTeam($this->mandantA, 'eigen');
+        $sibling = $this->makeTeam($this->mandantA, 'nachbar');
+        $teamAdmin = $this->teamAdmin($own);
+
+        $this->actingAsApi($teamAdmin)
+            ->post('/api/admin/teams/'.$own->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertOk();
+
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/teams/eigen/logo.png');
+
+        $this->actingAsApi($teamAdmin)
+            ->post('/api/admin/teams/'.$sibling->id.'/logo', [
+                'file' => UploadedFile::fake()->image('fremd.png'),
+            ])
             ->assertStatus(403);
 
-        $this->actingAsApi($this->teamAdmin($team))
-            ->post('/api/admin/teams/'.$team->id.'/logo', [
+        $this->actingAsApi($teamAdmin)
+            ->deleteJson('/api/admin/teams/'.$sibling->id.'/logo')
+            ->assertStatus(403);
+
+        Storage::disk(MediaPathService::DISK)->assertMissing('verband-a.test/teams/nachbar/logo.png');
+        $this->assertNull($sibling->fresh()->logo_path);
+    }
+
+    public function test_mandant_admin_cannot_manage_team_logo_of_foreign_mandant(): void
+    {
+        $teamB = $this->makeTeam($this->mandantB, 'fremd');
+        $mandantAdminA = $this->mandantAdmin();
+
+        // Foreign team via the mandant-scoped binding → 404.
+        $this->actingAsApi($mandantAdminA)
+            ->post('/api/admin/teams/'.$teamB->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertStatus(404);
+
+        // No mandant_admin role in the current (foreign) context → 403.
+        MandantContext::set($this->mandantB);
+
+        $this->actingAsApi($mandantAdminA)
+            ->post('/api/admin/teams/'.$teamB->id.'/logo', [
                 'file' => UploadedFile::fake()->image('logo.png'),
             ])
             ->assertStatus(403);
 
-        $this->actingAsApi($this->teamAdmin($team))
-            ->deleteJson('/api/admin/teams/'.$team->id.'/logo')
+        $this->assertNull($teamB->fresh()->logo_path);
+    }
+
+    public function test_team_admin_cannot_manage_team_logo_of_foreign_mandant(): void
+    {
+        $teamA = $this->makeTeam($this->mandantA, 'team-a');
+        $teamB = $this->makeTeam($this->mandantB, 'fremd');
+        $teamAdminA = $this->teamAdmin($teamA);
+
+        MandantContext::set($this->mandantB);
+
+        $this->actingAsApi($teamAdminA)
+            ->post('/api/admin/teams/'.$teamB->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
             ->assertStatus(403);
+
+        $this->assertNull($teamB->fresh()->logo_path);
+    }
+
+    public function test_user_and_verifier_cannot_manage_team_logo(): void
+    {
+        $team = $this->makeTeam($this->mandantA, 'team-a');
+
+        $actors = [
+            $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id),
+            $this->createUserWithRole(UserRole::VERIFIER->value, $this->mandantA->id),
+        ];
+
+        foreach ($actors as $actor) {
+            $this->actingAsApi($actor)
+                ->post('/api/admin/teams/'.$team->id.'/logo', [
+                    'file' => UploadedFile::fake()->image('logo.png'),
+                ])
+                ->assertStatus(403);
+
+            $this->actingAsApi($actor)
+                ->deleteJson('/api/admin/teams/'.$team->id.'/logo')
+                ->assertStatus(403);
+        }
+
+        $this->assertNull($team->fresh()->logo_path);
     }
 
     /* ---------------------------------------------------------------------
