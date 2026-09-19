@@ -8,6 +8,7 @@ use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Handles the storage lifecycle of a mandant's uploaded badge images on the
@@ -45,7 +46,12 @@ class BadgeImageService
      * `MediaPathService::sanitizeFileName`; lower-casing stays injective over
      * the ULID alphabet, so two uploads never collide (W1-F3).
      *
+     * A write failure (`putFileAs()` returns `false`) aborts with a
+     * `RuntimeException` before the addressing row is created, so no row can
+     * ever point at a file that was never written.
+     *
      * @throws ValidationException
+     * @throws RuntimeException when the file could not be written
      */
     public function store(Mandant $mandant, UploadedFile $file): BadgeImage
     {
@@ -54,7 +60,11 @@ class BadgeImageService
         $name = (string) Str::ulid().'.'.ImageUploadRules::extensionFor($file);
         $path = $this->targetPath($mandant, $name);
 
-        $this->storage->putFileAs(dirname($path), $file, basename($path));
+        $stored = $this->storage->putFileAs(dirname($path), $file, basename($path));
+
+        if ($stored === false) {
+            throw new RuntimeException(sprintf('Could not store the badge image at "%s".', $path));
+        }
 
         return BadgeImage::create([
             'mandant_id' => $mandant->id,

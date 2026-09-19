@@ -6,6 +6,7 @@ use App\Models\Team;
 use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Storage lifecycle of a team's (Vereins-) logo on the public `media` disk
@@ -32,9 +33,12 @@ class TeamMediaService
 
     /**
      * Upload/replace the team logo. The new file is persisted first, the
-     * previous one removed afterwards.
+     * previous one removed afterwards. A write failure (`putFileAs()` returns
+     * `false`) aborts with a `RuntimeException` before the previous file is
+     * deleted or the path column is rewritten.
      *
      * @throws ValidationException
+     * @throws RuntimeException when the new file could not be written
      */
     public function store(Team $team, UploadedFile $file): void
     {
@@ -45,7 +49,11 @@ class TeamMediaService
 
         $previous = $team->logo_path;
 
-        $this->storage->putFileAs(dirname($path), $file, basename($path));
+        $stored = $this->storage->putFileAs(dirname($path), $file, basename($path));
+
+        if ($stored === false) {
+            throw new RuntimeException(sprintf('Could not store the team logo at "%s".', $path));
+        }
 
         if ($previous !== null && $previous !== $path) {
             $this->storage->delete($previous);

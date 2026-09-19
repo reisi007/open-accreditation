@@ -6,6 +6,7 @@ use App\Models\EventType;
 use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Storage lifecycle of an event type's logo on the public `media` disk (W6).
@@ -33,9 +34,12 @@ class EventTypeMediaService
 
     /**
      * Upload/replace the event-type logo. The new file is persisted first, the
-     * previous one removed afterwards.
+     * previous one removed afterwards. A write failure (`putFileAs()` returns
+     * `false`) aborts with a `RuntimeException` before the previous file is
+     * deleted or the path column is rewritten.
      *
      * @throws ValidationException
+     * @throws RuntimeException when the new file could not be written
      */
     public function store(EventType $eventType, UploadedFile $file): void
     {
@@ -46,7 +50,11 @@ class EventTypeMediaService
 
         $previous = $eventType->logo_path;
 
-        $this->storage->putFileAs(dirname($path), $file, basename($path));
+        $stored = $this->storage->putFileAs(dirname($path), $file, basename($path));
+
+        if ($stored === false) {
+            throw new RuntimeException(sprintf('Could not store the event-type logo at "%s".', $path));
+        }
 
         if ($previous !== null && $previous !== $path) {
             $this->storage->delete($previous);

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -31,19 +32,36 @@ final class MediaStorage
     /**
      * Store raw bytes at a relative path on the public disk (used by the
      * backfill command to re-materialise a migrated file).
+     *
+     * The `media` disk is configured with `throw => false`, so a write failure
+     * surfaces as a `false` return instead of an exception. A silent `false`
+     * MUST never be mistaken for a successful write: the caller would
+     * otherwise update the DB path and remove the legacy source for a file
+     * that was never written. `put()` therefore fails loudly.
+     *
+     * @throws RuntimeException when the disk reports a write failure
      */
     public function put(string $path, string $contents): void
     {
-        Storage::disk(self::PUBLIC_DISK)->put($path, $contents);
+        if (Storage::disk(self::PUBLIC_DISK)->put($path, $contents) === false) {
+            throw new RuntimeException(sprintf('Could not write media file "%s".', $path));
+        }
     }
 
     /**
      * Persist an uploaded file below `$directory` under the given leaf name and
-     * return the stored relative path.
+     * return the stored relative path, or `false` when the disk reported a
+     * write failure (`throw => false` on the `media` disk).
+     *
+     * Callers MUST treat `false` as fatal: delete the previous file and update
+     * the stored path only after a truthy return, otherwise they would point
+     * the DB at a file that does not exist while destroying the previous one.
+     *
+     * @return string|false the stored relative path, or `false` on write failure
      */
-    public function putFileAs(string $directory, UploadedFile $file, string $name): string
+    public function putFileAs(string $directory, UploadedFile $file, string $name): string|false
     {
-        return (string) Storage::disk(self::PUBLIC_DISK)->putFileAs($directory, $file, $name);
+        return Storage::disk(self::PUBLIC_DISK)->putFileAs($directory, $file, $name);
     }
 
     /**

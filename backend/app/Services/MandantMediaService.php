@@ -6,6 +6,7 @@ use App\Models\Mandant;
 use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Handles the storage lifecycle of a mandant's logo/header images on the
@@ -42,9 +43,13 @@ class MandantMediaService
     /**
      * Store (or replace) the logo or header image of a mandant. The new file is
      * persisted first; the previous file (new or legacy layout) is removed only
-     * afterwards, so a failed write keeps the old image intact.
+     * afterwards, so a failed write keeps the old image intact. A write failure
+     * (`putFileAs()` returns `false`) aborts with a `RuntimeException` before
+     * anything is deleted or the path column is rewritten, so the stored path
+     * can never point at a file that was never written.
      *
      * @throws ValidationException
+     * @throws RuntimeException when the new file could not be written
      */
     public function store(Mandant $mandant, string $kind, UploadedFile $file): void
     {
@@ -55,7 +60,11 @@ class MandantMediaService
 
         $previous = $this->path($mandant, $kind);
 
-        $this->storage->putFileAs(dirname($path), $file, basename($path));
+        $stored = $this->storage->putFileAs(dirname($path), $file, basename($path));
+
+        if ($stored === false) {
+            throw new RuntimeException(sprintf('Could not store the %s image at "%s".', $kind, $path));
+        }
 
         if ($previous !== null && $previous !== $path) {
             $this->storage->delete($previous);
