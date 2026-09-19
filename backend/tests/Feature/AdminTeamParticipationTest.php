@@ -665,6 +665,29 @@ class AdminTeamParticipationTest extends TestCase
             ->assertJsonValidationErrors('team_id');
     }
 
+    public function test_participant_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`name=\xFF`) survive into the validated payload
+        // and would otherwise reach the JSON response encoder → HTTP 500.
+        $event = $this->makeEvent($this->mandantA);
+
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/events/'.$event->id.'/participants', ['name' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseMissing('event_participants', ['event_id' => $event->id]);
+
+        $participant = $event->participants()->create(['name' => 'Alt', 'sort_order' => 0]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/events/'.$event->id.'/participants/'.$participant->id, ['name' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseHas('event_participants', ['id' => $participant->id, 'name' => 'Alt']);
+    }
+
     /* ---------------------------------------------------------------------
      | Participants — ordering + update/delete
      | ------------------------------------------------------------------- */

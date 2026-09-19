@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Rules\ValidUtf8;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -20,20 +21,20 @@ class ProfileController extends Controller
         $user = auth('api')->user();
 
         $validated = $request->validate([
-            'title' => ['nullable', 'string', 'max:50'],
-            'gender' => ['nullable', 'string', 'max:50'],
+            'title' => ['nullable', 'string', 'max:50', new ValidUtf8],
+            'gender' => ['nullable', 'string', 'max:50', new ValidUtf8],
             'birth_date' => ['nullable', 'date', 'before:today'],
-            'street' => ['nullable', 'string', 'max:255'],
-            'zip' => ['nullable', 'string', 'max:20'],
-            'city' => ['nullable', 'string', 'max:255'],
-            'country' => ['nullable', 'string', 'max:255'],
-            'company' => ['nullable', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:50'],
-            'fax' => ['nullable', 'string', 'max:50'],
+            'street' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            'zip' => ['nullable', 'string', 'max:20', new ValidUtf8],
+            'city' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            'country' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            'company' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            'phone' => ['nullable', 'string', 'max:50', new ValidUtf8],
+            'fax' => ['nullable', 'string', 'max:50', new ValidUtf8],
             'branch' => ['nullable', 'string', Rule::in(['print', 'tv', 'online', 'radio', 'photo', 'other'])],
-            'position' => ['nullable', 'string', 'max:255'],
+            'position' => ['nullable', 'string', 'max:255', new ValidUtf8],
             'vest_available' => ['nullable', 'boolean'],
-            'vest_number' => ['nullable', 'string', 'max:50'],
+            'vest_number' => ['nullable', 'string', 'max:50', new ValidUtf8],
         ]);
 
         $user->update($validated);

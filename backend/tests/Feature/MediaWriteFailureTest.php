@@ -208,6 +208,32 @@ class MediaWriteFailureTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | L1 — cross-layout success path (host-neutral previous → domain layout)
+     | ------------------------------------------------------------------- */
+
+    public function test_mandant_store_success_deletes_host_neutral_previous_and_persists_domain_path(): void
+    {
+        $service = app(MandantMediaService::class);
+
+        // A file written before a domain existed (host-neutral fallback).
+        $previous = '_tenants/'.$this->mandant->id.'/logo.png';
+        $this->mandant->update(['logo_path' => $previous]);
+
+        $this->realMedia = Storage::disk(MediaPathService::DISK);
+        $this->realMedia->put($previous, 'old-logo');
+
+        // The mandant now has a domain, so a successful replace must write to
+        // the domain layout and delete the cross-layout predecessor.
+        $service->store($this->mandant, 'logo', UploadedFile::fake()->image('neu.png'));
+
+        $path = 'verband-a.test/logo.png';
+
+        $this->assertSame($path, $this->mandant->fresh()->logo_path);
+        $this->realMedia->assertExists($path);
+        $this->realMedia->assertMissing($previous);
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 

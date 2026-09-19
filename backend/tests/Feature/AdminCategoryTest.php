@@ -489,6 +489,31 @@ class AdminCategoryTest extends TestCase
         $this->assertDatabaseHas('categories', ['id' => $category->id, 'name' => 'Alt']);
     }
 
+    public function test_category_description_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`description=\xFF`) survive into the validated
+        // payload and would otherwise reach the JSON response encoder → 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/categories', [
+                'name' => 'UTF8 Kategorie',
+                'slug' => 'utf8-desc',
+                'description' => "\xFF",
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('description');
+
+        $this->assertDatabaseMissing('categories', ['slug' => 'utf8-desc']);
+
+        $category = $this->mandantA->categories()->create(['name' => 'Alt', 'slug' => 'alt-desc']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/categories/'.$category->id, ['description' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('description');
+
+        $this->assertDatabaseHas('categories', ['id' => $category->id, 'description' => null]);
+    }
+
     public function test_category_validation(): void
     {
         $this->actingAsApi($this->superAdmin())

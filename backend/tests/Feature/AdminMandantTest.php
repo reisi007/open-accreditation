@@ -770,6 +770,33 @@ class AdminMandantTest extends TestCase
         $this->assertSame('geheim123', $mandant->smtp_config['password']);
     }
 
+    public function test_smtp_config_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes survive into the nested smtp_config payload and
+        // would otherwise be persisted / echoed through the JSON encoder → 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants', [
+                'name' => 'UTF8 SMTP Verband',
+                'slug' => 'utf8-smtp-verband',
+                'smtp_config' => ['host' => "\xFF"],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('smtp_config.host');
+
+        $this->assertDatabaseMissing('mandants', ['slug' => 'utf8-smtp-verband']);
+
+        foreach (['host', 'username', 'encryption', 'password'] as $field) {
+            $this->actingAsApi($this->superAdmin())
+                ->put('/api/admin/mandants/'.$this->mandantA->id, [
+                    'smtp_config' => [$field => "\xFF"],
+                ])
+                ->assertStatus(422, "expected 422 for smtp_config.{$field}")
+                ->assertJsonValidationErrors('smtp_config.'.$field);
+        }
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'smtp_config' => null]);
+    }
+
     public function test_smtp_password_is_preserved_when_config_updated_without_it(): void
     {
         $mandant = Mandant::factory()->create([

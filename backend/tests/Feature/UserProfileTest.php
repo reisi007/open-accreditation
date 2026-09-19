@@ -71,6 +71,26 @@ class UserProfileTest extends TestCase
             ->assertJsonValidationErrors('birth_date');
     }
 
+    public function test_profile_string_fields_reject_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`street=\xFF`) survive into the validated payload
+        // and would otherwise be persisted and echoed back through the JSON
+        // response encoder → HTTP 500 instead of a clean 422.
+        $user = User::factory()->create(['street' => 'Alt']);
+
+        foreach ([
+            'title', 'gender', 'street', 'zip', 'city', 'country',
+            'company', 'phone', 'fax', 'position', 'vest_number',
+        ] as $field) {
+            $this->actingAsApi($user)
+                ->put('/api/user/profile', [$field => "\xFF"])
+                ->assertStatus(422, "expected 422 for {$field}")
+                ->assertJsonValidationErrors($field);
+        }
+
+        $this->assertSame('Alt', $user->fresh()->street);
+    }
+
     public function test_profile_update_only_touches_the_authenticated_user(): void
     {
         $victim = User::factory()->create(['city' => 'Hamburg']);

@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminSubApplicationResource;
 use App\Models\SubAccreditation;
 use App\Models\SubApplication;
+use App\Rules\ValidUtf8;
 use App\Services\SubAllocationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -80,7 +81,7 @@ class AdminSubApplicationController extends Controller
 
         $validated = $request->validate([
             'status' => ['sometimes', Rule::in(['approved', 'denied'])],
-            'reason' => ['sometimes', 'nullable', 'string'],
+            'reason' => ['sometimes', 'nullable', 'string', new ValidUtf8],
             'priority' => ['sometimes', 'boolean'],
         ]);
 

@@ -129,11 +129,11 @@ class MandantController extends Controller
             'impressum_text' => ['nullable', 'string', new ValidUtf8],
             'privacy_text' => ['nullable', 'string', new ValidUtf8],
             'smtp_config' => ['sometimes', 'nullable', 'array'],
-            'smtp_config.host' => ['nullable', 'string', 'max:255'],
+            'smtp_config.host' => ['nullable', 'string', 'max:255', new ValidUtf8],
             'smtp_config.port' => ['nullable', 'integer', 'min:1', 'max:65535'],
-            'smtp_config.username' => ['nullable', 'string', 'max:255'],
-            'smtp_config.encryption' => ['nullable', 'string', 'max:50'],
-            'smtp_config.password' => ['nullable', 'string', 'max:255'],
+            'smtp_config.username' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            'smtp_config.encryption' => ['nullable', 'string', 'max:50', new ValidUtf8],
+            'smtp_config.password' => ['nullable', 'string', 'max:255', new ValidUtf8],
         ];
     }
 

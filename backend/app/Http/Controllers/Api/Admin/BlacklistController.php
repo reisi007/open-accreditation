@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BlacklistResource;
 use App\Models\Blacklist;
+use App\Rules\ValidUtf8;
 use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -69,7 +70,7 @@ class BlacklistController extends Controller
         $validated = $request->validate([
             'email' => ['nullable', 'string', 'email'],
             'domain' => ['nullable', 'string', 'regex:/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i'],
-            'note' => ['nullable', 'string'],
+            'note' => ['nullable', 'string', new ValidUtf8],
         ]);
 
         $email = $validated['email'] ?? null;

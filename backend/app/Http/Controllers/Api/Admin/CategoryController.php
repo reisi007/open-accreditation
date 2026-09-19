@@ -123,7 +123,7 @@ class CategoryController extends Controller
                 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
                 $this->slugUniqueRule($mandantId, $targetTeamId, $category),
             ],
-            'description' => ['nullable', 'string'],
+            'description' => ['nullable', 'string', new ValidUtf8],
             'team_id' => ['nullable', 'integer'],
         ];
     }

@@ -385,6 +385,18 @@ class BlacklistTest extends TestCase
             ->assertStatus(204);
     }
 
+    public function test_blacklist_note_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`note=\xFF`) survive into the validated payload
+        // and would otherwise reach the JSON response encoder → HTTP 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/blacklists', ['email' => 'utf8@example.com', 'note' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('note');
+
+        $this->assertDatabaseMissing('blacklists', ['email' => 'utf8@example.com']);
+    }
+
     /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */

@@ -417,6 +417,26 @@ class AdminApprovalTest extends TestCase
             ->assertJsonValidationErrors('status');
     }
 
+    public function test_deny_reason_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`reason=\xFF`) survive into the validated payload
+        // and would otherwise be persisted and echoed back through the JSON
+        // response encoder → HTTP 500 instead of a clean 422.
+        $accreditation = $this->createAccreditation(['quota' => 5]);
+        $application = $this->makeApplication($accreditation, User::factory()->create());
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/applications/'.$application->id, ['status' => 'denied', 'reason' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason');
+
+        $this->assertDatabaseHas('applications', [
+            'id' => $application->id,
+            'status' => 'requested',
+            'reason' => null,
+        ]);
+    }
+
     public function test_priority_can_be_set_and_cleared(): void
     {
         $accreditation = $this->createAccreditation(['quota' => 5]);
@@ -747,6 +767,26 @@ class AdminApprovalTest extends TestCase
             ->putJson('/api/admin/sub-applications/'.$subApplication->id, ['status' => 'denied'])
             ->assertStatus(422)
             ->assertJsonPath('message', 'A reason is required when denying a sub-application.');
+    }
+
+    public function test_sub_deny_reason_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`reason=\xFF`) must be rejected at the validation
+        // boundary (422) instead of reaching the DB / JSON encoder (500).
+        $accreditation = $this->createAccreditation(['quota' => 20]);
+        $park = $this->createSub($accreditation, 'park', 5);
+        $subApplication = $this->createSubApplication($park, User::factory()->create());
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/sub-applications/'.$subApplication->id, ['status' => 'denied', 'reason' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason');
+
+        $this->assertDatabaseHas('sub_applications', [
+            'id' => $subApplication->id,
+            'status' => 'requested',
+            'reason' => null,
+        ]);
     }
 
     public function test_sub_deny_with_reason_and_revoke(): void

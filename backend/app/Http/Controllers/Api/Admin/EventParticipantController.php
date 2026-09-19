@@ -9,6 +9,7 @@ use App\Http\Resources\EventParticipantResource;
 use App\Models\Event;
 use App\Models\EventParticipant;
 use App\Models\RoleUser;
+use App\Rules\ValidUtf8;
 use App\Support\MandantContext;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -127,8 +128,8 @@ class EventParticipantController extends Controller
 
         $validated = $request->validate([
             'name' => $forCreate
-                ? ['nullable', 'string', 'max:255', 'required_without:team_id']
-                : ['sometimes', 'nullable', 'string', 'max:255'],
+                ? ['nullable', 'string', 'max:255', 'required_without:team_id', new ValidUtf8]
+                : ['sometimes', 'nullable', 'string', 'max:255', new ValidUtf8],
             'team_id' => $forCreate
                 ? ['nullable', 'integer', 'required_without:name']
                 : ['sometimes', 'nullable', 'integer'],

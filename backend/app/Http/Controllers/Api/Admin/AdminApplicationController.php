@@ -8,6 +8,7 @@ use App\Http\Resources\AdminApplicationResource;
 use App\Mail\ApplicationDeniedMail;
 use App\Mail\PassMail;
 use App\Models\Application;
+use App\Rules\ValidUtf8;
 use App\Services\AllocationService;
 use App\Services\MandantMailerService;
 use App\Services\QrTokenService;
@@ -103,7 +104,7 @@ class AdminApplicationController extends Controller
 
         $validated = $request->validate([
             'status' => ['sometimes', Rule::in(['approved', 'denied'])],
-            'reason' => ['sometimes', 'nullable', 'string'],
+            'reason' => ['sometimes', 'nullable', 'string', new ValidUtf8],
             'priority' => ['sometimes', 'boolean'],
         ]);
 
