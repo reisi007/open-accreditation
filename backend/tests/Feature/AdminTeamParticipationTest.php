@@ -357,8 +357,8 @@ class AdminTeamParticipationTest extends TestCase
             ])
             ->assertOk();
 
-        Storage::disk(MediaPathService::DISK)->assertExists('teams/cup/logo.png');
-        $this->assertSame('teams/cup/logo.png', $team->fresh()->logo_path);
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$mandantC->id.'/teams/cup/logo.png');
+        $this->assertSame('_tenants/'.$mandantC->id.'/teams/cup/logo.png', $team->fresh()->logo_path);
     }
 
     public function test_team_resource_exposes_logo_url(): void
@@ -380,6 +380,52 @@ class AdminTeamParticipationTest extends TestCase
             ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/teams')
             ->assertOk()
             ->assertJsonPath('data.0.logo_url', route('api.admin.teams.logo', ['team' => $team->id]));
+    }
+
+    public function test_slug_change_moves_the_logo_file(): void
+    {
+        $this->mandantA->update(['teams_enabled' => true]);
+        $team = $this->makeTeam($this->mandantA, 'team-a');
+
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/teams/'.$team->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertOk();
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id, [
+                'slug' => 'team-neu',
+            ])
+            ->assertOk();
+
+        Storage::disk(MediaPathService::DISK)
+            ->assertMissing('verband-a.test/teams/team-a/logo.png');
+        Storage::disk(MediaPathService::DISK)
+            ->assertExists('verband-a.test/teams/team-neu/logo.png');
+        $this->assertSame(
+            'verband-a.test/teams/team-neu/logo.png',
+            $team->fresh()->logo_path,
+        );
+    }
+
+    public function test_deleting_team_removes_logo_file(): void
+    {
+        $team = $this->makeTeam($this->mandantA, 'team-a');
+
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/teams/'.$team->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertOk();
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id)
+            ->assertStatus(204);
+
+        Storage::disk(MediaPathService::DISK)
+            ->assertMissing('verband-a.test/teams/team-a/logo.png');
+        $this->assertDatabaseMissing('teams', ['id' => $team->id]);
     }
 
     /* ---------------------------------------------------------------------

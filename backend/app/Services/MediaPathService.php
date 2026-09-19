@@ -14,10 +14,20 @@ use DomainException;
  *   <MEDIA_ROOT>/<domain>/event-types/<slug>/<file>
  *   <MEDIA_ROOT>/<domain>/badges/<file>          badge upload mirror
  *
+ * A mandant without any configured domain cannot use the domain layout. Its
+ * files go to the host-neutral fallback below `_tenants/<mandant-id>/…` (W6,
+ * L3): the leading underscore can never be a hostname (hosts are validated as
+ * `[a-z0-9-]` labels), so a host-neutral path can never collide with a real
+ * `<domain>/…` directory, and the numeric mandant id keeps two mandants with
+ * the same slug/team/type slug apart. The backfill command
+ * (`media:migrate-to-domain-layout`) later moves them into the domain layout
+ * once a domain exists.
+ *
  * Every path returned by this service is relative to the media root, uses `/`
  * as the only separator and never contains a leading slash or a `..` segment.
- * The service is pure (no disk access) so the path contract can be unit-tested
- * in isolation; W6 wires it into the upload/delete services.
+ * The service is pure (no disk access, no DB access) so the path contract can
+ * be unit-tested in isolation; the upload/delete services and the backfill
+ * command build on it.
  */
 class MediaPathService
 {
@@ -41,6 +51,14 @@ class MediaPathService
      * domain.
      */
     public const BADGES_SEGMENT = 'badges';
+
+    /**
+     * Directory segment for the host-neutral fallback used when a mandant has
+     * no configured domain. The leading underscore is not a valid hostname
+     * character, so this segment can never collide with a real `<domain>/…`
+     * directory below the media root.
+     */
+    public const HOST_NEUTRAL_SEGMENT = '_tenants';
 
     /**
      * Normalize a request host into the directory name used below the media
@@ -147,6 +165,63 @@ class MediaPathService
         return $this->dirForHost($host)
             .'/'.self::BADGES_SEGMENT
             .'/'.$this->sanitizeFileName($name);
+    }
+
+    /**
+     * Host-neutral mandant file below the reserved `_tenants/<id>/` prefix.
+     */
+    public function hostNeutralFile(int $mandantId, string $name): string
+    {
+        return $this->hostNeutralRoot($mandantId).'/'.$this->sanitizeFileName($name);
+    }
+
+    /**
+     * Host-neutral club/team file (`_tenants/<id>/teams/<slug>/<file>`).
+     */
+    public function hostNeutralTeamFile(int $mandantId, string $teamSlug, string $name): string
+    {
+        return $this->hostNeutralRoot($mandantId)
+            .'/'.self::TEAMS_SEGMENT
+            .'/'.$this->sanitizeSlug($teamSlug)
+            .'/'.$this->sanitizeFileName($name);
+    }
+
+    /**
+     * Host-neutral event-type file
+     * (`_tenants/<id>/event-types/<slug>/<file>`).
+     */
+    public function hostNeutralEventTypeFile(int $mandantId, string $typeSlug, string $name): string
+    {
+        return $this->hostNeutralRoot($mandantId)
+            .'/'.self::EVENT_TYPES_SEGMENT
+            .'/'.$this->sanitizeSlug($typeSlug)
+            .'/'.$this->sanitizeFileName($name);
+    }
+
+    /**
+     * Host-neutral public badge mirror file
+     * (`_tenants/<id>/badges/<file>`).
+     */
+    public function hostNeutralBadgeFile(int $mandantId, string $name): string
+    {
+        return $this->hostNeutralRoot($mandantId)
+            .'/'.self::BADGES_SEGMENT
+            .'/'.$this->sanitizeFileName($name);
+    }
+
+    /**
+     * The reserved host-neutral prefix for one mandant. The id must be a
+     * positive integer so the segment can never be confused with a hostname.
+     *
+     * @throws DomainException when the mandant id is not a positive integer
+     */
+    private function hostNeutralRoot(int $mandantId): string
+    {
+        if ($mandantId < 1) {
+            throw new DomainException('Cannot derive a host-neutral media path without a positive mandant id.');
+        }
+
+        return self::HOST_NEUTRAL_SEGMENT.'/'.$mandantId;
     }
 
     /**

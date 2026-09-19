@@ -28,6 +28,10 @@ return new class extends Migration
      *     Both engines treat NULLs as distinct, so any number of placeholder
      *     rows (team_id = NULL) coexist.
      *   - `(event_id, sort_order)` — deterministic display order per event.
+     *     `sort_order` is nullable with no DB default (W4-F2 F3): a direct
+     *     insert without a slot gets NULL, and both Postgres and SQLite treat
+     *     NULLs as distinct in the unique index, so it cannot collide with the
+     *     former default-0 footgun. The controller assigns the next free slot.
      *
      * The event owns its participants: deleting the event cascades them away.
      */
@@ -41,7 +45,7 @@ return new class extends Migration
             $table->foreignId('team_id')->nullable()->index()->constrained()->nullOnDelete();
             $table->string('name')->nullable();
             $table->string('logo_path')->nullable();
-            $table->unsignedInteger('sort_order')->default(0);
+            $table->unsignedInteger('sort_order')->nullable();
             $table->timestamps();
 
             $table->unique(['event_id', 'team_id']);

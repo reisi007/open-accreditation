@@ -10,6 +10,7 @@ use App\Models\Event;
 use App\Models\EventParticipant;
 use App\Models\RoleUser;
 use App\Support\MandantContext;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -64,10 +65,25 @@ class EventParticipantController extends Controller
 
         $validated = $this->validatePayload($request, $event);
 
-        $participant = $event->participants()->create([
-            ...$validated,
-            'sort_order' => $validated['sort_order'] ?? $this->nextSortOrder($event),
-        ]);
+        try {
+            $participant = $event->participants()->create([
+                ...$validated,
+                'sort_order' => $validated['sort_order'] ?? $this->nextSortOrder($event),
+            ]);
+        } catch (UniqueConstraintViolationException $exception) {
+            // W4-F2: two concurrent requests may compute the same next free
+            // slot (and the team duplicate pre-check races the same way). The
+            // portable unique indexes then fire — surface a 422 instead of a
+            // generic 500. The constraint name/message names the offending
+            // column on both Postgres and SQLite.
+            $key = str_contains($exception->getMessage(), 'team_id') ? 'team_id' : 'sort_order';
+
+            throw ValidationException::withMessages([
+                $key => $key === 'team_id'
+                    ? 'This team is already a participant of the event.'
+                    : 'This sort order is already taken.',
+            ]);
+        }
 
         return (new EventParticipantResource($participant->fresh('team')))
             ->response()

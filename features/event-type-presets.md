@@ -1,9 +1,8 @@
 # Event-Type-Presets — fachliches Schema (`event_types.presets`, v1)
 
-**Status:** Implementiert (W3, 2026-09-19). SOLL-Dokumentation des
-
-fachlichen Preset-Schemas für mandant-spezifische Event-Typen
-(`event_types`, z. B. `bundesliga`, `cup`, `cl`).
+**Status:** Implementiert (W3, 2026-09-19). SOLL-Dokumentation des fachlichen
+Preset-Schemas für mandant-spezifische Event-Typen (`event_types`, z. B.
+`bundesliga`, `cup`, `cl`).
 
 Ein Event-Typ bündelt Vorbelegungen, die beim Anlegen von Events/Akkreditierungen
 dieses Typs als Default greifen: Badge-Template, PDF-Vorlagen

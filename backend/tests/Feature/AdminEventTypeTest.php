@@ -254,6 +254,10 @@ class AdminEventTypeTest extends TestCase
 
     public function test_super_admin_can_update_partially(): void
     {
+        // Legacy/tolerance fixture: a pre-W3 preset envelope (no `v`, unknown
+        // key) is written directly through the model. A partial update that
+        // omits `presets` must leave it untouched — presets are only validated
+        // when the key is present in the payload.
         $type = $this->makeType($this->mandantA, [
             'slug' => 'bundesliga',
             'name' => 'Alt',
@@ -313,7 +317,7 @@ class AdminEventTypeTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
-     | presets envelope (structural only, W3 adds the fachliches schema)
+     | presets envelope (structural guard here + fachliches schema W3)
      | ------------------------------------------------------------------- */
 
     public function test_presets_roundtrip(): void
@@ -517,6 +521,30 @@ class AdminEventTypeTest extends TestCase
         $this->assertNull($type->fresh()->logo_path);
     }
 
+    public function test_slug_change_moves_the_logo_file(): void
+    {
+        $type = $this->makeType($this->mandantA, ['slug' => 'bundesliga']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/event-types/'.$type->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertOk();
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/event-types/'.$type->id, ['slug' => 'bundesliga-neu'])
+            ->assertOk();
+
+        Storage::disk(MediaPathService::DISK)
+            ->assertMissing('verband-a.test/event-types/bundesliga/logo.png');
+        Storage::disk(MediaPathService::DISK)
+            ->assertExists('verband-a.test/event-types/bundesliga-neu/logo.png');
+        $this->assertSame(
+            'verband-a.test/event-types/bundesliga-neu/logo.png',
+            $type->fresh()->logo_path,
+        );
+    }
+
     public function test_deleting_event_type_removes_logo_file(): void
     {
         $type = $this->makeType($this->mandantA, ['slug' => 'bundesliga']);
@@ -588,8 +616,8 @@ class AdminEventTypeTest extends TestCase
             ])
             ->assertOk();
 
-        Storage::disk(MediaPathService::DISK)->assertExists('event-types/cup/logo.png');
-        $this->assertSame('event-types/cup/logo.png', $type->fresh()->logo_path);
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$mandantC->id.'/event-types/cup/logo.png');
+        $this->assertSame('_tenants/'.$mandantC->id.'/event-types/cup/logo.png', $type->fresh()->logo_path);
     }
 
     /* ---------------------------------------------------------------------

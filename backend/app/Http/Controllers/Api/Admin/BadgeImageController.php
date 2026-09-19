@@ -10,12 +10,12 @@ use App\Models\BadgeImage;
 use App\Models\Mandant;
 use App\Models\RoleUser;
 use App\Services\BadgeImageService;
+use App\Services\MediaStorage;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -27,7 +27,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *   GET    /api/admin/badge-images                    mandant-scoped list
  *   POST   /api/admin/badge-images                    upload (`file`, multipart)
  *   GET    /api/admin/badge-images/{id}/file          auth-gated inline delivery
- *   DELETE /api/admin/badge-images/{id}               remove row + private file
+ *   DELETE /api/admin/badge-images/{id}               remove row + media file
  *
  * Guarded by `can:accreditations.manage` — the same surface as the badge
  * templates they decorate. Like templates, images are a mandant-level
@@ -37,11 +37,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * tenant-guarded (`BadgeImage::resolveRouteBindingQuery`), so rows/files of a
  * foreign mandant are 404.
  *
- * Upload validation mirrors the self-service media (`MandantMediaService`):
- * `file` required, `image`, `mimes:jpeg,png,webp`, `max:2048` KB plus the
- * 2000×2000 px dimension limit; the extension on disk derives from the
- * validated MIME type, never from the client filename. Files live ONLY on the
- * private disk and are streamed through these routes.
+ * Upload validation mirrors the brand media: `file` required, `image`,
+ * `mimes:jpeg,png,webp`, `max:2048` KB plus the 2000×2000 px dimension limit;
+ * the extension on disk derives from the validated MIME type, never from the
+ * client filename. Files live on the public `media` disk in the W1 layout
+ * (`<host>/badges/<ulid>.<ext>`); delivery stays auth-gated through this
+ * route, legacy `private` files stay readable until the W6 backfill moved
+ * them.
  *
  * Deleting an image does NOT rewrite template layouts referencing it — the
  * entry keeps its `image_id` and renders as an empty box (documented
@@ -51,7 +53,10 @@ class BadgeImageController extends Controller
 {
     use ResolvesAdminTeamScope;
 
-    public function __construct(private readonly BadgeImageService $images) {}
+    public function __construct(
+        private readonly BadgeImageService $images,
+        private readonly MediaStorage $storage,
+    ) {}
 
     /**
      * The current mandant's uploads, newest first (the editor's "existing
@@ -95,9 +100,9 @@ class BadgeImageController extends Controller
      */
     public function showFile(BadgeImage $badgeImage): StreamedResponse
     {
-        abort_unless(Storage::disk('private')->exists($badgeImage->path), 404);
+        abort_unless($this->storage->exists($badgeImage->path), 404);
 
-        return Storage::disk('private')->response(
+        return $this->storage->response(
             $badgeImage->path,
             $badgeImage->original_name,
             ['Content-Type' => $badgeImage->mime],

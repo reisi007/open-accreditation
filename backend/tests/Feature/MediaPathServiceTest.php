@@ -60,6 +60,39 @@ class MediaPathServiceTest extends TestCase
         );
     }
 
+    public function test_host_neutral_builders_are_prefixed_with_the_mandant_id(): void
+    {
+        $this->assertSame('_tenants/7/logo.png', $this->paths->hostNeutralFile(7, 'logo.png'));
+        $this->assertSame(
+            '_tenants/7/teams/sv-muster/logo.png',
+            $this->paths->hostNeutralTeamFile(7, 'sv-muster', 'logo.png'),
+        );
+        $this->assertSame(
+            '_tenants/7/event-types/bundesliga/logo.png',
+            $this->paths->hostNeutralEventTypeFile(7, 'bundesliga', 'logo.png'),
+        );
+        $this->assertSame(
+            '_tenants/7/badges/01j0abc.png',
+            $this->paths->hostNeutralBadgeFile(7, '01j0abc.png'),
+        );
+    }
+
+    public function test_host_neutral_builder_rejects_a_non_positive_mandant_id(): void
+    {
+        $this->expectException(DomainException::class);
+
+        $this->paths->hostNeutralFile(0, 'logo.png');
+    }
+
+    public function test_the_host_neutral_segment_can_never_be_a_hostname(): void
+    {
+        // The leading underscore is not a valid hostname label, so a real
+        // `<domain>/…` directory can never collide with `_tenants/…`.
+        $this->expectException(DomainException::class);
+
+        $this->paths->dirForHost(MediaPathService::HOST_NEUTRAL_SEGMENT);
+    }
+
     public function test_every_builder_returns_a_relative_path_without_a_leading_slash(): void
     {
         $paths = [

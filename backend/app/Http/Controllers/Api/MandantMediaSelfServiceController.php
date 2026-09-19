@@ -6,11 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\Mandant;
 use App\Services\MandantMediaService;
+use App\Services\MediaStorage;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -19,8 +19,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * P8b). Mirrors the Super Admin `MandantMediaController`, but resolves the
  * target mandant from the CURRENT context (MandantContext) instead of
  * route-model binding — a request parameter never selects the mandant, so no
- * IDOR is possible. Files live on the private disk and are streamed through
- * these routes — never exposed as public URLs.
+ * IDOR is possible. Files live on the public `media` disk in the W1 layout and
+ * are streamed through these routes; legacy `private` files stay readable
+ * until the W6 backfill moved them.
  */
 class MandantMediaSelfServiceController extends Controller
 {
@@ -28,7 +29,10 @@ class MandantMediaSelfServiceController extends Controller
 
     private const KIND_HEADER = 'header';
 
-    public function __construct(private readonly MandantMediaService $service) {}
+    public function __construct(
+        private readonly MandantMediaService $service,
+        private readonly MediaStorage $storage,
+    ) {}
 
     public function showLogo(): StreamedResponse|JsonResponse
     {
@@ -87,17 +91,15 @@ class MandantMediaSelfServiceController extends Controller
         $mandant = $this->mandant();
         $path = $this->service->path($mandant, $kind);
 
-        if ($path === null || ! Storage::disk('private')->exists($path)) {
+        if ($path === null || ! $this->storage->exists($path)) {
             return response()->json([
                 'message' => 'Kein Bild hinterlegt.',
             ], 404);
         }
 
-        return Storage::disk('private')->response(
-            $path,
-            null,
-            ['Content-Type' => (string) Storage::disk('private')->mimeType($path)],
-        );
+        return $this->storage->response($path, null, [
+            'Content-Type' => $this->storage->mimeType($path),
+        ]);
     }
 
     /**

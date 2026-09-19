@@ -43,8 +43,9 @@ use Illuminate\Support\Facades\Storage;
  * identically.
  *
  * Freely placed `image` entries render as absolutely positioned, Base64-
- * embedded `<img>` blocks (private disk — no network access in the render
- * path). The source is resolved server-side from the `src` discriminator:
+ * embedded `<img>` blocks (public `media` disk with a legacy `private`
+ * fallback — no network access in the render path). The source is resolved
+ * server-side from the `src` discriminator:
  * `{kind: brand, ref: logo|header}` → the mandant's brand media, `{kind:
  * upload, image_id: <int>}` → the mandant-scoped `badge_images` row. `fit`
  * defaults to `contain` (logos are untouched); a missing source renders an
@@ -79,6 +80,7 @@ final class BadgeRenderService
     public function __construct(
         private readonly QrTokenService $tokens,
         private readonly MandantMediaService $mandantMedia,
+        private readonly MediaStorage $mediaStorage,
     ) {}
 
     /**
@@ -305,9 +307,10 @@ final class BadgeRenderService
 
     /**
      * Resolve an `image` entry's `src` discriminator to a Base64 data URI from
-     * the private disk, or null when the source is absent/invalid. Brand refs
-     * resolve through `MandantMediaService`; upload ids resolve against the
-     * current mandant's `badge_images` rows only (never a raw path/URL).
+     * the public media disk (legacy `private` fallback), or null when the
+     * source is absent/invalid. Brand refs resolve through
+     * `MandantMediaService`; upload ids resolve against the current mandant's
+     * `badge_images` rows only (never a raw path/URL).
      *
      * @param  mixed  $src  the raw `src` discriminator of an image entry
      */
@@ -334,12 +337,12 @@ final class BadgeRenderService
 
             $path = $this->mandantMedia->path($mandant, $ref);
 
-            if ($path === null || ! Storage::disk('private')->exists($path)) {
+            if ($path === null || ! $this->mediaStorage->exists($path)) {
                 return null;
             }
 
-            return 'data:'.(string) Storage::disk('private')->mimeType($path).';base64,'
-                .base64_encode((string) Storage::disk('private')->get($path));
+            return 'data:'.$this->mediaStorage->mimeType($path).';base64,'
+                .base64_encode($this->mediaStorage->get($path));
         }
 
         if ($kind === 'upload') {
@@ -356,12 +359,12 @@ final class BadgeRenderService
                 )
                 ->find($imageId);
 
-            if ($image === null || ! Storage::disk('private')->exists($image->path)) {
+            if ($image === null || ! $this->mediaStorage->exists($image->path)) {
                 return null;
             }
 
             return 'data:'.$image->mime.';base64,'
-                .base64_encode((string) Storage::disk('private')->get($image->path));
+                .base64_encode($this->mediaStorage->get($image->path));
         }
 
         return null;

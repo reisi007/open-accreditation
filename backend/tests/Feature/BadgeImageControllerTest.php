@@ -8,6 +8,7 @@ use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -48,9 +49,13 @@ class BadgeImageControllerTest extends TestCase
 
         $this->seed(RoleSeeder::class);
         Storage::fake('private');
+        Storage::fake(MediaPathService::DISK);
 
         $this->mandantA = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
         $this->mandantB = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+
+        // W6: badge uploads live in the domain layout; mandant A gets a domain.
+        $this->mandantA->domains()->create(['hostname' => 'verband-a.test']);
 
         MandantContext::set($this->mandantA);
     }
@@ -65,7 +70,7 @@ class BadgeImageControllerTest extends TestCase
      | Upload — validation
      | ------------------------------------------------------------------- */
 
-    public function test_upload_stores_file_on_private_disk_and_returns_resource(): void
+    public function test_upload_stores_file_on_media_disk_and_returns_resource(): void
     {
         $response = $this->actingAsApi($this->superAdmin())
             ->post('/api/admin/badge-images', [
@@ -85,9 +90,25 @@ class BadgeImageControllerTest extends TestCase
         ]);
 
         $path = BadgeImage::query()->find($id)->path;
-        Storage::disk('private')->assertExists($path);
-        $this->assertStringStartsWith('badge-images/verband-a/', $path);
+        Storage::disk(MediaPathService::DISK)->assertExists($path);
+        $this->assertStringStartsWith('verband-a.test/badges/', $path);
         $this->assertStringEndsWith('.png', $path);
+    }
+
+    public function test_upload_uses_host_neutral_layout_without_domain(): void
+    {
+        $mandantC = Mandant::factory()->create(['slug' => 'verband-c', 'name' => 'Verband C']);
+        MandantContext::set($mandantC);
+
+        $response = $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/badge-images', [
+                'file' => UploadedFile::fake()->image('wappen.png'),
+            ])
+            ->assertStatus(201);
+
+        $path = BadgeImage::query()->find($response->json('data.id'))->path;
+        Storage::disk(MediaPathService::DISK)->assertExists($path);
+        $this->assertStringStartsWith('_tenants/'.$mandantC->id.'/badges/', $path);
     }
 
     public function test_upload_accepts_jpeg_and_webp(): void

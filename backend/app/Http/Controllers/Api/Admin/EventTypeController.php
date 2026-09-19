@@ -8,15 +8,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EventTypeResource;
 use App\Models\EventType;
 use App\Models\RoleUser;
+use App\Services\EventTypeMediaService;
 use App\Services\EventTypePresetSchema;
-use App\Services\MediaPathService;
+use App\Services\MediaStorage;
 use App\Support\MandantContext;
-use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use JsonException;
@@ -43,12 +42,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * and logos of a foreign mandant are 404.
  *
  * Logo files live on the public `media` disk under the W1 layout
- * (`<host>/event-types/<slug>/logo.<ext>` via `MediaPathService::eventTypeFile`)
- * and are streamed through the auth-gated delivery route. W6 replaces the
- * small private helpers below with a dedicated `EventTypeMediaService`.
- * Upload validation mirrors `MandantMediaService`: `image`,
- * `mimes:jpeg,png,webp`, `max:2048` KB plus the 2000×2000 px limit; the
- * extension derives from the validated MIME type, never from the client name.
+ * (`<host>/event-types/<slug>/logo.<ext>` via
+ * `EventTypeMediaService`/`MediaPathService::eventTypeFile`, host-neutral
+ * `_tenants/<id>/event-types/<slug>/logo.<ext>` without a domain) and are
+ * streamed through the auth-gated delivery route. Upload validation mirrors the
+ * brand media: `image`, `mimes:jpeg,png,webp`, `max:2048` KB plus the
+ * 2000×2000 px limit; the extension derives from the validated MIME type,
+ * never from the client name.
  * The `presets` envelope is validated in two layers: a structural guard
  * (assoc object, bounded depth, scalar leaves, ≤ 16 KB, valid UTF-8) here and
  * the fachliches schema (`EventTypePresetSchema`, `v = 1`) via
@@ -57,12 +57,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class EventTypeController extends Controller
 {
     use ResolvesAdminTeamScope;
-
-    /**
-     * Maximum width/height for uploaded logos (px), mirroring
-     * `MandantMediaService::MAX_IMAGE_DIMENSION`.
-     */
-    private const MAX_IMAGE_DIMENSION = 2000;
 
     /**
      * Maximum encoded size of the `presets` JSON envelope (16 KB).
@@ -76,7 +70,8 @@ class EventTypeController extends Controller
     private const PRESETS_MAX_DEPTH = 3;
 
     public function __construct(
-        private readonly MediaPathService $paths,
+        private readonly EventTypeMediaService $media,
+        private readonly MediaStorage $storage,
         private readonly EventTypePresetSchema $presetSchema,
     ) {}
 
@@ -120,7 +115,13 @@ class EventTypeController extends Controller
 
         $validated = $this->validatePayload($request, $mandantId, $eventType);
 
+        $previousSlug = $eventType->slug;
+
         $eventType->update($validated);
+
+        // W2-F2 L2: a slug change moves the logo file along, so the stored path
+        // never points at a directory of the previous slug.
+        $this->media->moveForSlugChange($eventType->fresh(), $previousSlug);
 
         return new EventTypeResource($eventType->fresh());
     }
@@ -133,9 +134,7 @@ class EventTypeController extends Controller
 
         // The DB FK does not touch files — drop the logo from the public media
         // disk explicitly before the row disappears.
-        if ($eventType->logo_path !== null) {
-            Storage::disk(MediaPathService::DISK)->delete($eventType->logo_path);
-        }
+        $this->media->purge($eventType);
 
         $eventType->delete();
 
@@ -149,15 +148,13 @@ class EventTypeController extends Controller
 
         $path = $eventType->logo_path;
 
-        if ($path === null || ! Storage::disk(MediaPathService::DISK)->exists($path)) {
+        if ($path === null || ! $this->storage->exists($path)) {
             return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
         }
 
-        return Storage::disk(MediaPathService::DISK)->response(
-            $path,
-            null,
-            ['Content-Type' => (string) Storage::disk(MediaPathService::DISK)->mimeType($path)],
-        );
+        return $this->storage->response($path, null, [
+            'Content-Type' => $this->storage->mimeType($path),
+        ]);
     }
 
     public function storeLogo(Request $request, EventType $eventType): EventTypeResource
@@ -173,22 +170,7 @@ class EventTypeController extends Controller
         /** @var UploadedFile $file */
         $file = $request->file('file');
 
-        $this->assertWithinDimensionLimit($file);
-
-        $previous = $eventType->logo_path;
-        $path = $this->logoPath($eventType, $file);
-
-        Storage::disk(MediaPathService::DISK)->putFileAs(
-            dirname($path),
-            $file,
-            basename($path),
-        );
-
-        if ($previous !== null && $previous !== $path) {
-            Storage::disk(MediaPathService::DISK)->delete($previous);
-        }
-
-        $eventType->update(['logo_path' => $path]);
+        $this->media->store($eventType, $file);
 
         return new EventTypeResource($eventType->fresh());
     }
@@ -199,11 +181,7 @@ class EventTypeController extends Controller
         $this->assertMandantScope($eventType, $mandantId);
         $this->assertMayWrite($request);
 
-        if ($eventType->logo_path !== null) {
-            Storage::disk(MediaPathService::DISK)->delete($eventType->logo_path);
-        }
-
-        $eventType->update(['logo_path' => null]);
+        $this->media->destroy($eventType);
 
         return response()->noContent();
     }
@@ -321,95 +299,6 @@ class EventTypeController extends Controller
         }
 
         return true;
-    }
-
-    /**
-     * The relative media path for an uploaded logo. Prefers the mandant's
-     * first (primary) domain so the file lands in the documented
-     * `<host>/event-types/<slug>/` layout. Without a configured domain the path
-     * is stored host-neutral (`event-types/<slug>/logo.<ext>`) — it can be
-     * migrated into the domain layout once the mandant has a host (W6 backfill).
-     */
-    private function logoPath(EventType $eventType, UploadedFile $file): string
-    {
-        $name = 'logo.'.$this->extensionFor($file);
-        $host = $this->mediaHost();
-
-        if ($host === null) {
-            return $this->hostNeutralPath($eventType, $name);
-        }
-
-        try {
-            return $this->paths->eventTypeFile($host, $eventType->slug, $name);
-        } catch (DomainException) {
-            // Should not happen for hostnames validated at creation time, but a
-            // legacy/invalid row must not turn an upload into a 500.
-            return $this->hostNeutralPath($eventType, $name);
-        }
-    }
-
-    /**
-     * Host-neutral fallback below the media root (no domain configured yet).
-     */
-    private function hostNeutralPath(EventType $eventType, string $name): string
-    {
-        return MediaPathService::EVENT_TYPES_SEGMENT
-            .'/'.$this->paths->sanitizeSlug($eventType->slug)
-            .'/'.$this->paths->sanitizeFileName($name);
-    }
-
-    /**
-     * The mandant's first (de-facto primary) domain hostname, or null when no
-     * domain is configured.
-     */
-    private function mediaHost(): ?string
-    {
-        $host = (MandantContext::current() ?? MandantContext::default())
-            ?->domains()
-            ->orderBy('id')
-            ->value('hostname');
-
-        return is_string($host) && $host !== '' ? $host : null;
-    }
-
-    /**
-     * File extension derived from the validated MIME type, never from the
-     * client-supplied filename (mirrors `MandantMediaService`).
-     */
-    private function extensionFor(UploadedFile $file): string
-    {
-        return match (strtolower((string) $file->getMimeType())) {
-            'image/png' => 'png',
-            'image/jpeg' => 'jpg',
-            'image/webp' => 'webp',
-            default => strtolower((string) $file->getClientOriginalExtension()),
-        };
-    }
-
-    /**
-     * @throws ValidationException
-     */
-    private function assertWithinDimensionLimit(UploadedFile $file): void
-    {
-        $dimensions = getimagesize($file->getRealPath());
-
-        if ($dimensions === false) {
-            throw ValidationException::withMessages([
-                'file' => 'Die Bilddimensionen konnten nicht ermittelt werden.',
-            ]);
-        }
-
-        [$width, $height] = $dimensions;
-
-        if ($width > self::MAX_IMAGE_DIMENSION || $height > self::MAX_IMAGE_DIMENSION) {
-            throw ValidationException::withMessages([
-                'file' => sprintf(
-                    'Das Bild darf maximal %d×%d Pixel groß sein.',
-                    self::MAX_IMAGE_DIMENSION,
-                    self::MAX_IMAGE_DIMENSION,
-                ),
-            ]);
-        }
     }
 
     /**

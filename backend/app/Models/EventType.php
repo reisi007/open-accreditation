@@ -12,10 +12,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A mandant-specific event type (Veranstaltungs-/Wettbewerbstyp, e.g.
  * `bundesliga`, `cup`). Slug uniqueness is scoped to the mandant — two
- * Verbände may use the same slug. `presets` is a portable JSON envelope (only
- * structurally validated in W2; the fachliches schema follows in W3) and
- * `logo_path` points at a file below the public media root
- * (`MediaPathService::eventTypeFile()`, served by Caddy in W6/W7).
+ * Verbände may use the same slug. `presets` is a portable JSON envelope,
+ * structurally validated in the controller and fachlich validated by
+ * `EventTypePresetSchema` (`v = 1`, W3); `logo_path` points at a file below
+ * the public media root (`EventTypeMediaService` /
+ * `MediaPathService::eventTypeFile()`, served by Caddy in W7).
  */
 #[Fillable(['mandant_id', 'slug', 'name', 'logo_path', 'presets', 'active'])]
 class EventType extends Model

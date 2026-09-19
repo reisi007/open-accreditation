@@ -7,6 +7,7 @@ use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -36,6 +37,7 @@ class AdminMandantTest extends TestCase
 
         $this->seed(RoleSeeder::class);
         Storage::fake('private');
+        Storage::fake(MediaPathService::DISK);
 
         $this->mandantA = Mandant::factory()->create([
             'slug' => 'verband-a',
@@ -478,7 +480,7 @@ class AdminMandantTest extends TestCase
      | Logo / Header media
      | ------------------------------------------------------------------- */
 
-    public function test_upload_logo_stores_file_on_private_disk(): void
+    public function test_upload_logo_stores_file_in_media_layout(): void
     {
         $this->actingAsApi($this->superAdmin())
             ->post('/api/admin/mandants/'.$this->mandantA->id.'/logo', [
@@ -489,9 +491,23 @@ class AdminMandantTest extends TestCase
 
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.png',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.png',
         ]);
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.png');
+    }
+
+    public function test_upload_logo_uses_domain_layout_with_configured_domain(): void
+    {
+        $this->mandantA->domains()->create(['hostname' => 'verband-a.test']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants/'.$this->mandantA->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertStatus(200);
+
+        $this->assertSame('verband-a.test/logo.png', $this->mandantA->fresh()->logo_path);
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/logo.png');
     }
 
     public function test_upload_logo_rejects_invalid_file_type(): void
@@ -503,7 +519,7 @@ class AdminMandantTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('file');
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.txt');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.txt');
     }
 
     public function test_upload_logo_rejects_oversized_file(): void
@@ -525,7 +541,7 @@ class AdminMandantTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('file');
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
     }
 
     public function test_logo_delivery_is_auth_gated_with_correct_content_type(): void
@@ -567,7 +583,7 @@ class AdminMandantTest extends TestCase
             ->assertStatus(204);
 
         $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'logo_path' => null]);
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
     }
 
     public function test_replacing_logo_deletes_the_previous_file(): void
@@ -584,11 +600,11 @@ class AdminMandantTest extends TestCase
             ])
             ->assertStatus(200);
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.jpg');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.jpg');
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.jpg',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.jpg',
         ]);
     }
 
@@ -614,10 +630,10 @@ class AdminMandantTest extends TestCase
 
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.png',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.png',
         ]);
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.png');
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.txt');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.txt');
 
         $this->actingAsApi($this->superAdmin())
             ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/logo')
@@ -636,9 +652,9 @@ class AdminMandantTest extends TestCase
 
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'header_path' => 'mandants/verband-a/header.png',
+            'header_path' => '_tenants/'.$this->mandantA->id.'/header.png',
         ]);
-        Storage::disk('private')->assertExists('mandants/verband-a/header.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/header.png');
 
         $this->actingAsApi($this->superAdmin())
             ->getJson('/api/admin/mandants/'.$this->mandantA->id.'/header')
@@ -649,7 +665,7 @@ class AdminMandantTest extends TestCase
             ->deleteJson('/api/admin/mandants/'.$this->mandantA->id.'/header')
             ->assertStatus(204);
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/header.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/header.png');
         $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'header_path' => null]);
     }
 

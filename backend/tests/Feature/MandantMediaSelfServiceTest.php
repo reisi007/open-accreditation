@@ -7,6 +7,7 @@ use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,6 +38,7 @@ class MandantMediaSelfServiceTest extends TestCase
 
         $this->seed(RoleSeeder::class);
         Storage::fake('private');
+        Storage::fake(MediaPathService::DISK);
 
         $this->mandantA = Mandant::factory()->create([
             'slug' => 'verband-a',
@@ -90,9 +92,9 @@ class MandantMediaSelfServiceTest extends TestCase
 
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.png',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.png',
         ]);
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.png');
     }
 
     public function test_mandant_admin_can_upload_header(): void
@@ -106,9 +108,9 @@ class MandantMediaSelfServiceTest extends TestCase
 
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'header_path' => 'mandants/verband-a/header.png',
+            'header_path' => '_tenants/'.$this->mandantA->id.'/header.png',
         ]);
-        Storage::disk('private')->assertExists('mandants/verband-a/header.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/header.png');
     }
 
     public function test_mandant_admin_can_replace_logo(): void
@@ -126,11 +128,11 @@ class MandantMediaSelfServiceTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('data.logo_url', route('api.admin.mandants.logo', ['mandant' => $this->mandantA->id]));
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.jpg');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.jpg');
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.jpg',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.jpg',
         ]);
     }
 
@@ -153,14 +155,63 @@ class MandantMediaSelfServiceTest extends TestCase
             'logo_path' => null,
             'header_path' => null,
         ]);
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
-        Storage::disk('private')->assertMissing('mandants/verband-a/header.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/header.png');
 
         // After deletion the next upload response exposes the cleared urls.
         $this->actingAsApi($admin)
             ->post('/api/mandant/logo', ['file' => UploadedFile::fake()->image('neu.png')])
             ->assertStatus(200)
             ->assertJsonPath('data.logo_url', route('api.admin.mandants.logo', ['mandant' => $this->mandantA->id]));
+    }
+
+    public function test_upload_uses_domain_layout_when_mandant_has_a_domain(): void
+    {
+        $this->mandantA->domains()->create(['hostname' => 'verband-a.test']);
+
+        $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->post('/api/mandant/logo', ['file' => UploadedFile::fake()->image('logo.png')])
+            ->assertStatus(200);
+
+        $this->assertSame('verband-a.test/logo.png', $this->mandantA->fresh()->logo_path);
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/logo.png');
+    }
+
+    public function test_first_domain_wins_even_when_a_later_alias_exists(): void
+    {
+        // W6 host convention: the first domain (orderBy id) is the path prefix;
+        // a later alias never changes where a mandant's media already lives.
+        $this->mandantA->domains()->create(['hostname' => 'primary.test']);
+        $this->mandantA->domains()->create(['hostname' => 'alias.test']);
+
+        $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->post('/api/mandant/logo', ['file' => UploadedFile::fake()->image('logo.png')])
+            ->assertStatus(200);
+
+        $this->assertSame('primary.test/logo.png', $this->mandantA->fresh()->logo_path);
+        Storage::disk(MediaPathService::DISK)->assertExists('primary.test/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('alias.test/logo.png');
+    }
+
+    public function test_legacy_private_logo_stays_readable_and_is_removed_on_delete(): void
+    {
+        // A file written before W6 (legacy `private` layout) must stay readable
+        // and deleting must clean it up on the legacy disk.
+        $png = UploadedFile::fake()->image('legacy.png');
+        Storage::disk('private')->put('mandants/verband-a/logo.png', (string) file_get_contents($png->getRealPath()));
+        $this->mandantA->update(['logo_path' => 'mandants/verband-a/logo.png']);
+
+        $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson('/api/mandant/logo')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+
+        $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->deleteJson('/api/mandant/logo')
+            ->assertStatus(204);
+
+        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
+        $this->assertNull($this->mandantA->fresh()->logo_path);
     }
 
     public function test_logo_delivery_streams_image_png_inline(): void
@@ -245,10 +296,10 @@ class MandantMediaSelfServiceTest extends TestCase
             ->post('/api/mandant/logo', ['file' => UploadedFile::fake()->image('logo.png')])
             ->assertStatus(200);
 
-        Storage::disk('private')->assertExists('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertExists('_tenants/'.$this->mandantA->id.'/logo.png');
         $this->assertDatabaseHas('mandants', [
             'id' => $this->mandantA->id,
-            'logo_path' => 'mandants/verband-a/logo.png',
+            'logo_path' => '_tenants/'.$this->mandantA->id.'/logo.png',
         ]);
     }
 
@@ -279,7 +330,7 @@ class MandantMediaSelfServiceTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('file');
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.txt');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.txt');
     }
 
     public function test_oversized_image_dimensions_are_rejected(): void
@@ -291,7 +342,7 @@ class MandantMediaSelfServiceTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('file');
 
-        Storage::disk('private')->assertMissing('mandants/verband-a/logo.png');
+        Storage::disk(MediaPathService::DISK)->assertMissing('_tenants/'.$this->mandantA->id.'/logo.png');
     }
 
     /* ---------------------------------------------------------------------

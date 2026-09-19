@@ -4,107 +4,96 @@ namespace App\Services;
 
 use App\Models\BadgeImage;
 use App\Models\Mandant;
+use DomainException;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Handles the storage lifecycle of a mandant's uploaded badge images on the
- * private disk (path pattern `badge-images/{slug}/{uniq}.{ext}` —
- * features/badge-template-editor.md, "Upload-Infrastruktur"). The service is
- * the only place that touches the private storage layer for these files —
- * delivery stays auth-gated through the admin API, mirroring the
- * `MandantMediaService` pattern. Upload validation (MIME whitelist, size and
- * dimension limits) matches the self-service media exactly; the file
- * extension is derived from the validated MIME type, never from the
- * client-supplied filename.
+ * public `media` disk, in the W1 domain layout (`<host>/badges/{ulid}.<ext>`
+ * via `MediaPathService::badgeFile`, host-neutral `_tenants/<id>/badges/…`
+ * without a domain) — features/badge-template-editor.md, "Upload-
+ * Infrastruktur". Delivery stays gated through the admin API route; Caddy
+ * serves the mirror directly once the domain layout applies.
+ *
+ * The service is the only place that touches the storage layer for these
+ * files. Legacy files (`badge-images/{slug}/{ulid}.<ext>` on the `private`
+ * disk) stay readable and are removed on delete (both disks are probed), so
+ * rows written before W6 keep working until the `media:migrate-to-domain-
+ * layout` backfill moves them. Upload validation mirrors the brand media
+ * exactly; the extension derives from the validated MIME type.
  */
 class BadgeImageService
 {
     /**
      * Maximum width/height for uploaded images (px). Same limit as the
-     * mandant brand media — single source of truth in `MandantMediaService`.
+     * mandant brand media — single source of truth in `ImageUploadRules`.
      */
-    public const MAX_IMAGE_DIMENSION = MandantMediaService::MAX_IMAGE_DIMENSION;
+    public const MAX_IMAGE_DIMENSION = ImageUploadRules::MAX_DIMENSION;
+
+    public function __construct(
+        private readonly MediaPathService $paths,
+        private readonly MediaHostResolver $hosts,
+        private readonly MediaStorage $storage,
+    ) {}
 
     /**
      * Store an uploaded badge image of a mandant: validate the pixel
      * dimensions, persist the file under a server-generated unique name and
-     * create the addressing row.
+     * create the addressing row. The ULID name is lower-cased by
+     * `MediaPathService::sanitizeFileName`; lower-casing stays injective over
+     * the ULID alphabet, so two uploads never collide (W1-F3).
      *
-     * @throws ValidationException when the image exceeds the dimension limit
+     * @throws ValidationException
      */
     public function store(Mandant $mandant, UploadedFile $file): BadgeImage
     {
-        $this->assertWithinDimensionLimit($file);
+        ImageUploadRules::assertWithinDimensionLimit($file);
 
-        $path = Storage::disk('private')->putFileAs(
-            'badge-images/'.$mandant->slug,
-            $file,
-            ((string) Str::ulid()).'.'.$this->extensionFor($file),
-        );
+        $name = (string) Str::ulid().'.'.ImageUploadRules::extensionFor($file);
+        $path = $this->targetPath($mandant, $name);
+
+        $this->storage->putFileAs(dirname($path), $file, basename($path));
 
         return BadgeImage::create([
             'mandant_id' => $mandant->id,
-            'path' => (string) $path,
+            'path' => $path,
             'mime' => (string) $file->getMimeType(),
             'original_name' => (string) $file->getClientOriginalName(),
         ]);
     }
 
     /**
-     * Remove the stored file and the row. Template `layout` entries referencing
-     * this id are intentionally NOT rewritten — they keep their `image_id` and
-     * the renderer falls back to an empty box (documented behavior,
-     * features/badge-template-editor.md).
+     * Remove the stored file (new layout on `media` or legacy on `private`) and
+     * the row. Template `layout` entries referencing this id are intentionally
+     * NOT rewritten — they keep their `image_id` and the renderer falls back to
+     * an empty box (documented behavior, features/badge-template-editor.md).
      */
     public function destroy(BadgeImage $image): void
     {
-        Storage::disk('private')->delete($image->path);
+        $this->storage->delete($image->path);
 
         $image->delete();
     }
 
     /**
-     * File extension derived from the validated MIME type, never from the
-     * client-supplied filename (which may claim an arbitrary extension). The
-     * upload validation restricts MIME types to png/jpeg/webp; for anything
-     * unexpected the client extension is kept as a safe fallback.
+     * The relative media path for a new upload: domain layout when the mandant
+     * has a (valid) domain, host-neutral otherwise.
      */
-    private function extensionFor(UploadedFile $file): string
+    private function targetPath(Mandant $mandant, string $name): string
     {
-        return match (strtolower((string) $file->getMimeType())) {
-            'image/png' => 'png',
-            'image/jpeg' => 'jpg',
-            'image/webp' => 'webp',
-            default => strtolower((string) $file->getClientOriginalExtension()),
-        };
-    }
+        $host = $this->hosts->hostFor($mandant);
 
-    /**
-     * @throws ValidationException
-     */
-    private function assertWithinDimensionLimit(UploadedFile $file): void
-    {
-        $dimensions = getimagesize($file->getRealPath());
-
-        if ($dimensions === false) {
-            throw ValidationException::withMessages([
-                'file' => 'Die Bilddimensionen konnten nicht ermittelt werden.',
-            ]);
+        if ($host !== null) {
+            try {
+                return $this->paths->badgeFile($host, $name);
+            } catch (DomainException) {
+                // A legacy/invalid hostname in the database must not turn an
+                // upload into a 500 — fall back to the host-neutral layout.
+            }
         }
 
-        [$width, $height] = $dimensions;
-
-        if ($width > self::MAX_IMAGE_DIMENSION || $height > self::MAX_IMAGE_DIMENSION) {
-            throw ValidationException::withMessages([
-                'file' => sprintf(
-                    'Das Bild darf maximal %d×%d Pixel groß sein.',
-                    self::MAX_IMAGE_DIMENSION,
-                    self::MAX_IMAGE_DIMENSION,
-                ),
-            ]);
-        }
+        return $this->paths->hostNeutralBadgeFile($mandant->id, $name);
     }
 }

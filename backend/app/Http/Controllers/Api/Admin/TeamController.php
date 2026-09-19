@@ -7,16 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\TeamResource;
 use App\Models\Mandant;
 use App\Models\Team;
-use App\Services\MediaPathService;
+use App\Services\MediaStorage;
+use App\Services\TeamMediaService;
 use App\Support\MandantContext;
-use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -42,13 +40,10 @@ class TeamController extends Controller
 {
     use ResolvesAdminTeamScope;
 
-    /**
-     * Maximum width/height for uploaded logos (px), mirroring
-     * `MandantMediaService::MAX_IMAGE_DIMENSION`.
-     */
-    private const MAX_IMAGE_DIMENSION = 2000;
-
-    public function __construct(private readonly MediaPathService $paths) {}
+    public function __construct(
+        private readonly TeamMediaService $media,
+        private readonly MediaStorage $storage,
+    ) {}
 
     public function index(Request $request, Mandant $mandant): AnonymousResourceCollection
     {
@@ -86,7 +81,13 @@ class TeamController extends Controller
         $teamModel = $mandant->teams()->findOrFail((int) $team);
         $validated = $request->validate($this->rules($mandant, $teamModel));
 
+        $previousSlug = $teamModel->slug;
+
         $teamModel->update($validated);
+
+        // W2-F2 L2: a slug change moves the logo file along, so the stored
+        // path never points at a directory of the previous slug.
+        $this->media->moveForSlugChange($teamModel->fresh(), $previousSlug);
 
         return new TeamResource($teamModel->fresh());
     }
@@ -95,6 +96,11 @@ class TeamController extends Controller
     {
         $this->authorizeSuperAdmin($request);
         $teamModel = $mandant->teams()->findOrFail((int) $team);
+
+        // The DB FK does not touch files — drop the logo from the public media
+        // disk explicitly before the row disappears.
+        $this->media->purge($teamModel);
+
         $teamModel->delete();
 
         return response()->noContent();
@@ -113,25 +119,23 @@ class TeamController extends Controller
 
         $path = $team->logo_path;
 
-        if ($path === null || ! Storage::disk(MediaPathService::DISK)->exists($path)) {
+        if ($path === null || ! $this->storage->exists($path)) {
             return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
         }
 
-        return Storage::disk(MediaPathService::DISK)->response(
-            $path,
-            null,
-            ['Content-Type' => (string) Storage::disk(MediaPathService::DISK)->mimeType($path)],
-        );
+        return $this->storage->response($path, null, [
+            'Content-Type' => $this->storage->mimeType($path),
+        ]);
     }
 
     /**
-     * Upload/replace the team logo. Validation mirrors `EventTypeController` /
-     * `MandantMediaService`: `image`, `mimes:jpeg,png,webp`, `max:2048` KB plus
-     * the 2000×2000 px dimension limit. The extension derives from the
-     * validated MIME type, never from the client filename. The file lands on
-     * the public `media` disk under the W1 layout
-     * (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`); the
-     * previous file is removed only after the new one is stored.
+     * Upload/replace the team logo. Validation mirrors the brand media:
+     * `image`, `mimes:jpeg,png,webp`, `max:2048` KB plus the 2000×2000 px
+     * dimension limit. The extension derives from the validated MIME type,
+     * never from the client filename. The file lands on the public `media` disk
+     * under the W1 layout (`<host>/teams/<slug>/logo.<ext>`, host-neutral
+     * `_tenants/<id>/teams/<slug>/logo.<ext>` without a domain); the previous
+     * file is removed only after the new one is stored (`TeamMediaService`).
      *
      * Authorization is hierarchical (W4-F1): `authorizeLogoWrite()`.
      */
@@ -147,22 +151,7 @@ class TeamController extends Controller
         /** @var UploadedFile $file */
         $file = $request->file('file');
 
-        $this->assertWithinDimensionLimit($file);
-
-        $previous = $team->logo_path;
-        $path = $this->logoPath($team, $file);
-
-        Storage::disk(MediaPathService::DISK)->putFileAs(
-            dirname($path),
-            $file,
-            basename($path),
-        );
-
-        if ($previous !== null && $previous !== $path) {
-            Storage::disk(MediaPathService::DISK)->delete($previous);
-        }
-
-        $team->update(['logo_path' => $path]);
+        $this->media->store($team, $file);
 
         return new TeamResource($team->fresh());
     }
@@ -176,102 +165,9 @@ class TeamController extends Controller
         $this->assertTeamOfCurrentMandant($team);
         $this->authorizeLogoWrite($request, $team);
 
-        if ($team->logo_path !== null) {
-            Storage::disk(MediaPathService::DISK)->delete($team->logo_path);
-        }
-
-        $team->update(['logo_path' => null]);
+        $this->media->destroy($team);
 
         return response()->noContent();
-    }
-
-    /**
-     * The relative media path for an uploaded logo. Prefers the mandant's
-     * first (primary) domain so the file lands in the documented
-     * `<host>/teams/<slug>/` layout. Without a configured domain the path is
-     * stored host-neutral (`teams/<slug>/logo.<ext>`) and can be migrated into
-     * the domain layout once the mandant has a host (W6 backfill).
-     */
-    private function logoPath(Team $team, UploadedFile $file): string
-    {
-        $name = 'logo.'.$this->extensionFor($file);
-        $host = $this->mediaHost();
-
-        if ($host === null) {
-            return $this->hostNeutralPath($team, $name);
-        }
-
-        try {
-            return $this->paths->teamFile($host, $team->slug, $name);
-        } catch (DomainException) {
-            // A legacy/invalid slug or hostname must not turn an upload into a
-            // 500 — fall back to the host-neutral path.
-            return $this->hostNeutralPath($team, $name);
-        }
-    }
-
-    /**
-     * Host-neutral fallback below the media root (no domain configured yet).
-     */
-    private function hostNeutralPath(Team $team, string $name): string
-    {
-        return MediaPathService::TEAMS_SEGMENT
-            .'/'.$this->paths->sanitizeSlug($team->slug)
-            .'/'.$this->paths->sanitizeFileName($name);
-    }
-
-    /**
-     * The mandant's first (de-facto primary) domain hostname, or null when no
-     * domain is configured. Mirrors `EventTypeController::mediaHost()`.
-     */
-    private function mediaHost(): ?string
-    {
-        $host = (MandantContext::current() ?? MandantContext::default())
-            ?->domains()
-            ->orderBy('id')
-            ->value('hostname');
-
-        return is_string($host) && $host !== '' ? $host : null;
-    }
-
-    /**
-     * File extension derived from the validated MIME type, never from the
-     * client-supplied filename (mirrors `MandantMediaService`).
-     */
-    private function extensionFor(UploadedFile $file): string
-    {
-        return match (strtolower((string) $file->getMimeType())) {
-            'image/png' => 'png',
-            'image/jpeg' => 'jpg',
-            'image/webp' => 'webp',
-            default => strtolower((string) $file->getClientOriginalExtension()),
-        };
-    }
-
-    /**
-     * @throws ValidationException
-     */
-    private function assertWithinDimensionLimit(UploadedFile $file): void
-    {
-        $dimensions = getimagesize($file->getRealPath());
-
-        if ($dimensions === false) {
-            throw ValidationException::withMessages([
-                'file' => 'Die Bilddimensionen konnten nicht ermittelt werden.',
-            ]);
-        }
-
-        [$width, $height] = $dimensions;
-
-        if ($width > self::MAX_IMAGE_DIMENSION || $height > self::MAX_IMAGE_DIMENSION) {
-            throw ValidationException::withMessages([
-                'file' => sprintf(
-                    'Das Bild darf maximal %d×%d Pixel groß sein.',
-                    self::MAX_IMAGE_DIMENSION,
-                    self::MAX_IMAGE_DIMENSION,
-                ),
-            ]);
-        }
     }
 
     /**
