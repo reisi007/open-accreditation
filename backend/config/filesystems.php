@@ -57,10 +57,14 @@ return [
         // web server (Caddy) from a shared volume — never through a framework
         // serve route, so `serve` stays disabled. In production MEDIA_ROOT
         // points at the shared path (e.g. /srv/media/accreditation); locally
-        // it defaults to storage/app/media.
+        // it defaults to storage/app/media. An empty MEDIA_ROOT (the value
+        // shipped in .env.example) must resolve to that default as well —
+        // `env('MEDIA_ROOT', …)` alone would yield '' and make the disk write
+        // relative to the process CWD, so the blank value is treated the same
+        // as an unset one.
         'media' => [
             'driver' => 'local',
-            'root' => env('MEDIA_ROOT', storage_path('app/media')),
+            'root' => env('MEDIA_ROOT') ?: storage_path('app/media'),
             'serve' => false,
             'throw' => false,
             'report' => false,

@@ -252,9 +252,58 @@ class MediaPathServiceTest extends TestCase
         $this->assertSame('local', $disk['driver']);
         $this->assertFalse($disk['serve']);
         $this->assertSame(MediaPathService::DISK, 'media');
+
+        // The media root defaults to storage/app/media. The test environment
+        // leaves MEDIA_ROOT unset, so the booted config must already resolve
+        // to the default here.
+        $this->assertSame(storage_path('app/media'), $disk['root']);
+
+        // `.env.example` ships `MEDIA_ROOT=` (present but blank). Re-evaluate
+        // the config with that exact blank value: it must fall back to the
+        // default instead of collapsing the disk root to '' (which would make
+        // the disk write relative to the process CWD).
         $this->assertSame(
-            env('MEDIA_ROOT') ?: storage_path('app/media'),
-            $disk['root'],
+            storage_path('app/media'),
+            $this->mediaRootWithBlankEnv(),
         );
+    }
+
+    /**
+     * Resolve `filesystems.disks.media.root` with `MEDIA_ROOT` explicitly set
+     * to an empty string, restoring the process environment afterwards.
+     */
+    private function mediaRootWithBlankEnv(): mixed
+    {
+        $previousEnv = $_ENV['MEDIA_ROOT'] ?? null;
+        $previousServer = $_SERVER['MEDIA_ROOT'] ?? null;
+        $previousPutenv = getenv('MEDIA_ROOT');
+
+        $_ENV['MEDIA_ROOT'] = '';
+        $_SERVER['MEDIA_ROOT'] = '';
+        putenv('MEDIA_ROOT=');
+
+        try {
+            $config = require config_path('filesystems.php');
+        } finally {
+            if ($previousEnv === null) {
+                unset($_ENV['MEDIA_ROOT']);
+            } else {
+                $_ENV['MEDIA_ROOT'] = $previousEnv;
+            }
+
+            if ($previousServer === null) {
+                unset($_SERVER['MEDIA_ROOT']);
+            } else {
+                $_SERVER['MEDIA_ROOT'] = $previousServer;
+            }
+
+            if ($previousPutenv === false) {
+                putenv('MEDIA_ROOT');
+            } else {
+                putenv('MEDIA_ROOT='.$previousPutenv);
+            }
+        }
+
+        return $config['disks']['media']['root'];
     }
 }
