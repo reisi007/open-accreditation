@@ -7,12 +7,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\TeamResource;
 use App\Models\Mandant;
 use App\Models\Team;
+use App\Services\MediaPathService;
 use App\Support\MandantContext;
+use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Super Admin CRUD for the teams (Vereine) of a mandant.
@@ -24,10 +30,22 @@ use Symfony\Component\HttpFoundation\Response;
  * admin surface manages teams across arbitrary mandants, so every write
  * additionally requires the global super admin role — keeping the tenant-CRUD
  * semantics of this API and closing the cross-mandant manipulation gap.
+ *
+ * W4 adds the team logo surface (`/api/admin/teams/{team}/logo`): auth-gated
+ * delivery (`teams.view`) plus super_admin-only upload/delete, stored under the
+ * W1 media layout (`<host>/teams/<slug>/logo.<ext>`).
  */
 class TeamController extends Controller
 {
     use ResolvesAdminTeamScope;
+
+    /**
+     * Maximum width/height for uploaded logos (px), mirroring
+     * `MandantMediaService::MAX_IMAGE_DIMENSION`.
+     */
+    private const MAX_IMAGE_DIMENSION = 2000;
+
+    public function __construct(private readonly MediaPathService $paths) {}
 
     public function index(Request $request, Mandant $mandant): AnonymousResourceCollection
     {
@@ -77,6 +95,191 @@ class TeamController extends Controller
         $teamModel->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Auth-gated delivery of the team logo (inline). Read access follows
+     * `teams.view` (route gate): super_admin, mandant_admin and team_admin may
+     * open the image; the team is resolved through the tenant-guarded binding.
+     * Writes (`storeLogo`/`destroyLogo`) stay super_admin-only like the rest of
+     * this tenant-CRUD surface.
+     */
+    public function showLogo(Request $request, Team $team): StreamedResponse|JsonResponse
+    {
+        $this->assertTeamOfCurrentMandant($team);
+
+        $path = $team->logo_path;
+
+        if ($path === null || ! Storage::disk(MediaPathService::DISK)->exists($path)) {
+            return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
+        }
+
+        return Storage::disk(MediaPathService::DISK)->response(
+            $path,
+            null,
+            ['Content-Type' => (string) Storage::disk(MediaPathService::DISK)->mimeType($path)],
+        );
+    }
+
+    /**
+     * Upload/replace the team logo. Validation mirrors `EventTypeController` /
+     * `MandantMediaService`: `image`, `mimes:jpeg,png,webp`, `max:2048` KB plus
+     * the 2000×2000 px dimension limit. The extension derives from the
+     * validated MIME type, never from the client filename. The file lands on
+     * the public `media` disk under the W1 layout
+     * (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`); the
+     * previous file is removed only after the new one is stored.
+     */
+    public function storeLogo(Request $request, Team $team): TeamResource
+    {
+        $this->authorizeSuperAdmin($request);
+        $this->assertTeamOfCurrentMandant($team);
+
+        $request->validate([
+            'file' => ['required', 'image', 'mimes:jpeg,png,webp', 'max:2048'],
+        ]);
+
+        /** @var UploadedFile $file */
+        $file = $request->file('file');
+
+        $this->assertWithinDimensionLimit($file);
+
+        $previous = $team->logo_path;
+        $path = $this->logoPath($team, $file);
+
+        Storage::disk(MediaPathService::DISK)->putFileAs(
+            dirname($path),
+            $file,
+            basename($path),
+        );
+
+        if ($previous !== null && $previous !== $path) {
+            Storage::disk(MediaPathService::DISK)->delete($previous);
+        }
+
+        $team->update(['logo_path' => $path]);
+
+        return new TeamResource($team->fresh());
+    }
+
+    /**
+     * Delete the team logo file and reset `logo_path`.
+     */
+    public function destroyLogo(Request $request, Team $team): Response
+    {
+        $this->authorizeSuperAdmin($request);
+        $this->assertTeamOfCurrentMandant($team);
+
+        if ($team->logo_path !== null) {
+            Storage::disk(MediaPathService::DISK)->delete($team->logo_path);
+        }
+
+        $team->update(['logo_path' => null]);
+
+        return response()->noContent();
+    }
+
+    /**
+     * The relative media path for an uploaded logo. Prefers the mandant's
+     * first (primary) domain so the file lands in the documented
+     * `<host>/teams/<slug>/` layout. Without a configured domain the path is
+     * stored host-neutral (`teams/<slug>/logo.<ext>`) and can be migrated into
+     * the domain layout once the mandant has a host (W6 backfill).
+     */
+    private function logoPath(Team $team, UploadedFile $file): string
+    {
+        $name = 'logo.'.$this->extensionFor($file);
+        $host = $this->mediaHost();
+
+        if ($host === null) {
+            return $this->hostNeutralPath($team, $name);
+        }
+
+        try {
+            return $this->paths->teamFile($host, $team->slug, $name);
+        } catch (DomainException) {
+            // A legacy/invalid slug or hostname must not turn an upload into a
+            // 500 — fall back to the host-neutral path.
+            return $this->hostNeutralPath($team, $name);
+        }
+    }
+
+    /**
+     * Host-neutral fallback below the media root (no domain configured yet).
+     */
+    private function hostNeutralPath(Team $team, string $name): string
+    {
+        return MediaPathService::TEAMS_SEGMENT
+            .'/'.$this->paths->sanitizeSlug($team->slug)
+            .'/'.$this->paths->sanitizeFileName($name);
+    }
+
+    /**
+     * The mandant's first (de-facto primary) domain hostname, or null when no
+     * domain is configured. Mirrors `EventTypeController::mediaHost()`.
+     */
+    private function mediaHost(): ?string
+    {
+        $host = (MandantContext::current() ?? MandantContext::default())
+            ?->domains()
+            ->orderBy('id')
+            ->value('hostname');
+
+        return is_string($host) && $host !== '' ? $host : null;
+    }
+
+    /**
+     * File extension derived from the validated MIME type, never from the
+     * client-supplied filename (mirrors `MandantMediaService`).
+     */
+    private function extensionFor(UploadedFile $file): string
+    {
+        return match (strtolower((string) $file->getMimeType())) {
+            'image/png' => 'png',
+            'image/jpeg' => 'jpg',
+            'image/webp' => 'webp',
+            default => strtolower((string) $file->getClientOriginalExtension()),
+        };
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function assertWithinDimensionLimit(UploadedFile $file): void
+    {
+        $dimensions = getimagesize($file->getRealPath());
+
+        if ($dimensions === false) {
+            throw ValidationException::withMessages([
+                'file' => 'Die Bilddimensionen konnten nicht ermittelt werden.',
+            ]);
+        }
+
+        [$width, $height] = $dimensions;
+
+        if ($width > self::MAX_IMAGE_DIMENSION || $height > self::MAX_IMAGE_DIMENSION) {
+            throw ValidationException::withMessages([
+                'file' => sprintf(
+                    'Das Bild darf maximal %d×%d Pixel groß sein.',
+                    self::MAX_IMAGE_DIMENSION,
+                    self::MAX_IMAGE_DIMENSION,
+                ),
+            ]);
+        }
+    }
+
+    /**
+     * The team must belong to the current mandant context. The route-model
+     * binding already scopes to it; this guard also covers the no-context case
+     * (where the binding stays unscoped).
+     */
+    private function assertTeamOfCurrentMandant(Team $team): void
+    {
+        abort_unless(
+            MandantContext::currentId() !== null
+                && (int) $team->mandant_id === MandantContext::currentId(),
+            404,
+        );
     }
 
     /**

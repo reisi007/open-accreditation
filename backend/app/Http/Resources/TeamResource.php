@@ -23,6 +23,9 @@ class TeamResource extends JsonResource
             'slug' => $this->slug,
             'name' => $this->name,
             'home_venue' => $this->home_venue,
+            'logo_url' => $this->logo_path !== null
+                ? route('api.admin.teams.logo', ['team' => $this->id])
+                : null,
             'created_at' => $this->created_at,
         ];
     }

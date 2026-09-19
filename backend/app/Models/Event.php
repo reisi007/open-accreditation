@@ -7,9 +7,21 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * An event (Event/Spiel) of a mandant, optionally assigned to a team.
+ *
+ * The participant list (W4) is cardinality-free: an event may have one
+ * participant (Single), two (Versus, the default pairing) or N (tournament
+ * groups sharing a slot). `team_id` stays the "home team" shorthand; the full
+ * field lives in `event_participants`.
+ *
+ * The home default venue chain is intentionally NOT rewired by W4:
+ * `venue_effective = events.venue ?? teams.home_venue` (see
+ * `PortalEventDetailResource`) keeps resolving through the bound `team`. A
+ * dedicated Venue-CRUD (`events.venue_id`) follows later; participants only
+ * carry the opposing/tournament sides.
  */
 #[Fillable(['mandant_id', 'team_id', 'event_type_id', 'title', 'date', 'venue', 'competition', 'deadline_start', 'deadline_end', 'active'])]
 class Event extends Model
@@ -31,6 +43,16 @@ class Event extends Model
     public function eventType(): BelongsTo
     {
         return $this->belongsTo(EventType::class);
+    }
+
+    /**
+     * The event's participant slots (W4), ordered by `sort_order`. Each row
+     * points at an optional team and/or carries a free-text `name` override,
+     * so Single/Versus/tournament events use the same model.
+     */
+    public function participants(): HasMany
+    {
+        return $this->hasMany(EventParticipant::class)->orderBy('sort_order');
     }
 
     /**

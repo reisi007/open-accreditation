@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\BadgeTemplateController;
 use App\Http\Controllers\Api\Admin\BlacklistController;
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
+use App\Http\Controllers\Api\Admin\EventParticipantController;
 use App\Http\Controllers\Api\Admin\EventTypeController;
 use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
@@ -182,6 +183,14 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::delete('/mandants/{mandant}/teams/{team}', [TeamController::class, 'destroy'])->middleware('throttle:admin')->name('mandants.teams.destroy');
     });
 
+    // W4: team logo (Vereins-Logo). Read follows `teams.view` (the delivery is
+    // auth-gated inline); writes stay super_admin-only like the team CRUD.
+    // Files live on the public `media` disk under the W1 layout
+    // (`<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`).
+    Route::get('/teams/{team}/logo', [TeamController::class, 'showLogo'])->middleware('can:teams.view')->name('teams.logo');
+    Route::post('/teams/{team}/logo', [TeamController::class, 'storeLogo'])->middleware(['can:teams.manage', 'throttle:admin'])->name('teams.logo.store');
+    Route::delete('/teams/{team}/logo', [TeamController::class, 'destroyLogo'])->middleware(['can:teams.manage', 'throttle:admin'])->name('teams.logo.destroy');
+
     Route::middleware('can:categories.manage')->group(function (): void {
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
         Route::post('/categories', [CategoryController::class, 'store'])->middleware('throttle:admin')->name('categories.store');
@@ -207,6 +216,14 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::get('/event-types/{eventType}/logo', [EventTypeController::class, 'showLogo'])->name('event-types.logo');
         Route::post('/event-types/{eventType}/logo', [EventTypeController::class, 'storeLogo'])->middleware('throttle:admin')->name('event-types.logo.store');
         Route::delete('/event-types/{eventType}/logo', [EventTypeController::class, 'destroyLogo'])->middleware('throttle:admin')->name('event-types.logo.destroy');
+
+        // W4: cardinality-free event participants (Single / Versus / N).
+        // Writes are super_admin/mandant_admin only (team_admin 403 inside the
+        // controller); reads stay open to team_admin.
+        Route::get('/events/{event}/participants', [EventParticipantController::class, 'index'])->name('events.participants.index');
+        Route::post('/events/{event}/participants', [EventParticipantController::class, 'store'])->middleware('throttle:admin')->name('events.participants.store');
+        Route::put('/events/{event}/participants/{participant}', [EventParticipantController::class, 'update'])->middleware('throttle:admin')->name('events.participants.update');
+        Route::delete('/events/{event}/participants/{participant}', [EventParticipantController::class, 'destroy'])->middleware('throttle:admin')->name('events.participants.destroy');
     });
 
     Route::middleware('can:accreditations.manage')->group(function (): void {
