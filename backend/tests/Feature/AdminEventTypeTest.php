@@ -113,6 +113,25 @@ class AdminEventTypeTest extends TestCase
         ]);
     }
 
+    public function test_client_supplied_mandant_id_is_ignored(): void
+    {
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/event-types', [
+                'slug' => 'bundesliga',
+                'name' => 'Bundesliga',
+                'mandant_id' => $this->mandantB->id,
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.mandant_id', $this->mandantA->id);
+
+        // The mandant is always derived from MandantContext, never the payload.
+        $this->assertDatabaseHas('event_types', [
+            'mandant_id' => $this->mandantA->id,
+            'slug' => 'bundesliga',
+        ]);
+        $this->assertDatabaseMissing('event_types', ['mandant_id' => $this->mandantB->id]);
+    }
+
     public function test_mandant_admin_can_create_event_type(): void
     {
         $this->actingAsApi($this->mandantAdmin())
@@ -145,6 +164,27 @@ class AdminEventTypeTest extends TestCase
             ->assertStatus(403);
 
         $this->assertDatabaseHas('event_types', ['id' => $type->id, 'name' => 'Bundesliga']);
+    }
+
+    public function test_team_admin_cannot_upload_or_delete_logo(): void
+    {
+        $team = $this->mandantA->teams()->create(['name' => 'Team A', 'slug' => 'team-a']);
+        $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $team->id);
+        $type = $this->makeType($this->mandantA, ['slug' => 'bundesliga']);
+
+        $this->actingAsApi($teamAdmin)
+            ->post('/api/admin/event-types/'.$type->id.'/logo', [
+                'file' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertStatus(403);
+
+        $this->actingAsApi($teamAdmin)
+            ->deleteJson('/api/admin/event-types/'.$type->id.'/logo')
+            ->assertStatus(403);
+
+        Storage::disk(MediaPathService::DISK)
+            ->assertMissing('verband-a.test/event-types/bundesliga/logo.png');
+        $this->assertNull($type->fresh()->logo_path);
     }
 
     public function test_slug_must_be_unique_per_mandant(): void
@@ -337,6 +377,25 @@ class AdminEventTypeTest extends TestCase
             ])
             ->assertStatus(422)
             ->assertJsonValidationErrors('presets');
+    }
+
+    public function test_presets_reject_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded requests can smuggle raw invalid bytes past the JSON
+        // decoder (e.g. `presets[blob]=\xFF`). Before the JSON_THROW_ON_ERROR
+        // guard `json_encode()` returned `false`, `(string) false` slipped
+        // through the size check and the Eloquent JSON cast raised a
+        // JsonEncodingException → HTTP 500. It must be a validation error.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/event-types', [
+                'slug' => 'bundesliga',
+                'name' => 'Bundesliga',
+                'presets' => ['blob' => "\xFF"],
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('presets');
+
+        $this->assertDatabaseMissing('event_types', ['slug' => 'bundesliga']);
     }
 
     public function test_presets_can_be_cleared_with_null(): void

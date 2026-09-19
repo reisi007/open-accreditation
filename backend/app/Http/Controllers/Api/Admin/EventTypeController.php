@@ -11,6 +11,7 @@ use App\Models\RoleUser;
 use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use DomainException;
+use JsonException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -263,7 +264,15 @@ class EventTypeController extends Controller
             ]);
         }
 
-        if (strlen((string) json_encode($presets)) > self::PRESETS_MAX_BYTES) {
+        try {
+            $encoded = json_encode($presets, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw ValidationException::withMessages([
+                'presets' => 'Presets enthalten ungültige Zeichen.',
+            ]);
+        }
+
+        if (strlen($encoded) > self::PRESETS_MAX_BYTES) {
             throw ValidationException::withMessages([
                 'presets' => sprintf('Presets must not exceed %d bytes.', self::PRESETS_MAX_BYTES),
             ]);
