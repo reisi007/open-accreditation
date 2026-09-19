@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EventTypeResource;
 use App\Models\EventType;
 use App\Models\RoleUser;
+use App\Services\EventTypePresetSchema;
 use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use DomainException;
@@ -48,8 +49,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * Upload validation mirrors `MandantMediaService`: `image`,
  * `mimes:jpeg,png,webp`, `max:2048` KB plus the 2000×2000 px limit; the
  * extension derives from the validated MIME type, never from the client name.
- * The `presets` envelope is validated structurally only (assoc object, bounded
- * depth, scalar leaves, ≤ 16 KB) — the fachliches schema follows in W3.
+ * The `presets` envelope is validated in two layers: a structural guard
+ * (assoc object, bounded depth, scalar leaves, ≤ 16 KB, valid UTF-8) here and
+ * the fachliches schema (`EventTypePresetSchema`, `v = 1`) via
+ * {@see assertPresetsValid()}.
  */
 class EventTypeController extends Controller
 {
@@ -72,7 +75,10 @@ class EventTypeController extends Controller
      */
     private const PRESETS_MAX_DEPTH = 3;
 
-    public function __construct(private readonly MediaPathService $paths) {}
+    public function __construct(
+        private readonly MediaPathService $paths,
+        private readonly EventTypePresetSchema $presetSchema,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -228,23 +234,25 @@ class EventTypeController extends Controller
         ]);
 
         if (($validated['presets'] ?? null) !== null) {
-            $this->assertPresetsValid((array) $validated['presets']);
+            $this->assertPresetsValid((array) $validated['presets'], $mandantId);
         }
 
         return $validated;
     }
 
     /**
-     * Structural `presets` guard (safe envelope only, W3 adds the schema):
+     * Structural `presets` guard + fachliches schema:
      * the root must be a JSON object (assoc map), the nesting depth is
      * bounded, leaves are scalars and the encoded payload stays ≤ 16 KB.
-     * Failures land on the `presets` key with 422.
+     * Structural failures land on the `presets` key; schema failures are
+     * reported on the exact leaf key (`presets.<path>`) by
+     * {@see EventTypePresetSchema}. Both answer 422.
      *
      * @param  array<array-key, mixed>  $presets
      *
      * @throws ValidationException
      */
-    private function assertPresetsValid(array $presets): void
+    private function assertPresetsValid(array $presets, int $mandantId): void
     {
         if ($presets !== [] && array_is_list($presets)) {
             throw ValidationException::withMessages([
@@ -277,6 +285,8 @@ class EventTypeController extends Controller
                 'presets' => sprintf('Presets must not exceed %d bytes.', self::PRESETS_MAX_BYTES),
             ]);
         }
+
+        $this->presetSchema->validate($presets, $mandantId);
     }
 
     /**

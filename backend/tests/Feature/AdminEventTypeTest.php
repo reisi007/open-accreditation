@@ -319,9 +319,8 @@ class AdminEventTypeTest extends TestCase
     public function test_presets_roundtrip(): void
     {
         $presets = [
-            'badge_template' => 'presse',
-            'quota_defaults' => ['quota' => 10, 'auto_approve' => false],
-            'deadline_days' => 14,
+            'v' => 1,
+            'defaults' => ['quota' => 10, 'auto_approve' => false, 'deadline_offset_days' => 14],
         ];
 
         $response = $this->actingAsApi($this->superAdmin())
@@ -331,9 +330,9 @@ class AdminEventTypeTest extends TestCase
                 'presets' => $presets,
             ])
             ->assertStatus(201)
-            ->assertJsonPath('data.presets.badge_template', 'presse')
-            ->assertJsonPath('data.presets.quota_defaults.quota', 10)
-            ->assertJsonPath('data.presets.deadline_days', 14);
+            ->assertJsonPath('data.presets.v', 1)
+            ->assertJsonPath('data.presets.defaults.quota', 10)
+            ->assertJsonPath('data.presets.defaults.deadline_offset_days', 14);
 
         $type = EventType::query()->findOrFail($response->json('data.id'));
         $this->assertSame($presets, $type->presets);
