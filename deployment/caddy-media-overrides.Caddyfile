@@ -1,0 +1,133 @@
+# ============================================================================
+# (media_overrides) — Caddy snippet: direkte Auslieferung der `media`-Disk
+# ============================================================================
+#
+# Repo:   open-accreditation / deployment/caddy-media-overrides.Caddyfile
+# Paket:  W7 (Plan media-domain-layout.md §4)
+# Status: ENTWURF — Go-Live noch nicht freigegeben. Das ist ein Fragment und
+#         wird NICHT automatisch geladen; es gehört NICHT in dieses Repo,
+#         sondern in die zentrale Proxy-Caddyfile (~/dev/caddyfile/Caddyfile).
+#
+# WO EINBAUEN
+#   1. Die Snippet-Definition `(media_overrides)` in die zentrale Caddyfile
+#      aufnehmen — zu den übrigen `(…)`-Snippets und VOR dem ersten `import`.
+#   2. In jedem Mandanten-Site-Block (eigene Domain) ergänzen:
+#          import media_overrides /srv/media/accreditation
+#      WICHTIG: VOR dem SPA-Fallback-Handle `handle { import spa … }` einfügen —
+#      `handle`-Blöcke sind in Reihenfolge exklusiv, der erste Treffer gewinnt.
+#      Der Argumentpfad ist MEDIA_ROOT (Produktion: /srv/media/accreditation,
+#      vgl. deployment/docker-compose.yml + backend/.env.example) und wird
+#      unten als `{args[0]}` zum Site-Root.
+#
+# MOUNT-VORAUSSETZUNG
+#   Der Caddy-Container muss dieselbe MEDIA_ROOT wie das Backend am
+#   identischen Pfad bind-mounten (read-only genügt, Caddy schreibt nie):
+#          /srv/media/accreditation:/srv/media/accreditation:ro
+#   Backend-Mount: ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation
+#
+# LAYOUT (Single Source of Truth: backend/app/Services/MediaPathService.php)
+#   <MEDIA_ROOT>/<file>                            Root-Fallback (global)
+#   <MEDIA_ROOT>/<domain>/<file>                   Mandant-Override
+#   <MEDIA_ROOT>/<domain>/teams/<slug>/<file>
+#   <MEDIA_ROOT>/<domain>/event-types/<slug>/<file>
+#   <MEDIA_ROOT>/<domain>/badges/<file>
+#   `<domain>` = normalisierter Request-Host (lowercase, Port gestrippt,
+#   IDN/Punycode). Ohne Domain nutzt das Backend `_tenants/<id>/…`; dieser
+#   host-neutrale Zweig ist für Caddy bewusst NICHT erreichbar.
+#
+# FALLBACK-KETTE PRO REQUEST (z. B. GET /logo.svg auf verband-a.example)
+#   try_files /{http.request.host}{path} {path} =404
+#     1. Domain-Override  <MEDIA_ROOT>/verband-a.example/logo.svg
+#     2. Root-Fallback    <MEDIA_ROOT>/logo.svg
+#     3. sonst 404 (kein SPA-Fallback — Brand-/Media-Pfade liegen nicht im Dist)
+#   Host-Platzhalter wird von Caddy unverändert übernommen; Clients senden
+#   Hosts praktisch immer lowercase, sonst greift der Root-Fallback.
+#
+# SICHERHEIT (W1-F2)
+#   `file_server { hide … }` blendet `.env`/`.htaccess` aus (Dateiname ohne
+#   Pfadtrenner matcht an jeder Stelle). Die Matcher lassen Dotfiles ohnehin
+#   nur unter den expliziten Präfixen zu; `hide` ist Defense-in-Depth. Kein
+#   `browse` → keine Directory-Listings.
+#
+# CACHING
+#   Bilder (png/jpg/jpeg/webp/avif/gif/svg/ico) → immutable, 1 Jahr.
+#   `site.webmanifest` + übrige Nicht-Bilder → no-cache (Manifest muss nach
+#   Brand-Wechsel sofort greifen).
+#
+# VALIDIERUNG / DEPLOY
+#   Lokal vor dem Sync (Muster aus ~/dev/caddyfile/sync.sh):
+#     docker run --rm -v "$PWD/deployment/caddy-media-overrides.Caddyfile:/etc/caddy/Caddyfile:ro" \
+#       caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   Sync/Reload erst nach Go-Live-Freigabe, außerhalb dieses Repos:
+#     cd ~/dev/caddyfile && ./sync.sh   # validiert, scp ins caddy-Volume, `caddy reload`
+#
+#   VALIDATE (W7, 2026-09-19, caddy:2 in Docker): „Valid configuration“.
+#     Geprüft: temporäres Test-Caddyfile aus diesem Snippet + Dummy-Site
+#     (`http://verband-a.example { import media_overrides /srv/media/accreditation }`);
+#     das reine Snippet-File validiert ebenfalls standalone. Laufzeit-Check
+#     (lokaler caddy:2-Container, synthetischer MEDIA_ROOT): Domain-Override →
+#     Root-Fallback greift, Bilder immutable, webmanifest no-cache, `.env` 404.
+#
+# GO-LIVE-OFFEN (Details siehe AGENTS.todo.md, W7)
+#   - MEDIA_ROOT auf dem Host anlegen/befüllen (Root-Fallback = Brand-Dateien);
+#     der Caddy-Container braucht den read-only-Mount (siehe oben).
+#   - `(media_overrides)`-Import in alle Mandanten-Site-Blöcke der zentralen
+#     Caddyfile aufnehmen; Sync/Reload erst nach Freigabe.
+#   - Alias-Domains: MediaHostResolver (backend) keyt Media auf die ERSTE
+#     Mandanten-Domain. Requests über eine Alias-Domain finden `<alias>/…`
+#     nicht und fallen auf den Root-Fallback zurück — für Multi-Domain-Mandanten
+#     vor Go-Live klären (Alias-Verzeichnisse befüllen oder Host-Mapping).
+#   - Bewusster 404-Fallback: nicht vorhandene Brand-/Media-Dateien werden NICHT
+#     aus dem SPA-Dist nachgeliefert (kein Durchgriff auf `index.html`).
+#
+# ============================================================================
+(media_overrides) {
+	@media_paths {
+		# Brand-/Meta-Dateien (Root-Pfade der SPA; Satz aus features/03).
+		path /logo.svg
+		path /logo-mono.svg
+		path /favicon.svg
+		path /favicon.ico
+		path /favicon-16x16.png
+		path /favicon-32x32.png
+		path /apple-touch-icon.png
+		path /android-chrome-192x192.png
+		path /android-chrome-512x512.png
+		path /safari-pinned-tab.svg
+		path /mstile-150x150.png
+		path /browserconfig.xml
+		path /site.webmanifest
+		# Media-Bäume aus dem MediaPathService-Layout.
+		path /media/*
+		path /teams/*
+		path /event-types/*
+		path /badges/*
+	}
+
+	handle @media_paths {
+		# Site-Root nur für diesen Handler: MEDIA_ROOT ({args[0]}).
+		root * {args[0]}
+
+		# Bilder: aggressiv cachen (Dateiname = Inhalt, Upload ersetzt bewusst).
+		# Nur 2xx: ein verfehltes try_files (=404) darf nicht 1 Jahr immutable
+		# im Browser landen.
+		@media_immutable path *.png *.jpg *.jpeg *.webp *.avif *.gif *.svg *.ico
+		header @media_immutable {
+			Cache-Control "public, max-age=31536000, immutable"
+			match status 2xx
+		}
+
+		# Manifest + alle übrigen Nicht-Bilder: nie cachen.
+		@media_nocache not path *.png *.jpg *.jpeg *.webp *.avif *.gif *.svg *.ico
+		header @media_nocache Cache-Control "no-cache, no-store, must-revalidate"
+		header @media_nocache Pragma "no-cache"
+
+		# Domain-Override → Root-Fallback → 404.
+		try_files /{http.request.host}{path} {path} =404
+
+		file_server {
+			# W1-F2: Dotfiles (.env, .htaccess) niemals ausliefern.
+			hide .env .htaccess
+		}
+	}
+}
