@@ -359,6 +359,31 @@ class BadgeRenderServiceTest extends TestCase
         );
     }
 
+    public function test_upload_image_renders_from_a_webp_badge_images_row(): void
+    {
+        // W11: after the WebP backfill (or with `--prune-originals`) a badge
+        // image row points at a `.webp` file. DomPDF/GD must still render it.
+        $bytes = $this->storeRealWebp('verband-a.test/badges/upload.webp');
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'verband-a.test/badges/upload.webp',
+            'mime' => 'image/webp',
+            'original_name' => 'upload.webp',
+        ]);
+
+        $template = $this->makeTemplate([
+            ['field' => 'image', 'x' => 40, 'y' => 130, 'w' => 15, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id]],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+        $this->assertStringContainsString('data:image/webp;base64,'.base64_encode($bytes), $html);
+
+        $pdf = $this->renderer->renderPdf(new Collection([$this->approvedApplication()]), $template);
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        // dompdf decoded the WebP data URI into a drawn image XObject.
+        $this->assertStringContainsString(' Do', $this->pdfText($pdf));
+    }
+
     public function test_upload_image_from_foreign_mandant_renders_empty_box(): void
     {
         $bytes = $this->storeRealPng('badge-images/other/foreign.png');
@@ -553,6 +578,27 @@ class BadgeRenderServiceTest extends TestCase
         imagedestroy($image);
 
         Storage::disk('private')->put($path, $bytes);
+
+        return $bytes;
+    }
+
+    /**
+     * Store a REAL decodable WebP on the public media disk (GD-generated) at an
+     * arbitrary path — returns the exact bytes that must survive into the
+     * markup (W11 badge-pipeline check).
+     *
+     * @return string the exact WebP bytes written to the media disk
+     */
+    private function storeRealWebp(string $path): string
+    {
+        $image = imagecreatetruecolor(60, 60);
+        imagefilledrectangle($image, 0, 0, 59, 59, imagecolorallocate($image, 40, 90, 160));
+
+        ob_start();
+        imagewebp($image);
+        $bytes = (string) ob_get_clean();
+
+        Storage::disk('media')->put($path, $bytes);
 
         return $bytes;
     }

@@ -6,6 +6,7 @@ use App\Models\BadgeImage;
 use App\Models\Mandant;
 use DomainException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -37,6 +38,7 @@ class BadgeImageService
         private readonly MediaPathService $paths,
         private readonly MediaHostResolver $hosts,
         private readonly MediaStorage $storage,
+        private readonly WebpConverter $webp,
     ) {}
 
     /**
@@ -66,6 +68,11 @@ class BadgeImageService
             throw new RuntimeException(sprintf('Could not store the badge image at "%s".', $path));
         }
 
+        // W11: derive the `.webp` sibling (server-side sync, no queue). The
+        // badge row/path stays the original — delivery prefers the sibling when
+        // the client accepts WebP. A conversion failure is never fatal.
+        $this->syncWebp($path, $file);
+
         return BadgeImage::create([
             'mandant_id' => $mandant->id,
             'path' => $path,
@@ -75,16 +82,34 @@ class BadgeImageService
     }
 
     /**
-     * Remove the stored file (new layout on `media` or legacy on `private`) and
-     * the row. Template `layout` entries referencing this id are intentionally
-     * NOT rewritten — they keep their `image_id` and the renderer falls back to
-     * an empty box (documented behavior, features/badge-template-editor.md).
+     * Remove the stored file (new layout on `media` or legacy on `private`),
+     * its derived `.webp` sibling (W11) and the row. Template `layout` entries
+     * referencing this id are intentionally NOT rewritten — they keep their
+     * `image_id` and the renderer falls back to an empty box (documented
+     * behavior, features/badge-template-editor.md).
      */
     public function destroy(BadgeImage $image): void
     {
         $this->storage->delete($image->path);
+        $this->storage->deleteAlternateExtensions($image->path);
 
         $image->delete();
+    }
+
+    /**
+     * Write the `.webp` sibling, tolerating a conversion failure (the original
+     * is already persisted and stays authoritative).
+     */
+    private function syncWebp(string $path, UploadedFile $file): void
+    {
+        try {
+            $this->webp->syncSibling($path, $file->getRealPath(), WebpConverter::PRESET_LOGO);
+        } catch (RuntimeException $exception) {
+            Log::warning('WebP sibling conversion failed; delivery falls back to the original.', [
+                'path' => $path,
+                'message' => $exception->getMessage(),
+            ]);
+        }
     }
 
     /**

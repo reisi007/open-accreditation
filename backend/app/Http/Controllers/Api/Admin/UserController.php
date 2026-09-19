@@ -55,8 +55,13 @@ class UserController extends Controller
             ->whereHas('roleUserAssignments', fn (Builder $q) => $q->forMandant($mandantId))
             ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])]);
 
-        if (array_key_exists('search', $validated) && $validated['search'] !== '') {
-            $term = LikeSearch::escape((string) $validated['search']);
+        // M5: a whitespace-only `search` ('   ') is treated exactly like an
+        // absent one — otherwise LIKE '%   %' would silently filter everything
+        // out instead of returning the unfiltered list.
+        $search = trim((string) ($validated['search'] ?? ''));
+
+        if ($search !== '') {
+            $term = LikeSearch::escape($search);
             $query->where(
                 fn (Builder $q) => $q
                     // CC-R1: `LOWER()` on both sides pins case-insensitive search

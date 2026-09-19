@@ -224,6 +224,22 @@ class AdminApprovalTest extends TestCase
             ->assertJsonValidationErrors('search');
     }
 
+    public function test_applications_index_whitespace_only_search_is_treated_as_unfiltered(): void
+    {
+        // M5: `search=%20%20%20` must behave like an absent search (return the
+        // full list), not like LIKE '%   %' (which matches almost nothing).
+        $accreditation = $this->createAccreditation(['quota' => 10]);
+        $jane = User::factory()->create(['name' => 'Jane Doe', 'email' => 'jane@example.com']);
+        $john = User::factory()->create(['name' => 'John Smith', 'email' => 'john@example.com']);
+        $this->makeApplication($accreditation, $jane, ['status' => 'approved']);
+        $this->makeApplication($accreditation, $john, ['status' => 'requested']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/applications?search='.rawurlencode('   '))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+    }
+
     public function test_team_admin_sees_only_own_teams_applications(): void
     {
         $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id);

@@ -61,7 +61,11 @@ class UserMediaService
         $path = Storage::disk('private')->putFileAs(
             sprintf('user-media/%s/%d/%s', $mandantSlug, $user->id, $type->value),
             $file,
-            Str::uuid()->toString().'.'.$file->getClientOriginalExtension(),
+            // W11: the on-disk extension derives from the validated MIME type,
+            // never from the client-supplied filename (same rule as the public
+            // brand media, `ImageUploadRules`). The client extension was
+            // previously passed through verbatim.
+            Str::uuid()->toString().'.'.ImageUploadRules::extensionFor($file),
         );
 
         return UserMedia::create([

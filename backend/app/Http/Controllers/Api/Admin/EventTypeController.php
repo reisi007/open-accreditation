@@ -21,7 +21,6 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Admin CRUD for event types (W2) of the current mandant.
@@ -142,7 +141,7 @@ class EventTypeController extends Controller
         return response()->noContent();
     }
 
-    public function showLogo(EventType $eventType): StreamedResponse|JsonResponse
+    public function showLogo(Request $request, EventType $eventType): Response|JsonResponse
     {
         $this->currentMandantId();
         $this->assertMandantScope($eventType, (int) MandantContext::currentId());
@@ -153,9 +152,12 @@ class EventTypeController extends Controller
             return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
         }
 
-        return $this->storage->response($path, null, [
-            'Content-Type' => $this->storage->mimeType($path),
-        ]);
+        return $this->storage->accelResponse(
+            $path,
+            (string) $request->header('Accept', ''),
+            null,
+            ['Content-Type' => $this->storage->mimeType($path)],
+        );
     }
 
     public function storeLogo(Request $request, EventType $eventType): EventTypeResource

@@ -1293,6 +1293,21 @@ class SubAccreditationTest extends TestCase
             ->assertJsonValidationErrors('search');
     }
 
+    public function test_admin_sub_accreditations_whitespace_only_search_is_treated_as_unfiltered(): void
+    {
+        // M5: `search=%20%20%20` must behave like an absent search (return the
+        // full list), not like LIKE '%   %' (which matches almost nothing).
+        $first = $this->createAccreditation(['quota' => 2]);
+        $first->subAccreditations()->create(['type' => 'park', 'quota' => 1]);
+        $second = $this->createAccreditation(['quota' => 2]);
+        $second->subAccreditations()->create(['type' => 'seat', 'quota' => 1]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/sub-accreditations?search='.rawurlencode('   '))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+    }
+
     public function test_admin_sub_accreditations_foreign_accreditation_filter_is_rejected(): void
     {
         $categoryB = $this->mandantB->categories()->create(['name' => 'Presse', 'slug' => 'presse-b']);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\Mandant;
 use App\Rules\ValidUtf8;
+use App\Services\MandantMediaService;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,8 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class MandantController extends Controller
 {
+    public function __construct(private readonly MandantMediaService $media) {}
+
     public function index(): AnonymousResourceCollection
     {
         return MandantResource::collection(
@@ -99,6 +102,12 @@ class MandantController extends Controller
         foreach ($mandant->domains()->get() as $domain) {
             MandantContext::forgetHost($domain->hostname);
         }
+
+        // The DB cascade removes the rows but never the files: drop the brand
+        // media (logo/header + their `.webp` siblings) before the row goes, so
+        // deleting a mandant leaves no public-media orphans (W11).
+        $this->media->purge($mandant, 'logo');
+        $this->media->purge($mandant, 'header');
 
         $mandant->delete();
 

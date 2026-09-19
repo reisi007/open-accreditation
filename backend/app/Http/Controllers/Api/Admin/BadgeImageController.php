@@ -17,7 +17,6 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Mandant-owned badge images (features/badge-template-editor.md, "Elementtyp
@@ -98,12 +97,13 @@ class BadgeImageController extends Controller
      * Auth-gated inline delivery of the stored file (editor thumbnails /
      * previews). A foreign-mandant id never binds (tenant-guarded route model).
      */
-    public function showFile(BadgeImage $badgeImage): StreamedResponse
+    public function showFile(Request $request, BadgeImage $badgeImage): Response
     {
         abort_unless($this->storage->exists($badgeImage->path), 404);
 
-        return $this->storage->response(
+        return $this->storage->accelResponse(
             $badgeImage->path,
+            (string) $request->header('Accept', ''),
             $badgeImage->original_name,
             ['Content-Type' => $badgeImage->mime],
         );

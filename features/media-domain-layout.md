@@ -1,11 +1,21 @@
 # Media Domain Layout (W1/W6) — Verzeichnis-Layout, Fallback, Backfill
 
-**Status:** Implementiert (W1, W6, W7; 2026-09-19). Dauerhafter SOLL-Zustand der
+**Status:** Implementiert (W1, W6, W7, W11; 2026-09-19). Dauerhafter SOLL-Zustand der
 öffentlichen Media-Ablage und ihrer Auslieferung. Single Source of Truth für den
 Pfad-Vertrag ist `backend/app/Services/MediaPathService.php`; die Caddy-Seite ist
-in `deployment/caddy-media-overrides.Caddyfile` festgehalten (Entwurf, Go-Live
-offen). Brand-Datei-Satz und Caddy-Override-Kontext: `features/03-caddy-brand-files.md`;
+in `deployment/caddy-media-overrides.Caddyfile` (Root-Brand-Dateien) und
+`deployment/caddy-media-api-accel.Caddyfile` (DB-Media über
+`X-Accel-Redirect`) festgehalten (Entwurf, Go-Live offen). Brand-Datei-Satz und
+Caddy-Override-Kontext: `features/03-caddy-brand-files.md`;
 Self-Service-Oberflächen: `features/04-media-self-service.md`.
+
+W11-Wechsel in Kurzform: DB-gestützte Media-Dateien (Brand-Logo/Header,
+Team-, Event-Typ- und Badge-Dateien) werden **nicht mehr direkt** von Caddy aus
+`MEDIA_ROOT` ausgeliefert, sondern über die bestehenden auth-/portal-gebundenen
+API-Show-Routen. Das Backend antwortet mit `X-Accel-Redirect`, Caddy liefert die
+Datei intern aus (`(media_api_accel)`). Der frühere Direkt-Serve der Bäume
+`/teams/*`, `/event-types/*`, `/badges/*` ist entfallen; `(media_overrides)`
+deckt nur noch die deployment-bereitgestellten Root-Brand-Dateien ab.
 
 Grundsatz: **Öffentlich wird nur, was explizit freigegeben ist.** Personenbilder
 (Porträt, Presse-ID, Anhänge) verlassen die `private`-Disk nie.
@@ -151,30 +161,104 @@ Caddy hinterlegen. Bleibt als Go-Live-Punkt offen (siehe
 
 ## Caddy-Snippet-Verweis + Cache-Semantik
 
-Referenz: `deployment/caddy-media-overrides.Caddyfile`. Das Fragment
-`(media_overrides)` wird **nicht** automatisch geladen und gehört in die zentrale
+Referenzen: `deployment/caddy-media-overrides.Caddyfile` (Root-Brand-Dateien)
+und `deployment/caddy-media-api-accel.Caddyfile` (Accel-Delivery). Beide
+Fragmente werden **nicht** automatisch geladen und gehören in die zentrale
 Proxy-Caddyfile (`~/dev/caddyfile/Caddyfile`), **vor** dem SPA-Fallback-`handle`
 der Mandanten-Site-Blöcke (`handle`-Blöcke sind exklusiv, der erste Treffer
-gewinnt). Argument `{args[0]}` ist `MEDIA_ROOT`; der Caddy-Container braucht denselben
-read-only Bind-Mount.
+gewinnt). Der Caddy-Container braucht denselben read-only `MEDIA_ROOT`-Mount.
 
-Matcher (`@media_paths`): der Brand-Datei-Satz aus `features/03` plus
-`/teams/*`, `/event-types/*`, `/badges/*`.
+### (media_overrides) — Root-Brand-Dateien (kein DB-Bezug)
+
+Matcher (`@media_paths`): der Brand-Datei-Satz aus `features/03`
+(`/logo.svg`, Favicons, `site.webmanifest`, `browserconfig.xml`, …) — **ohne**
+`/teams/*`, `/event-types/*`, `/badges/*` (W11).
 
 | Sektion | Cache-Control | Begründung |
 |---|---|---|
-| `/badges/*` (nur 2xx) | `public, max-age=31536000, immutable` | Badge-Dateien werden unter server-generierter **ULID** abgelegt und nie überschrieben → content-addressed, „Dateiname = Inhalt" |
-| Übrige Bilder (nur 2xx) | `public, max-age=3600, must-revalidate` + ETag | **Feste Namen** (`logo.<ext>`, `header.<ext>`): ein Replace schreibt dieselbe URL neu. ETag-Revalidierung nach Ablauf greift spätestens nach 1 h statt erst nach 1 Jahr |
+| Brand-Bilder (nur 2xx) | `public, max-age=3600, must-revalidate` + ETag | **Feste Namen** (`logo.svg`, `favicon.ico`): ein Replace schreibt dieselbe URL neu. ETag-Revalidierung nach Ablauf greift spätestens nach 1 h statt erst nach 1 Jahr |
 | Manifest + übrige Nicht-Bilder | `no-cache, no-store, must-revalidate` | `site.webmanifest` u. a. müssen nach Brand-Wechsel sofort greifen |
 
-- `match status 2xx` stellt sicher, dass ein verfehltes `try_files` (= 404) nie
-  immutable im Browser landet.
-- `file_server { hide .* }` blendet sämtliche Dotfiles (`.env`, `.env.local`,
-  `.htaccess`, `.DS_Store`, …) aus — Defense-in-Depth zusätzlich zu den
-  Matchern. Kein `browse` → keine Directory-Listings.
-- Validierung vor Sync: `caddy validate` in Docker; Laufzeit-Re-Check W7 grün
-  (Domain-Override schlägt Root-Fallback, Badge immutable, Dotfiles/missing 404).
-  Go-Live-Freigabe, Sync und Reload liegen außerhalb dieses Repos.
+### (media_api_accel) — DB-gestützte Media über `X-Accel-Redirect` (W11)
+
+Das Backend antwortet auf den Show-Routen (Portal-Logo/Header, Admin-Logo/
+Header, Team-/Event-Typ-/Badge-Datei) mit einem **leeren 200** und
+`X-Accel-Redirect: <prefix>/<media-relativpfad>`. Caddy fängt den Header in
+`handle_response @accel_header` ab und liefert die Datei direkt aus `MEDIA_ROOT`.
+`copy_response_headers { include Cache-Control Content-Type Content-Disposition
+Vary ETag }` überträgt die Backend-Semantik auf die interne Dateiantwort.
+
+| Klasse | Cache-Control (Backend → Caddy-copy) | Begründung |
+|---|---|---|
+| `/badges/*` | `public, max-age=31536000, immutable` | Server-generierte **ULID**, Dateiname wird nie überschrieben → content-addressed |
+| Feste Namen (`logo.<ext>`, `header.<ext>`, Team-/Event-Typ-Logos) | `public, max-age=3600, must-revalidate` | Ein Replace schreibt dieselbe URL neu; ETag-Revalidierung nach 1 h |
+
+- **Autoritätswechsel:** Die DB/der Service bleibt die Autorität (Mandanten-
+  Isolation, 404-Semantik, Pfad-Sanitisierung). Der Accel-Zweig ist kein
+  zweiter Wahrheitspfad: Er wird ausschließlich aus einer gültigen API-Antwort
+  ausgelöst und nur für Pfade, die das Backend explizit freigibt.
+- **Negativ-Guards:** `_tenants/…` (host-neutral, von Caddy bewusst nicht
+  erreichbar) und Legacy-`private`-Pfade erhalten **nie** einen Accel-Header —
+  sie werden weiter durch PHP gestreamt bzw. 404. Personenbilder
+  (`user-media/*`) bleiben vollständig privat (eigene Disk, Streaming; nie
+  Accel).
+- **Dual-Modus (Risiko R1):** `MEDIA_ACCEL_PREFIX` (config `media.accel_prefix`)
+  ist **default AUS** (leer) → das Backend streamt wie bisher. Ist das Flag
+  gesetzt, aber der Snippet fehlt, entstünde ein bodyless 200; deshalb gilt die
+  Reihenfolge: **erst Snippet ausrollen (inaktiv), dann das Flag setzen.**
+- **Spoof-Strip:** `header_up -X-Accel-Redirect` entfernt einen vom Client
+  geschmuggelten Request-Header vor dem Upstream. `@accel_get method GET`
+  begrenzt die interne Auslieferung auf GET. `file_server { hide .* }` blendet
+  Dotfiles aus.
+- **Validierung vor Sync:** `caddy validate` in Docker; Laufzeitmatrix C1–C7
+  grün (2026-09-19, caddy:2 + php:8.5-fpm): Accel-Datei wird ausgeliefert,
+  Backend-`Cache-Control`/`Content-Type`/`Content-Disposition`/`Vary`/`ETag`
+  überleben den Accel-Block, `X-Accel-Redirect` erreicht den Client nie,
+  Client-Spoof wird gestrippt, Nicht-GET liefert die Datei nicht aus, Dotfile-
+  Pfade sind 404. Go-Live-Freigabe, Sync und Reload liegen außerhalb dieses Repos.
+
+## WebP-Derivate (W11)
+
+Original-Uploads bleiben autoritativ (Pfad/Endung in der DB). Zusätzlich schreibt
+jeder Brand-/Badge-Service synchron (GD, **keine Queue**) ein `.webp`-Geschwister
+per Extension-Swap (`<base>.webp`) auf die `media`-Disk:
+
+- `WebpConverter` — Presets `photo` (q82, Header/Hero) und `logo` (q90, Logos/
+  Embleme); PNG-Alpha via `imagepalettetotruecolor` + `imagealphablending(false)`
+  + `imagesavealpha`; JPEG-Exif-Orientierung wird vor dem Encoding angewandt;
+  animierte WebP werden abgelehnt (kein stiller Frame-Verlust). SVG wird nie
+  konvertiert (und erreicht den Service nicht).
+- Auslieferung: `MediaStorage::accelResponse` bevorzugt das `.webp`-Geschwister,
+  wenn der Client `Accept: image/webp` sendet; sonst das Original. Kein `Vary`
+  auf den kanonischen URLs.
+- **Backfill:** `php artisan media:convert-to-webp` (dry-run default,
+  `--force`, `--prune-originals`) erzeugt Geschwister für Bestandsdaten,
+  idempotent; `--prune-originals` löscht das Raster-Original und stellt
+  Pfad/Mime der DB-Zeile auf `.webp` um (der Badge-Renderer/DomPDF verarbeitet
+  WebP).
+- **Alpha/Exif/Format** sind durch `WebpConversionTest` abgedeckt; die
+  Badge-PDF-Pipeline mit WebP durch `BadgeRenderServiceTest`.
+
+## Selbstreinigender Derivat-Cache (W11)
+
+Abgeleitete `.webp`-Dateien dürfen keine Waisen werden:
+
+- **Synchron:** Jeder Delete-Pfad räumt das Geschwister mit — `destroy()`/
+  `purge()` der Brand-Services, `BadgeImageService::destroy`, der Mandant-Delete
+  (Logo/Header) und der Slug-Move (verschiebt das Geschwister mit). Zusätzlich
+  löscht ein Replace alle Alt-Endungen desselben Blatts
+  (`deleteAlternateExtensions`), sodass `logo.png` → `logo.jpg` keine
+  `logo.jpeg`/`logo.webp`-Reste hinterlässt.
+- **Reconciliation:** `php artisan media:prune-orphans` (dry-run default,
+  `--force`) listet/löscht `media`-Dateien, deren Pfad durch **keine** DB-Zeile
+  referenziert wird (alle `logo_path`/`path`-Spalten plus deren `.webp`-
+  Geschwister). Host-neutrale `_tenants/<id>/…`-Pfade sind normale Referenzen
+  und werden erst nach dem Löschen des Mandanten zu Waisen. Nur das verwaltete
+  Media-Layout wird betrachtet; deployment-bereitgestellte Root-Brand-Dateien
+  (`logo.svg`, Favicons, …) werden nie angefasst. Empfohlener Rhythmus:
+  **wöchentlich** über den Scheduler
+  (`Schedule::command('media:prune-orphans --force')->weekly();`) — die
+  Scheduler-Infrastruktur selbst wird hier nicht aufgebaut.
 
 ## Badge-Public-Posture
 
@@ -205,21 +289,31 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 | `App\Services\ImageUploadRules` | Upload-Kontrakt: MIME-Whitelist → Endung, max. 2000×2000 px |
 | `App\Services\{Mandant,Team,EventType}MediaService` | Upload/Replace/Delete je Entität im Domain-/host-neutralen Layout |
 | `App\Services\BadgeImageService` | Badge-Upload unter ULID + Addressing-Zeile |
+| `App\Services\WebpConverter` | Synchrones GD-WebP-Geschwister (Presets, Alpha, Exif, animiert-Ablehnung) |
 | `App\Console\Commands\MediaMigrateToDomainLayoutCommand` | Dry-Run-Backfill der Legacy-`private`-Pfade |
-| `deployment/caddy-media-overrides.Caddyfile` | Öffentliche Auslieferung + Cache-Semantik (Entwurf) |
+| `App\Console\Commands\MediaConvertToWebpCommand` | WebP-Backfill (`--prune-originals`) |
+| `App\Console\Commands\MediaPruneOrphansCommand` | Waise-Reconciliation (`media:prune-orphans`) |
+| `deployment/caddy-media-overrides.Caddyfile` | Root-Brand-Dateien + Cache-Semantik (Entwurf) |
+| `deployment/caddy-media-api-accel.Caddyfile` | API-Accel-Delivery der DB-Media (Entwurf) |
 
 ## Invarianten (nicht regredieren)
 
 - **Mandanten-Isolation:** `<domain>/…` matcht nur den eigenen Host; kein
   Cross-Tenant-Leak bei Case-/Alias-Abweichung (dann greift globaler Root oder
   404).
-- **Kein SPA-Fallback für Media:** fehlende Media-Dateien sind 404, nie
+- **Kein SPA-Fallback für Media:** fehlende Brand-/Root-Dateien sind 404, nie
   `index.html`.
-- **Personenbilder privat:** `user-media/*` verlässt die `private`-Disk nicht.
+- **Personenbilder privat:** `user-media/*` verlässt die `private`-Disk nicht
+  und erhält nie einen Accel-Header.
 - **Primär-Domain stabil:** neue Alias-Domains verschieben keine Medien.
-- **`_tenants` reserviert:** führender Unterstrich ist kein gültiger Hostname.
+- **`_tenants` reserviert:** führender Unterstrich ist kein gültiger Hostname;
+  `_tenants/…` wird nie per Accel ausgeliefert.
 - **Cache:** nur Badges (ULID, content-addressed) `immutable`; feste Namen
   `must-revalidate`; Fehlversuche (404) nie immutable.
+- **Accel default AUS (R1):** `MEDIA_ACCEL_PREFIX` leer → Streaming; niemals
+  Flag und Snippet gegenläufig ausrollen.
+- **Derivat-Cache selbstreinigend:** kein `.webp` überlebt Original/Entität;
+  `media:prune-orphans` hält die Disk konvergent.
 - **Portabilität (§2):** reine PHP-/Query-Builder-Logik, keine PG-Funktionen.
 
 ## Tests
@@ -233,13 +327,29 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 - `backend/tests/Feature/AdminTeamParticipationTest.php` +
   `AdminEventTypeTest.php` — Team-/Event-Typ-Logo Upload/Replace/Delete,
   Cross-Domain-Isolation.
-- `caddy validate` + W7-Laufzeit-Re-Check (Cache-/Fallback-/Dotfile-Verhalten).
+- `backend/tests/Feature/MediaAccelRedirectTest.php` — B1–B10: Dual-Modus,
+  Header-Wert, Cache-Klassen, WebP-Variantenwahl, `_tenants`/Legacy/Traversal
+  nie Header, 404-Semantik, Portal-Isolation.
+- `backend/tests/Feature/WebpConversionTest.php` — Alpha, Exif-Rotation,
+  Formate, animiert-Ablehnung, Geschwister je Service, kein Alt-Leak,
+  Slug-Move, MIME→Endung bei `UserMedia`.
+- `backend/tests/Feature/MediaDerivativeCleanupTest.php` — Delete-Kaskade je
+  Service-Typ inkl. Mandant-Delete.
+- `backend/tests/Feature/MediaConvertToWebpTest.php` — Backfill dry-run/force/
+  prune/svg/idempotent.
+- `backend/tests/Feature/MediaPruneOrphansTest.php` — dry-run listet Waise,
+  referenzierte/brand-root nicht; `--force` löscht nur Waise; idempotent.
+- `BadgeRenderServiceTest` — Badge-PDF mit WebP-Upload-Bild (DomPDF).
+- `caddy validate` + Laufzeitmatrix C1–C7 (caddy:2 + php:8.5-fpm).
 
 ## Offene Punkte
 
 - **Go-Live Caddy:** `MEDIA_ROOT` auf dem Host anlegen/befüllen (Root-Fallback =
-  Brand-Dateien), read-only Mount, Snippet-Import in alle Mandanten-Site-Blöcke,
-  Sync/Reload erst nach Freigabe.
+  Brand-Dateien), read-only Mount, `(media_overrides)` + `(media_api_accel)` in
+  alle Mandanten-Site-Blöcke, danach `MEDIA_ACCEL_PREFIX` setzen; Sync/Reload
+  erst nach Freigabe.
+- **Scheduler-Cron:** `media:prune-orphans --force` wöchentlich einplanen
+  (Infrastruktur außerhalb dieses Repos).
 - **Alias-Domains:** Multi-Domain-Mandanten vor Go-Live klären (Alias-Verzeichnisse
   oder Host-Mapping).
 - **Case-Annahme (L1):** beobachten; bei Bedarf Host-Normalisierung in Caddy

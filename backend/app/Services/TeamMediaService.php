@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Team;
 use DomainException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -29,6 +30,7 @@ class TeamMediaService
         private readonly MediaPathService $paths,
         private readonly MediaHostResolver $hosts,
         private readonly MediaStorage $storage,
+        private readonly WebpConverter $webp,
     ) {}
 
     /**
@@ -55,9 +57,18 @@ class TeamMediaService
             throw new RuntimeException(sprintf('Could not store the team logo at "%s".', $path));
         }
 
-        if ($previous !== null && $previous !== $path) {
+        // W11: derive the `.webp` sibling (server-side sync, no queue). A
+        // conversion failure is never fatal — the original stays authoritative.
+        $sibling = $this->syncWebp($path, $file);
+
+        $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
+
+        if ($previous !== null && ! in_array($previous, $keep, true)) {
             $this->storage->delete($previous);
         }
+
+        // W11: drop stale extension variants (`logo.png` -> `logo.jpg`).
+        $this->storage->deleteAlternateExtensions($path, $keep);
 
         $team->update(['logo_path' => $path]);
     }
@@ -74,19 +85,22 @@ class TeamMediaService
 
     /**
      * Remove the logo file only (no column update) — used when the team row
-     * itself is deleted and the column write would be pointless.
+     * itself is deleted and the column write would be pointless. The derived
+     * `.webp` sibling is removed with it (W11).
      */
     public function purge(Team $team): void
     {
         if ($team->logo_path !== null) {
             $this->storage->delete($team->logo_path);
+            $this->storage->deleteAlternateExtensions($team->logo_path);
         }
     }
 
     /**
-     * Keep the logo reachable after a slug change: move the file to the path of
-     * the new slug (W2-F2 L2). The path column is rewritten even when the file
-     * is already gone, so the stored path never points at the previous slug.
+     * Keep the logo reachable after a slug change: move the file (and its
+     * `.webp` sibling) to the path of the new slug (W2-F2 L2, W11). The path
+     * column is rewritten even when the file is already gone, so the stored
+     * path never points at the previous slug.
      */
     public function moveForSlugChange(Team $team, string $oldSlug): void
     {
@@ -102,12 +116,47 @@ class TeamMediaService
             return;
         }
 
-        if ($this->storage->exists($previous)) {
-            $this->storage->put($newPath, $this->storage->get($previous));
-            $this->storage->delete($previous);
-        }
+        $this->moveWithSibling($previous, $newPath);
 
         $team->update(['logo_path' => $newPath]);
+    }
+
+    /**
+     * Move an image and its derived `.webp` sibling to a new base path.
+     */
+    private function moveWithSibling(string $from, string $to): void
+    {
+        $pairs = [
+            [$from, $to],
+            [$this->storage->webpSiblingPath($from), $this->storage->webpSiblingPath($to)],
+        ];
+
+        foreach ($pairs as [$old, $new]) {
+            if ($old === null || $new === null || ! $this->storage->exists($old)) {
+                continue;
+            }
+
+            $this->storage->put($new, $this->storage->get($old));
+            $this->storage->delete($old);
+        }
+    }
+
+    /**
+     * Write the `.webp` sibling, tolerating a conversion failure (the original
+     * is already persisted and stays authoritative).
+     */
+    private function syncWebp(string $path, UploadedFile $file): ?string
+    {
+        try {
+            return $this->webp->syncSibling($path, $file->getRealPath(), WebpConverter::PRESET_LOGO);
+        } catch (RuntimeException $exception) {
+            Log::warning('WebP sibling conversion failed; delivery falls back to the original.', [
+                'path' => $path,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     /**

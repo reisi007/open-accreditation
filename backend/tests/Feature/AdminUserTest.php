@@ -181,6 +181,19 @@ class AdminUserTest extends TestCase
             ->assertJsonValidationErrors('search');
     }
 
+    public function test_index_whitespace_only_search_is_treated_as_unfiltered(): void
+    {
+        // M5: `search=%20%20%20` must behave like an absent search (return the
+        // full list), not like LIKE '%   %' (which matches almost nothing).
+        $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'alice@example.com');
+        $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'bob@example.com');
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/users?search='.rawurlencode('   '))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+    }
+
     public function test_index_role_filter_filters_by_assignment_slug(): void
     {
         $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'user@example.com');

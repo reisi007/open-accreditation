@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Mandant;
 use DomainException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -38,6 +39,7 @@ class MandantMediaService
         private readonly MediaPathService $paths,
         private readonly MediaHostResolver $hosts,
         private readonly MediaStorage $storage,
+        private readonly WebpConverter $webp,
     ) {}
 
     /**
@@ -66,9 +68,20 @@ class MandantMediaService
             throw new RuntimeException(sprintf('Could not store the %s image at "%s".', $kind, $path));
         }
 
-        if ($previous !== null && $previous !== $path) {
+        // W11: derive the `.webp` sibling next to the original (server-side
+        // sync, no queue). A conversion failure is never fatal — the original
+        // stays authoritative and delivery falls back to it.
+        $sibling = $this->syncWebp($path, $file, $this->presetFor($kind));
+
+        $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
+
+        if ($previous !== null && ! in_array($previous, $keep, true)) {
             $this->storage->delete($previous);
         }
+
+        // W11: a replace may change the extension (`logo.png` -> `logo.jpg`).
+        // Drop every stale sibling variant except the files just written.
+        $this->storage->deleteAlternateExtensions($path, $keep);
 
         $this->deleteLegacy($mandant, $kind);
 
@@ -76,19 +89,32 @@ class MandantMediaService
     }
 
     /**
-     * Remove the stored file (new and legacy layout) and reset the path column.
+     * Remove the stored file (new and legacy layout, plus its `.webp` sibling)
+     * and reset the path column.
      */
     public function destroy(Mandant $mandant, string $kind): void
+    {
+        $this->purge($mandant, $kind);
+
+        $mandant->update([$this->columnFor($kind) => null]);
+    }
+
+    /**
+     * Remove the stored file (new and legacy layout, plus its `.webp` sibling)
+     * without touching the path column — used when the mandant row itself is
+     * deleted and the column write would be pointless.
+     */
+    public function purge(Mandant $mandant, string $kind): void
     {
         $path = $this->path($mandant, $kind);
 
         if ($path !== null) {
             $this->storage->delete($path);
+            // W11: the derived WebP sibling must not outlive its original.
+            $this->storage->deleteAlternateExtensions($path);
         }
 
         $this->deleteLegacy($mandant, $kind);
-
-        $mandant->update([$this->columnFor($kind) => null]);
     }
 
     /**
@@ -97,6 +123,32 @@ class MandantMediaService
     public function path(Mandant $mandant, string $kind): ?string
     {
         return $kind === 'logo' ? $mandant->logo_path : $mandant->header_path;
+    }
+
+    /**
+     * Write the `.webp` sibling, tolerating a conversion failure (the original
+     * is already persisted and stays authoritative).
+     */
+    private function syncWebp(string $path, UploadedFile $file, string $preset): ?string
+    {
+        try {
+            return $this->webp->syncSibling($path, $file->getRealPath(), $preset);
+        } catch (RuntimeException $exception) {
+            Log::warning('WebP sibling conversion failed; delivery falls back to the original.', [
+                'path' => $path,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Header images are wide/photographic (q82); the logo is sharp-edged (q90).
+     */
+    private function presetFor(string $kind): string
+    {
+        return $kind === 'header' ? WebpConverter::PRESET_PHOTO : WebpConverter::PRESET_LOGO;
     }
 
     /**

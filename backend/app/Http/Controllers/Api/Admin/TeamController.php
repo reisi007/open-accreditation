@@ -17,7 +17,6 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Team CRUD (Super Admin) plus the W4 team logo surface.
@@ -114,7 +113,7 @@ class TeamController extends Controller
      * Writes (`storeLogo`/`destroyLogo`) are hierarchical (W4-F1) — see
      * `authorizeLogoWrite()`.
      */
-    public function showLogo(Request $request, Team $team): StreamedResponse|JsonResponse
+    public function showLogo(Request $request, Team $team): Response|JsonResponse
     {
         $this->assertTeamOfCurrentMandant($team);
 
@@ -124,9 +123,12 @@ class TeamController extends Controller
             return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
         }
 
-        return $this->storage->response($path, null, [
-            'Content-Type' => $this->storage->mimeType($path),
-        ]);
+        return $this->storage->accelResponse(
+            $path,
+            (string) $request->header('Accept', ''),
+            null,
+            ['Content-Type' => $this->storage->mimeType($path)],
+        );
     }
 
     /**

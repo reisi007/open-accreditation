@@ -82,8 +82,13 @@ class AdminApplicationController extends Controller
             $query->where('applications.status', (string) $validated['status']);
         }
 
-        if (array_key_exists('search', $validated) && $validated['search'] !== '') {
-            $term = LikeSearch::escape((string) $validated['search']);
+        // M5: a whitespace-only `search` ('   ') is treated exactly like an
+        // absent one — otherwise LIKE '%   %' would silently filter everything
+        // out instead of returning the unfiltered list.
+        $search = trim((string) ($validated['search'] ?? ''));
+
+        if ($search !== '') {
+            $term = LikeSearch::escape($search);
             $query->where(function (Builder $q) use ($term) {
                 // CC-R1: `LOWER()` on both sides pins case-insensitive search
                 // and keeps Postgres (LIKE is case-sensitive) in sync with

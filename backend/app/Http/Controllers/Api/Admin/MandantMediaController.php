@@ -11,13 +11,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Auth-gated logo/header delivery and upload for mandants (Super Admin API,
  * `can:mandants.manage`). Files live on the public `media` disk in the W1
  * layout and are streamed through these routes; legacy `private` files stay
- * readable until the W6 backfill moved them.
+ * readable until the W6 backfill moved them. W11 delivery runs through
+ * `MediaStorage::accelResponse` (dual-mode, see `PortalMediaController`).
  */
 class MandantMediaController extends Controller
 {
@@ -30,14 +30,14 @@ class MandantMediaController extends Controller
         private readonly MediaStorage $storage,
     ) {}
 
-    public function showLogo(Mandant $mandant): StreamedResponse|JsonResponse
+    public function showLogo(Request $request, Mandant $mandant): Response|JsonResponse
     {
-        return $this->deliver($mandant, self::KIND_LOGO);
+        return $this->deliver($request, $mandant, self::KIND_LOGO);
     }
 
-    public function showHeader(Mandant $mandant): StreamedResponse|JsonResponse
+    public function showHeader(Request $request, Mandant $mandant): Response|JsonResponse
     {
-        return $this->deliver($mandant, self::KIND_HEADER);
+        return $this->deliver($request, $mandant, self::KIND_HEADER);
     }
 
     public function storeLogo(Request $request, Mandant $mandant): JsonResponse
@@ -81,7 +81,7 @@ class MandantMediaController extends Controller
         return response()->noContent();
     }
 
-    private function deliver(Mandant $mandant, string $kind): StreamedResponse|JsonResponse
+    private function deliver(Request $request, Mandant $mandant, string $kind): Response|JsonResponse
     {
         $path = $this->service->path($mandant, $kind);
 
@@ -91,8 +91,11 @@ class MandantMediaController extends Controller
             ], 404);
         }
 
-        return $this->storage->response($path, null, [
-            'Content-Type' => $this->storage->mimeType($path),
-        ]);
+        return $this->storage->accelResponse(
+            $path,
+            (string) $request->header('Accept', ''),
+            null,
+            ['Content-Type' => $this->storage->mimeType($path)],
+        );
     }
 }

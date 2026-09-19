@@ -7,13 +7,18 @@ use App\Services\MandantMediaService;
 use App\Services\MediaStorage;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Public (auth-free) logo/header delivery for the current mandant (P3a).
  * Files live on the public `media` disk in the W1 layout; legacy `private`
  * files stay readable until the W6 backfill moved them. A mandant without an
  * uploaded image is 404.
+ *
+ * W11: delivery runs through `MediaStorage::accelResponse` — with a configured
+ * accel prefix the backend answers empty + `X-Accel-Redirect` (Caddy serves
+ * the file from MEDIA_ROOT), otherwise it streams as before.
  */
 class PortalMediaController extends Controller
 {
@@ -22,17 +27,17 @@ class PortalMediaController extends Controller
         private readonly MediaStorage $storage,
     ) {}
 
-    public function logo(): StreamedResponse|JsonResponse
+    public function logo(Request $request): Response|JsonResponse
     {
-        return $this->deliver('logo');
+        return $this->deliver($request, 'logo');
     }
 
-    public function header(): StreamedResponse|JsonResponse
+    public function header(Request $request): Response|JsonResponse
     {
-        return $this->deliver('header');
+        return $this->deliver($request, 'header');
     }
 
-    private function deliver(string $kind): StreamedResponse|JsonResponse
+    private function deliver(Request $request, string $kind): Response|JsonResponse
     {
         $mandant = MandantContext::current();
         abort_if($mandant === null, 404, 'Mandant not found');
@@ -49,8 +54,11 @@ class PortalMediaController extends Controller
             ], 404);
         }
 
-        return $this->storage->response($path, null, [
-            'Content-Type' => $this->storage->mimeType($path),
-        ]);
+        return $this->storage->accelResponse(
+            $path,
+            (string) $request->header('Accept', ''),
+            null,
+            ['Content-Type' => $this->storage->mimeType($path)],
+        );
     }
 }

@@ -357,6 +357,19 @@ class BlacklistTest extends TestCase
             ->assertJsonValidationErrors('search');
     }
 
+    public function test_index_whitespace_only_search_is_treated_as_unfiltered(): void
+    {
+        // M5: `search=%20%20%20` must behave like an absent search (return the
+        // full list), not like LIKE '%   %' (which matches almost nothing).
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'alice@example.com']);
+        Blacklist::create(['mandant_id' => $this->mandantA->id, 'domain' => 'blocked.org']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/blacklists?search='.rawurlencode('   '))
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+    }
+
     public function test_super_admin_can_delete_own_mandant_entry(): void
     {
         $entry = Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'bye@example.com']);

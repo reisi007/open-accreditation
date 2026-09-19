@@ -12,7 +12,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Mandant self-service logo/header management (`can:mandant.media.manage`,
@@ -34,14 +33,14 @@ class MandantMediaSelfServiceController extends Controller
         private readonly MediaStorage $storage,
     ) {}
 
-    public function showLogo(): StreamedResponse|JsonResponse
+    public function showLogo(Request $request): Response|JsonResponse
     {
-        return $this->deliver(self::KIND_LOGO);
+        return $this->deliver($request, self::KIND_LOGO);
     }
 
-    public function showHeader(): StreamedResponse|JsonResponse
+    public function showHeader(Request $request): Response|JsonResponse
     {
-        return $this->deliver(self::KIND_HEADER);
+        return $this->deliver($request, self::KIND_HEADER);
     }
 
     public function storeLogo(Request $request): JsonResponse
@@ -86,7 +85,7 @@ class MandantMediaSelfServiceController extends Controller
         return response()->noContent();
     }
 
-    private function deliver(string $kind): StreamedResponse|JsonResponse
+    private function deliver(Request $request, string $kind): Response|JsonResponse
     {
         $mandant = $this->mandant();
         $path = $this->service->path($mandant, $kind);
@@ -97,9 +96,12 @@ class MandantMediaSelfServiceController extends Controller
             ], 404);
         }
 
-        return $this->storage->response($path, null, [
-            'Content-Type' => $this->storage->mimeType($path),
-        ]);
+        return $this->storage->accelResponse(
+            $path,
+            (string) $request->header('Accept', ''),
+            null,
+            ['Content-Type' => $this->storage->mimeType($path)],
+        );
     }
 
     /**
