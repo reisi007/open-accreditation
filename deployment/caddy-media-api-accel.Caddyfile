@@ -1,0 +1,94 @@
+# ============================================================================
+# (media_api_accel) — Caddy snippet: API-gated Accel-Delivery aus MEDIA_ROOT
+# ============================================================================
+#
+# Repo:   open-accreditation / deployment/caddy-media-api-accel.Caddyfile
+# Paket:  W11 (Header-Delivery + WebP)
+# Status: ENTWURF — Go-Live noch nicht freigegeben. Fragment, wird NICHT
+#         automatisch geladen; gehört in die zentrale Proxy-Caddyfile
+#         (~/dev/caddyfile/Caddyfile), NICHT in dieses Repo.
+#
+# ZWECK
+#   Das Backend liefert für öffentliche Media-Show-Routen (Portal-Logo/Header,
+#   Admin-Logo/Header, Team-/Event-Typ-/Badge-Datei) einen leeren 200-Body plus
+#          X-Accel-Redirect: <prefix>/<media-relativpfad>
+#   (siehe MediaStorage::accelResponse, config/media.php MEDIA_ACCEL_PREFIX).
+#   Caddy fängt den Header in `handle_response` ab und liefert die Datei direkt
+#   aus MEDIA_ROOT aus — kein PHP-Streaming, aber weiterhin auth-gated, weil der
+#   Header nur aus einer gültigen API-Antwort entsteht.
+#
+# WO EINBAUEN (pro Mandanten-Site-Block, VOR dem SPA-Fallback-`handle`)
+#        import media_api_accel <MEDIA_ROOT> <ACCEL_PREFIX> <UPSTREAM>
+#   Beispiel:
+#        import media_api_accel /srv/media/accreditation /__media accreditation_backend:9000
+#   - MEDIA_ROOT   identischer read-only Mount wie beim Backend.
+#   - ACCEL_PREFIX exakt der Wert von MEDIA_ACCEL_PREFIX im Backend (Default leer
+#                  = Accel AUS, dann liefert das Backend den Stream selbst und
+#                  dieser Header-Pfad wird nie ausgelöst).
+#   - UPSTREAM     PHP-FPM-Host:Port (fastcgi), z. B. accreditation_backend:9000.
+#   Der Snippet ersetzt den bisherigen `/api*`-Proxy-Block NICHT — er IST der
+#   `/api*`-Block (handle /api* + fastcgi + Accel-Auswertung).
+#
+# RISIKO R1 (Leerer 200 bei Flag/Caddy-Mismatch)
+#   Ist MEDIA_ACCEL_PREFIX im Backend gesetzt, fehlt aber der Snippet (oder umgekehrt),
+#   entsteht ein bodyless 200 ohne Inhalt. Reihenfolge: ERST Snippet ausrollen
+#   (inaktiv, solange das Flag leer ist), DANN MEDIA_ACCEL_PREFIX setzen. Das Flag
+#   ist default AUS, damit ein fehlender Snippet nie einen leeren 200 erzeugt.
+#
+# SICHERHEIT
+#   - `header_up -X-Accel-Redirect` entfernt einen vom Client geschmuggelten
+#     Request-Header, bevor er den Upstream erreicht (Spoof-Strip): Der interne
+#     Auslieferungszweig kann ausschließlich durch eine Upstream-ANTWORT ausgelöst
+#     werden, nie durch Client-Eingabe.
+#   - `@accel_get method GET` begrenzt die interne Auslieferung auf GET.
+#   - `file_server { hide .* }` blendet Dotfiles aus (Defense-in-Depth zusätzlich
+#     zur serverseitigen Pfad-Sanitisierung).
+#   - Das Backend sendet den Header nie für `_tenants/`- oder Legacy-`private`-
+#     Pfade (MediaStorage::accelResponse), daher sind host-neutrale Dateien über
+#     diesen Weg nicht erreichbar.
+#
+# CACHE
+#   Das Backend setzt die W7-Klassen (Badges immutable, feste Namen
+#   must-revalidate) und `copy_response_headers` überträgt sie auf die interne
+#   Dateiantwort. Ohne den Copy-Schritt ginge die Backend-Semantik verloren.
+#
+# VALIDIERUNG
+#     docker run --rm -v "$PWD/deployment:/etc/caddy:ro" caddy:2 \
+#       caddy validate --config /etc/caddy/<test>.Caddyfile --adapter caddyfile
+#
+# ============================================================================
+(media_api_accel) {
+	handle /api* {
+		reverse_proxy {args[2]} {
+			transport fastcgi {
+				env SCRIPT_FILENAME /var/www/html/public/index.php
+				resolve_root_symlink
+			}
+
+			# Spoof-Strip: ein Client-Header darf den Accel-Zweig nie auslösen.
+			header_up -X-Accel-Redirect
+
+			@accel_header header X-Accel-Redirect *
+			handle_response @accel_header {
+				# CRITICAL (W11): Backend-Header auf die interne Dateiantwort
+				# übertragen — sonst verliert die Auslieferung Cache-Control,
+				# Content-Type, Content-Disposition, Vary und ETag.
+				copy_response_headers {
+					include Cache-Control Content-Type Content-Disposition Vary ETag
+				}
+
+				# Nur GET löst die interne Datei-Auslieferung aus.
+				@accel_get method GET
+				handle @accel_get {
+					root * {args[0]}
+					rewrite * {rp.header.X-Accel-Redirect}
+					handle_path {args[1]}/* {
+						file_server {
+							hide .*
+						}
+					}
+				}
+			}
+		}
+	}
+}

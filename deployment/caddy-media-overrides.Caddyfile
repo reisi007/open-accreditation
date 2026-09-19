@@ -1,9 +1,9 @@
 # ============================================================================
-# (media_overrides) — Caddy snippet: direkte Auslieferung der `media`-Disk
+# (media_overrides) — Caddy snippet: direkte Auslieferung der Brand-Dateien
 # ============================================================================
 #
 # Repo:   open-accreditation / deployment/caddy-media-overrides.Caddyfile
-# Paket:  W7 (Plan media-domain-layout.md §4)
+# Paket:  W7; W11 auf Root-Brand-Dateien verkleinert.
 # Status: ENTWURF — Go-Live noch nicht freigegeben. Das ist ein Fragment und
 #         wird NICHT automatisch geladen; es gehört NICHT in dieses Repo,
 #         sondern in die zentrale Proxy-Caddyfile (~/dev/caddyfile/Caddyfile).
@@ -15,93 +15,64 @@
 #          import media_overrides /srv/media/accreditation
 #      WICHTIG: VOR dem SPA-Fallback-Handle `handle { import spa … }` einfügen —
 #      `handle`-Blöcke sind in Reihenfolge exklusiv, der erste Treffer gewinnt.
-#      Der Argumentpfad ist MEDIA_ROOT (Produktion: /srv/media/accreditation,
-#      vgl. deployment/docker-compose.yml + backend/.env.example) und wird
-#      unten als `{args[0]}` zum Site-Root.
+#      Der Argumentpfad ist MEDIA_ROOT (Produktion: /srv/media/accreditation).
+#
+# W11-ABGRENZUNG (STRICT)
+#   Dieser Snippet deckt NUR die deployment-bereitgestellten **Root-Brand-Dateien**
+#   ohne DB-Bezug ab (Favicons, Manifest, `logo.svg`, …). Die DB-gestützten
+#   Media-Bäume `/teams/*`, `/event-types/*`, `/badges/*` und das Mandant-Logo/
+#   Header-Bild werden NICHT mehr hier ausgeliefert, sondern über die
+#   auth-gebundenen API-Routen + `(media_api_accel)`
+#   (`deployment/caddy-media-api-accel.Caddyfile`): Das Backend bleibt die
+#   Autorität (Mandanten-Isolation, 404-Semantik, Cache-Klassen), Caddy liefert
+#   die interne Datei per `X-Accel-Redirect` aus.
 #
 # MOUNT-VORAUSSETZUNG
 #   Der Caddy-Container muss dieselbe MEDIA_ROOT wie das Backend am
 #   identischen Pfad bind-mounten (read-only genügt, Caddy schreibt nie):
 #          /srv/media/accreditation:/srv/media/accreditation:ro
-#   Backend-Mount: ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation
 #
 # LAYOUT (Single Source of Truth: backend/app/Services/MediaPathService.php)
-#   Doku (Layout, Fallback-Kette, Host-/Alias-Annahmen, Cache): features/media-domain-layout.md
 #   <MEDIA_ROOT>/<file>                            Root-Fallback (global)
-#   <MEDIA_ROOT>/<domain>/<file>                   Mandant-Override
-#   <MEDIA_ROOT>/<domain>/teams/<slug>/<file>
-#   <MEDIA_ROOT>/<domain>/event-types/<slug>/<file>
-#   <MEDIA_ROOT>/<domain>/badges/<file>
+#   <MEDIA_ROOT>/<domain>/<file>                   Mandant-Override (Brand)
 #   `<domain>` = normalisierter Request-Host (lowercase, Port gestrippt,
-#   IDN/Punycode). Ohne Domain nutzt das Backend `_tenants/<id>/…`; dieser
-#   host-neutrale Zweig ist für Caddy bewusst NICHT erreichbar.
+#   IDN/Punycode).
 #
 # FALLBACK-KETTE PRO REQUEST (z. B. GET /logo.svg auf verband-a.example)
 #   try_files /{http.request.host}{path} {path} =404
 #     1. Domain-Override  <MEDIA_ROOT>/verband-a.example/logo.svg
 #     2. Root-Fallback    <MEDIA_ROOT>/logo.svg
-#     3. sonst 404 (kein SPA-Fallback — Brand-/Media-Pfade liegen nicht im Dist)
-#   Host-Platzhalter wird von Caddy im Original-Case des Requests übernommen.
-#   BEWUSSTE ANNAHME (L1): Das Backend normalisiert Hosts lowercase
-#   (MediaPathService::dirForHost); Caddy tut das nicht. Wir verlassen uns
-#   darauf, dass Browser und HTTP/2 `:authority` bereits lowercasen (der
-#   Caddy-`{http.request.host}`-Wert folgt dem Request-Case). Bei abweichendem
-#   Case findet der Domain-Override nicht, der Root-Fallback (global) greift —
-#   es wird also maximal das globale Brand ausgeliefert und NIE fremdes
-#   Mandanten-Media (kein Cross-Tenant-Leak), weil `<Domain>` als Verzeichnis
-#   nicht matcht.
+#     3. sonst 404 (kein SPA-Fallback — Brand-Pfade liegen nicht im Dist)
+#   Bewusste Case-Annahme (L1): Das Backend normalisiert Hosts lowercase; Caddy
+#   folgt dem Request-Case. Bei Abweichung greift der Root-Fallback (global) —
+#   nie fremdes Mandanten-Media.
 #
 # SICHERHEIT (W1-F2, L2)
-#   `file_server { hide .* }` blendet sämtliche Dotfiles aus (`.*` matcht jeden
-#   Pfadabschnitt, der mit `.` beginnt) — auch `.env.local`, `.htaccess` und
-#   `.DS_Store`, nicht nur die zuvor explizit gelisteten. Die Matcher lassen
-#   Dotfiles ohnehin nur unter den expliziten Präfixen zu; `hide` ist
-#   Defense-in-Depth. Kein `browse` → keine Directory-Listings.
+#   `file_server { hide .* }` blendet sämtliche Dotfiles aus (`.env`,
+#   `.htaccess`, `.DS_Store`, …). Kein `browse` → keine Directory-Listings.
 #
-# CACHING (H1: „Dateiname = Inhalt" gilt NUR für Badges)
-#   `/badges/*` → immutable, 1 Jahr. Badge-Dateien werden unter einer
-#   server-generierten ULID abgelegt (BadgeImageService, `<ulid>.<ext>`) und
-#   nie unter demselben Namen überschrieben → content-addressed.
-#   Alle übrigen Bilder (Brand-Logo/Header/Favicons, Team-/EventType-Logos,
-#   z. B. `logo.<ext>`) haben FESTE Namen: ein Replace schreibt dieselbe URL
-#   neu. Daher `public, max-age=3600, must-revalidate` — Caddy liefert einen
-#   ETag, der nach Ablauf revalidiert; ein Brand-Wechsel greift damit
-#   spätestens nach 1 h statt erst nach 1 Jahr.
-#   `site.webmanifest` + übrige Nicht-Bilder → no-cache (Manifest muss nach
-#   Brand-Wechsel sofort greifen).
+# CACHING
+#   Root-Brand-Bilder haben FESTE Namen (`logo.svg`, `favicon.ico`, …): ein
+#   Brand-Wechsel schreibt dieselbe URL neu, daher kurz cachen und per ETag
+#   revalidieren. Manifest + übrige Nicht-Bilder → no-cache. (Die frühere
+#   `/badges/*`-immutable-Regel ist mit W11 entfallen — Badges werden über den
+#   API+Accel-Weg mit dem vom Backend gesetzten `immutable` ausgeliefert.)
 #
 # VALIDIERUNG / DEPLOY
-#   Lokal vor dem Sync (Muster aus ~/dev/caddyfile/sync.sh):
-#     docker run --rm -v "$PWD/deployment/caddy-media-overrides.Caddyfile:/etc/caddy/Caddyfile:ro" \
-#       caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-#   Sync/Reload erst nach Go-Live-Freigabe, außerhalb dieses Repos:
-#     cd ~/dev/caddyfile && ./sync.sh   # validiert, scp ins caddy-Volume, `caddy reload`
+#     docker run --rm -v "$PWD/deployment:/etc/caddy:ro" caddy:2 \
+#       caddy validate --config /etc/caddy/<test>.Caddyfile --adapter caddyfile
+#   Sync/Reload erst nach Go-Live-Freigabe, außerhalb dieses Repos.
 #
-#   VALIDATE (W7, 2026-09-19, caddy:2 in Docker): „Valid configuration“.
-#     Standalone: reines Snippet-File validiert. Dummy-Site: temporäres
-#     Test-Caddyfile (Snippet-Inhalt + Dummy-Site
-#     `http://verband-a.example { import media_overrides /srv/media/test }`).
-#     Laufzeit-Re-Check (caddy:2, synthetischer MEDIA_ROOT, Host verband-a.example):
-#       - `GET /logo.svg` (Domain-Override) und `GET /teams/<slug>/logo.svg`
-#         (feste Namen) → `Cache-Control: public, max-age=3600, must-revalidate`
-#         + ETag; Domain-Override schlägt Root-Fallback korrekt;
-#       - `GET /badges/<ulid>.png` → `public, max-age=31536000, immutable`;
-#       - `GET /browserconfig.xml` → `no-cache, no-store, must-revalidate`;
-#       - `GET /badges/.env`, `/badges/.DS_Store`, `/badges/.secret.png` → 404
-#         (`hide .*`); `GET /badges/missing.png` → 404 ohne immutable.
-#     (Re-Fix W7-F1 H1/L1/L2/L3 nach Verifikations-Befund zu fc84ec1.)
+#   VALIDATE-HISTORIE: W7 (`Valid configuration`, Cache-/Fallback-/Dotfile-
+#   Laufzeit-Re-Check grün). W11: `(media_overrides)` + `(media_api_accel)`
+#   gemeinsam validiert; Laufzeitmatrix C1–C7 grün (Accel-Datei, Cache-Survival,
+#   kein Header-Leak, Spoof-Strip, GET-Gate, Dotfile-404).
 #
-# GO-LIVE-OFFEN (Details siehe AGENTS.todo.md, W7)
-#   - MEDIA_ROOT auf dem Host anlegen/befüllen (Root-Fallback = Brand-Dateien);
-#     der Caddy-Container braucht den read-only-Mount (siehe oben).
-#   - `(media_overrides)`-Import in alle Mandanten-Site-Blöcke der zentralen
-#     Caddyfile aufnehmen; Sync/Reload erst nach Freigabe.
-#   - Alias-Domains: MediaHostResolver (backend) keyt Media auf die ERSTE
-#     Mandanten-Domain. Requests über eine Alias-Domain finden `<alias>/…`
-#     nicht und fallen auf den Root-Fallback zurück — für Multi-Domain-Mandanten
-#     vor Go-Live klären (Alias-Verzeichnisse befüllen oder Host-Mapping).
-#   - Bewusster 404-Fallback: nicht vorhandene Brand-/Media-Dateien werden NICHT
-#     aus dem SPA-Dist nachgeliefert (kein Durchgriff auf `index.html`).
+# GO-LIVE-OFFEN
+#   - MEDIA_ROOT auf dem Host anlegen/befüllen (Root-Fallback = Brand-Dateien).
+#   - `(media_overrides)` + `(media_api_accel)` in alle Mandanten-Site-Blöcke
+#     aufnehmen; MEDIA_ACCEL_PREFIX erst NACH dem Snippet setzen (Risiko R1).
+#   - Alias-Domains / Case-Annahme vor Go-Live klären.
 #
 # ============================================================================
 (media_overrides) {
@@ -120,30 +91,16 @@
 		path /mstile-150x150.png
 		path /browserconfig.xml
 		path /site.webmanifest
-		# Media-Bäume aus dem MediaPathService-Layout.
-		path /teams/*
-		path /event-types/*
-		path /badges/*
 	}
 
 	handle @media_paths {
 		# Site-Root nur für diesen Handler: MEDIA_ROOT ({args[0]}).
 		root * {args[0]}
 
-		# NUR Badges sind content-addressed (ULID, BadgeImageService) und dürfen
-		# immutable: der Name wird nie überschrieben. Nur 2xx: ein verfehltes
-		# try_files (=404) darf nicht 1 Jahr immutable im Browser landen.
-		@media_immutable path /badges/*
-		header @media_immutable {
-			Cache-Control "public, max-age=31536000, immutable"
-			match status 2xx
-		}
-
-		# Übrige Bilder (FESTE Namen wie `logo.<ext>`, Upload ersetzt die URL):
-		# kurz cachen + ETag-Revalidierung statt 1 Jahr stale. Nur 2xx.
+		# Feste Namen (`logo.svg`, `favicon.ico`, …): kurz cachen + ETag-
+		# Revalidierung statt 1 Jahr stale. Nur 2xx.
 		@media_images {
 			path *.png *.jpg *.jpeg *.webp *.avif *.gif *.svg *.ico
-			not path /badges/*
 		}
 		header @media_images {
 			Cache-Control "public, max-age=3600, must-revalidate"
@@ -159,8 +116,7 @@
 		try_files /{http.request.host}{path} {path} =404
 
 		file_server {
-			# W1-F2: sämtliche Dotfiles (.env, .env.local, .htaccess,
-			# .DS_Store, …) niemals ausliefern.
+			# W1-F2: sämtliche Dotfiles niemals ausliefern.
 			hide .*
 		}
 	}
