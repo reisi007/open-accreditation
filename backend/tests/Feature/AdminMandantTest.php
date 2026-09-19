@@ -250,6 +250,69 @@ class AdminMandantTest extends TestCase
             ->assertJsonValidationErrors(['name', 'slug']);
     }
 
+    public function test_mandant_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`name=\xFF`) survive into the validated payload
+        // and would otherwise reach the JSON response encoder → HTTP 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants', ['name' => "\xFF", 'slug' => 'utf8-invalid'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseMissing('mandants', ['slug' => 'utf8-invalid']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/mandants/'.$this->mandantA->id, ['name' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'name' => 'Verband A']);
+    }
+
+    public function test_mandant_impressum_text_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Legal texts are persisted as raw text (no HTML strip here) — the
+        // guard only checks the bytes, so a broken sequence is a 422.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants', [
+                'name' => 'UTF8 Verband',
+                'slug' => 'utf8-verband',
+                'impressum_text' => "\xFF",
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('impressum_text');
+
+        $this->assertDatabaseMissing('mandants', ['slug' => 'utf8-verband']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/mandants/'.$this->mandantA->id, ['impressum_text' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('impressum_text');
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'impressum_text' => null]);
+    }
+
+    public function test_mandant_privacy_text_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants', [
+                'name' => 'UTF8 Verband 2',
+                'slug' => 'utf8-verband-2',
+                'privacy_text' => "\xFF",
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('privacy_text');
+
+        $this->assertDatabaseMissing('mandants', ['slug' => 'utf8-verband-2']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->put('/api/admin/mandants/'.$this->mandantA->id, ['privacy_text' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('privacy_text');
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantA->id, 'privacy_text' => null]);
+    }
+
     public function test_can_update_mandant_partially(): void
     {
         $this->actingAsApi($this->superAdmin())

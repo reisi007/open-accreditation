@@ -203,7 +203,7 @@ class TeamController extends Controller
                     ->where('mandant_id', $mandant->id)
                     ->ignore($team?->id),
             ],
-            'home_venue' => ['nullable', 'string', 'max:255'],
+            'home_venue' => ['nullable', 'string', 'max:255', new ValidUtf8],
         ];
     }
 

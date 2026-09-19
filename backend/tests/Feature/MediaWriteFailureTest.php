@@ -54,6 +54,15 @@ class MediaWriteFailureTest extends TestCase
      */
     private FilesystemAdapter $realPrivate;
 
+    /**
+     * The directories whose failing write was attempted, in call order. Lets a
+     * test prove the write targeted the DOMAIN layout while the stored previous
+     * path is host-neutral — i.e. `$previous !== $path` actually holds.
+     *
+     * @var list<string>
+     */
+    private array $failedWriteDirectories = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -61,7 +70,13 @@ class MediaWriteFailureTest extends TestCase
         Storage::fake(MediaStorage::LEGACY_DISK);
         Storage::fake(MediaPathService::DISK);
 
+        // A configured domain is what makes the service target the domain
+        // layout (`verband-a.test/…`) instead of the host-neutral
+        // `_tenants/<id>/…` fallback. The store-failure tests seed their
+        // previous path as host-neutral, so the delete-order guard
+        // (`$previous !== $path`) is only genuinely exercised with a domain.
         $this->mandant = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
+        $this->mandant->domains()->create(['hostname' => 'verband-a.test']);
     }
 
     /* ---------------------------------------------------------------------
@@ -117,6 +132,10 @@ class MediaWriteFailureTest extends TestCase
             fn () => $service->store($this->mandant, 'logo', UploadedFile::fake()->image('neu.jpg')),
         );
 
+        // The write targeted the domain layout while the stored previous path
+        // is host-neutral — so `$previous !== $path` genuinely held and the
+        // mock's `shouldNotReceive('delete')` proves the delete-order guard.
+        $this->assertSame(['verband-a.test'], $this->failedWriteDirectories);
         $this->assertSame($previous, $this->mandant->fresh()->logo_path);
         $this->realMedia->assertExists($previous);
     }
@@ -142,6 +161,7 @@ class MediaWriteFailureTest extends TestCase
             fn () => $service->store($team, UploadedFile::fake()->image('neu.jpg')),
         );
 
+        $this->assertSame(['verband-a.test/teams/verein-a'], $this->failedWriteDirectories);
         $this->assertSame($previous, $team->fresh()->logo_path);
         $this->realMedia->assertExists($previous);
     }
@@ -167,6 +187,7 @@ class MediaWriteFailureTest extends TestCase
             fn () => $service->store($eventType, UploadedFile::fake()->image('neu.jpg')),
         );
 
+        $this->assertSame(['verband-a.test/event-types/bundesliga'], $this->failedWriteDirectories);
         $this->assertSame($previous, $eventType->fresh()->logo_path);
         $this->realMedia->assertExists($previous);
     }
@@ -181,6 +202,7 @@ class MediaWriteFailureTest extends TestCase
             fn () => $service->store($this->mandant, UploadedFile::fake()->image('wappen.png')),
         );
 
+        $this->assertSame(['verband-a.test/badges'], $this->failedWriteDirectories);
         $this->assertSame(0, BadgeImage::query()->count());
         $this->assertSame([], $this->realMedia->allFiles());
     }
@@ -192,15 +214,24 @@ class MediaWriteFailureTest extends TestCase
     /**
      * Swap the `media` disk for a mock whose `$method` fails. The legacy
      * `private` disk and the real media files remain reachable through the
-     * captured adapters so the "previous file survived" assertions hold.
+     * captured adapters so the "previous file survived" assertions hold. The
+     * directory of the attempted write is recorded in
+     * `$this->failedWriteDirectories` so callers can pin the domain layout.
      */
     private function mockFailingMediaDisk(string $method): void
     {
         $this->realMedia = Storage::disk(MediaPathService::DISK);
         $this->realPrivate = Storage::disk(MediaStorage::LEGACY_DISK);
+        $this->failedWriteDirectories = [];
 
         $mediaDisk = Mockery::mock(Filesystem::class);
-        $mediaDisk->shouldReceive($method)->once()->andReturn(false);
+        $mediaDisk->shouldReceive($method)
+            ->once()
+            ->andReturnUsing(function (string $directory): bool {
+                $this->failedWriteDirectories[] = $directory;
+
+                return false;
+            });
         $mediaDisk->shouldReceive('exists')->andReturn(false);
         $mediaDisk->shouldNotReceive('delete');
 

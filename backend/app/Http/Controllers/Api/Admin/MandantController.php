@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\Mandant;
+use App\Rules\ValidUtf8;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -115,7 +116,7 @@ class MandantController extends Controller
         $main = $forCreate ? 'required' : 'sometimes';
 
         return [
-            'name' => [$main, 'string', 'max:255'],
+            'name' => [$main, 'string', 'max:255', new ValidUtf8],
             'slug' => [
                 $main,
                 'string',
@@ -125,8 +126,8 @@ class MandantController extends Controller
             ],
             'teams_enabled' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
-            'impressum_text' => ['nullable', 'string'],
-            'privacy_text' => ['nullable', 'string'],
+            'impressum_text' => ['nullable', 'string', new ValidUtf8],
+            'privacy_text' => ['nullable', 'string', new ValidUtf8],
             'smtp_config' => ['sometimes', 'nullable', 'array'],
             'smtp_config.host' => ['nullable', 'string', 'max:255'],
             'smtp_config.port' => ['nullable', 'integer', 'min:1', 'max:65535'],

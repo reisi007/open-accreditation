@@ -228,6 +228,21 @@ class BadgeTest extends TestCase
         $this->assertDatabaseCount('badge_templates', 0);
     }
 
+    public function test_badge_template_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`name=\xFF`) survive into the validated payload
+        // and would otherwise reach the JSON response encoder → HTTP 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/badge-templates', [
+                'name' => "\xFF",
+                'layout' => $this->validLayout(),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseCount('badge_templates', 0);
+    }
+
     public function test_one_default_per_mandant(): void
     {
         $first = $this->createTemplate(['name' => 'Erste', 'is_default' => true]);

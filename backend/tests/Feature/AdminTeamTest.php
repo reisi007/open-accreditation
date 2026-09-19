@@ -171,6 +171,22 @@ class AdminTeamTest extends TestCase
         $this->assertDatabaseMissing('teams', ['slug' => 'fc-invalid']);
     }
 
+    public function test_team_home_venue_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`home_venue=\xFF`) survive into the validated
+        // payload and would otherwise reach the JSON response encoder → 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
+                'name' => 'FC UTF8',
+                'slug' => 'fc-utf8',
+                'home_venue' => "\xFF",
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('home_venue');
+
+        $this->assertDatabaseMissing('teams', ['slug' => 'fc-utf8']);
+    }
+
     public function test_cannot_create_team_when_teams_disabled(): void
     {
         $this->mandantA->update(['teams_enabled' => false]);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
+use App\Rules\ValidUtf8;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -114,7 +115,7 @@ class CategoryController extends Controller
         $targetTeamId = $this->targetTeamId($request, $teamIds, $category?->team_id);
 
         return [
-            'name' => [$main, 'string', 'max:255'],
+            'name' => [$main, 'string', 'max:255', new ValidUtf8],
             'slug' => [
                 $main,
                 'string',

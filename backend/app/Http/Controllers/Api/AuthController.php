@@ -9,6 +9,7 @@ use App\Mail\ActivationMail;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Rules\ValidUtf8;
 use App\Support\MandantContext;
 use Closure;
 use Illuminate\Http\JsonResponse;
@@ -61,7 +62,7 @@ class AuthController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255', new ValidUtf8],
             'email' => [
                 'required', 'string', 'email', 'max:255',
                 // Scoped uniqueness only applies where a mandant could be

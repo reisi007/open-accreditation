@@ -483,6 +483,20 @@ class AdminEventTest extends TestCase
             ->assertJsonValidationErrors('title');
     }
 
+    public function test_event_venue_and_competition_reject_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes survive into the validated payload and would
+        // otherwise reach the JSON response encoder → HTTP 500.
+        foreach (['venue', 'competition'] as $field) {
+            $this->actingAsApi($this->superAdmin())
+                ->post('/api/admin/events', ['title' => 'UTF8 Spiel', $field => "\xFF"])
+                ->assertStatus(422, "expected 422 for {$field}")
+                ->assertJsonValidationErrors($field);
+        }
+
+        $this->assertDatabaseMissing('events', ['title' => 'UTF8 Spiel']);
+    }
+
     public function test_venue_and_competition_are_strings_max_255(): void
     {
         $this->actingAsApi($this->superAdmin())

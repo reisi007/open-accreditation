@@ -123,6 +123,25 @@ class AuthRegisterTest extends TestCase
         $this->assertStringContainsString('/api/auth/activate/abc123', $url);
     }
 
+    public function test_register_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`name=\xFF`) survive into the validated payload
+        // and would otherwise reach the JSON response encoder → HTTP 500.
+        Mail::fake();
+
+        $this->post('/api/auth/register', [
+            'name' => "\xFF",
+            'email' => 'max@example.com',
+            'password' => 'secret-pass-123',
+            'password_confirmation' => 'secret-pass-123',
+        ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseCount('users', 0);
+        Mail::assertNothingSent();
+    }
+
     public function test_register_requires_a_current_mandant(): void
     {
         MandantContext::reset();

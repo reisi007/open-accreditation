@@ -9,6 +9,7 @@ use App\Http\Resources\BadgeTemplateResource;
 use App\Models\BadgeImage;
 use App\Models\BadgeTemplate;
 use App\Models\RoleUser;
+use App\Rules\ValidUtf8;
 use App\Services\BadgeRenderService;
 use App\Services\BadgeTemplateService;
 use App\Support\MandantContext;
@@ -179,7 +180,7 @@ class BadgeTemplateController extends Controller
     private function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255', new ValidUtf8],
             'layout' => ['required', 'array', 'min:1'],
             'layout.*.field' => ['required', Rule::in(self::LAYOUT_FIELDS)],
             'layout.*.x' => ['required', 'numeric', 'min:0'],
