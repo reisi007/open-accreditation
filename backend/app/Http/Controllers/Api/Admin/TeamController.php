@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\TeamResource;
 use App\Models\Mandant;
 use App\Models\Team;
+use App\Rules\ValidUtf8;
 use App\Services\MediaStorage;
 use App\Services\TeamMediaService;
 use App\Support\MandantContext;
@@ -192,7 +193,7 @@ class TeamController extends Controller
         $main = $forCreate ? 'required' : 'sometimes';
 
         return [
-            'name' => [$main, 'string', 'max:255'],
+            'name' => [$main, 'string', 'max:255', new ValidUtf8],
             'slug' => [
                 $main,
                 'string',

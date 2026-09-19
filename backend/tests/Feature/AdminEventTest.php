@@ -110,6 +110,18 @@ class AdminEventTest extends TestCase
         ]);
     }
 
+    public function test_event_title_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`title=\xFF`) survive JSON decoding and would
+        // otherwise explode in the response encoder → HTTP 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/events', ['title' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('title');
+
+        $this->assertDatabaseCount('events', 0);
+    }
+
     public function test_mandant_admin_can_create_team_event(): void
     {
         $this->actingAsApi($this->mandantAdmin())

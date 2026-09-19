@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EventTypeResource;
 use App\Models\EventType;
 use App\Models\RoleUser;
+use App\Rules\ValidUtf8;
 use App\Services\EventTypeMediaService;
 use App\Services\EventTypePresetSchema;
 use App\Services\MediaStorage;
@@ -197,7 +198,7 @@ class EventTypeController extends Controller
         $main = $forCreate ? 'required' : 'sometimes';
 
         $validated = $request->validate([
-            'name' => [$main, 'string', 'max:255'],
+            'name' => [$main, 'string', 'max:255', new ValidUtf8],
             'slug' => [
                 $main,
                 'string',
@@ -254,7 +255,7 @@ class EventTypeController extends Controller
             $encoded = json_encode($presets, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             throw ValidationException::withMessages([
-                'presets' => 'Presets enthalten ungültige Zeichen.',
+                'presets' => 'Presets contain invalid characters.',
             ]);
         }
 

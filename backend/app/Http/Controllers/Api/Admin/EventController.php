@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EventResource;
 use App\Models\Event;
 use App\Models\EventType;
+use App\Rules\ValidUtf8;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -116,7 +117,7 @@ class EventController extends Controller
         $main = $forCreate ? 'required' : 'sometimes';
 
         $rules = [
-            'title' => [$main, 'string', 'max:255'],
+            'title' => [$main, 'string', 'max:255', new ValidUtf8],
             'team_id' => ['nullable', 'integer'],
             'event_type_id' => ['nullable', 'integer'],
             'date' => ['nullable', 'date'],

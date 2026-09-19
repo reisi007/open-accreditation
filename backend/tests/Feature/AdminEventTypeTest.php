@@ -316,6 +316,34 @@ class AdminEventTypeTest extends TestCase
             ->assertJsonValidationErrors('name');
     }
 
+    public function test_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // A form-encoded request can smuggle raw invalid bytes (`name=\xFF`)
+        // past the `string`/`max` rules. Before the UTF-8 guard the value
+        // reached the JSON response encoder, which failed → HTTP 500. It must
+        // be a validation error (422) and must not persist a row.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/event-types', [
+                'slug' => 'bundesliga',
+                'name' => "\xFF",
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseMissing('event_types', ['slug' => 'bundesliga']);
+    }
+
+    public function test_name_accepts_umlauts_and_emoji(): void
+    {
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/event-types', [
+                'slug' => 'bundesliga',
+                'name' => 'Südkurve München ⚽',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.name', 'Südkurve München ⚽');
+    }
+
     /* ---------------------------------------------------------------------
      | presets envelope (structural guard here + fachliches schema W3)
      | ------------------------------------------------------------------- */

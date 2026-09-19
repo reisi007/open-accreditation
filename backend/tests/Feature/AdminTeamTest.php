@@ -156,6 +156,21 @@ class AdminTeamTest extends TestCase
         ]);
     }
 
+    public function test_team_name_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // Form-encoded bytes (`name=\xFF`) survive JSON decoding and would
+        // otherwise explode in the response encoder → HTTP 500.
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
+                'name' => "\xFF",
+                'slug' => 'fc-invalid',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('name');
+
+        $this->assertDatabaseMissing('teams', ['slug' => 'fc-invalid']);
+    }
+
     public function test_cannot_create_team_when_teams_disabled(): void
     {
         $this->mandantA->update(['teams_enabled' => false]);
