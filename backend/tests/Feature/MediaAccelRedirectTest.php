@@ -221,6 +221,7 @@ class MediaAccelRedirectTest extends TestCase
             'verband-a.test/teams/Team-A/logo.png',         // non-canonical slug
             '_tenants/5/logo.png',                          // host-neutral
             'mandants/logo.png',                            // legacy single-label root
+            'badge-images/logo.png',                        // legacy single-label root
             'user-media/logo.png',                          // legacy single-label root
         ];
 
@@ -258,6 +259,31 @@ class MediaAccelRedirectTest extends TestCase
                 sprintf('control characters must not be accel-eligible: %s', addcslashes($path, "\0..\37")),
             );
         }
+    }
+
+    /**
+     * W11-F2: a brand leaf only passes the allowlist when the file actually
+     * sits on the public `media` disk. Caddy serves from MEDIA_ROOT, so a path
+     * that only exists on the legacy `private` disk (or nowhere) must stream
+     * through PHP instead of yielding a bodyless 200.
+     */
+    public function test_b13_brand_leaf_without_a_public_file_streams(): void
+    {
+        config(['media.accel_prefix' => '/__media']);
+
+        Storage::disk(MediaStorage::LEGACY_DISK)->put('verband-a.test/logo.png', $this->pngBytes());
+
+        $response = $this->storage->accelResponse('verband-a.test/logo.png');
+
+        $this->assertInstanceOf(StreamedResponse::class, $response);
+        $this->assertFalse($response->headers->has('X-Accel-Redirect'));
+
+        // The pattern matches but the file is missing entirely: the eligibility
+        // guard must fail closed (asserted directly — the stream branch cannot
+        // represent a file that exists on neither disk).
+        $eligible = new \ReflectionMethod($this->storage, 'isAccelEligible');
+
+        $this->assertFalse($eligible->invoke($this->storage, 'verband-a.test/header.jpg'));
     }
 
     /* ---------------------------------------------------------------------

@@ -318,7 +318,8 @@ final class MediaStorage
         }
 
         if (count($segments) === 2) {
-            return preg_match(self::BRAND_LEAF_PATTERN, $segments[1]) === 1;
+            return preg_match(self::BRAND_LEAF_PATTERN, $segments[1]) === 1
+                && Storage::disk(self::PUBLIC_DISK)->exists($path);
         }
 
         $kind = $segments[1];

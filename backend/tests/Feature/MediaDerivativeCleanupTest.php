@@ -53,6 +53,10 @@ class MediaDerivativeCleanupTest extends TestCase
         $service->store($this->mandant, 'logo', UploadedFile::fake()->image('logo.png'));
         $service->store($this->mandant, 'header', UploadedFile::fake()->image('header.png'));
 
+        foreach (['logo', 'header'] as $kind) {
+            Storage::disk(MediaPathService::DISK)->assertExists("verband-a.test/{$kind}.webp");
+        }
+
         $service->destroy($this->mandant, 'logo');
         $service->destroy($this->mandant, 'header');
 
@@ -71,6 +75,7 @@ class MediaDerivativeCleanupTest extends TestCase
         $team = Team::factory()->create(['mandant_id' => $this->mandant->id, 'slug' => 'team-a', 'name' => 'Team A']);
 
         $service->store($team, UploadedFile::fake()->image('logo.png'));
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/teams/team-a/logo.webp');
         $service->destroy($team);
 
         Storage::disk(MediaPathService::DISK)->assertMissing('verband-a.test/teams/team-a/logo.png');
@@ -88,6 +93,7 @@ class MediaDerivativeCleanupTest extends TestCase
         ]);
 
         $service->store($eventType, UploadedFile::fake()->image('logo.png'));
+        Storage::disk(MediaPathService::DISK)->assertExists('verband-a.test/event-types/bundesliga/logo.webp');
         $service->purge($eventType);
         $eventType->delete();
 
