@@ -2,12 +2,24 @@
 
 ## SOLL
 
-- **Statische Brand-/Logo-Dateien leben im React-Projekt** unter
-  `frontend/public/` (Wurzel, **keine** `brands/<id>/`-Unterordner-Struktur) und
-  sind die **Fallback-Quelle**. Vite kopiert `frontend/public/` unverändert nach
-  `dist/`; lokale Entwicklung = Vite serviert diese Dateien direkt
-  (`http://localhost:5173/logo.svg`, `/favicon-32x32.png`, `/site.webmanifest`,
-  …).
+- **Statische Brand-/Logo-Dateien werden von Caddy direkt aus `MEDIA_ROOT` der
+  `media`-Disk ausgeliefert** (W1/W6/W7). `frontend/public/` bleibt die
+  **Fallback-Quelle im Repo** (Vite kopiert es nach `dist/`; Lokalentwicklung
+  serviert Vite die Dateien) und ist der Initialinhalt, aus dem der globale
+  Root-Fallback in `MEDIA_ROOT` befüllt wird. Der Pfad-Vertrag und die
+  Fallback-Kette sind in `features/media-domain-layout.md` festgehalten; dieses
+  Dokument beschreibt den Datei-Satz und den Caddy-Override-Kontext.
+- **Konsequenz für Media-Pfade:** `/logo.svg` & Co. laufen in Produktion **nicht**
+  mehr über den SPA-Fallback, sondern über das `(media_overrides)`-Snippet:
+  Domain-Override → Root-Fallback → **404** (kein Durchgriff auf `index.html`).
+  Die frühere „SPA-`try_files` liefert die React-Fallback-Datei"-Kette gilt **nicht
+  mehr** für diese Pfade (siehe unten, Abschnitt Cache/Overrides).
+- **Zwei Auslieferungswege für das Mandant-Logo:** (a) Caddy-Direct-Serve der
+  Datei im Domain-Layout (`<domain>/logo.<ext>`, schneller Pfad) und (b) die
+  auth-freie API-Delivery `/api/portal/mandant/logo|header`
+  (`PortalMediaController`), die den DB-Pfad streamt und damit auch
+  host-neutrale `_tenants/<id>/…`-Dateien erreicht. Die DB bleibt die Autorität;
+  der Direct-Serve ist ein Override/Fallback, keine zweite Wahrheit.
 - **Dateisatz (RealFaviconGenerator-Muster, root-relative Pfade):**
 
   | Datei | Zweck |
@@ -15,6 +27,7 @@
   | `logo.svg` | Master-Logo (volle Farbe, Vektor), Startseiten-Logo |
   | `logo-mono.svg` | Einfarbige Variante (Brand-Primary) für `mask-icon` |
   | `favicon.svg` | Vektor-Favicon |
+  | `safari-pinned-tab.svg` | Monochromes Safari-Pinned-Tab-Icon |
   | `favicon-16x16.png`, `favicon-32x32.png`, `favicon.ico` | Klassische Favicons |
   | `apple-touch-icon.png` | iOS Home-Screen (opak, 180×180) |
   | `android-chrome-192x192.png`, `android-chrome-512x512.png` | PWA-Icons (Manifest) |
@@ -49,10 +62,11 @@ noch nicht implementiert — der Workflow folgt mit dem E-Mail-Ausbau
   hochgeladene Mandant-Logo sein; die Fallback-Entscheidung (analog
   `getHomepageLogo`) ist bei Implementierung festzulegen (offen).
 - **Caddy-Hinweis:** Die beiden Pfade sind aktuell **nicht** im
-  `(brand_overrides)`-Matcher (`@brand_files`) enthalten. Soll ein Mandant
+  `(media_overrides)`-Matcher (`@media_paths`) enthalten. Soll ein Mandant
   sie überschreiben können, müssen `/logo-email-64.png` und
-  `/logo-email-128.png` dort ergänzt werden (immutable Cache-Control wie die
-  übrigen Brand-Files).
+  `/logo-email-128.png` dort ergänzt werden (Bilder erhalten dann die
+  `must-revalidate`-Semantik der festen Namen — **nicht** `immutable`, da der
+  Dateiname bei einem Replace gleich bleibt).
 
 ## Caddy (Produktion, geplant — Plan auf Basis `~/dev/caddyfile/Caddyfile`)
 
@@ -72,7 +86,9 @@ bis zur Go-Live-Freigabe unverändert (dieser Abschnitt ist SOLL-Doku).
 
 ### Multi-Domain-Muster (SOLL)
 
-Pro Mandant eine Site-Block mit `import spa` + `/api*`-Proxy zum Backend:
+Pro Mandant ein Site-Block mit `import spa` + `/api*`-Proxy zum Backend. Das
+Media-Snippet wird **vor** dem SPA-Fallback-`handle` importiert, weil
+`handle`-Blöcke in Reihenfolge exklusiv sind (erster Treffer gewinnt):
 
 ```caddyfile
 # Mandant A (Verband): eigene Domain
@@ -89,8 +105,9 @@ verband-a.example {
 		}
 	}
 
-	# Brand-Files: mandantenspezifische Overrides vor dem SPA-Fallback
-	import brand_overrides /srv/websites/accreditation.mandant-a
+	# Brand-/Media-Overrides: Domain → Root → 404 (KEIN SPA-Fallback),
+	# MUSS vor dem SPA-handle stehen.
+	import media_overrides /srv/media/accreditation
 
 	handle {
 		import spa /srv/websites/accreditation.mandant-a
@@ -98,52 +115,68 @@ verband-a.example {
 }
 ```
 
-### Brand-File-Overrides pro Mandant (SOLL)
+### Brand-File-Overrides pro Mandant (SOLL) — `(media_overrides)`
 
-Muster analog zum Portal-Block (`portal.reisinger.pictures`, Zeilen 234–256 der
-Referenz-Caddyfile), aber **ohne** `brands/<id>/`-Pfad-Umweg: die Dateien liegen
-direkt im Mandanten-Dist-Ordner, Root-Pfade in `index.html`/`site.webmanifest`
-bleiben unverändert. Der Fallback auf die React-Fallback-Dateien
-(`frontend/public/` → `dist/`) erfolgt über die SPA-`try_files`-Kette, falls
-ein Mandant eine Datei nicht überschreibt:
+Muster analog zum Portal-Block (`portal.reisinger.pictures`), aber **dynamisch
+über den Host-Placeholder** statt eines hart verdrahteten `/brands/<id>`-Pfads
+und **ohne** `brands/<id>/`-Umweg. Referenz (Entwurf, Go-Live offen):
+`deployment/caddy-media-overrides.Caddyfile`; Layout/Fallback:
+`features/media-domain-layout.md`.
+
+Das Snippet matcht den Brand-Datei-Satz dieses Dokuments plus die Media-Bäume
+`/teams/*`, `/event-types/*`, `/badges/*` und liefert aus `MEDIA_ROOT`:
 
 ```caddyfile
-(brand_overrides) {
-	@brand_files {
+(media_overrides) {
+	@media_paths {
 		path /logo.svg
 		path /logo-mono.svg
-		path /favicon.ico
-		path /favicon-16x16.png
-		path /favicon-32x32.png
-		path /apple-touch-icon.png
-		path /android-chrome-192x192.png
-		path /android-chrome-512x512.png
-	}
-	handle @brand_files {
-		root * {args[0]}
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
-	}
-
-	@brand_manifest {
+		path /favicon.svg
+		# … weiterer Brand-Datei-Satz aus der Tabelle oben …
 		path /site.webmanifest
+		path /teams/*  /event-types/*  /badges/*
 	}
-	handle @brand_manifest {
+	handle @media_paths {
 		root * {args[0]}
-		header Cache-Control "no-cache, no-store, must-revalidate"
-		file_server
+		# Nur Badges (ULID, content-addressed) dürfen immutable.
+		header @media_immutable Cache-Control "public, max-age=31536000, immutable"
+		# Feste Namen (logo.<ext>): kurz cachen + ETag-Revalidierung.
+		header @media_images Cache-Control "public, max-age=3600, must-revalidate"
+		header @media_nocache Cache-Control "no-cache, no-store, must-revalidate"
+		try_files /{http.request.host}{path} {path} =404
+		file_server { hide .* }
 	}
 }
 ```
 
-- Fehlt eine mandantenspezifische Datei → SPA-Fallback liefert die Datei aus dem
-  React-Dist (gleicher Root-Pfad, `try_files {path} /index.html` greift nur für
-  nicht-existente Dateien; hier existiert die Datei im Fallback-Dist).
-- Der Mandanten-`slug` ist über `GET /api/portal/overview` (`MandantPublicResource`)
-  öffentlich verfügbar — als Keying-Basis für die Verzeichnis-Struktur
-  (`/srv/websites/accreditation.<slug>`).
+**Cache-/Fallback-Semantik (ETag):**
+
+| Sektion | Cache-Control | Begründung |
+|---|---|---|
+| `/badges/*` (nur 2xx) | `public, max-age=31536000, immutable` | server-generierte ULID, Name wird nie überschrieben („Dateiname = Inhalt") |
+| Übrige Bilder (nur 2xx) | `public, max-age=3600, must-revalidate` + ETag | **feste Namen** (`logo.<ext>`, `header.<ext>`): ein Replace schreibt dieselbe URL neu; Caddy liefert einen ETag, der nach Ablauf revalidiert → Brand-Wechsel greift spätestens nach 1 h statt erst nach 1 Jahr |
+| Manifest + übrige Nicht-Bilder | `no-cache, no-store, must-revalidate` | `site.webmanifest` muss nach Brand-Wechsel sofort greifen |
+
+- **Fällt eine mandantenspezifische Datei weg → Root-Fallback → 404.** Es gibt
+  **keinen** SPA-Fallback für Media-Pfade; die Datei wird **nicht** aus dem
+  React-Dist nachgeliefert. `match status 2xx` verhindert, dass ein 404
+  immutable/no-cache-Regeln übernimmt.
+- **Host-neutrale `_tenants/<id>/…`-Dateien sind für Caddy bewusst nicht
+  erreichbar** (der Unterstrich ist kein Hostname). Mandanten ohne Domain werden
+  über die auth-freie API-Delivery `/api/portal/mandant/logo|header` bedient.
+- **Host-Case-Annahme (L1):** Caddy übernimmt den Request-Case, das Backend
+  normalisiert lowercase. Bei Abweichung greift der Root-Fallback (maximal
+  globales Brand — nie fremdes Mandanten-Media). Details:
+  `features/media-domain-layout.md`.
+- **Alias-Domains (Go-Live-Punkt):** Der Resolver keyt Medien auf die **erste**
+  Mandant-Domain; Requests über eine Alias-Domain finden `<alias>/…` nicht und
+  fallen auf den Root-Fallback zurück. Für Multi-Domain-Mandanten vor Go-Live
+  klären (Alias-Verzeichnisse befüllen oder Host-Mapping).
+- **Sicherheit:** `file_server { hide .* }` blendet sämtliche Dotfiles aus; kein
+  `browse` → keine Directory-Listings.
 - Deployment-Mechanik wie in der Referenz: `sync.sh` (Config hochladen,
-  `caddy reload`), Validierung vorab via `caddy validate` in Docker.
+  `caddy reload`), Validierung vorab via `caddy validate` in Docker; der
+  Caddy-Container braucht denselben read-only `MEDIA_ROOT`-Mount.
 
 ### Ist-Stand
 

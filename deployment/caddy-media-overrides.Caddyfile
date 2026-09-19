@@ -26,6 +26,7 @@
 #   Backend-Mount: ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation
 #
 # LAYOUT (Single Source of Truth: backend/app/Services/MediaPathService.php)
+#   Doku (Layout, Fallback-Kette, Host-/Alias-Annahmen, Cache): features/media-domain-layout.md
 #   <MEDIA_ROOT>/<file>                            Root-Fallback (global)
 #   <MEDIA_ROOT>/<domain>/<file>                   Mandant-Override
 #   <MEDIA_ROOT>/<domain>/teams/<slug>/<file>

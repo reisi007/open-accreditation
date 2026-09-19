@@ -12,7 +12,9 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 |---|---|
 | `01-multi-tenancy.md` | Mandanten (Verbände), Host-Resolution über `mandant_domains`, MandantContext-Middleware, Team-Hierarchie |
 | `02-domain-model.md` | Entity-Übersicht: P1-Tabellen (mandants, users, roles, user_media) + P2/P3-Ausblick |
-| `03-caddy-brand-files.md` | Statische Brand-/Logo-Dateien im React-Projekt (Fallback), Caddy per-Mandant Datei-Overrides (SOLL) |
+| `03-caddy-brand-files.md` | Brand-/Logo-Datei-Satz, Caddy `(media_overrides)` pro Mandant (Domain → Root → 404, Cache-/ETag-Semantik) — synchron zum Media-Layout |
+| `04-media-self-service.md` | **Media Self-Service (P8b/W2/W4):** Mandant-Logo/Header, Team-Logo (`teams.media.manage`-Hierarchie) und Event-Typ-Logo, Service-Extraktion, Legacy-Lesbarkeit |
+| `media-domain-layout.md` | **Media Domain Layout (W1/W6/W7):** Verzeichnis-Layout (`<domain>/…`, `teams`/`event-types`/`badges`, `_tenants`-Fallback), Host-Normalisierung/Case, Resolver-Konvention (erste Domain), Alias-Verhalten, Backfill-Command, Caddy-Cache-Semantik, Badge-Public-Posture |
 | `05-e2e-test-image.md` | **E2E-Test-Image `accriditation-e2e`:** accriditation-base + Node/pnpm/Composer + Playwright-Chromium vorinstalliert; CI-E2E läuft komplett im Container |
 | `badges-qr.md` | **Badges, QR & Export (P4):** BadgeTemplate-Modell + Feld-Editor, A6-Rendering, QR-Code (unten rechts, Überlappungs-Limitation), PDF-/CSV-Export inkl. Formula-Injection-Schutz |
 | `badge-template-editor.md` | **Badge-Template-Editor (P4, SOLL):** Frei positionierbare Felder per Drag&Drop — Schema v2 inkl. `qr`-Feld (P4-F4) + neue Datenfelder, Validierung/Mindestgrößen, Editor-UX, PDF-Render-Kontrakt, Phasing |
