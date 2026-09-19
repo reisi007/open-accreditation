@@ -81,6 +81,7 @@ final class BadgeRenderService
         private readonly QrTokenService $tokens,
         private readonly MandantMediaService $mandantMedia,
         private readonly MediaStorage $mediaStorage,
+        private readonly MediaHostResolver $hosts,
     ) {}
 
     /**
@@ -411,7 +412,11 @@ final class BadgeRenderService
             return $this->hostCache[$mandantId];
         }
 
-        $domain = MandantContext::current()?->domains()->orderBy('id')->value('hostname');
+        $mandant = MandantContext::current();
+        // W6-F3: share the central "first domain = primary" convention instead
+        // of querying `domains` a second time (MediaHostResolver defines it
+        // once for every media service).
+        $domain = $mandant !== null ? $this->hosts->hostFor($mandant) : null;
         $host = $domain ?? (string) parse_url((string) config('app.url'), PHP_URL_HOST);
         $resolved = $host === '' ? 'localhost' : $host;
 

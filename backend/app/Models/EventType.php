@@ -16,7 +16,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * structurally validated in the controller and fachlich validated by
  * `EventTypePresetSchema` (`v = 1`, W3); `logo_path` points at a file below
  * the public media root (`EventTypeMediaService` /
- * `MediaPathService::eventTypeFile()`, served by Caddy in W7).
+ * `MediaPathService::eventTypeFile()`; delivery through the W11 media API
+ * with optional X-Accel-Redirect offload).
  */
 #[Fillable(['mandant_id', 'slug', 'name', 'logo_path', 'presets', 'active'])]
 class EventType extends Model

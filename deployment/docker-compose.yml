@@ -58,6 +58,21 @@ services:
     restart: unless-stopped
     working_dir: /var/www/html
     environment:
+      # W1-F4: the prod profile runs the real app (not only infra), so it needs
+      # an encryption key and an explicit DB target. The Compose `db` service is
+      # reachable by its service name (`db`) on the internal network — the
+      # `.env` default `127.0.0.1` would point at the backend container itself.
+      # Neither value is a committed secret: both are overridable at deploy time
+      # (`APP_KEY=base64:… docker compose --profile prod up -d`), the APP_KEY
+      # default is a clearly-marked insecure placeholder and the DB credentials
+      # mirror the plain dev values of the `db` service (CC-R2 owner decision).
+      APP_KEY: ${APP_KEY:-base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: accriditation
+      DB_USERNAME: accriditation
+      DB_PASSWORD: accriditation
       MEDIA_ROOT: /srv/media/accreditation
     volumes:
       - ../backend:/var/www/html

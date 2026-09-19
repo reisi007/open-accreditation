@@ -469,6 +469,36 @@ class BadgeRenderServiceTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | W6-F3 — host resolution via the shared MediaHostResolver
+     | ------------------------------------------------------------------- */
+
+    public function test_verify_url_uses_the_first_domain_so_a_later_alias_never_wins(): void
+    {
+        // W6-F3: `host()` resolves through the shared MediaHostResolver, so the
+        // "first domain = primary" convention applies to the verify URL exactly
+        // as it does to every media path (W6 host assumption).
+        $this->mandant->domains()->create(['hostname' => 'primary.test']);
+        $this->mandant->domains()->create(['hostname' => 'alias.test']);
+
+        $this->assertStringStartsWith(
+            'https://primary.test/verify/',
+            $this->renderer->verifyUrl($this->approvedApplication()),
+        );
+    }
+
+    public function test_verify_url_falls_back_to_app_url_host_without_a_domain(): void
+    {
+        // No mandant domain -> the configured app host (documented W6 fallback,
+        // unchanged by the MediaHostResolver switch).
+        $appHost = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        $this->assertStringStartsWith(
+            'https://'.$appHost.'/verify/',
+            $this->renderer->verifyUrl($this->approvedApplication()),
+        );
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 
