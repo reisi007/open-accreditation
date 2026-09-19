@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\EventResource;
 use App\Models\Event;
+use App\Models\EventType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -59,6 +60,10 @@ class EventController extends Controller
 
         $validated = $request->validate($this->rules($request, forCreate: true));
 
+        if (array_key_exists('event_type_id', $validated)) {
+            $this->assertEventTypeOfMandant($validated['event_type_id'], $mandantId);
+        }
+
         $event = Event::create([
             ...$validated,
             'mandant_id' => $mandantId,
@@ -78,6 +83,10 @@ class EventController extends Controller
         $this->assertOwnership($event, $teamIds);
 
         $validated = $request->validate($this->rules($request, $event));
+
+        if (array_key_exists('event_type_id', $validated)) {
+            $this->assertEventTypeOfMandant($validated['event_type_id'], $mandantId);
+        }
 
         $event->update([
             ...$validated,
@@ -109,6 +118,7 @@ class EventController extends Controller
         $rules = [
             'title' => [$main, 'string', 'max:255'],
             'team_id' => ['nullable', 'integer'],
+            'event_type_id' => ['nullable', 'integer'],
             'date' => ['nullable', 'date'],
             'venue' => ['nullable', 'string', 'max:255'],
             'competition' => ['nullable', 'string', 'max:255'],
@@ -150,5 +160,23 @@ class EventController extends Controller
         }
 
         return filter_var($request->input('active'), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * An assigned event type must belong to the current mandant (W2). A
+     * foreign/id-less id is answered with 404 (mirrors the team guard), so a
+     * client can never link an event to another tenant's type.
+     */
+    private function assertEventTypeOfMandant(?int $eventTypeId, int $mandantId): void
+    {
+        if ($eventTypeId === null) {
+            return;
+        }
+
+        abort_unless(
+            EventType::query()->forMandant($mandantId)->whereKey($eventTypeId)->exists(),
+            404,
+            'Event type does not belong to this mandant.',
+        );
     }
 }

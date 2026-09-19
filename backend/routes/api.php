@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\Admin\BadgeTemplateController;
 use App\Http\Controllers\Api\Admin\BlacklistController;
 use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
+use App\Http\Controllers\Api\Admin\EventTypeController;
 use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
@@ -193,6 +194,19 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/events', [EventController::class, 'store'])->middleware('throttle:admin')->name('events.store');
         Route::put('/events/{event}', [EventController::class, 'update'])->middleware('throttle:admin')->name('events.update');
         Route::delete('/events/{event}', [EventController::class, 'destroy'])->middleware('throttle:admin')->name('events.destroy');
+
+        // W2: mandant event types (slug unique per mandant, optional public
+        // logo below the W1 media layout, structural `presets` envelope).
+        // Writes are super_admin/mandant_admin only (team_admin 403 inside the
+        // controller); logo delivery is auth-gated like the other media.
+        Route::get('/event-types', [EventTypeController::class, 'index'])->name('event-types.index');
+        Route::post('/event-types', [EventTypeController::class, 'store'])->middleware('throttle:admin')->name('event-types.store');
+        Route::put('/event-types/{eventType}', [EventTypeController::class, 'update'])->middleware('throttle:admin')->name('event-types.update');
+        Route::delete('/event-types/{eventType}', [EventTypeController::class, 'destroy'])->middleware('throttle:admin')->name('event-types.destroy');
+
+        Route::get('/event-types/{eventType}/logo', [EventTypeController::class, 'showLogo'])->name('event-types.logo');
+        Route::post('/event-types/{eventType}/logo', [EventTypeController::class, 'storeLogo'])->middleware('throttle:admin')->name('event-types.logo.store');
+        Route::delete('/event-types/{eventType}/logo', [EventTypeController::class, 'destroyLogo'])->middleware('throttle:admin')->name('event-types.logo.destroy');
     });
 
     Route::middleware('can:accreditations.manage')->group(function (): void {

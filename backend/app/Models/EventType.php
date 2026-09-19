@@ -7,30 +7,31 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * An event (Event/Spiel) of a mandant, optionally assigned to a team.
+ * A mandant-specific event type (Veranstaltungs-/Wettbewerbstyp, e.g.
+ * `bundesliga`, `cup`). Slug uniqueness is scoped to the mandant — two
+ * Verbände may use the same slug. `presets` is a portable JSON envelope (only
+ * structurally validated in W2; the fachliches schema follows in W3) and
+ * `logo_path` points at a file below the public media root
+ * (`MediaPathService::eventTypeFile()`, served by Caddy in W6/W7).
  */
-#[Fillable(['mandant_id', 'team_id', 'event_type_id', 'title', 'date', 'venue', 'competition', 'deadline_start', 'deadline_end', 'active'])]
-class Event extends Model
+#[Fillable(['mandant_id', 'slug', 'name', 'logo_path', 'presets', 'active'])]
+class EventType extends Model
 {
     public function mandant(): BelongsTo
     {
         return $this->belongsTo(Mandant::class);
     }
 
-    public function team(): BelongsTo
-    {
-        return $this->belongsTo(Team::class);
-    }
-
     /**
-     * The optional event type (W2). `competition` stays the free-text fallback
-     * for events without a type.
+     * The events assigned to this type. `events.competition` stays the
+     * free-text fallback for events without a type.
      */
-    public function eventType(): BelongsTo
+    public function events(): HasMany
     {
-        return $this->belongsTo(EventType::class);
+        return $this->hasMany(Event::class);
     }
 
     /**
@@ -60,15 +61,13 @@ class Event extends Model
     protected function casts(): array
     {
         return [
-            'date' => 'date',
-            'deadline_start' => 'date',
-            'deadline_end' => 'date',
+            'presets' => 'array',
             'active' => 'boolean',
         ];
     }
 
     /**
-     * Scope to the events of one mandant (Verband).
+     * Scope to the event types of one mandant (Verband).
      */
     public function scopeForMandant(Builder $query, int $mandantId): Builder
     {
@@ -76,15 +75,7 @@ class Event extends Model
     }
 
     /**
-     * Scope to the team-level events of one team.
-     */
-    public function scopeForTeam(Builder $query, int $teamId): Builder
-    {
-        return $query->where($query->getQuery()->from.'.team_id', $teamId);
-    }
-
-    /**
-     * Scope to active (or inactive) events.
+     * Scope to active (or inactive) event types.
      */
     public function scopeActive(Builder $query, bool $active = true): Builder
     {

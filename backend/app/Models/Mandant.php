@@ -72,6 +72,14 @@ class Mandant extends Model
     }
 
     /**
+     * The mandant's event types (W2), mandant-wide.
+     */
+    public function eventTypes(): HasMany
+    {
+        return $this->hasMany(EventType::class);
+    }
+
+    /**
      * The mandant's accreditations (Akkreditierungen), mandant- and team-level
      * (P3b).
      */

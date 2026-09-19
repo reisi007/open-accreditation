@@ -21,6 +21,7 @@ class EventResource extends JsonResource
             'id' => $this->id,
             'mandant_id' => $this->mandant_id,
             'team_id' => $this->team_id,
+            'event_type_id' => $this->event_type_id,
             'title' => $this->title,
             'date' => $this->date?->format('Y-m-d'),
             'venue' => $this->venue,
