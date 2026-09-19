@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
+use App\Models\BadgeImage;
 use App\Models\Mandant;
 use App\Rules\ValidUtf8;
+use App\Services\BadgeImageService;
+use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
 use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +23,11 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class MandantController extends Controller
 {
-    public function __construct(private readonly MandantMediaService $media) {}
+    public function __construct(
+        private readonly MandantMediaService $media,
+        private readonly EventTypeMediaService $eventTypes,
+        private readonly BadgeImageService $badges,
+    ) {}
 
     public function index(): AnonymousResourceCollection
     {
@@ -103,9 +110,22 @@ class MandantController extends Controller
             MandantContext::forgetHost($domain->hostname);
         }
 
-        // The DB cascade removes the rows but never the files: drop the brand
-        // media (logo/header + their `.webp` siblings) before the row goes, so
-        // deleting a mandant leaves no public-media orphans (W11).
+        // The DB cascade (event_types, badge_images) removes the rows but never
+        // the files. Purge every public-media file of the mandant synchronously
+        // (original + `.webp` sibling) so deleting a mandant leaves no orphan
+        // behind; the weekly `media:prune-orphans` is only a safety net for
+        // historical drift. Teams cannot exist here (409 above), so their media
+        // is already gone.
+        foreach ($mandant->eventTypes()->get() as $eventType) {
+            $this->eventTypes->purge($eventType);
+        }
+
+        foreach (BadgeImage::query()->where('mandant_id', $mandant->id)->get() as $badgeImage) {
+            $this->badges->destroy($badgeImage);
+        }
+
+        // Drop the brand media (logo/header + their `.webp` siblings) before the
+        // row goes, so deleting a mandant leaves no public-media orphans (W11).
         $this->media->purge($mandant, 'logo');
         $this->media->purge($mandant, 'header');
 

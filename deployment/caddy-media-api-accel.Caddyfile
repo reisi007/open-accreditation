@@ -40,7 +40,10 @@
 #     Request-Header, bevor er den Upstream erreicht (Spoof-Strip): Der interne
 #     Auslieferungszweig kann ausschließlich durch eine Upstream-ANTWORT ausgelöst
 #     werden, nie durch Client-Eingabe.
-#   - `@accel_get method GET` begrenzt die interne Auslieferung auf GET.
+#   - `@accel_get method GET HEAD` begrenzt die interne Auslieferung auf
+#     GET/HEAD. HEAD ist enthalten, damit der `file_server` die Kopfzeilen
+#     (inkl. Content-Length) korrekt beantwortet, statt im bodyless-200-Zweig
+#     ohne Länge zu landen.
 #   - `file_server { hide .* }` blendet Dotfiles aus (Defense-in-Depth zusätzlich
 #     zur serverseitigen Pfad-Sanitisierung).
 #   - Das Backend sendet den Header nie für `_tenants/`- oder Legacy-`private`-
@@ -77,8 +80,10 @@
 					include Cache-Control Content-Type Content-Disposition Vary ETag
 				}
 
-				# Nur GET löst die interne Datei-Auslieferung aus.
-				@accel_get method GET
+				# Nur GET/HEAD lösen die interne Datei-Auslieferung aus. HEAD
+				# erhält so Content-Length vom file_server statt eines
+				# bodyless 200 ohne Länge.
+				@accel_get method GET HEAD
 				handle @accel_get {
 					root * {args[0]}
 					rewrite * {rp.header.X-Accel-Redirect}

@@ -178,6 +178,89 @@ class MediaAccelRedirectTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | B11/B12 — positive allowlist matrix (W11-F1)
+     | ------------------------------------------------------------------- */
+
+    public function test_b11_positive_allowlist_covers_every_public_layout_shape(): void
+    {
+        config(['media.accel_prefix' => '/__media']);
+
+        $paths = [
+            'verband-a.test/logo.png',
+            'verband-a.test/logo.webp',
+            'verband-a.test/header.jpg',
+            'verband-a.test/teams/team-a/logo.jpeg',
+            'verband-a.test/event-types/bundesliga/logo.webp',
+            'verband-a.test/badges/01j0abc.webp',
+        ];
+
+        foreach ($paths as $path) {
+            Storage::disk(MediaPathService::DISK)->put($path, $this->pngBytes());
+
+            $response = $this->storage->accelResponse($path);
+
+            $this->assertSame(
+                '/__media/'.$path,
+                $response->headers->get('X-Accel-Redirect'),
+                sprintf('expected accel delivery for %s', $path),
+            );
+        }
+    }
+
+    public function test_b12_unknown_shapes_legacy_roots_and_control_chars_stream(): void
+    {
+        config(['media.accel_prefix' => '/__media']);
+
+        $paths = [
+            'logo.png',                                     // no host segment
+            'verband-a.test/favicon.ico',                   // unknown brand leaf
+            'verband-a.test/logo.svg',                      // non-raster brand leaf
+            'verband-a.test/misc/01j0abc.png',              // unknown segment
+            'verband-a.test/teams/team-a/notes.txt',        // non-image leaf
+            'verband-a.test/teams/team-a/nested/logo.png',  // too deep
+            'verband-a.test/teams/Team-A/logo.png',         // non-canonical slug
+            '_tenants/5/logo.png',                          // host-neutral
+            'mandants/logo.png',                            // legacy single-label root
+            'user-media/logo.png',                          // legacy single-label root
+        ];
+
+        foreach ($paths as $path) {
+            Storage::disk(MediaPathService::DISK)->put($path, $this->pngBytes());
+
+            $response = $this->storage->accelResponse($path);
+
+            $this->assertInstanceOf(StreamedResponse::class, $response);
+            $this->assertFalse(
+                $response->headers->has('X-Accel-Redirect'),
+                sprintf('unexpected accel delivery for %s', $path),
+            );
+        }
+    }
+
+    /**
+     * A control character (CR/LF/NUL/TAB) can never be observed through the
+     * stream fallback because Flysystem itself rejects such a path as corrupted
+     * (`\p{C}`). The guard that keeps a smuggled CR/LF out of the accel header
+     * is therefore asserted directly.
+     */
+    public function test_b12b_control_characters_never_pass_the_eligibility_guard(): void
+    {
+        $eligible = new \ReflectionMethod($this->storage, 'isAccelEligible');
+
+        foreach ([
+            "verband-a.test/logo.png\r\nX-Evil: 1",
+            "verband-a.test/logo\n.png",
+            "verband-a.test/logo\t.png",
+            "verband-a.test/logo\0.png",
+        ] as $path) {
+            $this->assertFalse(
+                $eligible->invoke($this->storage, $path),
+                sprintf('control characters must not be accel-eligible: %s', addcslashes($path, "\0..\37")),
+            );
+        }
+    }
+
+    /* ---------------------------------------------------------------------
      | HTTP wiring / isolation / 404 semantics
      | ------------------------------------------------------------------- */
 

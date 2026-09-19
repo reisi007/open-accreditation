@@ -32,8 +32,14 @@ use Illuminate\Support\Facades\Storage;
  * Idempotent: a second run finds nothing. Recommended cadence: weekly through
  * the application scheduler, e.g.
  * `Schedule::command('media:prune-orphans --force')->weekly();`
- * (no scheduler infrastructure is created here). Synchronous deletes already
- * cascade the derivatives; this command only catches historical/other orphans.
+ * (no scheduler infrastructure is created here).
+ *
+ * Synchronous vs. weekly: entity/service deletes remove their files (original
+ * + `.webp` sibling) immediately, and the mandant delete purges the brand,
+ * event-type and badge files before the DB cascade drops the rows (a mandant
+ * with teams cannot be deleted at all). This command is therefore the safety
+ * net for historical orphans and out-of-band disk changes — never the primary
+ * delete path.
  */
 class MediaPruneOrphansCommand extends Command
 {

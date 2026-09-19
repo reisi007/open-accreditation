@@ -132,6 +132,42 @@ class MediaDerivativeCleanupTest extends TestCase
         Storage::disk(MediaPathService::DISK)->assertMissing($sibling);
     }
 
+    public function test_mandant_delete_purges_event_type_and_badge_media(): void
+    {
+        $target = Mandant::factory()->create(['slug' => 'verband-d', 'name' => 'Verband D']);
+        $target->domains()->create(['hostname' => 'verband-d.test']);
+
+        $eventType = EventType::query()->create([
+            'mandant_id' => $target->id,
+            'slug' => 'bundesliga',
+            'name' => 'Bundesliga',
+        ]);
+        app(EventTypeMediaService::class)->store($eventType, UploadedFile::fake()->image('logo.png'));
+
+        $badge = app(BadgeImageService::class)->store($target, UploadedFile::fake()->image('wappen.png'));
+
+        $eventLogo = (string) $eventType->fresh()->logo_path;
+        $badgePath = $badge->path;
+        $storage = app(MediaStorage::class);
+
+        $this->assertNotSame('', $eventLogo);
+        Storage::disk(MediaPathService::DISK)->assertExists($eventLogo);
+        Storage::disk(MediaPathService::DISK)->assertExists($badgePath);
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$target->id)
+            ->assertStatus(204);
+
+        // The DB cascade removes the rows; the files (and their .webp siblings)
+        // must already be gone synchronously — no weekly prune needed.
+        Storage::disk(MediaPathService::DISK)->assertMissing($eventLogo);
+        Storage::disk(MediaPathService::DISK)->assertMissing((string) $storage->webpSiblingPath($eventLogo));
+        Storage::disk(MediaPathService::DISK)->assertMissing($badgePath);
+        Storage::disk(MediaPathService::DISK)->assertMissing((string) $storage->webpSiblingPath($badgePath));
+        $this->assertDatabaseMissing('event_types', ['id' => $eventType->id]);
+        $this->assertDatabaseMissing('badge_images', ['id' => $badge->id]);
+    }
+
     private function superAdmin(): User
     {
         $user = User::factory()->create();

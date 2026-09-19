@@ -152,10 +152,13 @@ Caddy hinterlegen. Bleibt als Go-Live-Punkt offen (siehe
 - **Scope (bewusst begrenzt, W6-F3):** Der Command migriert ausschließlich die
   Legacy-Pfade der `private`-Disk — Mandant-Brand `mandants/{slug}/…` und
   Badge-Bilder `badge-images/{slug}/…` — in das Domain-/`_tenants`-Layout auf
-  `media`. Host-neutrale Dateien (`_tenants/…`) werden **nicht** umgezogen: Sie
-  liegen bereits auf `media` und bleiben über `MediaStorage` lesbar. Team- und
-  Event-Typ-Logos wurden erst nach W1/W6 eingeführt und daher nie im alten
-  `private`-Layout geschrieben — für sie gibt es nichts zu migrieren.
+  `media`. **Keine** Kandidaten sind: Host-neutrale Dateien (`_tenants/…`; sie
+  liegen bereits auf `media` und bleiben über `MediaStorage` lesbar) sowie alte
+  host-neutrale `teams/<slug>/…`/`event-types/<slug>/…`-Pfade ohne Domain-/
+  `_tenants`-Präfix (dieses Layout haben `TeamMediaService`/
+  `EventTypeMediaService` nie geschrieben; der Command fasst es nicht an).
+  Team- und Event-Typ-Logos wurden erst nach W1/W6 eingeführt und daher nie im
+  alten `private`-Layout geschrieben — für sie gibt es nichts zu migrieren.
   Slug-Wechsel innerhalb des neuen Layouts behandeln die Services separat
   (`moveForSlugChange`).
 
@@ -207,9 +210,10 @@ Vary ETag }` überträgt die Backend-Semantik auf die interne Dateiantwort.
   gesetzt, aber der Snippet fehlt, entstünde ein bodyless 200; deshalb gilt die
   Reihenfolge: **erst Snippet ausrollen (inaktiv), dann das Flag setzen.**
 - **Spoof-Strip:** `header_up -X-Accel-Redirect` entfernt einen vom Client
-  geschmuggelten Request-Header vor dem Upstream. `@accel_get method GET`
-  begrenzt die interne Auslieferung auf GET. `file_server { hide .* }` blendet
-  Dotfiles aus.
+  geschmuggelten Request-Header vor dem Upstream. `@accel_get method GET HEAD`
+  begrenzt die interne Auslieferung auf GET/HEAD (HEAD erhält so
+  `Content-Length` vom `file_server` statt eines bodyless 200 ohne Länge).
+  `file_server { hide .* }` blendet Dotfiles aus.
 - **Validierung vor Sync:** `caddy validate` in Docker; Laufzeitmatrix C1–C7
   grün (2026-09-19, caddy:2 + php:8.5-fpm): Accel-Datei wird ausgeliefert,
   Backend-`Cache-Control`/`Content-Type`/`Content-Disposition`/`Vary`/`ETag`
@@ -229,8 +233,11 @@ per Extension-Swap (`<base>.webp`) auf die `media`-Disk:
   animierte WebP werden abgelehnt (kein stiller Frame-Verlust). SVG wird nie
   konvertiert (und erreicht den Service nicht).
 - Auslieferung: `MediaStorage::accelResponse` bevorzugt das `.webp`-Geschwister,
-  wenn der Client `Accept: image/webp` sendet; sonst das Original. Kein `Vary`
-  auf den kanonischen URLs.
+  wenn der Client `Accept: image/webp` sendet; sonst das Original. **Kein `Vary:
+  Accept`** auf den kanonischen URLs: Die URL ist der DB-Pfad, und die
+  Media-API-Antworten sind per-Request (auth-/portal-gebunden, pro Host) — es
+  gibt keinen geteilten, inhaltsverhandelten Cache, den `Vary` korrekt halten
+  müsste. Dieselbe Begründung steht in `config/media.php` (Sender-Seite).
 - **Backfill:** `php artisan media:convert-to-webp` (dry-run default,
   `--force`, `--prune-originals`) erzeugt Geschwister für Bestandsdaten,
   idempotent; `--prune-originals` löscht das Raster-Original und stellt
@@ -245,8 +252,10 @@ Abgeleitete `.webp`-Dateien dürfen keine Waisen werden:
 
 - **Synchron:** Jeder Delete-Pfad räumt das Geschwister mit — `destroy()`/
   `purge()` der Brand-Services, `BadgeImageService::destroy`, der Mandant-Delete
-  (Logo/Header) und der Slug-Move (verschiebt das Geschwister mit). Zusätzlich
-  löscht ein Replace alle Alt-Endungen desselben Blatts
+  (Logo/Header, Event-Typ-Logos und Badge-Dateien) und der Slug-Move
+  (verschiebt das Geschwister mit). Ein Mandant mit Teams kann nicht gelöscht
+  werden (409); dessen Team-Dateien sind über den Team-Delete bereits weg.
+  Zusätzlich löscht ein Replace alle Alt-Endungen desselben Blatts
   (`deleteAlternateExtensions`), sodass `logo.png` → `logo.jpg` keine
   `logo.jpeg`/`logo.webp`-Reste hinterlässt.
 - **Reconciliation:** `php artisan media:prune-orphans` (dry-run default,

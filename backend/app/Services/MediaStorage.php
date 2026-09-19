@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use DomainException;
 use Illuminate\Http\Response as IlluminateResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -49,19 +50,27 @@ final class MediaStorage
     public const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 
     /**
-     * Path prefixes that must NEVER be handed to Caddy via `X-Accel-Redirect`:
-     *
-     * - `_tenants/` is the host-neutral fallback — Caddy's public matcher
-     *   deliberately cannot reach it, so it keeps streaming through PHP.
-     * - `mandants/`, `badge-images/` and `user-media/` are the legacy `private`
-     *   layouts; a file that only exists there is not below MEDIA_ROOT.
+     * Positive allowlist of the brand leaf names written directly below a
+     * `<domain>/` directory: the mandant logo/header raster images. The SVG
+     * root fallbacks are deployment-provided and never DB-managed.
      */
-    private const ACCEL_EXCLUDED_PREFIXES = [
-        MediaPathService::HOST_NEUTRAL_SEGMENT.'/',
-        'mandants/',
-        'badge-images/',
-        'user-media/',
-    ];
+    private const BRAND_LEAF_PATTERN = '/^(?:logo|header)\.(?:png|jpe?g|webp)$/';
+
+    /**
+     * Positive allowlist of the image leaf names written below the
+     * `teams`/`event-types`/`badges` segments: a sanitised file name with a
+     * raster extension (`logo.png`, `<ulid>.webp`, …).
+     */
+    private const PUBLIC_LEAF_PATTERN = '/^[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp)$/';
+
+    /**
+     * Slug pattern for the `<slug>` segment of
+     * `<domain>/teams/<slug>/…` / `<domain>/event-types/<slug>/…`
+     * (mirrors `MediaPathService::sanitizeSlug`).
+     */
+    private const SLUG_PATTERN = '/^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/';
+
+    public function __construct(private readonly MediaPathService $paths) {}
 
     /**
      * Store raw bytes at a relative path on the public disk (used by the
@@ -271,28 +280,83 @@ final class MediaStorage
     }
 
     /**
-     * Whether the path may be handed to Caddy: relative, traversal-free, not a
-     * legacy/private or host-neutral prefix, and actually present on the
-     * public disk (Caddy serves from MEDIA_ROOT).
+     * Whether the path may be handed to Caddy. This is a POSITIVE allowlist of
+     * the known public layout forms (W11-F1) — never a denylist:
+     *
+     * - `<domain>/logo.<ext>` / `<domain>/header.<ext>` (brand leaves)
+     * - `<domain>/teams/<slug>/<file>`
+     * - `<domain>/event-types/<slug>/<file>`
+     * - `<domain>/badges/<file>`
+     *
+     * The first segment must be a normalisable, canonical host, which rejects
+     * the host-neutral `_tenants/` prefix and every legacy `private` layout
+     * (`mandants/`, `badge-images/`, `user-media/`) without enumerating them.
+     * Control characters (CR/LF/NUL, …), traversal, backslashes and a leading
+     * slash are rejected up front. The file must actually exist on the public
+     * disk, because Caddy serves from MEDIA_ROOT.
      */
     private function isAccelEligible(string $path): bool
     {
         if ($path === ''
             || str_starts_with($path, '/')
             || str_contains($path, '\\')
-            || str_contains($path, "\0")
             || str_contains($path, '..')
         ) {
             return false;
         }
 
-        foreach (self::ACCEL_EXCLUDED_PREFIXES as $prefix) {
-            if (str_starts_with($path, $prefix)) {
-                return false;
-            }
+        // Reject every control character (NUL, CR, LF, TAB, DEL) — a smuggled
+        // CR/LF must never reach the accel header value.
+        if (preg_match('/[\x00-\x1F\x7F]/', $path) === 1) {
+            return false;
         }
 
-        return Storage::disk(self::PUBLIC_DISK)->exists($path);
+        $segments = explode('/', $path);
+
+        if (count($segments) < 2 || ! $this->isHostSegment($segments[0])) {
+            return false;
+        }
+
+        if (count($segments) === 2) {
+            return preg_match(self::BRAND_LEAF_PATTERN, $segments[1]) === 1;
+        }
+
+        $kind = $segments[1];
+
+        if ($kind === MediaPathService::BADGES_SEGMENT) {
+            $matches = count($segments) === 3
+                && preg_match(self::PUBLIC_LEAF_PATTERN, $segments[2]) === 1;
+        } elseif (($kind === MediaPathService::TEAMS_SEGMENT || $kind === MediaPathService::EVENT_TYPES_SEGMENT)
+            && count($segments) === 4
+        ) {
+            $matches = preg_match(self::SLUG_PATTERN, $segments[2]) === 1
+                && preg_match(self::PUBLIC_LEAF_PATTERN, $segments[3]) === 1;
+        } else {
+            return false;
+        }
+
+        return $matches && Storage::disk(self::PUBLIC_DISK)->exists($path);
+    }
+
+    /**
+     * Whether the first path segment is a canonical, normalisable host. Routing
+     * it through `MediaPathService::dirForHost()` keeps the host contract in one
+     * place and rejects `_tenants`, uppercase and non-ASCII/IDN-invalid
+     * segments. A dot is required as well, so the reserved single-label legacy
+     * roots (`mandants`, `badge-images`, `user-media`) can never masquerade as a
+     * `<domain>/` directory; failing closed only means one more PHP stream.
+     */
+    private function isHostSegment(string $segment): bool
+    {
+        if (! str_contains($segment, '.')) {
+            return false;
+        }
+
+        try {
+            return $this->paths->dirForHost($segment) === $segment;
+        } catch (DomainException) {
+            return false;
+        }
     }
 
     private function clientAcceptsWebp(string $accept): bool

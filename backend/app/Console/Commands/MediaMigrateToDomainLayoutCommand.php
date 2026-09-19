@@ -16,6 +16,18 @@ use Illuminate\Console\Command;
  * images, both on the legacy `private` disk) onto the `media` disk in the
  * domain layout (`<host>/…`, host-neutral `_tenants/<id>/…` without a domain).
  *
+ * Scope (deliberately narrow, W6-F3) — only rows whose stored path still starts
+ * with one of the two legacy `private` prefixes above are candidates. NOT
+ * candidates:
+ * - `_tenants/<id>/…`: already on the `media` disk in the host-neutral W6
+ *   layout; it stays readable through `MediaStorage` and is left untouched.
+ * - old host-neutral `teams/<slug>/…` / `event-types/<slug>/…` paths without a
+ *   `<domain>/` or `_tenants/<id>/` prefix: the services never wrote that
+ *   layout (`TeamMediaService`/`EventTypeMediaService` always key on a host),
+ *   so the command does not migrate them.
+ * - team and event-type logos in general: introduced after W1/W6, never written
+ *   in the old layout. Slug changes are handled by `moveForSlugChange`.
+ *
  * The command is a DRY RUN by default (safe to run in production): it only
  * lists the candidates. `--force` performs the migration — copy the file to
  * the new path, update the DB path, then delete the legacy file. The

@@ -22,6 +22,12 @@ return [
     | trailing slash (e.g. `/__media`). Caddy's `import media_api_accel
     | <MEDIA_ROOT> <prefix>` must use the identical prefix.
     |
+    | WebP negotiation: when the client sends `Accept: image/webp` and a `.webp`
+    | sibling exists, the sibling is served instead of the original. No
+    | `Vary: Accept` header is emitted — the canonical URL is the DB path and
+    | these API responses are per-request (auth/portal, per host), not a shared
+    | content-negotiated cache that `Vary` would need to keep correct.
+    |
     */
 
     'accel_prefix' => env('MEDIA_ACCEL_PREFIX', ''),
