@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
+use App\Rules\ValidUtf8;
 use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -43,12 +44,19 @@ class UserController extends Controller
     {
         $mandantId = $this->currentMandantId();
 
+        // ValidUtf8: raw form-encoded bytes (`search=\xFF`) pass `string` and
+        // reach the raw LIKE / JSON encoder → HTTP 500 on Postgres. Reject as
+        // 422 at the validation boundary (M4, mirrors M3).
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', new ValidUtf8],
+        ]);
+
         $query = User::query()
             ->whereHas('roleUserAssignments', fn (Builder $q) => $q->forMandant($mandantId))
             ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])]);
 
-        if ($request->filled('search')) {
-            $term = LikeSearch::escape((string) $request->input('search'));
+        if (array_key_exists('search', $validated) && $validated['search'] !== '') {
+            $term = LikeSearch::escape((string) $validated['search']);
             $query->where(
                 fn (Builder $q) => $q
                     // CC-R1: `LOWER()` on both sides pins case-insensitive search

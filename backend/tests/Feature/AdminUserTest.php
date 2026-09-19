@@ -169,6 +169,18 @@ class AdminUserTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    public function test_index_search_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // A form-encoded query can smuggle raw invalid bytes (`search=%FF`)
+        // past the `string` rule. Before the ValidUtf8 guard the value reached
+        // the raw LIKE / JSON encoder, which failed → HTTP 500 on Postgres. It
+        // must be a validation error (422).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/users?search='.rawurlencode("\xFF"))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('search');
+    }
+
     public function test_index_role_filter_filters_by_assignment_slug(): void
     {
         $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'user@example.com');
