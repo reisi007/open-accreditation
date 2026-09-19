@@ -105,6 +105,10 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
   - **Safe Patching Policy (CRITICAL):** Alle `patch.mjs` Scripts MÜSSEN den Erfolg einer Ersetzung
     validieren (`includes()`/`indexOf()` vor `.replace()`, danach Diff prüfen, `console.error` + Abbruch
     bei Leerlauf). Blinde `.replace()` Aufrufe sind untersagt!
+- **User-Fragen immer interaktiv (STRICT):** Offene Klärungsfragen an den Benutzer werden
+  IMMER sofort per interaktivem Frage-Tool gestellt — nie nur in `AGENTS.todo.md` geparkt.
+  Ausnahme: Der Benutzer ist erkennbar abwesend oder hat async Bearbeitung angeordnet; dann
+  Fragen in `AGENTS.todo.md` dokumentieren und bei nächster Gelegenheit interaktiv nachholen.
 
 ## 7. Testing & E2E (STRICT)
 
@@ -183,6 +187,11 @@ Module-spezifische Regeln in per-module `AGENTS.md`:
 ## 10. Security Risk Register (Accepted Risks)
 
 Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS.todo.md` (offen) geführt.
+
+- **A1 (accepted 2026-09-19, low):** `team_admin` kann per `GET /api/admin/teams/{team}/logo`
+  das Logo eines Sibling-Teams im **eigenen** Mandanten lesen (Route-Gate `teams.view` ohne
+  Team-Scope; `TeamController::showLogo`). Auth-gated, mandanten-isoliert, Public-Asset —
+  bewusst akzeptiert (W4-F2 L1). Re-evaluieren, falls Team-Logos je sensitiv werden.
 
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 

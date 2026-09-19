@@ -301,3 +301,34 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
 ### Bewusst NICHT in diesem Batch
 - P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme
 - P5-F4 Queue-Integration (Go-Live-Infra, Post-MVP) · Feld-Editor-Umsetzung erst nach SOLL-Spec-Verifikation
+
+---
+
+## 🛠️ Session 2026-09-19 — Domain-Ordner Media-Layout + Event-Typen + Team-Teilnehmer
+
+> User-Auftrag: Mandanten-Bilder auf `<MEDIA_ROOT>/<domain>/…`-Layout mit Root-Fallback
+> umstellen (Caddy liefert direkt aus), Event-Typen als mandant-spezifische Tabelle mit
+> Presets, Team/Vereins-Logos + Versus-Teilnehmer (Name+Bild, Heim-Default-Ort), Venue-Liste
+> mit Meilen-Autocomplete prüfen. Entscheidungen (interaktiv): MEDIA_ROOT `/srv/media`,
+> Domain-Key = normalisierter Request-Host, Personenbilder bleiben privat, Doku inklusive.
+> Plan: `.opencode/plan/media-domain-layout.md`. Orchestrierung nach §5 (max. 2 parallel,
+> nur disjunkte Dateien, Konsolidierung auf `main`, keine `fix/*`-Branches, `git add` nur
+> explizite Pfade). Noch nicht live → Migrationen dürfen erweitert werden (D17).
+
+### Ergebnis (abgeschlossen + §5-verifiziert; Voll-Suite 1039 grün, Pint/Compose/Caddy grün)
+- **W1** MediaPathService + media-Disk (`3ef079a`), W1-F1 (`119a293`); W1-F2..F4-Lows in W6/W7 + LOW-Bündel eingearbeitet.
+- **W2** event_types + Admin-CRUD (`bb74671`), W2-F1 (`aae133e`/`51aa937`), W2-F3 UTF-8-Härtung (`2e31643`), W2-F4 (`f041b87`).
+- **W3** Preset-Schema (`f9979d3`) · **W4** Team-Logo + Event-Teilnehmer (`e56d8fe`), W4-F1 (`dbb6886`).
+- **W6** Services + Backfill (`47b784b`), W6-F1/F2 (`70e67cd`), W6-F4 (`f041b87`); W6-F3-Lows in W11-F1 eingearbeitet.
+- **W7** Caddy-Snippet `media_overrides` (`fc84ec1`, high-Re-Fix `d9e9960`), W7b global (`649a3ed`, inaktiv).
+- **W11** Header-Delivery + WebP (`d2eb07f`/`2811f16`), W11-F1 (`7f57954`), W11-F2 (`42a9266`).
+- **M2** (`3496fc7`) · **M3** (`d14bdda`) · **M4** (`d8c63fb`) · **LOW-Bündel** (`b7c037a`) · **W9**-Schlusscheck §5-APPROVED.
+- **W5** Venue-Analyse erledigt + entschieden (KEIN Geo) → Umsetzung als W12 · **W10** WebP-Planung in W11 gemündet · **W8** Doku-Paket committet.
+
+### Offene Punkte
+- [ ] **W12 — Venue-Stammdaten** (geparkt, nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD + Combobox mit Freitext-Fallback, `events.venue_id` nullable ergänzend zu `venue`; PHPUnit + E2E.
+- [ ] **Dev-DB-Hinweis (W6-F3-Rest):** einmalig `migrate:fresh --seed` (sort_order-Schema).
+- [ ] **Lernpunkt Parallel-Tests:** Voll-Suite NICHT parallel in 2 Subagenten laufen lassen (`Storage::fake` teilt `storage/framework/testing/disks/*` → Cross-Prozess-Race, 3 flaky Failures beobachtet). Suite immer nur in EINEM Subagenten zur Zeit. *(Kandidat für dauerhafte Regel in `AGENTS.md` §7 — nicht verschoben.)*
+
+### Reihenfolge
+W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 → W9.
