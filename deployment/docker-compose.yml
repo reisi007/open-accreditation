@@ -43,6 +43,34 @@ services:
     networks:
       - accriditation_internal
 
+  # W1: backend (PHP-FPM). Deliberately behind the `prod` profile so the
+  # local/CI `docker compose up -d` keeps starting ONLY the infra services
+  # (db + mailpit); use `docker compose --profile prod up -d` to start it.
+  # MEDIA_ROOT is bind-mounted from the host at the exact same path the
+  # external Caddy serves media from, so both containers share one media tree
+  # (no Caddyfile lives in this repo — W7 owns the Caddy snippet).
+  backend:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: accreditation_backend
+    restart: unless-stopped
+    working_dir: /var/www/html
+    environment:
+      MEDIA_ROOT: /srv/media/accreditation
+    volumes:
+      - ../backend:/var/www/html
+      # Shared with Caddy: host path -> identical path in both containers.
+      # Override MEDIA_ROOT_HOST when the host mount differs (default is the
+      # production path documented in backend/.env.example).
+      - ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - accriditation_internal
+
 networks:
   accriditation_internal:
 

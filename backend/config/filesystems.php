@@ -52,6 +52,20 @@ return [
             'report' => false,
         ],
 
+        // W1: public brand/team/event-type/badge media. The layout below the
+        // root is `<host>/…` (MediaPathService) and is served directly by the
+        // web server (Caddy) from a shared volume — never through a framework
+        // serve route, so `serve` stays disabled. In production MEDIA_ROOT
+        // points at the shared path (e.g. /srv/media/accreditation); locally
+        // it defaults to storage/app/media.
+        'media' => [
+            'driver' => 'local',
+            'root' => env('MEDIA_ROOT', storage_path('app/media')),
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
