@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\SubAccreditationResource;
 use App\Models\Accreditation;
 use App\Models\SubAccreditation;
+use App\Rules\ValidUtf8;
 use App\Services\SubAllocationService;
 use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
@@ -76,7 +77,9 @@ class SubAccreditationController extends Controller
             'team_id' => ['nullable', 'integer'],
             'type' => ['nullable', Rule::in(['park', 'seat'])],
             'active' => ['nullable', 'boolean'],
-            'search' => ['nullable', 'string'],
+            // ValidUtf8: raw form-encoded bytes (`search=\xFF`) pass `string`
+            // and reach the LIKE/JSON encoder → Postgres 500. Reject as 422.
+            'search' => ['nullable', 'string', new ValidUtf8],
         ]);
 
         $query = SubAccreditation::query()

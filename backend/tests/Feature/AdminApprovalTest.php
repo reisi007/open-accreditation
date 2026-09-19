@@ -212,6 +212,18 @@ class AdminApprovalTest extends TestCase
             ->assertJsonValidationErrors('status');
     }
 
+    public function test_applications_index_search_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // A form-encoded query can smuggle raw invalid bytes (`search=%FF`)
+        // past the `string` rule. Before the ValidUtf8 guard the value reached
+        // the raw LIKE / JSON encoder, which failed → HTTP 500 on Postgres. It
+        // must be a validation error (422).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/applications?search='.rawurlencode("\xFF"))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('search');
+    }
+
     public function test_team_admin_sees_only_own_teams_applications(): void
     {
         $teamAdmin = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id);

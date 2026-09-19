@@ -345,6 +345,18 @@ class BlacklistTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
+    public function test_index_search_rejects_invalid_utf8_with_422_not_500(): void
+    {
+        // A form-encoded query can smuggle raw invalid bytes (`search=%FF`)
+        // past the `string` rule. Before the ValidUtf8 guard the value reached
+        // the raw LIKE / JSON encoder, which failed → HTTP 500 on Postgres. It
+        // must be a validation error (422).
+        $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/blacklists?search='.rawurlencode("\xFF"))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('search');
+    }
+
     public function test_super_admin_can_delete_own_mandant_entry(): void
     {
         $entry = Blacklist::create(['mandant_id' => $this->mandantA->id, 'email' => 'bye@example.com']);

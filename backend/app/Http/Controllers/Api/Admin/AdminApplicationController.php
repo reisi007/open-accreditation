@@ -52,7 +52,9 @@ class AdminApplicationController extends Controller
         $validated = $request->validate([
             'accreditation_id' => ['nullable', 'integer'],
             'status' => ['nullable', Rule::in(['requested', 'approved', 'denied', 'blacklisted'])],
-            'search' => ['nullable', 'string'],
+            // ValidUtf8: raw form-encoded bytes (`search=\xFF`) pass `string`
+            // and reach the LIKE/JSON encoder → Postgres 500. Reject as 422.
+            'search' => ['nullable', 'string', new ValidUtf8],
         ]);
 
         $query = Application::query()

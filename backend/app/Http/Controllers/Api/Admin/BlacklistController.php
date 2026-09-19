@@ -45,10 +45,17 @@ class BlacklistController extends Controller
         $mandantId = $this->currentMandantId();
         $this->assertMandantLevelScope($request, $mandantId);
 
+        // ValidUtf8: `index()` had no `validate()` at all, so a form-encoded
+        // `search=\xFF` would reach the raw LIKE and the JSON encoder → HTTP
+        // 500 on Postgres. Validate the param and reject invalid bytes (422).
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', new ValidUtf8],
+        ]);
+
         $query = Blacklist::query()->forMandant($mandantId);
 
-        if ($request->filled('search')) {
-            $term = LikeSearch::escape((string) $request->input('search'));
+        if (array_key_exists('search', $validated) && $validated['search'] !== '') {
+            $term = LikeSearch::escape((string) $validated['search']);
             $query->where(function (Builder $q) use ($term) {
                 // CC-R1: `LOWER()` on both sides pins case-insensitive search
                 // and keeps Postgres (LIKE is case-sensitive) in sync with
