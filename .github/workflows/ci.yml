@@ -123,14 +123,19 @@ jobs:
     # + Node/pnpm/Composer + Playwright-Chromium vorinstalliert) -> kein Browser-
     # Download und kein apt-Deps-Setup pro Run. Backend & Vite laufen als
     # Hintergrundprozesse im selben Container; die Daten-Dienste (postgres/
-    # mailpit) sind per Service-Name erreichbar. Details: features/05-e2e-test-image.md.
+    # mailpit) sind per Service-Name erreichbar. Was das Image deterministisch
+    # macht — und was nicht — steht in features/05-e2e-test-image.md.
     container:
       # First-party image. `:latest` ist der MUTABLE CI-Referenz-Tag (nur so
       # konsumiert ihn ci.yml); der Version-Tag `:<playwright-version>` wird
       # zwar ebenfalls gepusht, ist aber KEIN Reproduzierbarkeits-Garant:
       # der wöchentliche Rebuild in e2e-image.yml überschreibt ihn (gleiche
-      # playwright-Version, neu gebautes Base-Image). Wer Determinismus
-      # braucht, pinnt den Digest (Job-Output `digest` in e2e-image.yml).
+      # playwright-Version, neu gebautes Base-Image). Wer einen stabilen,
+      # auditierbaren Lauf braucht, pinnt den Digest (Job-Output `image_ref`
+      # in e2e-image.yml). Auch der Base-Snapshot des E2E-Images ist als Digest
+      # gepinnt und als Image-Label `org.opencontainers.image.base.name`
+      # nachlesbar — bit-reproduzierbar ist das Image trotzdem nicht
+      # (`composer:2`, nodejs.org-`latest-v26.x`).
       image: ghcr.io/reisi007/accriditation-e2e:latest
     env:
       ADMIN_EMAIL: admin@example.com
@@ -279,8 +284,10 @@ jobs:
       - name: Run E2E suite (${{ github.event_name == 'schedule' && 'volle Suite' || '@smoke' }})
         working-directory: frontend
         # Serial (--workers=1): Backend-Login-Limiter (RateLimiter::for('login'),
-        # 10/min pro IP) → parallel workers teilen sich die CI-IP und erzeugen
-        # 429 "Too Many Attempts"-Flakes (P2b-F9). Serial läuft grün.
+        # 40/min pro IP laut AppServiceProvider — das ist der local/testing-
+        # Floor, in production gelten 15/min) → parallel workers teilen sich
+        # die CI-IP und erzeugen 429 Too-Many-Attempts-Flakes (P2b-F9).
+        # Serial läuft grün.
         # `schedule` = volle Suite (kein `--grep`), sonst `@smoke`.
         run: |
           set -euo pipefail

@@ -1,22 +1,94 @@
 # ==========================================================================
 # accriditation-e2e — E2E-/Test-Image (aus accriditation-base abgeleitet)
 # --------------------------------------------------------------------------
-# Basis: ghcr.io/reisi007/accriditation-base:8.5 (PHP 8.5 Prod-Runtime, exiftool,
-# ImageMagick, alle App-Extensions inkl. pdo_pgsql; Debian trixie) — identische
-# Runtime wie Produktion. Zusätzlich für die E2E-CI (ci.yml, Job `e2e`)
-# vorinstalliert:
+# Basis: accriditation-base (PHP 8.5 Prod-Runtime, exiftool, ImageMagick, alle
+# App-Extensions inkl. pdo_pgsql; Debian trixie) — dieselbe Runtime wie
+# Produktion, bis auf den Basis-Snapshot (siehe „Determinismus“ unten).
+# Zusätzlich für die E2E-CI (ci.yml, Job `e2e`) vorinstalliert:
 #   * Composer (Dist-Binary, wie Prod via composer:latest)
-#   * Node.js (aktuelle v26, offizielles Linux-Binary)
+#   * Node.js (aktuelles v26, offizielles Linux-Binary)
 #   * pnpm (exakt frontend/package.json#packageManager)
 #   * Playwright-Chromium inkl. apt-System-Deps (Version == @playwright/test,
 #     aufgelöst aus frontend/pnpm-lock.yaml)
+#
+# DETERMINISMUS — was der Mechanismus wirklich garantiert (Stand 2026-09-26,
+# WP-9-D1/D2). Vorher stand hier „Basis: …:8.5“ ohne jede Einschränkung, was
+# eine Stärke suggerierte, die es nicht gab. Jetzt explizit:
+#
+#   GARANTIERT (für jeden Lauf, in dem die Digest-Auflösung gelingt — der
+#   Normalfall, aber nicht garantiert, s.u.): Der Basis-Snapshot ist ein
+#   **Digest**, kein Tag. `e2e-image.yml` löst vor dem Build den Digest auf, den
+#   `accriditation-base:8.5` gerade hat, und reicht ihn als `BASE_REF` durch.
+#   Der tatsächlich benutzte Wert wird als OCI-Label
+#   `org.opencontainers.image.base.name` ins Image geschrieben — die Provenienz
+#   steht damit AM ARTEFAKT, nicht nur im Log: `docker inspect <image>` (bzw.
+#   `docker image inspect` nach einem Pull) beantwortet die Frage „welcher
+#   Base-Bitstand steckt in diesem E2E-Image?“ eindeutig.
+#
+#   GARANTIERT NICHT: dass `e2e-image.yml` den Digest immer auflösen kann. Kann
+#   es nicht (Registry-Ausfall, Paket nicht öffentlich, Tooling-Problem), baut der
+#   Workflow gegen den beweglichen `:8.5`-Tag weiter — mit sichtbarer
+#   `::warning::`-Annotation, also nicht still. Der Fallback ist billig, der
+#   Verlust ist nur das Label.
+#
+#   GARANTIERT NICHT: dass dieses Image bit-reproduzierbar ist. Drei Inputs
+#   driften unabhängig vom Repo-Stand: `composer:2` (beweglicher Major-Tag),
+#   `latest-v<NODE_MAJOR>.x/` auf nodejs.org (das „latest“-Verzeichnis wandert)
+#   und der Base-Digest selbst (rotiert nightly). Nur `PLAYWRIGHT_VERSION` und
+#   `PNPM_VERSION` sind gegen das Lockfile/Repo fixiert.
+#
+#   AUFLÖSUNG DES HÜHN-EI-PROBLEMS: Der Digest ist CI-Laufzeit-Wert (er rotiert
+#   mit jedem `base-image.yml`-Lauf) und darf deshalb NICHT im Repo stehen —
+#   er würde still altern. Er wird deshalb zur Build-Zeit aus der Registry
+#   gelesen. Das ist derselbe Wert, den `base-image.yml` als Job-Output
+#   `image_ref` publiziert, und zwar per Konstruktion: EIN Push setzt Tag und
+#   Digest, die beiden können nicht auseinanderlaufen. Cross-Workflow-Outputs
+#   (`needs:` über Workflow-Grenzen geht nicht, nur `workflow_run`, und das
+#   liefe bei den E2E-Triggern nicht mit) waren die einzige Alternative und
+#   deutlich fragiler — weg gelassen.
+#
+#   PREKÄRSTELLE (deshalb das verpflichtende `--platform` am FROM): Der Digest
+#   zeigt auf einen OCI-*Index*, nicht auf ein einzelnes Manifest. BuildKit
+#   sucht darin nach einem zur Host-Plattform passenden Manifest und bricht hart
+#   ab, wenn keins existiert — der Base-Index führt nur `linux/amd64`. Details
+#   und Reproduktion am `--platform`-ARGs weiter unten.
 #
 # INVARIANTE: Es wird NUR die Umgebung eingebacken — niemals App-Code,
 # node_modules/ oder vendor/. Die CI mountet den Workspace und installiert
 # Dependencies pro Commit. Browser sind an die Playwright-Version gebunden
 # -> Rebuild-Trigger siehe .github/workflows/e2e-image.yml.
 # ==========================================================================
-FROM ghcr.io/reisi007/accriditation-base:8.5
+# Globales Build-Arg (muss VOR dem FROM stehen, damit es in FROM auflösbar ist).
+# Default = beweglicher `:8.5`-Tag: das ist der lokale Build ohne Build-Args
+# (siehe Kommentar „Determinismus“ oben — dieser Pfad verliert die Provenienz
+# bewusst und ist genau der, den der Workflow nie nimmt).
+ARG BASE_REF=ghcr.io/reisi007/accriditation-base:8.5
+# `--platform=linux/amd64` ist NOTWENDIG, nicht Deko: `base-image.yml` published
+# das Base-Image mit `platforms: linux/amd64`, der ghcr-Index enthält also NUR
+# ein `linux/amd64`-Manifest (+ Attestation). `FROM <repo>@sha256:<index-digest>`
+# lässt BuildKit die Plattform aus dem Index WÄHLEN — auf einem arm64-Host
+# (Apple Silicon) findet er keine und bricht mit
+#   "no match for platform in manifest: not found"
+# hart ab. Mit explizitem `--platform` greift BuildKit das vorhandene
+# amd64-Manifest und emuliert es. Lokal verifiziert (Docker 29.5.3,
+# buildx 0.35.0, darwin/arm64) — die Erkenntnis kam aus genau diesem Fehler.
+# Folgt die Base je Multi-Arch, kann das hier zu `linux/arm64` werden bzw.
+# entfallen, sobald der Index beide Plattformen führt.
+ARG BASE_PLATFORM=linux/amd64
+FROM --platform=${BASE_PLATFORM} ${BASE_REF}
+
+# Globale ARGs sind nach dem FROM nicht im Stage-Scope. Ohne diese erneute
+# Deklaration expandiert `${BASE_REF}` im LABEL zu LEER — das Label wäre also
+# genau dann leer, wenn man es zum Nachschauen braucht (BuildKit warnt mit
+# `UndefinedVar`). Lokal gegengeprüft.
+ARG BASE_REF
+ARG BASE_PLATFORM
+
+# Provenienz am Artefakt: welcher Basis-Snapshot steckt in diesem Image.
+# Steht hier der Tag statt eines Digests, war die Auflösung in
+# `e2e-image.yml` nicht möglich — ehrlich statt leer.
+LABEL org.opencontainers.image.base.name="${BASE_REF}"
+LABEL org.opencontainers.image.base.platform="${BASE_PLATFORM}"
 
 # --- User (WP-5-b) ----------------------------------------------------------
 # `deployment/Dockerfile` endet jetzt mit `USER www-data` (non-root
@@ -45,9 +117,20 @@ ARG PNPM_VERSION=11.23.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Composer — statisches Dist-Binary (portabel über Debian-Varianten)
-# CC-R4: `composer:2` is a floating major tag. Pin to an immutable digest for
-# reproducible builds:
-# TODO: pin to an immutable digest (e.g. composer@sha256:…) for reproducible CI
+# ACHTUNG (CC-R4, weiterhin offen): `composer:2` ist ein BEWEGLICHER Major-Tag.
+# Warum trotzdem nicht gepinnt: anders als beim Base-Image gibt es für Composer
+# keinen Workflow, der einen `image_ref`-Digest liefert — es gibt also keine
+# rotationsfreie Quelle der Wahrheit. Ein im Repo hartkodierter Digest würde
+# still altern, und ein `COPY --from` lässt sich nur mit demselben
+# Registry-Auflösungs-Trick dynamisieren, den `BASE_REF` für die Base macht
+# (Auflösung im Workflow, Digest als Build-Arg) — das wäre machbar, ist aber ein
+# eigener Task mit eigenem Drift-Problem, kein Kommentar. Konsequenz für heute:
+# das E2E-Image ist NICHT bit-reproduzierbar, siehe der Determinismus-Absatz im
+# Kopf dieser Datei. Gleiches gilt für `NODE_MAJOR` (unten) und das
+# `latest-v<major>.x`-Verzeichnis auf nodejs.org.
+# TODO(CC-R4): entweder `COPY --from=composer:2` genauso digest-parametrisieren
+# wie `BASE_REF` (Auflösung im Workflow) oder den Composer gar nicht mehr aus
+# dem Image nehmen (Download + SHASUM-Pin analog zum Node-Tarball).
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # System-Utils: git (actions/checkout), curl (Downloads), xz-utils (Node-Tarball),

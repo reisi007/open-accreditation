@@ -8,7 +8,7 @@ name: Build and Push Base Image
 #                      nicht vom taeglichen Cron, der denselben Commit erneut
 #                      gegen ein inzwischen aktualisiertes `php:8.5-fpm` baut.
 #   :<tag>@<digest>    immutable. Wird pro Lauf als Job-Output `image_ref` und
-#                      im Step-Summary publiziert. DAS ist der Referenz-Tag,
+#                      im Step-Summary publiziert. DAS ist der Referenz-Wert,
 #                      den ein Konsument pinnen soll.
 #   :8.5 / :latest     BEWEGLICH. Beide werden bei jedem Build ueberschrieben
 #                      (Push auf main, `workflow_dispatch` UND der nightly
@@ -16,9 +16,14 @@ name: Build and Push Base Image
 #                      :latest. Sie sind Komfort-Referenzen fuer
 #                      Docker-Compose/`docker run`, KEINE Determinismus-Garant.
 #
-# Konsequenz fuer Konsumenten: Wer reproduzierbare Laeufe braucht, pinnt den
-# Digest. `deployment/Dockerfile.e2e` pinnt derzeit noch `accriditation-base:8.5`
-# und driftet damit mit jedem Base-Build (siehe features/05-e2e-test-image.md).
+# Konsequenz fuer Konsumenten: Wer einen stabilen, auditierbaren Lauf braucht,
+# pinnt den Digest. `deployment/Dockerfile.e2e` macht das ueber einen
+# Digest-Pass-through (`ARG BASE_REF` + `FROM ${BASE_REF}`, gesetzt von
+# `e2e-image.yml`); der benutzte Wert steht als Image-Label
+# `org.opencontainers.image.base.name` im E2E-Image. Der Digest wird dabei zur
+# Build-Zeit aus der Registry gelesen, nicht aus diesem Job-Output gelesen —
+# siehe die Begruendung im Determinismus-Absatz von `Dockerfile.e2e`. Ohne
+# Build-Arg faellt `Dockerfile.e2e` auf den beweglichen `:8.5`-Tag zurueck.
 on:
   push:
     branches: [ "main" ]
@@ -44,7 +49,10 @@ jobs:
       # `docker/build-push-action`, der Step `publish` stellt daraus
       # `<image>@<digest>` zusammen — damit Konsumenten (z. B.
       # `deployment/Dockerfile.e2e`) einen echten Pin benutzen koennen statt
-      # eines Tags, der bei jedem Build ueberschrieben wird.
+      # eines Tags, der bei jedem Build ueberschrieben wird. Derselbe Digest
+      # ist der, den der Tag `:8.5` in diesem Lauf aufloest (ein Push setzt
+      # Tag und Digest), und genau den loest `e2e-image.yml` zur Build-Zeit
+      # direkt aus der Registry auf.
       image_ref: ${{ steps.publish.outputs.image_ref }}
     steps:
       - name: Checkout repository
@@ -93,13 +101,18 @@ jobs:
           [ -n "$DIGEST" ] || { echo "::error::build-push-action lieferte keinen Digest"; exit 1; }
           image_ref="${IMAGE}@${DIGEST}"
           echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          # ACHTUNG: Ziel der Tabelle ist die Step-Summary-Datei des Steps
+          # (Umgebungsvariable `GITHUB_STEP_SUMMARY`). Die Workflow-Ebene hat
+          # keine entsprechende Variable: mit dem falschen Namen bricht der
+          # Step unter `set -u` (siehe oben) mit "unbound variable" ab und der
+          # Job wird rot — bzw. schreibt die Markdown-Tabelle kommentarlos in
+          # eine Datei im Workspace, die nie im Job-UI auftaucht.
           {
             echo "### accriditation-base"
             echo
             echo "| Referenz | Art |"
             echo "| --- | --- |"
-            echo "| \`${IMAGE}:8.5-${{ github.run_number }}\` | immutable (Run-Nummer) |"
+            echo "| \`${IMAGE}:8.5-${RUN_NUMBER}\` | immutable (Run-Nummer) |"
             echo "| \`${image_ref}\` | immutable (Digest) |"
             echo "| \`${IMAGE}:8.5\`, \`${IMAGE}:latest\` | **beweglich** — bei jedem Build neu gesetzt, auch durch den nightly Cron \`0 1 * * *\` |"
-          } >> "$GITHUB_STUMMARY"
-
+          } >> "$GITHUB_STEP_SUMMARY"

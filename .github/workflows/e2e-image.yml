@@ -7,10 +7,21 @@ name: Build and Push accriditation-e2e Image
 #
 # Rebuild-Trigger (Playwright-Browser sind an die @playwright/test-Version
 # gebunden!):
-#   * Push auf master bei Aenderung von Dockerfile.e2e, Workflow oder
+#   * Push auf main bei Aenderung von Dockerfile.e2e, Workflow oder
 #     frontend/pnpm-lock.yaml (Dependabot-Bumps -> Image muss nachziehen)
 #   * Weekly (Mo 02:00 UTC) als Frische-Untergrenze
 #   * workflow_dispatch manuell
+#
+# Basis-Image (WP-9-D1): vor dem Build wird der Digest aufgeloest, auf den
+# `accriditation-base:8.5` gerade zeigt, und als `BASE_REF` durchgereicht — der
+# tatsaechlich benutzte Wert landet als Image-Label
+# `org.opencontainers.image.base.name` im Ergebnis. Schlaegt die Aufloesung fehl,
+# laeuft der Build gegen den beweglichen Tag weiter (mit `::warning::`, nicht
+# still). Ein Rebuild hier triggert KEINEN base-image.yml-Lauf: nach einem
+# nightly Base-Rebuild laeuft die E2E-CI bis zum naechsten woechentlichen
+# Rebuild dieses Workflows auf dem aelteren E2E-Image. Was das Image wirklich
+# garantiert, steht im Determinismus-Absatz von deployment/Dockerfile.e2e —
+# bitte dort nachlesen statt hier eine Staerke zu vermuten.
 on:
   push:
     branches: [ "main" ]
@@ -61,6 +72,48 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4  # major tag pin — SHA-pinning is a stronger, immutable option
 
+      - name: Resolve base image reference (digest pass-through)
+        id: base
+        env:
+          BASE_IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base
+          BASE_TAG: ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base:8.5
+        run: |
+          set -euo pipefail
+          # Steht bewusst NACH `docker/login-action`: die Auflösung geht über die
+          # Registry und soll auch dann klappen, wenn das Paket einmal nicht
+          # öffentlich ist — der Login ist dann schon da.
+          #
+          # Warum der Digest zur Build-Zeit aus der Registry und nicht aus dem
+          # Job-Output von `base-image.yml` (WP-9-D1):
+          #   * `image_ref`=<image>@sha256:<digest> ist DER Wert, den der Tag
+          #     `:8.5` gerade aufloest — ein Push setzt Tag und Digest, die
+          #     beiden koennen per Konstruktion nicht auseinanderlaufen.
+          #   * Einen Job-Output workflow-uebergreifend zu konsumieren ginge nur
+          #     ueber `workflow_run` + Download-Artefakt; das (a) feuert nicht bei
+          #     den E2E-Triggern (Dockerfile.e2e / pnpm-lock.yaml) mit, (b) ist
+          #     eine Extra-Race, (c) macht den E2E-Image-Build von einem
+          #     zusaetzlichen Workflow-Run abhaengig.
+          #   * Ein im Repo hartkodierter Digest waere die Haelfte davon schlimmer:
+          #     er rotiert nightly und wuerde still altern.
+          # Degradation ist bewusst NICHT fatal: ohne aufloesbaren Digest laeuft
+          # der Build gegen den beweglichen Tag weiter, das E2E-Image bleibt
+          # funktionsfaehig, nur die Base-Provenienz faellt aus. Sichtbar
+          # gemacht wird das per ::warning:: — nie still.
+          ref="$BASE_TAG"
+          digest="$(docker buildx imagetools inspect "$BASE_TAG" \
+            --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          case "$digest" in
+            sha256:*)
+              ref="${BASE_IMAGE}@${digest}"
+              echo "Base-Image gepinnt: \`${ref}\`" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::warning title=Base-Image nicht auf Digest aufloesbar::Digest von ${BASE_TAG} nicht ermittelbar (Registry nicht erreichbar, Paket nicht oeffentlich, oder Buildx-Formatunsupported). Baue gegen den BEWEGLICHEN Tag ${BASE_TAG}. Das E2E-Image bleibt korrekt, verliert aber die Base-Provenienz: das Label org.opencontainers.image.base.name traegt dann den Tag statt eines Digests. Bitte 'Publish immutable reference' in base-image.yml gegenpruefen."
+              echo "- ⚠️ Base-Image **nicht** auf einen Digest aufgelöst — gebaut gegen \`${BASE_TAG}\` (beweglich). Keine Base-Provenienz." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+          echo "base_ref=${ref}" >> "$GITHUB_OUTPUT"
+
       - name: Build and Push accriditation-e2e Image (amd64)
         id: build
         uses: docker/build-push-action@v7  # major tag pin — SHA-pinning is a stronger, immutable option
@@ -69,7 +122,14 @@ jobs:
           file: deployment/Dockerfile.e2e
           push: true
           platforms: linux/amd64
+          # Digest-Pass-through (WP-9-D1), gesetzt vom Step `Resolve base image
+          # reference`. Faellt die Aufloesung dort aus, steht hier der
+          # bewegliche Tag — der Job bleibt gruen, nur ohne Base-Provenienz.
+          # Bewusst kein Kommentar INNERHALB von `build-args`: der Block wird
+          # zeilenweise als `--build-arg` geparst, ein `#`-Kommentar wird also
+          # zum (wertlosen) Build-Arg.
           build-args: |
+            BASE_REF=${{ steps.base.outputs.base_ref }}
             PLAYWRIGHT_VERSION=${{ steps.versions.outputs.playwright_version }}
             PNPM_VERSION=${{ steps.versions.outputs.pnpm_version }}
           cache-from: type=gha
@@ -85,12 +145,21 @@ jobs:
           #                                 wöchentliche Cron baut dieselbe
           #                                 Playwright-Version erneut gegen ein
           #                                 inzwischen aktualisiertes
-          #                                 accriditation-base:8.5 und
-          #                                 überschreibt den Tag.
-          #   :<playwright-version>-<run>  immutable (Run-Nummer) + Digest
-          #                                 (Job-Output `image_ref`) — DAS ist
-          #                                 die Referenz, die man für
-          #                                 reproduzierbare Läufe pinnt.
+          #                                 accriditation-base und überschreibt
+          #                                 den Tag.
+          #   :<playwright-version>-<run>  immutable (Run-Nummer) — wird nie
+          #                                 überschrieben.
+          #   <image>@<digest>              immutable, Job-Output `image_ref`.
+          #                                 Das ist die Referenz für einen
+          #                                 STABILEN, auditierbaren Lauf: gleiche
+          #                                 E2E-Umgebung über Runs hinweg. Es ist
+          #                                 KEINE Bit-Reproduzierbarkeit —
+          #                                 `composer:2` und das nodejs.org-
+          #                                 `latest-v26.x`-Verzeichnis driften
+          #                                 unabhängig vom Repo-Stand (siehe
+          #                                 Determinismus-Absatz in Dockerfile.e2e).
+          #                                 Die genaue Base steht im Image-Label
+          #                                 `org.opencontainers.image.base.name`.
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:${{ steps.versions.outputs.playwright_version }}
@@ -103,6 +172,7 @@ jobs:
           PLAYWRIGHT_VERSION: ${{ steps.versions.outputs.playwright_version }}
           RUN_NUMBER: ${{ github.run_number }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          BASE_REF: ${{ steps.base.outputs.base_ref }}
         run: |
           set -euo pipefail
           [ -n "$DIGEST" ] || { echo "::error::build-push-action lieferte keinen Digest"; exit 1; }
@@ -116,4 +186,11 @@ jobs:
             echo "| \`${IMAGE}:${PLAYWRIGHT_VERSION}-${RUN_NUMBER}\` | immutable (Run-Nummer) |"
             echo "| \`${image_ref}\` | immutable (Digest) |"
             echo "| \`${IMAGE}:latest\`, \`${IMAGE}:${PLAYWRIGHT_VERSION}\` | **beweglich** — bei jedem Build neu gesetzt |"
+            echo
+            echo "Basis dieses Builds (Digest-Pass-through, WP-9-D1): \`${BASE_REF}\`"
+            echo
+            echo "Ebenfalls als Image-Label \`org.opencontainers.image.base.name\` hinterlegt."
+            echo "Damit ist das E2E-Image **auditierbar** (welcher Base-Bitstand steckt "
+            echo "drin), aber weiterhin nicht bit-reproduzierbar — \`composer:2\` und das "
+            echo "nodejs.org-\`latest-v26.x\`-Verzeichnis driften unabhängig vom Repo-Stand."
           } >> "$GITHUB_STEP_SUMMARY"
