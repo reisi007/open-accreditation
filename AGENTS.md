@@ -192,6 +192,23 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   das Logo eines Sibling-Teams im **eigenen** Mandanten lesen (Route-Gate `teams.view` ohne
   Team-Scope; `TeamController::showLogo`). Auth-gated, mandanten-isoliert, Public-Asset —
   bewusst akzeptiert (W4-F2 L1). Re-evaluieren, falls Team-Logos je sensitiv werden.
+- **A2 (accepted 2026-09-26, low):** `deployment/dev.env` ist **versioniert** und enthält
+  einen `APP_KEY`-Platzhalter aus 32 Null-Bytes plus die Dev-DB-Zugangsdaten
+  (`accriditation`/`accriditation`). Kein Geheimnis, aber ein Prod-Footgun: die Basis-
+  `docker-compose.yml` erzwingt `APP_KEY` per `${APP_KEY:?…}`, ein unbedachtes
+  `docker compose --env-file deployment/dev.env --profile prod up` würde also **starten**.
+  Mitigation ist der Boot-Guard `AppServiceProvider::assertProductionAppKeyIsStrong()`, der
+  genau diesen Platzhalter in `APP_ENV=production` mit Log-Critical ablehnt — der Dienst
+  verweigert den Start statt still mit bekanntem Schlüssel zu laufen. Deckt sich mit A3.
+- **A3 (accepted 2026-09-26, medium):** `MANDANTS_CACHE_TTL` (Default 3600 s) cacht die
+  Host-Allow-List der Mandant-Domains. Wird eine Mandant-Domain **gelöscht**, muss der
+  Cache explizit invalidiert werden (`MandantContext::forgetHostnames()`), sonst bleibt der
+  Host bis zum TTL allow-listed. Das ist **kein** Datenzugriff (der Host löst danach auf
+  `MandantContext` auf und liefert 404, weil es die Mandant nicht mehr gibt), aber es
+  ist eine unnötige Angriffsfläche für Subdomain-Takeover-artige Szenarien. Für jeden
+  hostname-schreibenden Pfad (Domain anlegen/ändern/**löschen**, Mandant löschen) ist der
+  Aufruf Pflicht — inklusive der inzwischen nachgezogenen `MandantController::destroy()`.
+  Re-evaluieren, wenn `trustHosts` oder die Cache-TTL umgebaut werden.
 
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 
