@@ -138,7 +138,9 @@ class WalletController extends Controller
             ->forUser($user->id)
             ->forMandant($mandant->id)
             ->with([
-                'application',
+                // `application` itself is pulled in by the nested relations
+                // below — a bare `'application'` entry would be a second,
+                // redundant eager load of the very same row.
                 'application.accreditation.category',
                 'application.accreditation.event',
                 'application.accreditation.mandant',

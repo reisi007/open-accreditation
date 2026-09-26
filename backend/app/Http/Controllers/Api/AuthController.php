@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Rules\ValidUtf8;
 use App\Support\MandantContext;
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -256,13 +258,70 @@ class AuthController extends Controller
      * GET /api/auth/me
      *
      * The currently authenticated user (core fields + roles + media).
+     *
+     * ## Mandant-scoped roles (M1)
+     *
+     * The eager load used to be an unscoped `['roles', 'media']`, so the
+     * response carried EVERY `role_user` row of the account — including the
+     * role, `mandant_id` and `team_id` of mandants the request host does not
+     * resolve to. On `verband-a.test` a user who is a `mandant_admin` in
+     * verband B leaked that fact (and B's id) to whoever held his token on A.
+     * `/auth/me` is one of the two `EnsureMandantMembership` EXEMPT_ROUTES, so
+     * it deliberately answers for an account WITHOUT a role in the current
+     * mandant — exactly the request where the unscoped read leaked the most.
+     *
+     * The filter is therefore the SAME disjunction the membership invariant
+     * uses (`User::isMemberOfMandant()`): the roles of the CURRENT mandant plus
+     * the global `super_admin` row (`mandant_id = null`). Filtering on the
+     * current mandant alone would hide that global row and blind the SPA's
+     * `isSuperAdmin` / `current_mandant_id` logic (`useAdminTeams`,
+     * `adminRoles`) on every mandant domain.
+     *
+     * WITHOUT a resolved mandant (console, CLI, tests without a host) there is
+     * no tenant to scope to, so nothing is filtered — the same deliberate
+     * escape hatch `isMemberOfMandant()` and `EnsureMandantMembership` use.
+     *
+     * `media` is NOT filtered and cannot be: `user_media` has no `mandant_id`
+     * column (see `create_roles_and_media_tables`), and every row is already
+     * the CALLER's own upload (`user_id` FK, indexed with `type`). The
+     * serialized fields are `id/type/mime/size/original_name/created_at/url` —
+     * none of them mandant-derived, the storage path is never exposed. So the
+     * relation carries no cross-mandant data in the first place.
      */
     public function me(Request $request): UserResource
     {
         /** @var User $user */
         $user = auth('api')->user();
 
-        return new UserResource($user->fresh(['roles', 'media']));
+        return new UserResource($user->fresh(['roles' => $this->rolesForCurrentMandant(), 'media']));
+    }
+
+    /**
+     * The eager-load constraint that keeps `/auth/me` inside the current
+     * mandant (M1) — see the docblock above. A `null` mandant (nothing to
+     * scope to) means "no constraint": the relation loads unscoped, as before.
+     *
+     * The closure receives the RELATION (`BelongsToMany`), not a Builder — the
+     * same eager-load shape the admin controllers document — so it is typed as
+     * such and its calls are forwarded to the relation's query. The pivot
+     * column is addressed as `role_user.mandant_id` explicitly (a
+     * `qualifyColumn()` here would prefix `roles`, not the pivot), the same
+     * explicit qualification `User::isMemberOfMandant()` uses.
+     */
+    private function rolesForCurrentMandant(): Closure
+    {
+        $mandantId = MandantContext::currentId();
+
+        return function (BelongsToMany $query) use ($mandantId): void {
+            if ($mandantId === null) {
+                return;
+            }
+
+            $query->where(function (Builder $scope) use ($mandantId): void {
+                $scope->where('role_user.mandant_id', $mandantId)
+                    ->orWhereNull('role_user.mandant_id');
+            });
+        };
     }
 
     /**

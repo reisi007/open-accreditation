@@ -209,7 +209,15 @@ class User extends Authenticatable implements JWTSubject
             ->where(function (Builder $query) use ($mandantId): void {
                 $query->forMandant($mandantId)
                     ->orWhere(function (Builder $global): void {
+                        // `mandant_id IS NULL AND team_id IS NULL` — exactly the
+                        // predicate `isSuperAdmin()` evaluates (`forMandant(null)`
+                        // + `forTeam(null)`). Without the `team_id` half the two
+                        // disagreed about the same row: a `super_admin` pivot
+                        // that (wrongly) carried a team id counted as a global
+                        // super admin HERE, while `isSuperAdmin()` — the method
+                        // every permission check consults — said no.
                         $global->whereNull('role_user.mandant_id')
+                            ->whereNull('role_user.team_id')
                             ->whereHas('role', fn (Builder $role): Builder => $role->where('roles.slug', UserRole::SUPER_ADMIN->value));
                     });
             })

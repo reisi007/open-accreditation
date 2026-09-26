@@ -12,6 +12,7 @@ use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use App\Models\User;
 use App\Services\AllocationService;
+use App\Services\SubAllocationService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Database\Events\QueryExecuted;
@@ -35,13 +36,19 @@ use ZipArchive;
  * `approved` and `GET /api/sub-applications/{id}/wallet` kept handing out a
  * valid `.pkpass` for a Parkkarte whose accreditation no longer exists.
  *
- * The fix has two layers, and this class covers both:
+ * The fix has three layers, and this class covers all of them:
  *
  * 1. **The cascade** — `AllocationService::denyApplication()` denies every
  *    `approved` sub-row of the revoked main application, with its own reason
  *    (`AllocationService::REASON_PARENT_REVOKED`), in the same transaction as
  *    the parent status write. Data level: the invalid row disappears.
- * 2. **The wallet guard** — `WalletController` refuses to issue a sub-pass
+ * 2. **The approve guard (A1)** — `SubAllocationService` refuses to make a
+ *    sub-row `approved` unless the main application IS `approved`: the two
+ *    bulk paths filter it out of the candidate query, the single approve
+ *    answers 422. A cascade can only REACT to a revoke; only this layer can
+ *    stop a revoke from racing an approval (and it is the only layer that
+ *    covers the `requested` rows the cascade deliberately leaves alone).
+ * 3. **The wallet guard** — `WalletController` refuses to issue a sub-pass
  *    unless the main application is approved, and answers **410 Gone**
  *    otherwise. Defence in depth for every state the cascade cannot reach
  *    (rows predating it, direct DB writes, out-of-band re-approvals).
@@ -422,8 +429,186 @@ class SubAccreditationRevocationTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | 3. The approve guard — a sub-row may never be approved on a
+     |    non-approved main application (A1)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The single most important guard of the three layers above, and the one
+     * the cascade CANNOT provide: the cascade only reacts to a revoke that
+     * already happened, so a revoke racing a sub-approval (or a `requested`
+     * sub-row the cascade deliberately leaves alone) would otherwise end up
+     * `approved` on top of a denied main accreditation — handing out a
+     * `.pkpass` for a Parkkarte whose foundation is gone.
+     *
+     * FAILS WITHOUT THE FIX: the service never looked at the parent, so the
+     * request answered 200 and the sub row became `approved`.
+     */
+    public function test_approving_a_sub_application_of_a_revoked_main_accreditation_is_422(): void
+    {
+        $accreditation = $this->accreditation();
+        $park = $this->sub($accreditation, 'park', 5);
+
+        $me = $this->createUser();
+        $application = $this->approvedApplication($accreditation, $me);
+
+        // A PENDING sub-row: the cascade leaves it alone on purpose, so this
+        // is the state the guard has to catch.
+        $row = SubApplication::create([
+            'sub_accreditation_id' => $park->id,
+            'application_id' => $application->id,
+            'user_id' => $me->id,
+            'status' => 'requested',
+            'priority' => false,
+        ]);
+
+        $this->allocation->denyApplication($application, 'Widerruf');
+
+        $this->assertDatabaseHas('sub_applications', ['id' => $row->id, 'status' => 'requested']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/sub-applications/'.$row->id, ['status' => 'approved'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.status.0', SubAllocationService::REASON_PARENT_NOT_APPROVED);
+
+        $this->assertDatabaseHas('sub_applications', [
+            'id' => $row->id,
+            'status' => 'requested',
+            'reason' => null,
+        ]);
+    }
+
+    /**
+     * The same invariant for a re-approval of a `denied` sub-row: the parent
+     * check runs on the approve path as a whole, not just for `requested` rows.
+     *
+     * FAILS WITHOUT THE FIX: 200 + `approved`.
+     */
+    public function test_re_approving_a_denied_sub_row_of_a_revoked_main_accreditation_is_422(): void
+    {
+        $accreditation = $this->accreditation();
+        $park = $this->sub($accreditation, 'park', 5);
+
+        $me = $this->createUser();
+        $application = $this->approvedApplication($accreditation, $me);
+
+        $row = SubApplication::create([
+            'sub_accreditation_id' => $park->id,
+            'application_id' => $application->id,
+            'user_id' => $me->id,
+            'status' => 'denied',
+            'reason' => 'Keine Parkfläche',
+            'priority' => false,
+        ]);
+
+        // Direct DB write: the cascade is the only writer of `applications`
+        // status here, and it would also flip an approved sub row.
+        Application::query()->whereKey($application->id)->update([
+            'status' => 'denied',
+            'reason' => 'direkter DB-Write',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/sub-applications/'.$row->id, ['status' => 'approved'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.status.0', SubAllocationService::REASON_PARENT_NOT_APPROVED);
+
+        $this->assertDatabaseHas('sub_applications', [
+            'id' => $row->id,
+            'status' => 'denied',
+            'reason' => 'Keine Parkfläche',
+        ]);
+    }
+
+    /**
+     * The two BULK paths carry the same invariant through the candidate query,
+     * so a nightly `allocation:run` cannot hand out a slot on a revoked
+     * foundation either. The rows stay `requested` (the admin may re-approve
+     * the main application first) — the same deliberate decision the cascade
+     * takes for pending rows.
+     *
+     * FAILS WITHOUT THE FIX: both bulk paths planned against the full
+     * `requested` pool and approved everything.
+     */
+    public function test_the_bulk_paths_skip_sub_applications_of_a_revoked_main_accreditation(): void
+    {
+        $accreditation = $this->accreditation();
+        $bulk = $this->sub($accreditation, 'park', 5);
+        $selection = $this->sub($accreditation, 'seat', 5);
+
+        // One sub-accreditation per engine entry point: each run consumes the
+        // `requested` pool, so they cannot share a subject.
+        $bulkRow = $this->pendingSubApplicationOnApprovedMain($bulk);
+        $selectionRow = $this->pendingSubApplicationOnApprovedMain($selection);
+
+        // Revoke the main rows OUT OF BAND (a direct DB write), so the cascade
+        // is not what puts them in this state — the candidate filter has to be.
+        Application::query()
+            ->whereIn('id', [$bulkRow->application_id, $selectionRow->application_id])
+            ->update(['status' => 'denied', 'reason' => 'direkter DB-Write']);
+
+        $this->assertSame(0, $this->subAllocation()->approveAllEligible($bulk)->approved);
+        $this->assertSame(0, $this->subAllocation()->approveSelection($selection, 5)->approved);
+
+        $this->assertDatabaseHas('sub_applications', ['id' => $bulkRow->id, 'status' => 'requested']);
+        $this->assertDatabaseHas('sub_applications', ['id' => $selectionRow->id, 'status' => 'requested']);
+    }
+
+    /**
+     * The positive control for the candidate filter: the very same rows become
+     * candidates again as soon as the main application is `approved` again, so
+     * the filter cannot strand a legitimate sub-slot behind a revoke that the
+     * admin undoes.
+     */
+    public function test_the_candidate_filter_releases_the_rows_once_the_main_application_is_approved_again(): void
+    {
+        $accreditation = $this->accreditation();
+        $park = $this->sub($accreditation, 'park', 5);
+
+        $row = $this->pendingSubApplicationOnApprovedMain($park);
+
+        Application::query()->whereKey($row->application_id)->update([
+            'status' => 'denied',
+            'reason' => 'direkter DB-Write',
+        ]);
+
+        $this->assertSame(0, $this->subAllocation()->approveAllEligible($park)->approved);
+
+        Application::query()->whereKey($row->application_id)->update([
+            'status' => 'approved',
+            'reason' => null,
+        ]);
+
+        $this->assertSame(1, $this->subAllocation()->approveAllEligible($park)->approved);
+        $this->assertDatabaseHas('sub_applications', ['id' => $row->id, 'status' => 'approved', 'reason' => null]);
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    private function subAllocation(): SubAllocationService
+    {
+        return app(SubAllocationService::class);
+    }
+
+    /**
+     * One `requested` sub row on an `approved` main application — the shape the
+     * apply endpoint produces and the only one D9 ever allows.
+     */
+    private function pendingSubApplicationOnApprovedMain(SubAccreditation $sub): SubApplication
+    {
+        $me = $this->createUser();
+        $application = $this->approvedApplication($sub->accreditation, $me);
+
+        return SubApplication::create([
+            'sub_accreditation_id' => $sub->id,
+            'application_id' => $application->id,
+            'user_id' => $me->id,
+            'status' => 'requested',
+            'priority' => false,
+        ]);
+    }
 
     private function accreditation(array $attributes = []): Accreditation
     {

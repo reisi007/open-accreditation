@@ -7,6 +7,8 @@ use App\Mail\ApplicationDeniedMail;
 use App\Models\Accreditation;
 use App\Models\Application;
 use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use App\Models\User;
@@ -15,6 +17,7 @@ use App\Services\AllocationService;
 use App\Services\SubAllocationService;
 use App\Support\MandantContext;
 use Closure;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Query\Grammars\PostgresGrammar;
@@ -22,8 +25,10 @@ use Illuminate\Database\Query\Grammars\SQLiteGrammar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\Support\LockProbeGrammar;
 use Tests\TestCase;
 use Throwable;
@@ -71,6 +76,12 @@ class AllocationAtomicityTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * A real mandant domain, so the HTTP paths of this class resolve the
+     * mandant the same way production does (host → `MandantContext`).
+     */
+    private const HOST = 'verband-a.test';
+
     private AllocationService $allocation;
 
     private SubAllocationService $subAllocation;
@@ -87,6 +98,7 @@ class AllocationAtomicityTest extends TestCase
         $this->subAllocation = app(SubAllocationService::class);
 
         $this->mandant = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
+        $this->mandant->domains()->create(['hostname' => self::HOST]);
 
         MandantContext::set($this->mandant);
     }
@@ -507,8 +519,323 @@ class AllocationAtomicityTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | 7. The applicant-side withdraw is a writer too (A2)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `DELETE /api/applications/{id}` deletes a `requested` row — the exact
+     * rows the engine approves/denies. It read the status once, outside any
+     * transaction, and then issued an unconditional `DELETE`, so a decision
+     * that landed in between silently removed an application the applicant had
+     * already been told about (and the admin had already queued a badge for).
+     *
+     * Staged with a `DB::listen` hook that flips the row to `denied` right
+     * after the controller's first read — the interleaving a second admin's
+     * request produces, made deterministic.
+     *
+     * FAILS WITHOUT THE FIX: 204 + the row gone.
+     */
+    public function test_a_withdraw_that_loses_the_race_against_a_decision_answers_409(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $applicant = $this->memberOfMandant();
+        $accreditation = $this->accreditation(['quota' => 5]);
+        $application = $this->applicantRow($accreditation, $applicant, 'requested');
+
+        $this->decideOnFirstApplicationRead($application, 'denied', 'Unterlagen fehlen');
+
+        $this->actingAsApi($applicant)
+            ->deleteJson('http://'.self::HOST.'/api/applications/'.$application->id)
+            ->assertStatus(409);
+
+        // The row survives with the COMPETING decision — the withdraw must not
+        // have eaten an application that was decided in the meantime.
+        $this->assertDatabaseHas('applications', [
+            'id' => $application->id,
+            'status' => 'denied',
+            'reason' => 'Unterlagen fehlen',
+        ]);
+    }
+
+    /**
+     * The unchanged happy path next to the race: nothing decided in between
+     * ⇒ the withdraw still deletes the row and answers 204. Without it the
+     * 409 above could be "everything is a conflict now".
+     */
+    public function test_a_withdraw_without_a_competing_decision_still_deletes_the_row(): void
+    {
+        $this->seed(RoleSeeder::class);
+
+        $applicant = $this->memberOfMandant();
+        $accreditation = $this->accreditation(['quota' => 5]);
+        $application = $this->applicantRow($accreditation, $applicant, 'requested');
+
+        $this->actingAsApi($applicant)
+            ->deleteJson('http://'.self::HOST.'/api/applications/'.$application->id)
+            ->assertNoContent();
+
+        $this->assertDatabaseMissing('applications', ['id' => $application->id]);
+    }
+
+    /* ---------------------------------------------------------------------
+     | 8. The single approve/deny write re-states its precondition (A4)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `approveApplication()` validated the transition against the CALLER's
+     * model — read before the accreditation row lock — and then wrote with an
+     * unguarded `update()`. An admin clicking "approve" on a screen rendered
+     * before somebody else's decision therefore overwrote that decision
+     * instead of learning that it happened.
+     *
+     * Staged with a `denied` row (the approve path re-approves those, so only
+     * an out-of-band write can take the row out of `{requested, denied}` behind
+     * the caller's back).
+     *
+     * FAILS WITHOUT THE FIX: no exception, the row is re-approved and a QR
+     * token is issued for a decision the admin never made.
+     */
+    public function test_a_single_approve_whose_row_left_the_allowed_states_answers_409(): void
+    {
+        $accreditation = $this->accreditation(['quota' => 5]);
+        $stale = $this->applicantRow($accreditation, User::factory()->create(), 'denied', 'Quota erschöpft');
+
+        // The competing approval lands after `$stale` was read.
+        Application::query()->whereKey($stale->id)->update(['status' => 'approved', 'reason' => null]);
+
+        $thrown = null;
+
+        try {
+            $this->allocation->approveApplication($stale);
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+
+        $this->assertInstanceOf(ConflictHttpException::class, $thrown, 'the lost race was silently accepted');
+        $this->assertSame(409, $thrown->getStatusCode(), 'a lost race is a CONFLICT, not a validation error');
+        $this->assertSame(AllocationService::REASON_CONCURRENT_CHANGE, $thrown->getMessage());
+
+        $this->assertSame(0, $this->statusCount($accreditation, 'approved') - 1);
+        $this->assertNull(
+            Application::query()->whereKey($stale->id)->value('qr_token'),
+            'no QR token may be issued for a decision this call did not make',
+        );
+    }
+
+    /**
+     * The mirror image on the deny/revoke path: the competing decision's
+     * REASON must survive — the applicant has to be able to read why his
+     * application actually fell.
+     *
+     * FAILS WITHOUT THE FIX: no exception and the reason is overwritten with
+     * the stale one.
+     */
+    public function test_a_single_revoke_whose_row_left_the_allowed_states_answers_409(): void
+    {
+        $accreditation = $this->accreditation(['quota' => 5]);
+        $stale = $this->applicantRow($accreditation, User::factory()->create(), 'approved');
+
+        Application::query()->whereKey($stale->id)->update([
+            'status' => 'denied',
+            'reason' => 'Konkurrenzentscheid',
+        ]);
+
+        $thrown = null;
+
+        try {
+            $this->allocation->denyApplication($stale, 'Widerruf');
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+
+        $this->assertInstanceOf(ConflictHttpException::class, $thrown, 'the lost race was silently accepted');
+        $this->assertSame(409, $thrown->getStatusCode());
+
+        $this->assertDatabaseHas('applications', [
+            'id' => $stale->id,
+            'status' => 'denied',
+            'reason' => 'Konkurrenzentscheid',
+        ]);
+    }
+
+    /**
+     * The positive control for the guarded write: a re-approval of a `denied`
+     * row (and a revoke of an `approved` one) still works — the guard narrows
+     * on the states each path already accepted, it does not forbid them.
+     */
+    public function test_the_guarded_write_keeps_the_legitimate_re_approval_of_a_denied_row(): void
+    {
+        $accreditation = $this->accreditation(['quota' => 5]);
+        $application = $this->applicantRow($accreditation, User::factory()->create(), 'denied', 'Quota erschöpft');
+
+        $this->allocation->approveApplication($application);
+
+        $this->assertDatabaseHas('applications', [
+            'id' => $application->id,
+            'status' => 'approved',
+            'reason' => null,
+        ]);
+    }
+
+    /* ---------------------------------------------------------------------
+     | 9. The post-commit notification must never abort the run (A3)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `MandantMailerService::send()` takes a non-nullable `Mandant`, so a
+     * missing one is a `TypeError` raised while evaluating the ARGUMENT — i.e.
+     * before the mailer's own `try`, which is the "a broken relay must never
+     * break the allocation" policy. It therefore escaped and aborted
+     * `runAutoAllocations()`, so ONE unreadable row silently starved every
+     * remaining accreditation of its nightly run.
+     *
+     * The inconsistent state is staged with SQLite's `defer_foreign_keys`:
+     * `accreditations.mandant_id` is pointed at a mandant that does not exist.
+     * The accreditation (and with it the application) survives, so the engine
+     * still finds the applicant — it is only the MANDANT that the notification
+     * needs and cannot resolve.
+     *
+     * FAILS WITHOUT THE FIX: `TypeError` out of `runAutoAllocations()`, the
+     * second accreditation is never processed and nobody is notified.
+     */
+    public function test_a_missing_mandant_does_not_abort_the_auto_allocation_loop(): void
+    {
+        Mail::fake();
+        Log::spy();
+
+        $broken = $this->autoAccreditation();
+        $healthy = $this->autoAccreditation();
+        $brokenUser = $this->applicantRow($broken, User::factory()->create(), 'requested');
+        $healthyUser = $this->applicantRow($healthy, User::factory()->create(), 'requested');
+
+        $this->orphanTheAccreditationsMandant($broken);
+
+        $results = $this->allocation->runAutoAllocations();
+
+        // The loop ran to the end: the broken accreditation did not starve the
+        // next one.
+        $this->assertSame([
+            $broken->id => ['approved' => 1, 'denied' => 0],
+            $healthy->id => ['approved' => 1, 'denied' => 0],
+        ], $results);
+
+        $this->assertDatabaseHas('applications', ['id' => $brokenUser->id, 'status' => 'approved']);
+        $this->assertDatabaseHas('applications', ['id' => $healthyUser->id, 'status' => 'approved']);
+
+        // Exactly one mail went out: the unreadable row is skipped (audited),
+        // the healthy applicant is still told.
+        Mail::assertSent(ApplicationApprovedMail::class, 1);
+        Log::shouldHaveReceived('warning')->once();
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    /**
+     * Flip one application to a decided status the moment the withdraw reads it
+     * for its own decision — the deterministic stand-in for a second writer's
+     * request landing in between (SQLite has no real concurrency in this
+     * setup, see the class docblock).
+     *
+     * The hook matches the read by its `user_id` filter, i.e. the OWNERSHIP
+     * read of `ApplicationController::destroy()` — not the route-model binding
+     * that ran a moment earlier and not the in-transaction re-read that runs
+     * after. Firing exactly there is what makes the scenario a real race: the
+     * controller has just decided "this row is `requested`, I may delete it",
+     * and the row changes before the delete lands.
+     */
+    private function decideOnFirstApplicationRead(Application $application, string $status, string $reason): void
+    {
+        $fired = false;
+
+        DB::listen(static function (QueryExecuted $query) use (&$fired, $application, $status, $reason): void {
+            if ($fired
+                || ! str_starts_with($query->sql, 'select * from "applications"')
+                || ! str_contains($query->sql, '"user_id" = ?')) {
+                return;
+            }
+
+            $fired = true;
+
+            Application::query()->whereKey($application->id)->update([
+                'status' => $status,
+                'reason' => $reason,
+            ]);
+        });
+    }
+
+    /**
+     * Point one accreditation at a mandant that does not exist. The FK
+     * violation is DEFERRED to a commit that never comes (`RefreshDatabase`
+     * rolls the outer transaction back), so the accreditation and its
+     * applications survive with a dangling `mandant_id` — the exact shape the
+     * notification guard has to survive.
+     *
+     * SQLite-specific by necessity: `defer_foreign_keys` is the only way to
+     * create the inconsistency, because
+     * `accreditations → applications → mandants` are all `cascadeOnDelete`
+     * and a plain delete would take the applications with it.
+     */
+    private function orphanTheAccreditationsMandant(Accreditation $accreditation): void
+    {
+        DB::statement('PRAGMA defer_foreign_keys = ON');
+
+        DB::table('accreditations')
+            ->where('id', $accreditation->id)
+            ->update(['mandant_id' => $accreditation->id + 100000]);
+
+        $this->assertNull(
+            DB::table('accreditations')->where('id', $accreditation->id)->value('mandant_id')
+                ? Mandant::query()->find($accreditation->id + 100000)
+                : null,
+            'precondition: the mandant of the accreditation does not resolve',
+        );
+    }
+
+    /**
+     * An `active`, `auto_approve` accreditation whose deadline has passed — the
+     * only shape `runAutoAllocations()` picks up.
+     */
+    private function autoAccreditation(): Accreditation
+    {
+        return $this->accreditation([
+            'quota' => 1,
+            'auto_approve' => true,
+            'deadline_start' => now()->subDays(3)->toDateString(),
+            'deadline_end' => now()->subDay()->toDateString(),
+        ]);
+    }
+
+    /**
+     * An applicant of the current mandant, with the role row a real account
+     * always carries (`EnsureMandantMembership` refuses one without it).
+     */
+    private function memberOfMandant(): User
+    {
+        $user = User::factory()->forMandant($this->mandant)->create();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', 'user')->firstOrFail()->id,
+            'mandant_id' => $this->mandant->id,
+            'team_id' => null,
+        ]);
+
+        return $user;
+    }
+
+    private function applicantRow(Accreditation $accreditation, User $user, string $status, ?string $reason = null): Application
+    {
+        return Application::create([
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $user->id,
+            'status' => $status,
+            'reason' => $reason,
+            'priority' => false,
+        ]);
+    }
 
     private function connection(): Connection
     {

@@ -46,7 +46,11 @@ use Illuminate\Support\Facades\Route;
 |
 | Login and register use their own named throttle buckets (`throttle:login` /
 | `throttle:register`, registered in AppServiceProvider) — B2: register
-| attempts must not consume the login quota and vice versa.
+| attempts must not consume the login quota and vice versa. `/auth/logout` and
+| `/auth/me` — the two `EnsureMandantMembership` exemptions, and the only two
+| routes that log per request for an account without a role in the current
+| mandant — carry an inline per-user bucket (M3, see the comment on the
+| routes).
 |
 | Profile & media (auth:api):
 |   PUT    /api/user/profile      update own accreditation profile
@@ -75,8 +79,22 @@ Route::middleware('throttle:login')->post('/auth/login', [AuthController::class,
 Route::middleware('throttle:activate')->get('/auth/activate/{token}', [AuthController::class, 'activate'])->name('api.auth.activate');
 
 Route::middleware('auth:api')->group(function (): void {
-    Route::post('/auth/logout', [AuthController::class, 'logout'])->name('api.auth.logout');
-    Route::get('/auth/me', [AuthController::class, 'me'])->name('api.auth.me');
+    // M3: the two `EnsureMandantMembership` EXEMPT_ROUTES carry a rate limit
+    // because they are the only two routes that answer for an account WITHOUT
+    // a role in the current mandant — and both write a log line per request
+    // (`logExempt()`, `deny()`). A foreign-token replay loop against `/auth/me`
+    // would therefore be an unbounded log-write amplifier. The inline
+    // `60,1` bucket is keyed per authenticated user (Laravel's
+    // `ThrottleRequests::resolveRequestSignature()`), so one misbehaving
+    // account can never exhaust anybody else's budget; 60/min is far above the
+    // SPA's actual rate (one `/auth/me` per page load).
+    //
+    // The third parameter is the limiter PREFIX: without it both routes would
+    // share ONE key (the user id is the whole signature), so a page reload
+    // loop on `/auth/me` would lock the user out of `/auth/logout` — the one
+    // call that has to work to clear his session.
+    Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('throttle:60,1,auth-logout')->name('api.auth.logout');
+    Route::get('/auth/me', [AuthController::class, 'me'])->middleware('throttle:60,1,auth-me')->name('api.auth.me');
 
     Route::put('/user/profile', [ProfileController::class, 'update'])->name('api.user.profile.update');
 

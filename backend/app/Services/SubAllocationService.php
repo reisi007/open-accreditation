@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use DateTimeInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -31,9 +32,13 @@ use Illuminate\Validation\ValidationException;
  * so the suite proves the shape and the rollback, not the mutual exclusion —
  * see `features/accreditation/01-allocation-engine.md`.
  *
- * The D9 main-accreditation dependency is enforced in three places, not one:
- * at apply time (`SubAccreditationController::apply` — an approved main
- * application is required), on revocation of the main row
+ * The D9 main-accreditation dependency is enforced in FOUR places, not one.
+ * Here, in this service: the candidate query skips sub-applications whose main
+ * application is not `approved`, and `approveSubApplication` answers 422 for
+ * one — the cascade below only REACTS to a revoke, it cannot stop a revoke
+ * from racing a sub-approval. The three pre-existing ones: at apply time
+ * (`SubAccreditationController::apply` — an approved main application is
+ * required), on revocation of the main row
  * (`AllocationService::cascadeRevokedSubApplications` — every `approved`
  * sub-row on it is denied), and in the wallet path
  * (`WalletController::ownApprovedSubApplication` — no pass without an
@@ -42,10 +47,21 @@ use Illuminate\Validation\ValidationException;
 final class SubAllocationService
 {
     /**
+     * The 422 message of a sub-approval whose main application is not
+     * `approved`. German on purpose: the string reaches the admin UI verbatim,
+     * like every other engine message (`AllocationRules::REASON_QUOTA`,
+     * `AllocationService::REASON_PARENT_REVOKED`).
+     */
+    public const REASON_PARENT_NOT_APPROVED = 'Haupt-Akkreditierung ist nicht freigegeben';
+
+    /**
      * Approve the "first X" eligible requested sub-applications (manual
      * mode). Approves at most `min(limit, quota - approved)` candidates,
      * skipping blacklisted users (they stay `requested`). `limit <= 0` does
      * nothing. Idempotent: a second run finds no `requested` candidates.
+     *
+     * A `requested` sub-application whose main application is not `approved` is
+     * not a candidate at all (D9, see `eligibleRequested()`).
      *
      * Quota read and status write share one transaction under a row lock on
      * the sub-accreditation (R-D4).
@@ -87,6 +103,11 @@ final class SubAllocationService
      * Both halves of the plan (approve + deny) share one transaction under a
      * row lock, so a partial failure cannot leave surplus sub-applications
      * stuck in `requested` (R-D4, WP-3-b).
+     *
+     * Sub-applications whose main application is not `approved` are not
+     * candidates (D9, `eligibleRequested()`) — they stay `requested` and
+     * become candidates again if the admin re-approves the main row, exactly
+     * like the rows the revoke cascade deliberately leaves alone.
      */
     public function approveAllEligible(SubAccreditation $sub): AllocationResult
     {
@@ -120,8 +141,10 @@ final class SubAllocationService
      * "who gets a sub-quota slot" decision for one row. Same guards as the
      * main engine: blacklisted user (email/domain, mandant-scoped via the
      * main accreditation) → 422, sub-quota exhausted → 422 `Quota erschöpft`,
-     * and only `requested`/`denied` rows may be (re-)approved (422
-     * otherwise). Approving clears the deny reason.
+     * a main application that is not `approved` → 422
+     * (`self::REASON_PARENT_NOT_APPROVED`), and only `requested`/`denied`
+     * rows may be (re-)approved (422 otherwise). Approving clears the deny
+     * reason.
      *
      * The sub-quota check and the status write share one transaction under a
      * row lock on the sub-accreditation (R-D4).
@@ -132,6 +155,7 @@ final class SubAllocationService
     {
         $subApplication->loadMissing([
             'user:id,email',
+            'application:id,status',
             'subAccreditation:id,quota,accreditation_id',
             'subAccreditation.accreditation:id,mandant_id',
         ]);
@@ -153,6 +177,17 @@ final class SubAllocationService
             if (! in_array($subApplication->status, ['requested', 'denied'], true)) {
                 throw ValidationException::withMessages([
                     'status' => 'Only requested or denied sub-applications can be approved.',
+                ]);
+            }
+
+            // D9/R-D5: the sub-slot is only valid on an APPROVED main
+            // application. The cascade (`cascadeRevokedSubApplications`) only
+            // reacts to a revoke — it cannot stop a revoke from landing between
+            // the admin's read of this row and this write, which is why the
+            // guard is repeated here instead of being left to the cascade.
+            if ($subApplication->application?->status !== 'approved') {
+                throw ValidationException::withMessages([
+                    'status' => self::REASON_PARENT_NOT_APPROVED,
                 ]);
             }
 
@@ -267,6 +302,15 @@ final class SubAllocationService
     /**
      * All `requested` sub-applications of one sub-accreditation in allocation
      * order (VIP first, then FCFS, then id), eager-loaded with their user.
+     *
+     * **D9 candidate filter.** A sub-application is only ever valid on an
+     * `approved` main application (`SubAccreditationController::apply`), so a
+     * `requested` row whose parent is `requested`/`denied` is NOT a candidate
+     * here. Without this filter the two bulk paths would happily hand out a
+     * Park-/Sitzkarte slot on top of a revoked main accreditation — the exact
+     * state the revoke cascade and the wallet guard both exist to prevent
+     * (R-D5). Such rows keep `requested` on purpose: the admin may re-approve
+     * the main application first, and the next run then picks them up.
      */
     private function eligibleRequested(SubAccreditation $sub): Collection
     {
@@ -274,6 +318,7 @@ final class SubAllocationService
             SubApplication::query()
                 ->where('sub_accreditation_id', $sub->id)
                 ->where('status', 'requested')
+                ->whereHas('application', fn (Builder $query) => $query->where('status', 'approved'))
                 ->with('user:id,email'),
         )->get();
     }

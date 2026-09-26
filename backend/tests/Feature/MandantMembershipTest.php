@@ -412,12 +412,30 @@ class MandantMembershipTest extends TestCase
      * routes, each bound to its own method, so a future route cannot inherit it
      * by reusing a name and a wildcard entry cannot creep in.
      */
+    /**
+     * The exemption list is pinned on purpose: it must stay exactly these two
+     * routes, each bound to its own method AND to its own URI, so a future
+     * route cannot inherit it by reusing a name and a wildcard entry cannot
+     * creep in.
+     *
+     * The URI is the part `EXEMPT_ROUTES`' own docblock claims. The NAME is
+     * the only thing the middleware matches on, so the URI is what says WHICH
+     * route the name currently points at. Without this assertion the guarantee
+     * is unfalsifiable: moving `api.auth.me` onto, say,
+     * `/api/admin/users/me` would keep the test green while making the
+     * exemption cover a completely different endpoint.
+     */
     public function test_the_exemption_list_is_exactly_logout_and_me_with_their_methods(): void
     {
         $this->assertSame([
             'api.auth.logout' => 'POST',
             'api.auth.me' => 'GET',
         ], EnsureMandantMembership::EXEMPT_ROUTES);
+
+        $expectedUris = [
+            'api.auth.logout' => 'api/auth/logout',
+            'api.auth.me' => 'api/auth/me',
+        ];
 
         $routes = app(Router::class)->getRoutes();
 
@@ -426,7 +444,49 @@ class MandantMembershipTest extends TestCase
 
             $this->assertNotNull($route, sprintf('Die ausgenommene Route "%s" existiert nicht.', $name));
             $this->assertContains($method, $route->methods());
+            $this->assertSame($expectedUris[$name], $route->uri());
         }
+    }
+
+    /**
+     * M3: both exemptions write a log line per request (`logExempt()` /
+     * `deny()`) and are the only routes that answer for an account without a
+     * role in the current mandant, so both are rate limited: a replay loop
+     * must not be able to turn them into an unbounded log-write amplifier.
+     *
+     * The bucket is per authenticated user, so it can only ever bite the
+     * offending account itself, and the two routes carry SEPARATE prefixes so
+     * a reload loop on `/auth/me` cannot lock the user out of `/auth/logout`
+     * (the one call that has to work to end his session).
+     */
+    public function test_the_two_exempt_routes_are_rate_limited_per_user(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        // 60/min is deliberately far above what a real SPA needs (one /auth/me
+        // per page load), so the whole budget fits into this test.
+        for ($request = 1; $request <= 60; $request++) {
+            $this->withJwt($token)
+                ->getJson('http://'.self::HOST_A.'/api/auth/me')
+                ->assertOk();
+        }
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_A.'/api/auth/me')
+            ->assertStatus(429);
+
+        // A different account has its own budget ...
+        $other = $this->tokenFor($this->memberOf($this->mandantA));
+
+        $this->withJwt($other)
+            ->getJson('http://'.self::HOST_A.'/api/auth/me')
+            ->assertOk();
+
+        // ... and the two exempt routes do not share one.
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_A.'/api/auth/logout')
+            ->assertOk();
     }
 
     /* ---------------------------------------------------------------------
@@ -560,6 +620,41 @@ class MandantMembershipTest extends TestCase
         MandantContext::reset();
 
         $this->assertFalse($user->isMemberOfMandant());
+    }
+
+    /**
+     * `isMemberOfMandant()` and `isSuperAdmin()` must not disagree about the
+     * same `role_user` row: `isSuperAdmin()` requires the GLOBAL assignment
+     * (`mandant_id IS NULL AND team_id IS NULL`), while the super-admin branch
+     * of `isMemberOfMandant()` used to check `mandant_id` only. A corrupt row
+     * that carried a team id was therefore "a global super admin" for the
+     * per-request gate and "not a super admin" for every permission check.
+     *
+     * FAILS WITHOUT THE FIX: `isMemberOfMandant()` answered true.
+     */
+    public function test_a_super_admin_row_with_a_team_id_counts_for_neither_predicate(): void
+    {
+        $admin = User::factory()->create();
+
+        // A REAL team, so only the scope of the pivot row is what is off — the
+        // row itself stays referentially valid.
+        $team = $this->mandantA->teams()->create([
+            'name' => 'FC Mustermann',
+            'slug' => 'fc-mustermann',
+        ]);
+
+        RoleUser::create([
+            'user_id' => $admin->id,
+            'role_id' => Role::query()->where('slug', 'super_admin')->firstOrFail()->id,
+            'mandant_id' => null,
+            'team_id' => $team->id,
+        ]);
+
+        $this->assertFalse($admin->isSuperAdmin(), 'ein Super-Admin mit Team-Scope ist kein globaler Super-Admin');
+        $this->assertFalse(
+            $admin->isMemberOfMandant($this->mandantB->id),
+            'die Mitgliedschafts-Prüfung muss dieselbe Zeile gleich lesen wie isSuperAdmin()',
+        );
     }
 
     /* ---------------------------------------------------------------------

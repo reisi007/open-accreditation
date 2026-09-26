@@ -6,12 +6,15 @@ use App\Mail\ApplicationApprovedMail;
 use App\Mail\ApplicationDeniedMail;
 use App\Models\Accreditation;
 use App\Models\Application;
+use App\Models\Mandant;
 use App\Models\SubApplication;
 use App\Support\VerifyLink;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * P3c allocation engine — the authoritative "who gets a quota slot" decision.
@@ -69,6 +72,15 @@ final class AllocationService
      * *their* row fell, and it is always the same cause.
      */
     public const REASON_PARENT_REVOKED = 'Haupt-Akkreditierung entzogen';
+
+    /**
+     * The 409 of a single approve/deny whose row was changed by someone else
+     * between the caller's read and the guarded status write. Deliberately a
+     * CONFLICT and not a 422: nothing about the request was invalid, the
+     * admin simply acted on a state that no longer exists — he has to reload
+     * and decide again.
+     */
+    public const REASON_CONCURRENT_CHANGE = 'Der Antrag wurde zwischenzeitlich geändert. Bitte neu laden.';
 
     public function __construct(
         private readonly QrTokenService $qrTokenService,
@@ -236,10 +248,11 @@ final class AllocationService
                 ]);
             }
 
-            $application->update([
-                'status' => 'approved',
-                'reason' => null,
-            ]);
+            // Guarded write (A4): the status checks above read the caller's
+            // model, which predates the row lock above, so the write itself
+            // must re-state the precondition. 0 affected rows ⇒ somebody else
+            // moved the row in between ⇒ 409 instead of a silent overwrite.
+            $this->guardedStatusWrite($application, 'approved', null, ['requested', 'denied']);
 
             // P4: every newly approved application receives its deterministic QR
             // verification token (idempotent — a re-approval after a revoke keeps
@@ -304,10 +317,9 @@ final class AllocationService
             // run either sees this revoke or is serialised behind it.
             $this->lockedAccreditation($accreditationId);
 
-            $application->update([
-                'status' => 'denied',
-                'reason' => $reason,
-            ]);
+            // Guarded write (A4) — the pre-lock guard above validated the
+            // caller's (stale) model, so the write re-states the precondition.
+            $this->guardedStatusWrite($application, 'denied', $reason, ['requested', 'approved']);
 
             $this->cascadeRevokedSubApplications($application);
         });
@@ -319,6 +331,56 @@ final class AllocationService
         );
 
         return $application;
+    }
+
+    /**
+     * The guarded status write behind `approveApplication()` /
+     * `denyApplication()` (A4).
+     *
+     * Both entry points validate the transition against the caller's model,
+     * which was read BEFORE the accreditation row lock was taken, and then used
+     * an unguarded `update(['status' => …])`. A competing writer that slipped
+     * in between was therefore silently overwritten: an admin clicking
+     * "revoke" on a screen rendered before someone else's approval would
+     * rewrite that approval instead of being told about it.
+     *
+     * The `whereIn('status', $allowedFrom)` re-states the precondition in the
+     * write itself — the same pattern `AllocationRules::markStatus()` uses for
+     * the bulk paths (there `requested`; here the set the pre-lock guard just
+     * accepted, so a re-approval of a `denied` row keeps working). 0 affected
+     * rows can only mean "the row is no longer in one of those states" ⇒ 409,
+     * which the surrounding transaction rolls back as a whole.
+     *
+     * `updated_at` is written explicitly because a query-builder `update()`
+     * bypasses Eloquent's timestamp handling (same reason as in
+     * `AllocationRules::markStatus()`).
+     *
+     * @param  list<string>  $allowedFrom
+     *
+     * @throws ConflictHttpException 409 when the row left `$allowedFrom`
+     */
+    private function guardedStatusWrite(Application $application, string $status, ?string $reason, array $allowedFrom): void
+    {
+        $affected = Application::query()
+            ->whereKey($application->getKey())
+            ->whereIn('status', $allowedFrom)
+            ->update([
+                'status' => $status,
+                'reason' => $reason,
+                'updated_at' => now(),
+            ]);
+
+        if ($affected === 0) {
+            throw new ConflictHttpException(self::REASON_CONCURRENT_CHANGE);
+        }
+
+        // The caller's instance is what the P5 mailable and the controller's
+        // follow-up read see, so mirror the write on it. `syncOriginal()` keeps
+        // the model clean — a later `setPriority()` must not re-issue the
+        // status write as a dirty attribute.
+        $application->status = $status;
+        $application->reason = $reason;
+        $application->syncOriginal();
     }
 
     /**
@@ -503,6 +565,18 @@ final class AllocationService
      * WP-3-b): the query below therefore reads committed state, and a mail
      * transport failure cannot roll the decision back.
      *
+     * Known gap (accepted, A5): the commit and this dispatch are NOT atomic,
+     * so a `denyApplication()` landing in between makes this query read the
+     * newer state and skip the approval mail, while the denial mail of that
+     * second writer and this approval mail can cross. A single allocation run
+     * is therefore not guaranteed to produce exactly one mail per decided row.
+     * Closing it needs an outbox table written INSIDE the transaction and
+     * dispatched after it (so the decision and the intent to notify become one
+     * atomic fact) — deliberately out of scope; the mail-gap section of
+     * `features/accreditation/01-allocation-engine.md` (which still documents
+     * only the "no mail for sub-status changes" gap) has to grow an entry for
+     * it.
+     *
      * @param  list<int>  $ids
      */
     private function dispatchApprovedMails(array $ids): void
@@ -523,8 +597,14 @@ final class AllocationService
             ])
             ->get()
             ->each(function (Application $application): void {
+                $mandant = $this->mandantFor($application, 'approved');
+
+                if ($mandant === null) {
+                    return;
+                }
+
                 $this->mandantMailer->send(
-                    $application->accreditation->mandant,
+                    $mandant,
                     new ApplicationApprovedMail($application, VerifyLink::for($application)),
                 );
             });
@@ -555,10 +635,52 @@ final class AllocationService
             ])
             ->get()
             ->each(function (Application $application): void {
+                $mandant = $this->mandantFor($application, 'denied');
+
+                if ($mandant === null) {
+                    return;
+                }
+
                 $this->mandantMailer->send(
-                    $application->accreditation->mandant,
+                    $mandant,
                     new ApplicationDeniedMail($application, (string) $application->reason),
                 );
             });
+    }
+
+    /**
+     * The mandant whose SMTP relay delivers this application's notification,
+     * or null when the accreditation (or its mandant) is gone.
+     *
+     * `MandantMailerService::send()` takes a non-nullable `Mandant`, so a null
+     * here would be a `TypeError` — thrown while ARGUMENT EVALUATION, i.e.
+     * before the mailer's own `try`, which means it escapes the "a broken relay
+     * must never break the allocation" policy and aborts the whole
+     * `runAutoAllocations()` loop for every remaining accreditation.
+     *
+     * The referential integrity makes this nearly unreachable (an application
+     * cascades with its accreditation, and the accreditation with its mandant),
+     * which is exactly why it needs a guard rather than a repair: a partially
+     * migrated database, a restored dump without FKs, or a future
+     * non-cascading FK turns it into a silently aborted nightly run. Skipping
+     * one notification is the correct degradation — the decision itself is
+     * already committed, and every OTHER accreditation in the run must still
+     * be decided and notified.
+     */
+    private function mandantFor(Application $application, string $status): ?Mandant
+    {
+        $mandant = $application->accreditation?->mandant;
+
+        if ($mandant !== null) {
+            return $mandant;
+        }
+
+        Log::warning('AllocationService: notification skipped — the accreditation of the application no longer exists.', [
+            'application_id' => $application->getKey(),
+            'accreditation_id' => $application->accreditation_id,
+            'status' => $status,
+        ]);
+
+        return null;
     }
 }
