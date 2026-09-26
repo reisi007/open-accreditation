@@ -176,6 +176,13 @@ class AllocationQrTokenUpgradeTest extends TestCase
      * mandant id of the accreditation, so it must never be lazy-loaded
      * row by row. Same guarantee as `AllocationQrTokenQueryTest`, asserted
      * again for the upgraded (previously skipped) rows.
+     *
+     * R-D4 adjusted the expectation from "zero" to "exactly one": the run now
+     * opens with the row-locked read of the quota row
+     * (`Accreditation::query()->lockForUpdate()->findOrFail()`), which is one
+     * query per run by construction. A lazy load per approved row would add
+     * one more each, so the count still catches the N+1 — it is now a *stricter*
+     * statement than before, not a looser one.
      */
     public function test_upgrading_does_not_lazy_load_the_accreditation_row_by_row(): void
     {
@@ -192,7 +199,11 @@ class AllocationQrTokenUpgradeTest extends TestCase
                 && str_contains($query['sql'], '"id" = ?'),
         ));
 
-        $this->assertSame([], $rowByRow, implode(PHP_EOL, array_column($rowByRow, 'sql')));
+        $this->assertCount(
+            1,
+            $rowByRow,
+            'only the row-locked quota read, never one per approved row: '.implode(PHP_EOL, array_column($rowByRow, 'sql')),
+        );
     }
 
     /* ------------------------------------------------------------------ */

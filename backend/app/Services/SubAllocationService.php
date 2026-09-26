@@ -6,6 +6,7 @@ use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -18,10 +19,25 @@ use Illuminate\Validation\ValidationException;
  * users (email/domain, mandant-scoped) never approved (`denied` `Blacklist`
  * in auto mode, kept `requested` in selection mode), idempotent.
  *
- * The mandatory main-accreditation dependency (D9) is enforced at apply time
- * (a sub-application may only be created on top of an approved main
- * application), not here — a main `approved` row is the precondition that
- * this engine works on.
+ * ## Atomicity (R-D4, review 2026-09-26)
+ *
+ * Identical to the main engine and for the identical reason: the sub-quota
+ * read and the status write must not be interleaved with a competing writer,
+ * otherwise the plan is computed against state that is already stale by the
+ * time it is written. Every entry point therefore wraps the read **and** the
+ * write in one `DB::transaction` under a `lockForUpdate()` row lock on the
+ * `sub_accreditations` row that owns the sub-quota. As in the main engine,
+ * SQLite drops the lock clause (`SQLiteGrammar::compileLock()` returns `''`),
+ * so the suite proves the shape and the rollback, not the mutual exclusion —
+ * see `features/accreditation/01-allocation-engine.md`.
+ *
+ * The D9 main-accreditation dependency is enforced in three places, not one:
+ * at apply time (`SubAccreditationController::apply` — an approved main
+ * application is required), on revocation of the main row
+ * (`AllocationService::cascadeRevokedSubApplications` — every `approved`
+ * sub-row on it is denied), and in the wallet path
+ * (`WalletController::ownApprovedSubApplication` — no pass without an
+ * approved main application).
  */
 final class SubAllocationService
 {
@@ -30,6 +46,9 @@ final class SubAllocationService
      * mode). Approves at most `min(limit, quota - approved)` candidates,
      * skipping blacklisted users (they stay `requested`). `limit <= 0` does
      * nothing. Idempotent: a second run finds no `requested` candidates.
+     *
+     * Quota read and status write share one transaction under a row lock on
+     * the sub-accreditation (R-D4).
      */
     public function approveSelection(SubAccreditation $sub, int $limit): AllocationResult
     {
@@ -37,20 +56,26 @@ final class SubAllocationService
             return AllocationResult::none();
         }
 
-        $applications = $this->eligibleRequested($sub);
-        $blacklist = AllocationRules::blacklistFor($this->mandantId($sub));
+        return DB::transaction(function () use ($sub, $limit): AllocationResult {
+            // Re-read under the row lock: the caller's instance may predate a
+            // quota change or a competing run.
+            $locked = $this->lockedSubAccreditation($sub->getKey());
 
-        $remaining = min($limit, $sub->quota - $this->approvedCount($sub));
+            $applications = $this->eligibleRequested($locked);
+            $blacklist = AllocationRules::blacklistFor($this->mandantId($locked));
 
-        if ($remaining <= 0) {
-            return AllocationResult::none();
-        }
+            $remaining = min($limit, $locked->quota - $this->approvedCount($locked));
 
-        $plan = AllocationRules::distributeSelection($applications, $remaining, $blacklist);
+            if ($remaining <= 0) {
+                return AllocationResult::none();
+            }
 
-        AllocationRules::markApproved(SubApplication::class, $plan['approve']);
+            $plan = AllocationRules::distributeSelection($applications, $remaining, $blacklist);
 
-        return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
+            AllocationRules::markApproved(SubApplication::class, $plan['approve']);
+
+            return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
+        });
     }
 
     /**
@@ -58,28 +83,36 @@ final class SubAllocationService
      * freigeben") until the quota is reached. Surplus requested
      * sub-applications become `denied` with reason `Quota erschöpft`;
      * blacklist matches become `denied` with reason `Blacklist`. Idempotent.
+     *
+     * Both halves of the plan (approve + deny) share one transaction under a
+     * row lock, so a partial failure cannot leave surplus sub-applications
+     * stuck in `requested` (R-D4, WP-3-b).
      */
     public function approveAllEligible(SubAccreditation $sub): AllocationResult
     {
-        $applications = $this->eligibleRequested($sub);
-        $blacklist = AllocationRules::blacklistFor($this->mandantId($sub));
+        return DB::transaction(function () use ($sub): AllocationResult {
+            $locked = $this->lockedSubAccreditation($sub->getKey());
 
-        $plan = AllocationRules::distributeAll(
-            $applications,
-            $sub->quota,
-            $this->approvedCount($sub),
-            $blacklist,
-        );
+            $applications = $this->eligibleRequested($locked);
+            $blacklist = AllocationRules::blacklistFor($this->mandantId($locked));
 
-        AllocationRules::markApproved(SubApplication::class, $plan['approve']);
-        AllocationRules::markDenied(SubApplication::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
-        AllocationRules::markDenied(SubApplication::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
+            $plan = AllocationRules::distributeAll(
+                $applications,
+                $locked->quota,
+                $this->approvedCount($locked),
+                $blacklist,
+            );
 
-        return new AllocationResult(
-            count($plan['approve']),
-            count($plan['deny_quota']) + count($plan['deny_blacklist']),
-            count($plan['deny_blacklist']),
-        );
+            AllocationRules::markApproved(SubApplication::class, $plan['approve']);
+            AllocationRules::markDenied(SubApplication::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
+            AllocationRules::markDenied(SubApplication::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
+
+            return new AllocationResult(
+                count($plan['approve']),
+                count($plan['deny_quota']) + count($plan['deny_blacklist']),
+                count($plan['deny_blacklist']),
+            );
+        });
     }
 
     /**
@@ -89,6 +122,9 @@ final class SubAllocationService
      * main accreditation) → 422, sub-quota exhausted → 422 `Quota erschöpft`,
      * and only `requested`/`denied` rows may be (re-)approved (422
      * otherwise). Approving clears the deny reason.
+     *
+     * The sub-quota check and the status write share one transaction under a
+     * row lock on the sub-accreditation (R-D4).
      *
      * @throws ValidationException
      */
@@ -100,39 +136,49 @@ final class SubAllocationService
             'subAccreditation.accreditation:id,mandant_id',
         ]);
 
-        if (AllocationRules::isBlacklisted(
-            $subApplication->user,
-            AllocationRules::blacklistFor((int) $subApplication->subAccreditation->accreditation->mandant_id),
-        )) {
-            throw ValidationException::withMessages([
-                'status' => 'User is blacklisted',
+        $subAccreditationId = (int) $subApplication->sub_accreditation_id;
+
+        return DB::transaction(function () use ($subApplication, $subAccreditationId): SubApplication {
+            $locked = $this->lockedSubAccreditation($subAccreditationId);
+
+            if (AllocationRules::isBlacklisted(
+                $subApplication->user,
+                AllocationRules::blacklistFor((int) $locked->accreditation->mandant_id),
+            )) {
+                throw ValidationException::withMessages([
+                    'status' => 'User is blacklisted',
+                ]);
+            }
+
+            if (! in_array($subApplication->status, ['requested', 'denied'], true)) {
+                throw ValidationException::withMessages([
+                    'status' => 'Only requested or denied sub-applications can be approved.',
+                ]);
+            }
+
+            if ($this->approvedCount($locked) >= $locked->quota) {
+                throw ValidationException::withMessages([
+                    'status' => AllocationRules::REASON_QUOTA,
+                ]);
+            }
+
+            $subApplication->update([
+                'status' => 'approved',
+                'reason' => null,
             ]);
-        }
 
-        if (! in_array($subApplication->status, ['requested', 'denied'], true)) {
-            throw ValidationException::withMessages([
-                'status' => 'Only requested or denied sub-applications can be approved.',
-            ]);
-        }
-
-        if ($this->approvedCount($subApplication->subAccreditation) >= $subApplication->subAccreditation->quota) {
-            throw ValidationException::withMessages([
-                'status' => AllocationRules::REASON_QUOTA,
-            ]);
-        }
-
-        $subApplication->update([
-            'status' => 'approved',
-            'reason' => null,
-        ]);
-
-        return $subApplication;
+            return $subApplication;
+        });
     }
 
     /**
      * Single sub-application denial (P3e admin action). A non-empty `$reason`
      * is mandatory (422 otherwise). Only `requested` (deny) and `approved`
      * (revoke) rows may be denied (422 otherwise).
+     *
+     * Shares the row lock of the sub-accreditation with every other writer, so
+     * a concurrent bulk run is serialised against this revoke instead of
+     * planning against a state that is about to change (R-D4).
      *
      * @throws ValidationException
      */
@@ -150,12 +196,18 @@ final class SubAllocationService
             ]);
         }
 
-        $subApplication->update([
-            'status' => 'denied',
-            'reason' => $reason,
-        ]);
+        $subAccreditationId = (int) $subApplication->sub_accreditation_id;
 
-        return $subApplication;
+        return DB::transaction(function () use ($subApplication, $reason, $subAccreditationId): SubApplication {
+            $this->lockedSubAccreditation($subAccreditationId);
+
+            $subApplication->update([
+                'status' => 'denied',
+                'reason' => $reason,
+            ]);
+
+            return $subApplication;
+        });
     }
 
     /**
@@ -232,6 +284,25 @@ final class SubAllocationService
             ->where('sub_accreditation_id', $sub->id)
             ->where('status', 'approved')
             ->count();
+    }
+
+    /**
+     * Re-read one sub-accreditation under a row lock — the serialisation point
+     * of every write in this service (R-D4).
+     *
+     * `lockForUpdate()` compiles to `SELECT … FOR UPDATE` on Postgres (the
+     * production engine) and is dropped silently by `SQLiteGrammar`, so the
+     * suite can only observe that the lock is *requested* — never that it is
+     * *held*. See `features/accreditation/01-allocation-engine.md`.
+     *
+     * The returned model is the authoritative sub-quota for this run: the
+     * caller's instance may predate a quota change by another admin.
+     */
+    private function lockedSubAccreditation(int|string $id): SubAccreditation
+    {
+        return SubAccreditation::query()
+            ->lockForUpdate()
+            ->findOrFail($id);
     }
 
     /**

@@ -29,9 +29,31 @@ use Throwable;
  * Ownership + mandant scope are enforced first (foreign rows → 404), then the
  * `approved` status (anything else → 422 `{message}`). Wallet build failures
  * are reported (logged) and answered with a clean 500 `{message}`.
+ *
+ * ## Sub-passes and a revoked main accreditation (R-D5)
+ *
+ * D9 only ever allows a sub-application on top of an **approved** main
+ * application. Revoking that main application (`AllocationService::denyApplication`)
+ * denies the approved sub-rows in the same transaction, so the common case is
+ * answered by the plain 422 branch. The additional check below is
+ * defence-in-depth for every state the cascade cannot reach — a row written
+ * before the cascade existed, a direct DB write, a sub-row that was
+ * re-approved out of band — and it answers **410 Gone** instead of serving a
+ * pass that the applicant no longer has a right to.
+ *
+ * 410 rather than 404: the row exists, belongs to the caller and is listed in
+ * `GET /api/sub-applications` — a 404 would be a lie, and it would leak
+ * nothing the 422 branch does not already tell. 410 is the honest status for a
+ * resource that existed and is gone.
  */
 class WalletController extends Controller
 {
+    /**
+     * The 410 message for a sub-pass whose main accreditation was revoked.
+     * Surfaced verbatim in the API response.
+     */
+    private const MAIN_REVOKED = 'The main accreditation was withdrawn, this wallet pass is no longer valid.';
+
     public function __construct(private readonly WalletPassService $wallet) {}
 
     public function apple(Request $request, Application $application): Response|JsonResponse
@@ -116,6 +138,7 @@ class WalletController extends Controller
             ->forUser($user->id)
             ->forMandant($mandant->id)
             ->with([
+                'application',
                 'application.accreditation.category',
                 'application.accreditation.event',
                 'application.accreditation.mandant',
@@ -126,6 +149,14 @@ class WalletController extends Controller
                 'subAccreditation.accreditation.mandant',
             ])
             ->findOrFail($subApplication->id);
+
+        // R-D5: no sub-pass without an approved main accreditation. Checked
+        // before the plain status guard so the revoked case always answers
+        // 410 (with a reason) — whether the cascade has already denied the
+        // sub-row or not.
+        if ($subApplication->application?->status !== 'approved') {
+            abort(410, self::MAIN_REVOKED);
+        }
 
         abort_unless($subApplication->status === 'approved', 422, 'Only approved sub-applications can be downloaded as a wallet pass.');
 

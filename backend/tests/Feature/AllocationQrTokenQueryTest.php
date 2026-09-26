@@ -76,15 +76,25 @@ class AllocationQrTokenQueryTest extends TestCase
             $this->assertNotNull(app(QrTokenService::class)->parse($token));
         }
 
-        // … without a single-row `accreditations` lookup. Any such query is a
-        // lazy load of the relation the bulk query is supposed to eager-load.
+        // … without a single-row `accreditations` lookup per row. Any such query
+        // is a lazy load of the relation the bulk query is supposed to
+        // eager-load — with exactly ONE exception since R-D4: the run opens
+        // with the row-locked read of the quota row
+        // (`Accreditation::query()->lockForUpdate()->findOrFail()`). That is one
+        // query per run by construction, so pinning it to exactly 1 still
+        // catches the N+1 (which would be 1 + one per approved row) and is in
+        // fact a stricter statement than the previous "none at all".
         $rowByRow = array_values(array_filter(
             $queries,
             static fn (array $query): bool => str_contains($query['sql'], 'from "accreditations"')
                 && str_contains($query['sql'], '"id" = ?'),
         ));
 
-        $this->assertSame([], $rowByRow, implode(PHP_EOL, array_column($rowByRow, 'sql')));
+        $this->assertCount(
+            1,
+            $rowByRow,
+            'only the row-locked quota read, never one per approved row: '.implode(PHP_EOL, array_column($rowByRow, 'sql')),
+        );
     }
 
     public function test_the_number_of_accreditation_queries_does_not_grow_with_the_approval_count(): void
