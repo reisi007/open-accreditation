@@ -37,19 +37,30 @@ function verifyStatusBadgeClass(status: ApplicationStatus): string {
 /**
  * Public QR verification (P4). The token arrives either as a URL path segment
  * (the `qr_url` of an approved application, i.e. `/verify/<token>`) or as the
- * `?token=` query parameter — both are read on first render. The SWR key only
- * changes when the submitted token changes, so a token coming from the URL is
- * verified automatically on load (the Ordner-Scan case) and the manual
+ * `?token=` query parameter. `verify` and `verify/:token` are the same
+ * component, so a SPA back/forward between two scanned QR links keeps the same
+ * mounted instance — the URL token is therefore re-synced during render (React's
+ * documented "adjust state when a prop changes" pattern), and the manual
  * "Prüfen" button triggers a re-verification for a newly typed token.
  */
 export function VerifyPage() {
     const { i18n } = useLingui();
     const { token: pathToken } = useParams();
     const [searchParams] = useSearchParams();
-    const initialToken = (pathToken ?? searchParams.get('token') ?? '').trim();
+    const urlToken = (pathToken ?? searchParams.get('token') ?? '').trim();
 
-    const [input, setInput] = useState(initialToken);
-    const [submittedToken, setSubmittedToken] = useState(initialToken);
+    const [input, setInput] = useState(urlToken);
+    const [submittedToken, setSubmittedToken] = useState(urlToken);
+    const [syncedUrlToken, setSyncedUrlToken] = useState(urlToken);
+
+    // Re-sync when the URL token changes underneath the mounted component
+    // (browser back/forward between two scanned links). Without this the
+    // previous person's result stays on screen under the new URL.
+    if (syncedUrlToken !== urlToken) {
+        setSyncedUrlToken(urlToken);
+        setInput(urlToken);
+        setSubmittedToken(urlToken);
+    }
 
     const { data, error, isLoading } = useSWR<VerifyResult>(
         submittedToken !== '' ? ['/api/verify', submittedToken] : null,

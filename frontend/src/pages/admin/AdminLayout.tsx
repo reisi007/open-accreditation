@@ -1,6 +1,6 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { isMandantAdminUser, isSuperAdminUser } from '../../logic/adminRoles';
@@ -110,24 +110,86 @@ export function AdminLayout() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const drawerRef = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const wasOpen = useRef(false);
 
     const isSuperAdmin = isSuperAdminUser(user);
     const showUsers = isSuperAdmin || isMandantAdminUser(user);
     const showTemplates = isSuperAdmin || isMandantAdminUser(user);
     const showMedia = isSuperAdmin || isMandantAdminUser(user);
 
+    // `useAuth().logout()` never rejects (it tears the cache down even when the
+    // request fails), so the navigation below always runs and the shell can
+    // never keep rendering the stale session.
     const handleLogout = async () => {
         await logout();
         navigate('/');
     };
 
+    const closeDrawer = () => setDrawerOpen(false);
+
+    /**
+     * Focus management for the mobile drawer. The daisyUI drawer is a pure CSS
+     * state, so opening it does not move focus — without this the keyboard focus
+     * would stay on the hamburger button behind the overlay. It has to run in an
+     * effect (not in the click handler) because the nav links stay
+     * `visibility: hidden` until the checkbox state has been applied, and
+     * daisyUI transitions that flip with a 100 ms delay
+     * (`transition: … visibility .3s ease-out .1s allow-discrete`) while
+     * `focus()` is a no-op on a `visibility: hidden` element. Hence: try
+     * immediately and once more when the transition has finished.
+     */
+    useEffect(() => {
+        if (!drawerOpen) {
+            if (wasOpen.current) {
+                triggerRef.current?.focus();
+            }
+            wasOpen.current = false;
+            return;
+        }
+
+        wasOpen.current = true;
+        const side = drawerRef.current;
+        if (side === null) {
+            return;
+        }
+
+        const focusFirst = () => {
+            if (side.contains(document.activeElement)) {
+                return;
+            }
+            side.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus();
+        };
+
+        focusFirst();
+        side.addEventListener('transitionend', focusFirst);
+        return () => side.removeEventListener('transitionend', focusFirst);
+    }, [drawerOpen]);
+
+    const handleDrawerKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (drawerOpen && event.key === 'Escape') {
+            closeDrawer();
+        }
+    };
+
     return (
         <div className="min-h-dvh bg-base-100">
             <div className="drawer">
+                {/*
+                  daisyUI opens `.drawer-side` only via
+                  `:where(.drawer-toggle:checked~.drawer-side)`, so the checkbox
+                  is kept purely as the CSS state carrier. It is `sr-only` and
+                  previously a focusable-but-invisible tab stop, so it is taken
+                  out of the a11y tree and the tab order; the real control is the
+                  `<button aria-expanded aria-controls>` below.
+                */}
                 <input
                     id="admin-drawer"
                     type="checkbox"
                     className="drawer-toggle sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
                     checked={drawerOpen}
                     onChange={(event) => setDrawerOpen(event.target.checked)}
                 />
@@ -140,13 +202,17 @@ export function AdminLayout() {
                             </Link>
                         </div>
                         <div className="navbar-end flex items-center gap-2">
-                            <label
-                                htmlFor="admin-drawer"
-                                aria-label={i18n._(t`Menü`)}
+                            <button
+                                ref={triggerRef}
+                                type="button"
                                 className="btn btn-ghost btn-sm btn-square lg:hidden"
+                                aria-label={i18n._(t`Menü`)}
+                                aria-expanded={drawerOpen}
+                                aria-controls="admin-drawer-nav"
+                                onClick={() => setDrawerOpen((current) => !current)}
                             >
                                 <span className="iconify mdi--menu text-2xl"></span>
-                            </label>
+                            </button>
                             <span className="hidden text-sm text-base-content/70 sm:inline">{user?.email}</span>
                             <button
                                 type="button"
@@ -161,6 +227,11 @@ export function AdminLayout() {
                         </div>
                     </header>
                     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 lg:flex-row">
+                        {/*
+                          Desktop navigation. `lg:block` + the mobile `lg:hidden`
+                          drawer below keep exactly ONE `complementary` landmark
+                          in the a11y tree at any viewport.
+                        */}
                         <aside className="hidden w-48 lg:block">
                             <AdminNav
                                 className="menu rounded-box bg-base-200 p-2 lg:sticky lg:top-8"
@@ -168,7 +239,7 @@ export function AdminLayout() {
                                 showUsers={showUsers}
                                 showTemplates={showTemplates}
                                 showMedia={showMedia}
-                                onNavigate={() => setDrawerOpen(false)}
+                                onNavigate={closeDrawer}
                             />
                         </aside>
                         <main className="min-w-0 flex-1">
@@ -176,20 +247,22 @@ export function AdminLayout() {
                         </main>
                     </div>
                 </div>
-                <div className="drawer-side lg:hidden">
-                    <label
-                        htmlFor="admin-drawer"
-                        aria-label={i18n._(t`Schließen`)}
-                        className="drawer-overlay"
-                    ></label>
-                    <aside>
+                <div ref={drawerRef} className="drawer-side lg:hidden" onKeyDown={handleDrawerKeyDown}>
+                    {/*
+                      Mouse-only backdrop: daisyUI's `.drawer-overlay` needs the
+                      class, and a focusable full-screen button would be a
+                      keyboard trap, so it stays `aria-hidden` — Escape and the
+                      nav links' own navigation cover keyboard users.
+                    */}
+                    <div className="drawer-overlay" aria-hidden="true" onClick={closeDrawer}></div>
+                    <aside id="admin-drawer-nav">
                         <AdminNav
                             className="menu min-h-full w-64 bg-base-200 p-2"
                             showMandants={isSuperAdmin}
                             showUsers={showUsers}
                             showTemplates={showTemplates}
                             showMedia={showMedia}
-                            onNavigate={() => setDrawerOpen(false)}
+                            onNavigate={closeDrawer}
                         />
                     </aside>
                 </div>

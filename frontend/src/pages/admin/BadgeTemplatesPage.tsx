@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -10,6 +10,7 @@ import {
     updateBadgeTemplate,
 } from '../../api/client';
 import type { BadgeTemplate } from '../../api/types';
+import { Modal } from '../../components/Modal';
 import { BadgeTemplateForm } from './BadgeTemplateForm';
 import { buildBadgeTemplatePayload, type BadgeTemplateFormValues } from './badgeTemplateFormUtils';
 
@@ -131,7 +132,10 @@ export function BadgeTemplatesPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Ausweis-Template' : `${totalCount} Ausweis-Templates`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Ausweis-Template} other {# Ausweis-Templates}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
@@ -188,7 +192,10 @@ export function BadgeTemplatesPage() {
                                                         </td>
                                                         <td>
                                                             <span className="badge badge-ghost badge-sm">
-                                                                {i18n._(t`${fieldCount} Felder`)}
+                                                                {i18n._({
+                                                                    ...msg`{fieldCount, plural, one {# Feld} other {# Felder}}`,
+                                                                    values: { fieldCount },
+                                                                })}
                                                             </span>
                                                         </td>
                                                         <td>
@@ -239,27 +246,20 @@ export function BadgeTemplatesPage() {
             ) : null}
 
             {showForm ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box max-w-5xl">
-                        <h3 className="text-lg font-bold">
-                            {formTemplate ? i18n._(t`Template bearbeiten`) : i18n._(t`Neues Template`)}
-                        </h3>
-                        <div className="mt-4">
-                            <BadgeTemplateForm
-                                initial={formTemplate}
-                                submitLabel={formTemplate ? i18n._(t`Speichern`) : i18n._(t`Template erstellen`)}
-                                submitError={formError}
-                                onSubmit={handleSave}
-                                onCancel={closeForm}
-                            />
-                        </div>
+                <Modal boxClassName="max-w-5xl" onClose={closeForm}>
+                    <h3 className="text-lg font-bold">
+                        {formTemplate ? i18n._(t`Template bearbeiten`) : i18n._(t`Neues Template`)}
+                    </h3>
+                    <div className="mt-4">
+                        <BadgeTemplateForm
+                            initial={formTemplate}
+                            submitLabel={formTemplate ? i18n._(t`Speichern`) : i18n._(t`Template erstellen`)}
+                            submitError={formError}
+                            onSubmit={handleSave}
+                            onCancel={closeForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
         </section>
     );

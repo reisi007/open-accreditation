@@ -91,7 +91,13 @@ test.describe('Sub-Accreditations (P3d)', () => {
         await expect(
             subSection.getByRole('heading', { level: 3, name: 'Sub-Akkreditierungen (Park/Sitz)' }),
         ).toBeVisible();
-        await expect(subSection.getByText('Noch 1 frei')).toBeVisible();
+        // `subAvailabilityLabel` renders an ICU plural — "Noch 1 Platz frei"
+        // (singular) resp. "Noch 2 Plätze frei" (plural). A plain "Noch 1 frei"
+        // substring never matches the rendered badge. NOTE: the label helper
+        // still drops the ICU `values` (see `src/logic/accreditationLabels.ts`),
+        // so the badge currently renders "Noch NaN Plätze frei" and this
+        // assertion stays red until that is fixed.
+        await expect(subSection.getByText(/Noch 1 (Platz|Plätze) frei/)).toBeVisible();
 
         // 5) Apply for the Parkkarte → the requested badge replaces the button.
         await subSection.getByRole('button', { name: 'Beantragen' }).click();

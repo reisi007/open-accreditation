@@ -53,8 +53,16 @@ export function MandantForm({ initial, isEdit, submitLabel, submitError, onSubmi
             className="flex flex-col gap-4"
             noValidate
             onSubmit={handleSubmit(async (values) => {
+                // The clear-intent flag is deliberately NOT reset here. The
+                // parent renders the API error itself and resolves either way,
+                // so an unconditional reset swallowed the intent on a failed
+                // save: "SMTP löschen" → save with a duplicate slug (422) →
+                // fix the slug → save again would omit `smtp_config`, so the
+                // backend KEPT the stored config while the form showed empty
+                // fields. The flag is only cleared by `smtpRegister`'s
+                // onChange, i.e. when the user actually edits an SMTP field —
+                // re-sending an already-delivered `clearSmtp` is idempotent.
                 await onSubmit(values, smtpCleared);
-                setSmtpCleared(false);
             })}
         >
             {submitError ? (

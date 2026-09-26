@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -55,7 +55,10 @@ export function AccreditationsPage() {
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Akkreditierung' : `${totalCount} Akkreditierungen`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Akkreditierung} other {# Akkreditierungen}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>

@@ -76,7 +76,14 @@ export function MediaField({ label, url, onUpload, onDelete }: MediaFieldProps) 
                 accept="image/*"
                 className="hidden"
                 aria-label={label}
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                    setFile(event.target.files?.[0] ?? null);
+                    // Reset the native value: after a successful upload `file`
+                    // is cleared, and without this the input keeps the previous
+                    // selection, so re-picking the SAME file fires no `change`
+                    // event and the upload button stays disabled forever.
+                    event.target.value = '';
+                }}
             />
             <div className="flex gap-2">
                 <button type="button" className="btn btn-sm" disabled={!file || busy} onClick={() => void handleUpload()}>

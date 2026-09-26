@@ -1,5 +1,5 @@
 import type { I18n } from '@lingui/core';
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -171,6 +171,29 @@ function WideTable({ children }: WideTableProps) {
     );
 }
 
+/**
+ * Optimistic toggle state that re-syncs whenever the server value changes
+ * underneath the mounted component. The rows are keyed by the stable
+ * application id, so `useState(serverValue)` alone would never re-initialise:
+ * a VIP change made in a second tab, by a bulk action or by a sibling row's
+ * mutation would keep rendering the stale local value. The render-phase
+ * adjustment below is React's documented "reset derived state when a prop
+ * changes" pattern (no effect, no flash).
+ */
+function useSyncedFlag(serverValue: boolean): { value: boolean; set: (next: boolean) => void; revert: () => void } {
+    const [state, setState] = useState({ server: serverValue, value: serverValue });
+
+    if (state.server !== serverValue) {
+        setState({ server: serverValue, value: serverValue });
+    }
+
+    return {
+        value: state.value,
+        set: (next: boolean) => setState({ server: serverValue, value: next }),
+        revert: () => setState({ server: serverValue, value: serverValue }),
+    };
+}
+
 interface ApplicationRowProps {
     application: AdminApplication;
     onChanged: () => Promise<void>;
@@ -179,7 +202,7 @@ interface ApplicationRowProps {
 
 function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps) {
     const { i18n } = useLingui();
-    const [priority, setPriority] = useState(application.priority);
+    const priorityFlag = useSyncedFlag(application.priority);
     const [actionError, setActionError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [resendSuccess, setResendSuccess] = useState<string | null>(null);
@@ -191,13 +214,13 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
     );
 
     const handleTogglePriority = async (next: boolean) => {
-        setPriority(next);
+        priorityFlag.set(next);
         setActionError(null);
         try {
             await updateAdminApplication(application.id, buildApplicationAction({ priority: next }));
             await onChanged();
         } catch (err) {
-            setPriority(application.priority);
+            priorityFlag.revert();
             setActionError(firstErrorMessage(err, i18n._(t`VIP-Status konnte nicht geändert werden.`)));
         }
     };
@@ -289,7 +312,7 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
                     <input
                         type="checkbox"
                         className="toggle toggle-sm"
-                        checked={priority}
+                        checked={priorityFlag.value}
                         aria-label={i18n._(t`VIP`)}
                         onChange={(event) => void handleTogglePriority(event.target.checked)}
                     />
@@ -635,7 +658,10 @@ function ApplicationsTab() {
             {data && !isLoading && !error ? (
                 <div className="flex flex-col gap-2">
                     <p aria-live="polite">
-                        {applications.length === 1 ? `${applications.length} Antrag` : `${applications.length} Anträge`}
+                        {i18n._({
+                            ...msg`{count, plural, one {# Antrag} other {# Anträge}}`,
+                            values: { count: applications.length },
+                        })}
                     </p>
                     {applications.length === 0 ? (
                         <div className="card border border-base-300 bg-base-100">
@@ -725,18 +751,18 @@ interface SubApplicationRowProps {
 
 function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRowProps) {
     const { i18n } = useLingui();
-    const [priority, setPriority] = useState(application.priority);
+    const priorityFlag = useSyncedFlag(application.priority);
     const [actionError, setActionError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
     const handleTogglePriority = async (next: boolean) => {
-        setPriority(next);
+        priorityFlag.set(next);
         setActionError(null);
         try {
             await updateAdminSubApplication(application.id, buildApplicationAction({ priority: next }));
             await onChanged();
         } catch (err) {
-            setPriority(application.priority);
+            priorityFlag.revert();
             setActionError(firstErrorMessage(err, i18n._(t`VIP-Status konnte nicht geändert werden.`)));
         }
     };
@@ -820,7 +846,7 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     <input
                         type="checkbox"
                         className="toggle toggle-sm"
-                        checked={priority}
+                        checked={priorityFlag.value}
                         aria-label={i18n._(t`VIP`)}
                         onChange={(event) => void handleTogglePriority(event.target.checked)}
                     />
@@ -979,9 +1005,10 @@ function SubApplicationsTab() {
             {data && !isLoading && !error ? (
                 <div className="flex flex-col gap-2">
                     <p aria-live="polite">
-                        {subApplications.length === 1
-                            ? `${subApplications.length} Sub-Antrag`
-                            : `${subApplications.length} Sub-Anträge`}
+                        {i18n._({
+                            ...msg`{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}`,
+                            values: { count: subApplications.length },
+                        })}
                     </p>
                     {subApplications.length === 0 ? (
                         <div className="card border border-base-300 bg-base-100">
@@ -1073,6 +1100,12 @@ function BlacklistTab() {
             await mutate();
         } catch (err) {
             setFormError(firstErrorMessage(err, i18n._(t`Blacklist-Eintrag konnte nicht angelegt werden.`)));
+            // The rejection is the "not created" signal that `BlacklistForm`
+            // consumes (`.then(() => true, () => false)`) so it can skip its
+            // `reset()` on failure. It is fully handled there, so no unhandled
+            // rejection escapes. Flipping this to a `Promise<boolean>` success
+            // indicator additionally requires the matching `BlacklistForm`
+            // signature change; see AGENTS.todo.md WP-7-c.
             throw err;
         }
     };
@@ -1114,7 +1147,10 @@ function BlacklistTab() {
             {data && !isLoading && !error ? (
                 <div className="flex flex-col gap-2">
                     <p aria-live="polite">
-                        {entries.length === 1 ? `${entries.length} Eintrag` : `${entries.length} Einträge`}
+                        {i18n._({
+                            ...msg`{count, plural, one {# Eintrag} other {# Einträge}}`,
+                            values: { count: entries.length },
+                        })}
                     </p>
                     {entries.length === 0 ? (
                         <div className="card border border-base-300 bg-base-100">

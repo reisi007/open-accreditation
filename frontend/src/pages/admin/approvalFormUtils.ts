@@ -35,14 +35,19 @@ export const createBlacklistSchema = () =>
 
             if (email === '' && domain === '') {
                 ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
+                    code: 'custom',
+                    // `path: ['email']` on purpose: an issue without a path
+                    // (path `[]`) is keyed under the empty string by
+                    // `zodResolver`, so `errors.root` stays undefined and the
+                    // message never reaches the UI.
+                    path: ['email'],
                     message: t`Mindestens E-Mail oder Domäne ist erforderlich.`,
                 });
             }
 
             if (email !== '' && !z.string().email().safeParse(email).success) {
                 ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
+                    code: 'custom',
                     path: ['email'],
                     message: t`Bitte eine gültige E-Mail-Adresse angeben.`,
                 });

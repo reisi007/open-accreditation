@@ -495,20 +495,16 @@ export const deleteBadgeImage = (id: number): Promise<void> =>
     request<void>(`/api/admin/badge-images/${id}`, { method: 'DELETE' });
 
 /**
- * Streams the badge export (PDF/CSV). The `request` helper only unwraps JSON
- * envelopes — this endpoint answers binary, so the fetch is done here directly.
- * JSON `{message}` error bodies (e.g. the 422 "no default template") are still
- * surfaced as ApiError for the caller.
+ * Shared binary-response fetch. The `request` helper only unwraps JSON
+ * envelopes — badge exports and wallet passes answer binary, so they are
+ * fetched here. JSON `{message}` error bodies (e.g. the 422 "no default
+ * template") are still surfaced as ApiError for the caller, which is what lets
+ * the UI show a real message instead of silently downloading the error body.
  */
-export async function exportBadges(accreditationId: number, payload: BadgeExportPayload): Promise<Blob> {
+async function fetchBinary(path: string, init: RequestInit = {}): Promise<Response> {
     let response: Response;
     try {
-        response = await fetch(`/api/admin/accreditations/${accreditationId}/badges/export`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/pdf, text/csv' },
-            body: JSON.stringify(payload),
-            credentials: 'include',
-        });
+        response = await fetch(path, { ...init, credentials: 'include' });
     } catch {
         throw new ApiError(0, 'Netzwerkfehler: Keine Verbindung zum Server.', {});
     }
@@ -532,7 +528,89 @@ export async function exportBadges(accreditationId: number, payload: BadgeExport
         throw new ApiError(response.status, message, info);
     }
 
+    return response;
+}
+
+/**
+ * Streams the badge export (PDF/CSV) as a blob.
+ */
+export async function exportBadges(accreditationId: number, payload: BadgeExportPayload): Promise<Blob> {
+    const response = await fetchBinary(`/api/admin/accreditations/${accreditationId}/badges/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/pdf, text/csv' },
+        body: JSON.stringify(payload),
+    });
+
     return response.blob();
+}
+
+export interface BinaryDownload {
+    blob: Blob;
+    /**
+     * Filename taken from the response's `Content-Disposition` when present.
+     * `WalletController::google()` sends no header at all, so the caller's
+     * fallback is used for the Google payload.
+     */
+    filename: string;
+}
+
+function filenameFromContentDisposition(header: string | null, fallback: string): string {
+    if (header === null || header === '') {
+        return fallback;
+    }
+
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (encoded?.[1]) {
+        try {
+            return decodeURIComponent(encoded[1].trim());
+        } catch {
+            // Malformed percent-encoding — fall through to the plain form.
+        }
+    }
+
+    const plain = /filename="([^"]*)"|filename=([^;]+)/i.exec(header);
+    const raw = (plain?.[1] ?? plain?.[2])?.trim();
+
+    return raw !== undefined && raw !== '' ? raw : fallback;
+}
+
+async function toBinaryDownload(response: Response, fallbackFilename: string): Promise<BinaryDownload> {
+    return {
+        blob: await response.blob(),
+        filename: filenameFromContentDisposition(response.headers.get('content-disposition'), fallbackFilename),
+    };
+}
+
+const APPLE_WALLET_MIME = 'application/vnd.apple.pkpass';
+
+export type WalletProvider = 'apple' | 'google';
+
+/**
+ * Wallet pass of an approved application. `WalletController::google()` answers
+ * a plain JSON payload without `Content-Disposition`, hence the per-provider
+ * fallback filename.
+ */
+export async function downloadApplicationWallet(
+    applicationId: number,
+    provider: WalletProvider,
+): Promise<BinaryDownload> {
+    const response = await fetchBinary(
+        provider === 'apple'
+            ? `/api/applications/${applicationId}/wallet`
+            : `/api/applications/${applicationId}/wallet/google`,
+        { headers: { Accept: provider === 'apple' ? APPLE_WALLET_MIME : 'application/json' } },
+    );
+
+    return toBinaryDownload(response, provider === 'apple' ? 'wallet.pkpass' : 'wallet.json');
+}
+
+/** Wallet pass of an approved sub-application (Apple only). */
+export async function downloadSubApplicationWallet(subApplicationId: number): Promise<BinaryDownload> {
+    const response = await fetchBinary(`/api/sub-applications/${subApplicationId}/wallet`, {
+        headers: { Accept: APPLE_WALLET_MIME },
+    });
+
+    return toBinaryDownload(response, 'wallet.pkpass');
 }
 
 export const verifyToken = (token: string): Promise<VerifyResult> =>

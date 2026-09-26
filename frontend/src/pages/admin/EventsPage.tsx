@@ -1,10 +1,11 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { ApiError, createEvent, deleteEvent, listEvents, updateEvent } from '../../api/client';
 import type { Event } from '../../api/types';
 import { useAdminTeams } from '../../logic/useAdminTeams';
+import { Modal } from '../../components/Modal';
 import { EventForm } from './EventForm';
 import { buildEventPayload, type EventFormValues } from './eventFormUtils';
 
@@ -152,7 +153,10 @@ export function EventsPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Event' : `${totalCount} Events`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Event} other {# Events}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
@@ -263,27 +267,20 @@ export function EventsPage() {
             ) : null}
 
             {showForm ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <h3 className="text-lg font-bold">
-                            {formEvent ? i18n._(t`Event bearbeiten`) : i18n._(t`Neues Event`)}
-                        </h3>
-                        <div className="mt-4">
-                            <EventForm
-                                initial={formEvent}
-                                submitLabel={formEvent ? i18n._(t`Speichern`) : i18n._(t`Event erstellen`)}
-                                submitError={formError}
-                                onSubmit={handleSave}
-                                onCancel={closeForm}
-                            />
-                        </div>
+                <Modal onClose={closeForm}>
+                    <h3 className="text-lg font-bold">
+                        {formEvent ? i18n._(t`Event bearbeiten`) : i18n._(t`Neues Event`)}
+                    </h3>
+                    <div className="mt-4">
+                        <EventForm
+                            initial={formEvent}
+                            submitLabel={formEvent ? i18n._(t`Speichern`) : i18n._(t`Event erstellen`)}
+                            submitError={formError}
+                            onSubmit={handleSave}
+                            onCancel={closeForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
         </section>
     );

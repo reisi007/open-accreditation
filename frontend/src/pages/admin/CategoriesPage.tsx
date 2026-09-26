@@ -1,10 +1,11 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { ApiError, createCategory, deleteCategory, listCategories, updateCategory } from '../../api/client';
 import type { Category } from '../../api/types';
 import { useAdminTeams } from '../../logic/useAdminTeams';
+import { Modal } from '../../components/Modal';
 import { CategoryForm } from './CategoryForm';
 import { buildCategoryPayload, type CategoryFormValues } from './categoryFormUtils';
 
@@ -130,7 +131,10 @@ export function CategoriesPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Kategorie' : `${totalCount} Kategorien`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Kategorie} other {# Kategorien}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
@@ -240,27 +244,20 @@ export function CategoriesPage() {
             ) : null}
 
             {showForm ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <h3 className="text-lg font-bold">
-                            {formCategory ? i18n._(t`Kategorie bearbeiten`) : i18n._(t`Neue Kategorie`)}
-                        </h3>
-                        <div className="mt-4">
-                            <CategoryForm
-                                initial={formCategory}
-                                submitLabel={formCategory ? i18n._(t`Speichern`) : i18n._(t`Kategorie erstellen`)}
-                                submitError={formError}
-                                onSubmit={handleSave}
-                                onCancel={closeForm}
-                            />
-                        </div>
+                <Modal onClose={closeForm}>
+                    <h3 className="text-lg font-bold">
+                        {formCategory ? i18n._(t`Kategorie bearbeiten`) : i18n._(t`Neue Kategorie`)}
+                    </h3>
+                    <div className="mt-4">
+                        <CategoryForm
+                            initial={formCategory}
+                            submitLabel={formCategory ? i18n._(t`Speichern`) : i18n._(t`Kategorie erstellen`)}
+                            submitError={formError}
+                            onSubmit={handleSave}
+                            onCancel={closeForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
         </section>
     );

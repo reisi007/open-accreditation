@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -16,6 +16,7 @@ import {
 import type { Accreditation, SubAccreditation } from '../../api/types';
 import { accreditationScopeLabel, subTypeLabel } from '../../logic/accreditationLabels';
 import { useAdminTeams } from '../../logic/useAdminTeams';
+import { Modal } from '../../components/Modal';
 import { AccreditationForm } from './AccreditationForm';
 import { buildAccreditationPayload, type AccreditationFormValues } from './accreditationFormUtils';
 import { SubAccreditationForm } from './SubAccreditationForm';
@@ -250,7 +251,10 @@ export function AccreditationsPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Akkreditierung' : `${totalCount} Akkreditierungen`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Akkreditierung} other {# Akkreditierungen}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
@@ -393,147 +397,139 @@ export function AccreditationsPage() {
             ) : null}
 
             {showForm ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <h3 className="text-lg font-bold">
-                            {formAccreditation ? i18n._(t`Akkreditierung bearbeiten`) : i18n._(t`Neue Akkreditierung`)}
-                        </h3>
-                        <div className="mt-4">
-                            <AccreditationForm
-                                initial={formAccreditation}
-                                submitLabel={formAccreditation ? i18n._(t`Speichern`) : i18n._(t`Akkreditierung erstellen`)}
-                                submitError={formError}
-                                onSubmit={handleSave}
-                                onCancel={closeForm}
-                            />
-                        </div>
+                <Modal onClose={closeForm}>
+                    <h3 className="text-lg font-bold">
+                        {formAccreditation ? i18n._(t`Akkreditierung bearbeiten`) : i18n._(t`Neue Akkreditierung`)}
+                    </h3>
+                    <div className="mt-4">
+                        <AccreditationForm
+                            initial={formAccreditation}
+                            submitLabel={formAccreditation ? i18n._(t`Speichern`) : i18n._(t`Akkreditierung erstellen`)}
+                            submitError={formError}
+                            onSubmit={handleSave}
+                            onCancel={closeForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
 
+            {/*
+              Stacked modals: the sub-form dialog is opened on top of this list
+              and the list has to stay mounted (the freshly created/edited sub
+              accreditation must remain visible behind the form). With real
+              `<dialog>` semantics the topmost dialog makes the lower one inert,
+              so its buttons can no longer be tabbed to; `dimmed={false}` drops
+              the second dark overlay it would otherwise paint.
+            */}
             {subAccreditation ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-lg font-bold">{i18n._(t`Sub-Akkreditierungen`)}</h3>
-                            <button type="button" className="btn btn-sm btn-primary" onClick={() => openSubForm(null)}>
-                                <span className="iconify mdi--plus text-xl"></span>
-                                {i18n._(t`Neu`)}
-                            </button>
-                        </div>
-
-                        {subsLoading ? <span className="loading loading-spinner loading-lg"></span> : null}
-
-                        {subsError ? (
-                            <div role="alert" className="alert alert-error mt-2">
-                                <span>{i18n._(t`Sub-Akkreditierungen konnten nicht geladen werden.`)}</span>
-                            </div>
-                        ) : null}
-
-                        {subListError ? (
-                            <div role="alert" className="alert alert-error mt-2">
-                                <span>{subListError}</span>
-                            </div>
-                        ) : null}
-
-                        {subs && subs.length === 0 && !subsLoading && !subsError ? (
-                            <p className="mt-4 text-base-content/70">
-                                {i18n._(t`Noch keine Sub-Akkreditierungen vorhanden.`)}
-                            </p>
-                        ) : null}
-
-                        {subs && subs.length > 0 && !subsLoading && !subsError ? (
-                            <div className="mt-4 flex flex-col gap-2">
-                                {subs.map((sub) => (
-                                    <article
-                                        key={sub.id}
-                                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 p-3"
-                                    >
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="badge badge-outline badge-sm">{subTypeLabel(sub.type, i18n)}</span>
-                                            <span
-                                                className={`badge badge-sm ${
-                                                    sub.available > 0 ? 'badge-success' : 'badge-warning'
-                                                }`}
-                                            >
-                                                {i18n._(t`Quota`)} {sub.quota} · {i18n._(t`Verfügbar`)} {sub.available}
-                                            </span>
-                                            <span className="badge badge-warning badge-sm">{formatSubDeadline(sub)}</span>
-                                            {sub.auto_approve ? (
-                                                <span className="badge badge-info badge-sm">
-                                                    {i18n._(t`Automatische Freigabe`)}
-                                                </span>
-                                            ) : null}
-                                            {sub.active ? (
-                                                <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>
-                                            ) : (
-                                                <span className="badge badge-ghost badge-sm">{i18n._(t`Inaktiv`)}</span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-outline"
-                                                onClick={() => openSubForm(sub)}
-                                            >
-                                                {i18n._(t`Bearbeiten`)}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-sm btn-error btn-outline"
-                                                onClick={() => void handleSubDelete(sub)}
-                                            >
-                                                {i18n._(t`Löschen`)}
-                                            </button>
-                                        </div>
-                                    </article>
-                                ))}
-                            </div>
-                        ) : null}
-
-                        <div className="mt-4 flex justify-end">
-                            <button type="button" className="btn" onClick={closeSubs}>
-                                {i18n._(t`Schließen`)}
-                            </button>
-                        </div>
+                <Modal dimmed={!showSubForm} onClose={showSubForm ? closeSubForm : closeSubs}>
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-lg font-bold">{i18n._(t`Sub-Akkreditierungen`)}</h3>
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            disabled={showSubForm}
+                            onClick={() => openSubForm(null)}
+                        >
+                            <span className="iconify mdi--plus text-xl"></span>
+                            {i18n._(t`Neu`)}
+                        </button>
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeSubs}>
+
+                    {subsLoading ? <span className="loading loading-spinner loading-lg"></span> : null}
+
+                    {subsError ? (
+                        <div role="alert" className="alert alert-error mt-2">
+                            <span>{i18n._(t`Sub-Akkreditierungen konnten nicht geladen werden.`)}</span>
+                        </div>
+                    ) : null}
+
+                    {subListError ? (
+                        <div role="alert" className="alert alert-error mt-2">
+                            <span>{subListError}</span>
+                        </div>
+                    ) : null}
+
+                    {subs && subs.length === 0 && !subsLoading && !subsError ? (
+                        <p className="mt-4 text-base-content/70">
+                            {i18n._(t`Noch keine Sub-Akkreditierungen vorhanden.`)}
+                        </p>
+                    ) : null}
+
+                    {subs && subs.length > 0 && !subsLoading && !subsError ? (
+                        <div className="mt-4 flex flex-col gap-2">
+                            {subs.map((sub) => (
+                                <article
+                                    key={sub.id}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 p-3"
+                                >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="badge badge-outline badge-sm">{subTypeLabel(sub.type, i18n)}</span>
+                                        <span
+                                            className={`badge badge-sm ${
+                                                sub.available > 0 ? 'badge-success' : 'badge-warning'
+                                            }`}
+                                        >
+                                            {i18n._(t`Quota`)} {sub.quota} · {i18n._(t`Verfügbar`)} {sub.available}
+                                        </span>
+                                        <span className="badge badge-warning badge-sm">{formatSubDeadline(sub)}</span>
+                                        {sub.auto_approve ? (
+                                            <span className="badge badge-info badge-sm">
+                                                {i18n._(t`Automatische Freigabe`)}
+                                            </span>
+                                        ) : null}
+                                        {sub.active ? (
+                                            <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>
+                                        ) : (
+                                            <span className="badge badge-ghost badge-sm">{i18n._(t`Inaktiv`)}</span>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            className="btn btn-sm btn-outline"
+                                            disabled={showSubForm}
+                                            onClick={() => openSubForm(sub)}
+                                        >
+                                            {i18n._(t`Bearbeiten`)}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-sm btn-error btn-outline"
+                                            disabled={showSubForm}
+                                            onClick={() => void handleSubDelete(sub)}
+                                        >
+                                            {i18n._(t`Löschen`)}
+                                        </button>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                    ) : null}
+
+                    <div className="mt-4 flex justify-end">
+                        <button type="button" className="btn" onClick={closeSubs}>
                             {i18n._(t`Schließen`)}
                         </button>
-                    </form>
-                </dialog>
+                    </div>
+                </Modal>
             ) : null}
 
             {showSubForm && subAccreditation ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <h3 className="text-lg font-bold">
-                            {subFormItem ? i18n._(t`Sub-Akkreditierung bearbeiten`) : i18n._(t`Neue Sub-Akkreditierung`)}
-                        </h3>
-                        <div className="mt-4">
-                            <SubAccreditationForm
-                                initial={subFormItem}
-                                submitLabel={
-                                    subFormItem ? i18n._(t`Speichern`) : i18n._(t`Sub-Akkreditierung erstellen`)
-                                }
-                                submitError={subFormError}
-                                onSubmit={handleSubSave}
-                                onCancel={closeSubForm}
-                            />
-                        </div>
+                <Modal onClose={closeSubForm}>
+                    <h3 className="text-lg font-bold">
+                        {subFormItem ? i18n._(t`Sub-Akkreditierung bearbeiten`) : i18n._(t`Neue Sub-Akkreditierung`)}
+                    </h3>
+                    <div className="mt-4">
+                        <SubAccreditationForm
+                            initial={subFormItem}
+                            submitLabel={subFormItem ? i18n._(t`Speichern`) : i18n._(t`Sub-Akkreditierung erstellen`)}
+                            submitError={subFormError}
+                            onSubmit={handleSubSave}
+                            onCancel={closeSubForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeSubForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
         </section>
     );

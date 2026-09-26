@@ -142,11 +142,11 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
                         className={`input ${errors.deadline_end ? 'input-error' : ''}`}
                         {...register('deadline_end')}
                     />
+                    {errors.deadline_end ? (
+                        <span className="label-text-alt mt-1 text-error">{errors.deadline_end.message}</span>
+                    ) : null}
                 </div>
             </div>
-            {errors.deadline_end ? (
-                <span className="label-text-alt mt-1 text-error">{errors.deadline_end.message}</span>
-            ) : null}
 
             <div className="form-control">
                 <label className="label" htmlFor="event-active">

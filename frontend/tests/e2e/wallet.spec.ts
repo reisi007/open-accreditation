@@ -3,8 +3,10 @@ import { ensurePrimaryMandantWalletSetup } from './helpers/admin-data';
 
 test.describe('Wallet Downloads (P6)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to keep the shared per-IP login
-    // throttle (15/min) within budget. The downloads are same-origin `<a
-    // download>` links — cookie auth applies automatically, no blob handling.
+    // throttle (15/min) within budget. The wallet downloads go through the API
+    // client (so a failed pass surfaces as an error message instead of being
+    // saved as a bogus file); the blob hand-off keeps the server-provided
+    // `Content-Disposition` filename.
     test.beforeEach(async ({}, testInfo) => {
         test.skip(testInfo.project.name !== 'Desktop Chrome');
     });
@@ -37,35 +39,41 @@ test.describe('Wallet Downloads (P6)', () => {
         await expect(card.getByText('Freigegeben').first()).toBeVisible();
 
         // Main accreditation → Apple Wallet .pkpass download. The wallet row
-        // is its own group, so the Apple link here is unambiguous (the sub
-        // section below carries its own "Apple Wallet" link).
+        // is its own group, so the Apple button here is unambiguous (the sub
+        // section below carries its own "Apple Wallet" button).
         const walletGroup = card.getByRole('group', { name: 'Wallet-Downloads' });
-        await expect(walletGroup.getByRole('link', { name: 'Apple Wallet' })).toBeVisible();
-        await expect(walletGroup.getByRole('link', { name: 'Google Wallet' })).toBeVisible();
+        await expect(walletGroup.getByRole('button', { name: 'Apple Wallet' })).toBeVisible();
+        await expect(walletGroup.getByRole('button', { name: 'Google Wallet' })).toBeVisible();
         await expect(
             card.getByText('Pass wird im Apple/Google-Wallet-Format heruntergeladen.'),
         ).toBeVisible();
 
         const appleDownloadPromise = page.waitForEvent('download');
-        await walletGroup.getByRole('link', { name: 'Apple Wallet' }).click();
+        await walletGroup.getByRole('button', { name: 'Apple Wallet' }).click();
         const appleDownload = await appleDownloadPromise;
         expect(appleDownload.suggestedFilename()).toBe(`accreditation-${application.id}.pkpass`);
         await appleDownload.cancel();
 
         // Google Wallet → JSON download.
         const googleDownloadPromise = page.waitForEvent('download');
-        await walletGroup.getByRole('link', { name: 'Google Wallet' }).click();
+        await walletGroup.getByRole('button', { name: 'Google Wallet' }).click();
         const googleDownload = await googleDownloadPromise;
         expect(googleDownload.suggestedFilename()).toBe('wallet.json');
         await googleDownload.cancel();
 
+        // A failed pass must surface as a visible message instead of silently
+        // saving the error body — the wallet route answers 403 for a pass whose
+        // mandant has no Apple credentials, which is exercised in the unit
+        // tests; here we only assert the happy path stays a real download.
+        expect(await main.getByRole('alert').count()).toBe(0);
+
         // Approved park sub-accreditation → Apple Wallet .pkpass download.
         const subSection = card.locator('section', { hasText: 'Parkkarte' });
-        const subAppleLink = subSection.getByRole('link', { name: 'Apple Wallet' });
-        await expect(subAppleLink).toBeVisible();
+        const subAppleButton = subSection.getByRole('button', { name: 'Apple Wallet' });
+        await expect(subAppleButton).toBeVisible();
 
         const subDownloadPromise = page.waitForEvent('download');
-        await subAppleLink.click();
+        await subAppleButton.click();
         const subDownload = await subDownloadPromise;
         expect(subDownload.suggestedFilename()).toBe(`park-${subApplication.id}.pkpass`);
         await subDownload.cancel();

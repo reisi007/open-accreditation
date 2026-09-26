@@ -27,28 +27,49 @@ msgstr "{available, plural, one {# Platz frei} other {# Plätze frei}}"
 #~ msgstr "{available} Plätze frei"
 
 #: src/pages/admin/ApprovalsPage.tsx
-#~ msgid "{count, plural, one {# Antrag} other {# Anträge}}"
-#~ msgstr "{count, plural, one {# Antrag} other {# Anträge}}"
+msgid "{count, plural, one {# Antrag} other {# Anträge}}"
+msgstr "{count, plural, one {# Antrag} other {# Anträge}}"
 
 #: src/pages/admin/ApprovalsPage.tsx
-#~ msgid "{count, plural, one {# Eintrag} other {# Einträge}}"
-#~ msgstr "{count, plural, one {# Eintrag} other {# Einträge}}"
+msgid "{count, plural, one {# Eintrag} other {# Einträge}}"
+msgstr "{count, plural, one {# Eintrag} other {# Einträge}}"
 
 #: src/pages/admin/ApprovalsPage.tsx
-#~ msgid "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
-#~ msgstr "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
+msgid "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
+msgstr "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
 
 #: src/pages/admin/UsersPage.tsx
 #~ msgid "{count} Benutzer"
 #~ msgstr "{count} Benutzer"
 
 #: src/pages/admin/BadgeTemplatesPage.tsx
-msgid "{fieldCount} Felder"
-msgstr "{fieldCount} Felder"
+msgid "{fieldCount, plural, one {# Feld} other {# Felder}}"
+msgstr "{fieldCount, plural, one {# Feld} other {# Felder}}"
+
+#: src/pages/AccreditationsPage.tsx
+#: src/pages/admin/AccreditationsPage.tsx
+msgid "{totalCount, plural, one {# Akkreditierung} other {# Akkreditierungen}}"
+msgstr "{totalCount, plural, one {# Akkreditierung} other {# Akkreditierungen}}"
+
+#: src/pages/admin/BadgeTemplatesPage.tsx
+msgid "{totalCount, plural, one {# Ausweis-Template} other {# Ausweis-Templates}}"
+msgstr "{totalCount, plural, one {# Ausweis-Template} other {# Ausweis-Templates}}"
 
 #: src/pages/admin/UsersPage.tsx
 msgid "{totalCount, plural, one {# Benutzer} other {# Benutzer}}"
 msgstr "{totalCount, plural, one {# Benutzer} other {# Benutzer}}"
+
+#: src/pages/admin/EventsPage.tsx
+msgid "{totalCount, plural, one {# Event} other {# Events}}"
+msgstr "{totalCount, plural, one {# Event} other {# Events}}"
+
+#: src/pages/admin/CategoriesPage.tsx
+msgid "{totalCount, plural, one {# Kategorie} other {# Kategorien}}"
+msgstr "{totalCount, plural, one {# Kategorie} other {# Kategorien}}"
+
+#: src/pages/admin/MandantListPage.tsx
+msgid "{totalCount, plural, one {# Mandant} other {# Mandanten}}"
+msgstr "{totalCount, plural, one {# Mandant} other {# Mandanten}}"
 
 #: src/pages/admin/UsersPage.tsx
 #~ msgid "{totalCount} Benutzer"
@@ -428,6 +449,10 @@ msgstr "Das Bild konnte nicht hochgeladen werden."
 msgid "Das Ende der Frist muss nach dem Beginn liegen."
 msgstr "Das Ende der Frist muss nach dem Beginn liegen."
 
+#: src/pages/admin/eventFormUtils.ts
+#~ msgid "Das Ende der Frist muss nach dem Beginn liegt."
+#~ msgstr "Das Ende der Frist muss nach dem Beginn liegt."
+
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Das Feld ragt über den rechten Rand hinaus."
 msgstr "Das Feld ragt über den rechten Rand hinaus."
@@ -454,6 +479,10 @@ msgstr "Datenschutzerklärung"
 msgid "Datum"
 msgstr "Datum"
 
+#: src/App.tsx
+msgid "Die angeforderte Seite existiert nicht."
+msgstr "Die angeforderte Seite existiert nicht."
+
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Die Mindestbreite beträgt 10 mm."
 msgstr "Die Mindestbreite beträgt 10 mm."
@@ -473,6 +502,10 @@ msgstr "Die Mindesthöhe beträgt 3 mm."
 #: src/pages/admin/RoleForm.tsx
 msgid "Die Rolle Super Admin wird global über den Seeder vergeben und kann hier nicht zugewiesen werden."
 msgstr "Die Rolle Super Admin wird global über den Seeder vergeben und kann hier nicht zugewiesen werden."
+
+#: src/App.tsx
+msgid "Die Seite konnte nicht geladen werden."
+msgstr "Die Seite konnte nicht geladen werden."
 
 #: src/pages/admin/CategoryForm.tsx
 msgid "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
@@ -1285,12 +1318,6 @@ msgid "Saison"
 msgstr "Saison"
 
 #: src/pages/admin/AccreditationsPage.tsx
-#: src/pages/admin/AdminLayout.tsx
-#: src/pages/admin/BadgeTemplatesPage.tsx
-#: src/pages/admin/CategoriesPage.tsx
-#: src/pages/admin/DenyModal.tsx
-#: src/pages/admin/EventsPage.tsx
-#: src/pages/admin/UsersPage.tsx
 msgid "Schließen"
 msgstr "Schließen"
 
@@ -1327,6 +1354,10 @@ msgstr "Seite {currentPage} von {pageCount}"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Seite {page} von {pageCount}"
 msgstr "Seite {page} von {pageCount}"
+
+#: src/App.tsx
+msgid "Seite nicht gefunden."
+msgstr "Seite nicht gefunden."
 
 #: src/pages/AccreditationsPage.tsx
 #: src/pages/admin/AccreditationsPage.tsx
@@ -1707,6 +1738,10 @@ msgstr "Vorhandenes Bild"
 msgid "Wallet-Downloads"
 msgstr "Wallet-Downloads"
 
+#: src/pages/MyAccreditationsPage.tsx
+msgid "Wallet-Pass konnte nicht heruntergeladen werden."
+msgstr "Wallet-Pass konnte nicht heruntergeladen werden."
+
 #: src/logic/accreditationLabels.ts
 msgid "Warteliste"
 msgstr "Warteliste"
@@ -1778,6 +1813,7 @@ msgstr "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewe
 msgid "Zum Scrollen wischen"
 msgstr "Zum Scrollen wischen"
 
+#: src/App.tsx
 #: src/pages/AccreditationsPage.tsx
 msgid "Zur Startseite"
 msgstr "Zur Startseite"

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { ApiError, listUsers, updateUserRoles } from '../../api/client';
 import type { AdminUser, UserRoleAssignment } from '../../api/types';
+import { Modal } from '../../components/Modal';
 import { RoleForm } from './RoleForm';
 import { buildRolePayload, type RoleFormValues } from './userRoleFormUtils';
 
@@ -223,25 +224,18 @@ export function UsersPage() {
             ) : null}
 
             {editUser ? (
-                <dialog className="modal modal-open">
-                    <div className="modal-box">
-                        <h3 className="text-lg font-bold">{i18n._(t`Rollen bearbeiten`)}</h3>
-                        <div className="mt-4">
-                            <RoleForm
-                                user={editUser}
-                                submitLabel={i18n._(t`Speichern`)}
-                                submitError={formError}
-                                onSubmit={handleSave}
-                                onCancel={closeForm}
-                            />
-                        </div>
+                <Modal onClose={closeForm}>
+                    <h3 className="text-lg font-bold">{i18n._(t`Rollen bearbeiten`)}</h3>
+                    <div className="mt-4">
+                        <RoleForm
+                            user={editUser}
+                            submitLabel={i18n._(t`Speichern`)}
+                            submitError={formError}
+                            onSubmit={handleSave}
+                            onCancel={closeForm}
+                        />
                     </div>
-                    <form method="dialog" className="modal-backdrop">
-                        <button type="button" onClick={closeForm}>
-                            {i18n._(t`Schließen`)}
-                        </button>
-                    </form>
-                </dialog>
+                </Modal>
             ) : null}
         </section>
     );

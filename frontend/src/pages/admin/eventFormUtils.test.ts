@@ -122,7 +122,7 @@ describe('createEventSchema', () => {
         expect(result.success).toBe(true);
     });
 
-    it('rejects an end before the start', () => {
+    it('rejects an end before the start and reports it on the deadline_end field', () => {
         const schema = createEventSchema();
 
         const result = schema.safeParse(
@@ -130,6 +130,20 @@ describe('createEventSchema', () => {
         );
 
         expect(result.success).toBe(false);
+        if (!result.success) {
+            // An object-level issue (path `[]`) would be keyed under the empty
+            // string by `zodResolver` and never rendered by `EventForm`.
+            expect(result.error.issues).toHaveLength(1);
+            expect(result.error.issues[0].path).toEqual(['deadline_end']);
+            expect(result.error.issues[0].message).toBe('Das Ende der Frist muss nach dem Beginn liegen.');
+        }
+    });
+
+    it('accepts a single-sided deadline', () => {
+        const schema = createEventSchema();
+
+        expect(schema.safeParse(valuesWith({ deadline_start: '2026-08-20' })).success).toBe(true);
+        expect(schema.safeParse(valuesWith({ deadline_end: '2026-08-01' })).success).toBe(true);
     });
 
     it('requires a title', () => {

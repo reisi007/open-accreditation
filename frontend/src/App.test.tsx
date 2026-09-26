@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { i18n } from '@lingui/core';
 import userEvent from '@testing-library/user-event';
 import { screen } from '@testing-library/react';
 import App from './App';
@@ -44,6 +45,11 @@ function stubFetch() {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    // The language test activates 'en' on the module-level `i18n` singleton
+    // (the same instance `logic/I18nProvider` loads and activates 'de' on).
+    // `test-setup.tsx` only calls `cleanup()`, so without this reset every
+    // LATER test in this file would render English.
+    i18n.activate('de');
 });
 
 describe('App scaffold', () => {

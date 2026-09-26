@@ -32,14 +32,28 @@ export function PortalHomePage() {
         isLoading: eventsLoading,
     } = useSWR<PortalEvent[]>(['/api/portal/events', teamFilter, competitionFilter], () => getPortalEvents(eventsParams));
 
+    /**
+     * Competition options come from a competition-INDEPENDENT query, not from
+     * the currently filtered result set: `PortalController` filters
+     * `competition` with a partial LIKE, so "Bundesliga" also matches
+     * "2. Bundesliga" and the option list would otherwise shrink (and change
+     * meaning) with every narrowing step. Keyed by the team filter only, so it
+     * stays a stable list for the selected team and is cached by SWR.
+     */
+    const { data: teamEvents } = useSWR<PortalEvent[]>(['/api/portal/events', teamFilter], () =>
+        getPortalEvents({ team_id: teamFilter }),
+    );
+
     const teams = overview?.teams ?? [];
     const showTeamsSection = Boolean(overview?.mandant.teams_enabled) && teams.length > 0;
 
-    const competitions = [
-        ...new Set((events ?? []).map((event) => event.competition).filter((value): value is string => Boolean(value))),
+    const competitionOptions = [
+        ...new Set(
+            (teamEvents ?? [])
+                .map((event) => event.competition)
+                .filter((value): value is string => Boolean(value)),
+        ),
     ].sort();
-    const competitionOptions =
-        competitionFilter !== '' && !competitions.includes(competitionFilter) ? [competitionFilter, ...competitions] : competitions;
 
     const eventLocation = (event: PortalEvent): string | null => event.venue;
 

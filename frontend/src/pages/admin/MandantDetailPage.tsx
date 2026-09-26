@@ -31,21 +31,37 @@ export function MandantDetailPage() {
     const { i18n } = useLingui();
     const navigate = useNavigate();
     const params = useParams<{ id: string }>();
-    const mandantId = Number(params.id);
+    // Guard the route param: without it `/admin/mandants/abc` builds three
+    // `/api/admin/mandants/NaN` SWR keys and fires three pointless 404s.
+    const parsedId = Number(params.id);
+    const mandantId = Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null;
 
-    const mandantKey = `/api/admin/mandants/${mandantId}`;
-    const { data: mandant, error, isLoading, mutate } = useSWR<Mandant>(mandantKey, () => getMandant(mandantId));
-    const { data: domains, mutate: mutateDomains } = useSWR<MandantDomain[]>(
-        `${mandantKey}/domains`,
-        () => listDomains(mandantId),
+    const { data: mandant, error, isLoading, mutate } = useSWR<Mandant>(
+        mandantId === null ? null : `/api/admin/mandants/${mandantId}`,
+        mandantId === null ? null : () => getMandant(mandantId),
     );
-    const { data: teams, mutate: mutateTeams } = useSWR<Team[]>(`${mandantKey}/teams`, () => listTeams(mandantId));
+    const { data: domains, mutate: mutateDomains } = useSWR<MandantDomain[]>(
+        mandantId === null ? null : `/api/admin/mandants/${mandantId}/domains`,
+        mandantId === null ? null : () => listDomains(mandantId),
+    );
+    const { data: teams, mutate: mutateTeams } = useSWR<Team[]>(
+        mandantId === null ? null : `/api/admin/mandants/${mandantId}/teams`,
+        mandantId === null ? null : () => listTeams(mandantId),
+    );
 
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [domainError, setDomainError] = useState<string | null>(null);
     const [teamFormError, setTeamFormError] = useState<string | null>(null);
     const [showTeamForm, setShowTeamForm] = useState(false);
     const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+
+    if (mandantId === null) {
+        return (
+            <div role="alert" className="alert alert-error">
+                <span>{i18n._(t`Mandant konnte nicht geladen werden.`)}</span>
+            </div>
+        );
+    }
 
     if (isLoading) {
         return <span className="loading loading-spinner loading-lg"></span>;

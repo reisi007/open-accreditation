@@ -6,11 +6,14 @@ import useSWR, { useSWRConfig } from 'swr';
 import {
     ApiError,
     applySubAccreditation,
+    downloadApplicationWallet,
+    downloadSubApplicationWallet,
     listApplications,
     listSubAccreditations,
     listSubApplications,
     withdrawApplication,
     withdrawSubApplication,
+    type WalletProvider,
 } from '../api/client';
 import type { Application, ApplicationStatus, SubAccreditation, SubApplication } from '../api/types';
 import {
@@ -19,6 +22,7 @@ import {
     subAvailabilityLabel,
     subTypeLabel,
 } from '../logic/accreditationLabels';
+import { downloadBlob } from '../logic/downloadBlob';
 import { formatDate } from '../logic/formatDate';
 
 const STATUS_BADGE_CLASS: Record<ApplicationStatus, string> = {
@@ -41,6 +45,7 @@ function SubAccreditationSection({ accreditationId, subApplications }: SubAccred
         () => listSubAccreditations(accreditationId),
     );
     const [actionError, setActionError] = useState<string | null>(null);
+    const [walletBusy, setWalletBusy] = useState(false);
 
     const mySubApplications = (subApplications ?? []).filter(
         (subApplication) => subApplication.accreditation?.id === accreditationId,
@@ -49,6 +54,21 @@ function SubAccreditationSection({ accreditationId, subApplications }: SubAccred
     const refreshAll = async () => {
         await mutate();
         await globalMutate('/api/sub-applications');
+    };
+
+    const handleWalletDownload = async (subApplicationId: number) => {
+        setActionError(null);
+        setWalletBusy(true);
+        try {
+            const { blob, filename } = await downloadSubApplicationWallet(subApplicationId);
+            downloadBlob(blob, filename);
+        } catch (err) {
+            setActionError(
+                err instanceof ApiError ? err.message : i18n._(t`Wallet-Pass konnte nicht heruntergeladen werden.`),
+            );
+        } finally {
+            setWalletBusy(false);
+        }
     };
 
     const handleApply = async (sub: SubAccreditation) => {
@@ -140,13 +160,15 @@ function SubAccreditationSection({ accreditationId, subApplications }: SubAccred
                                         {i18n._(t`Zurückziehen`)}
                                     </button>
                                 ) : mine.status === 'approved' ? (
-                                    <a
-                                        href={`/api/sub-applications/${mine.id}/wallet`}
-                                        download="wallet.pkpass"
+                                    <button
+                                        type="button"
                                         className="btn btn-outline btn-sm"
+                                        disabled={walletBusy}
+                                        onClick={() => void handleWalletDownload(mine.id)}
                                     >
+                                        {walletBusy ? <span className="loading loading-spinner loading-xs"></span> : null}
                                         {i18n._(t`Apple Wallet`)}
-                                    </a>
+                                    </button>
                                 ) : null
                             ) : (
                                 <button
@@ -173,6 +195,8 @@ export function MyAccreditationsPage() {
         () => listSubApplications(),
     );
     const [listError, setListError] = useState<string | null>(null);
+    const [walletError, setWalletError] = useState<string | null>(null);
+    const [walletBusy, setWalletBusy] = useState<WalletProvider | null>(null);
 
     const handleWithdraw = async (application: Application) => {
         setListError(null);
@@ -183,6 +207,27 @@ export function MyAccreditationsPage() {
             setListError(
                 err instanceof ApiError ? err.message : i18n._(t`Antrag konnte nicht zurückgezogen werden.`),
             );
+        }
+    };
+
+    /**
+     * The wallet buttons used to be bare `<a download>` anchors, so a non-2xx
+     * (e.g. a revoked approval) silently saved the JSON error body as
+     * `wallet.json`/`wallet.pkpass` with no feedback at all. Going through the
+     * API client turns the failure into a visible `ApiError` message.
+     */
+    const handleWalletDownload = async (applicationId: number, provider: WalletProvider) => {
+        setWalletError(null);
+        setWalletBusy(provider);
+        try {
+            const { blob, filename } = await downloadApplicationWallet(applicationId, provider);
+            downloadBlob(blob, filename);
+        } catch (err) {
+            setWalletError(
+                err instanceof ApiError ? err.message : i18n._(t`Wallet-Pass konnte nicht heruntergeladen werden.`),
+            );
+        } finally {
+            setWalletBusy(null);
         }
     };
 
@@ -207,6 +252,12 @@ export function MyAccreditationsPage() {
             {listError ? (
                 <div role="alert" className="alert alert-error">
                     <span>{listError}</span>
+                </div>
+            ) : null}
+
+            {walletError ? (
+                <div role="alert" className="alert alert-error">
+                    <span>{walletError}</span>
                 </div>
             ) : null}
 
@@ -273,20 +324,28 @@ export function MyAccreditationsPage() {
                                                 aria-label={i18n._(t`Wallet-Downloads`)}
                                                 className="flex flex-col gap-2"
                                             >
-                                                <a
-                                                    href={`/api/applications/${application.id}/wallet`}
-                                                    download="wallet.pkpass"
+                                                <button
+                                                    type="button"
                                                     className="btn btn-outline btn-sm"
+                                                    disabled={walletBusy !== null}
+                                                    onClick={() => void handleWalletDownload(application.id, 'apple')}
                                                 >
+                                                    {walletBusy === 'apple' ? (
+                                                        <span className="loading loading-spinner loading-xs"></span>
+                                                    ) : null}
                                                     {i18n._(t`Apple Wallet`)}
-                                                </a>
-                                                <a
-                                                    href={`/api/applications/${application.id}/wallet/google`}
-                                                    download="wallet.json"
+                                                </button>
+                                                <button
+                                                    type="button"
                                                     className="btn btn-outline btn-sm"
+                                                    disabled={walletBusy !== null}
+                                                    onClick={() => void handleWalletDownload(application.id, 'google')}
                                                 >
+                                                    {walletBusy === 'google' ? (
+                                                        <span className="loading loading-spinner loading-xs"></span>
+                                                    ) : null}
                                                     {i18n._(t`Google Wallet`)}
-                                                </a>
+                                                </button>
                                             </div>
                                         ) : null}
                                     </div>

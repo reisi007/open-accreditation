@@ -28,8 +28,20 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
             className="flex flex-col gap-4"
             noValidate
             onSubmit={handleSubmit(async (values) => {
-                await onSubmit(values);
-                reset();
+                // A failed create is signalled by the parent rejecting the
+                // promise (it sets the error state and rethrows). The rejection
+                // is swallowed here on purpose: `handleSubmit` re-throws
+                // whatever escapes the submit handler and React does not await
+                // the submit promise, so an escaping rejection would surface as
+                // an unhandled promise rejection. `reset()` is skipped
+                // deliberately on failure so the input survives.
+                const created = await onSubmit(values).then(
+                    () => true,
+                    () => false,
+                );
+                if (created) {
+                    reset();
+                }
             })}
         >
             {submitError ? (
@@ -75,12 +87,6 @@ export function BlacklistForm({ submitError, onSubmit }: BlacklistFormProps) {
                     <input id="blacklist-note" className="input" {...register('note')} />
                 </div>
             </div>
-
-            {errors.root ? (
-                <p role="alert" className="text-sm text-error">
-                    {errors.root.message}
-                </p>
-            ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
                 <button type="submit" className="btn btn-primary" disabled={isSubmitting}>

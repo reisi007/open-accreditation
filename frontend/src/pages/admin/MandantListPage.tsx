@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -60,7 +60,10 @@ export function MandantListPage() {
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <p aria-live="polite" className="text-sm text-base-content/70">
-                            {totalCount === 1 ? '1 Mandant' : `${totalCount} Mandanten`}
+                            {i18n._({
+                                ...msg`{totalCount, plural, one {# Mandant} other {# Mandanten}}`,
+                                values: { totalCount },
+                            })}
                         </p>
                         {pageCount > 1 ? (
                             <div className="join" role="group" aria-label={i18n._(t`Seitennavigation`)}>
@@ -127,7 +130,7 @@ export function MandantListPage() {
                                                             <span key={domain.id}>
                                                                 {index > 0 ? ', ' : null}
                                                                 <a
-                                                                    href={`http://${domain.hostname}`}
+                                                                    href={`https://${domain.hostname}`}
                                                                     target="_blank"
                                                                     rel="noreferrer"
                                                                 >

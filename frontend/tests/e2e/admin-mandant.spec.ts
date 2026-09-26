@@ -157,10 +157,12 @@ test.describe('Admin: Mandanten (P2a)', () => {
         const adminMain = page.getByRole('main');
         await expect(adminMain.getByRole('columnheader', { name: 'Logo' })).toBeVisible();
 
-        // The domain hostname is rendered as an external portal link.
+        // The domain hostname is rendered as an external portal link. Mandant
+        // sites are TLS-only (Caddy terminates 443 per mandant), so the link
+        // must NOT downgrade to plain HTTP.
         const portalLink = adminMain.getByRole('link', { name: new RegExp(domainHostname) });
         await expect(portalLink).toBeVisible();
-        await expect(portalLink).toHaveAttribute('href', `http://${domainHostname}`);
+        await expect(portalLink).toHaveAttribute('href', `https://${domainHostname}`);
         await expect(portalLink).toHaveAttribute('target', '_blank');
         await expect(portalLink).toHaveAttribute('rel', 'noreferrer');
     });

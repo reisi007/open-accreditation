@@ -49,11 +49,17 @@ test.describe('Admin: Events (P2b)', () => {
         await adminMain.getByRole('button', { name: 'Event erstellen' }).click();
         await expect(adminMain.getByRole('row', { name: new RegExp(uniqueTitle) })).toBeVisible();
 
-        // Edit the event.
+        // Edit the event. The row locator must not be built from `uniqueTitle`:
+        // `editedTitle` contains it, so a `RegExp(uniqueTitle)` also matches the
+        // unchanged row and a failed PUT would pass unnoticed. The title cell is
+        // asserted by its exact text instead — the old title must be gone.
         await adminMain.getByRole('row', { name: new RegExp(uniqueTitle) }).getByRole('button', { name: 'Bearbeiten' }).click();
         await adminMain.getByLabel('Titel', { exact: true }).fill(editedTitle);
         await adminMain.getByRole('button', { name: 'Speichern' }).click();
-        await expect(adminMain.getByRole('row', { name: new RegExp(editedTitle) })).toBeVisible();
+        await expect(adminMain.getByText(editedTitle, { exact: true })).toBeVisible();
+        await expect(adminMain.getByText(uniqueTitle, { exact: true })).toHaveCount(0);
+        // A failed update keeps the modal open with an error — assert it is gone.
+        await expect(adminMain.getByRole('button', { name: 'Speichern' })).toHaveCount(0);
 
         // Delete the event (confirm dialog).
         page.on('dialog', (dialog) => void dialog.accept());

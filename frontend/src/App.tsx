@@ -1,7 +1,16 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useEffect } from 'react';
-import { Link, Navigate, Outlet, RouterProvider, createBrowserRouter, useNavigate } from 'react-router-dom';
+import {
+    Link,
+    Navigate,
+    Outlet,
+    RouterProvider,
+    createBrowserRouter,
+    isRouteErrorResponse,
+    useNavigate,
+    useRouteError,
+} from 'react-router-dom';
 import { setUnauthorizedHandler } from './api/client';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { isAdminUser, isSuperAdminUser } from './logic/adminRoles';
@@ -91,6 +100,9 @@ function AuthNav() {
     const { user, isAuthenticated, logout } = useAuth();
     const navigate = useNavigate();
 
+    // `useAuth().logout()` never rejects (it tears the cache down even when the
+    // request fails), so the navigation below always runs and the shell can
+    // never keep rendering the stale session.
     const handleLogout = async () => {
         await logout();
         navigate('/');
@@ -166,13 +178,55 @@ function AdminIndexRedirect() {
     return <Navigate to={isSuperAdminUser(user) ? 'mandants' : 'categories'} replace />;
 }
 
+/**
+ * Rendered in place of the route that threw. Without it React Router falls back
+ * to its built-in error page, which renders outside the app shell (no header,
+ * no styling, no translated copy). A 404 from the API is reported as the
+ * generic load failure — the distinction only matters for router-level errors.
+ */
+function RouteError() {
+    const error = useRouteError();
+    const { i18n } = useLingui();
+
+    return (
+        <div role="alert" className="alert alert-error">
+            <span>
+                {isRouteErrorResponse(error)
+                    ? i18n._(t`Seite nicht gefunden.`)
+                    : i18n._(t`Die Seite konnte nicht geladen werden.`)}
+            </span>
+        </div>
+    );
+}
+
+/** Catch-all for unmatched URLs, rendered inside the app shell. */
+function NotFoundPage() {
+    const { i18n } = useLingui();
+
+    return (
+        <section className="flex flex-col gap-4">
+            <h1 className="text-3xl font-bold">{i18n._(t`Seite nicht gefunden.`)}</h1>
+            <p className="text-base-content/70">
+                {i18n._(t`Die angeforderte Seite existiert nicht.`)}
+            </p>
+            <Link to="/" className="btn btn-primary self-start">
+                {i18n._(t`Zur Startseite`)}
+            </Link>
+        </section>
+    );
+}
+
 const router = createBrowserRouter([
     {
         element: <RouterShell />,
+        // Last-resort boundary: keeps a render error inside the app's i18n and
+        // Tailwind context instead of React Router's raw default page.
+        errorElement: <RouteError />,
         children: [
             {
                 path: '/',
                 element: <RootLayout />,
+                errorElement: <RouteError />,
                 children: [
                     { index: true, element: <PortalHomePage /> },
                     { path: 'events/:id', element: <EventDetailPage /> },
@@ -196,6 +250,7 @@ const router = createBrowserRouter([
                     { path: 'verify', element: <VerifyPage /> },
                     { path: 'verify/:token', element: <VerifyPage /> },
                     { path: 'login', element: <LoginPage /> },
+                    { path: '*', element: <NotFoundPage /> },
                 ],
             },
             {
@@ -205,6 +260,7 @@ const router = createBrowserRouter([
                         <AdminLayout />
                     </RequireAdmin>
                 ),
+                errorElement: <RouteError />,
                 children: [
                     { index: true, element: <AdminIndexRedirect /> },
                     {
@@ -235,6 +291,10 @@ const router = createBrowserRouter([
                             { path: 'media', element: <MandantMediaPage /> },
                         ],
                     },
+                    // Catch-all inside the admin shell too: without it a typo
+                    // under /admin matches no leaf at all and React Router
+                    // renders its own default error page.
+                    { path: '*', element: <NotFoundPage /> },
                 ],
             },
         ],

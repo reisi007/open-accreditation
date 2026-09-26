@@ -59,6 +59,18 @@ describe('createBlacklistSchema', () => {
         expect(parse({ email: '   ', domain: '   ' }).success).toBe(false);
     });
 
+    it('reports the missing email/domain on the email field, not on an empty path', () => {
+        // An issue without a path (path `[]`) is keyed under the empty string by
+        // `zodResolver`; `BlacklistForm` would then render nothing at all.
+        const result = parse({ email: '', domain: '' });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            expect(result.error.issues).toHaveLength(1);
+            expect(result.error.issues[0].path).toEqual(['email']);
+            expect(result.error.issues[0].message).toBe('Mindestens E-Mail oder Domäne ist erforderlich.');
+        }
+    });
+
     it('rejects an invalid email', () => {
         const result = parse({ email: 'not-an-email', domain: '' });
         expect(result.success).toBe(false);

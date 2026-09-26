@@ -15,11 +15,18 @@ export const createEventSchema = () =>
             deadline_end: z.string(),
             active: z.boolean(),
         })
-        .refine(
-            (values) =>
-                values.deadline_end === '' || values.deadline_start === '' || values.deadline_end >= values.deadline_start,
-            t`Das Ende der Frist muss nach dem Beginn liegen.`,
-        );
+        .superRefine((values, ctx) => {
+            // The issue must carry an explicit path: an object-level issue
+            // (path `[]`) is keyed under the empty string by `zodResolver`,
+            // which no form control renders — the message would be swallowed.
+            if (values.deadline_end !== '' && values.deadline_start !== '' && values.deadline_end < values.deadline_start) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['deadline_end'],
+                    message: t`Das Ende der Frist muss nach dem Beginn liegen.`,
+                });
+            }
+        });
 
 export type EventFormValues = z.infer<ReturnType<typeof createEventSchema>>;
 
