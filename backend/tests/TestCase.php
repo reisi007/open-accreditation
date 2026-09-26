@@ -5,6 +5,7 @@ namespace Tests;
 use App\Models\User;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\ParallelTesting;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -36,9 +37,59 @@ abstract class TestCase extends BaseTestCase
      */
     private array $fakeDiskRoots = [];
 
+    /**
+     * The token `Storage::fake()` appends to the root it installs, resolved
+     * once per OS process.
+     *
+     * `Storage::fake()` builds its root like this (Laravel 13,
+     * `Illuminate\Support\Facades\Storage::fake()`, lines 108-112):
+     *
+     *     $root = self::getRootPath($disk);          // storage/framework/testing/disks/<disk>
+     *     if ($token = ParallelTesting::token()) {
+     *         $root = "{$root}_test_{$token}";
+     *     }
+     *
+     * and `ParallelTesting::token()` (line 297-302) falls back to
+     * `$_SERVER['TEST_TOKEN'] ?? false` — a variable only *paratest* sets, for
+     * each of its workers. Two consequences, and they are the whole bug:
+     *
+     *  - Under `--parallel` the token is set, so workers of ONE run already
+     *    get separate roots (`…/media_test_1`, `…/media_test_2`, …). This part
+     *    was never broken.
+     *  - Under a PLAIN `php artisan test` it is `false`, the suffix is skipped
+     *    and every process roots its faked disks at the very same
+     *    `storage/framework/testing/disks/<disk>`. `fake()` cleans that
+     *    directory on every single call, so two concurrent runs in one checkout
+     *    delete each other's files mid-test — measured on this suite: 383 and 5
+     *    spurious failures, `Unable to find a file or directory at path [...]`.
+     *
+     * So the token is the one lever that makes a fake root process-private, and
+     * it has to be pulled here rather than inside `rootEveryDiskInTheTestTree()`
+     * because ~25 test classes call `Storage::fake()` themselves and re-derive
+     * the very same shared root.
+     */
+    private static ?string $fakeDiskToken = null;
+
+    /**
+     * Whether this process already armed its shutdown cleanup — see
+     * `armProcessRootCleanup()`.
+     */
+    private static bool $processRootCleanupArmed = false;
+
+    /**
+     * Whether this process already pruned the pre-tokenization roots — see
+     * `pruneLegacySharedRoots()`.
+     */
+    private static bool $legacyRootsPruned = false;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Must precede the first `Storage::fake()` call of ANY kind, this one
+        // in `rootEveryDiskInTheTestTree()` as much as the ones inside
+        // individual test classes.
+        self::isolateFakeDisksInThisProcess();
 
         $this->rootEveryDiskInTheTestTree();
     }
@@ -65,6 +116,233 @@ abstract class TestCase extends BaseTestCase
         $this->purgeFakeDiskRoots();
 
         parent::tearDown();
+    }
+
+    /**
+     * Make every faked disk of THIS process process-private.
+     *
+     * Resolving `ParallelTesting`'s token to a per-process value is what makes
+     * `Storage::fake()` install a root no other process can see, and therefore
+     * what makes two concurrent full runs in one checkout independent. It is the
+     * only hook that covers *all* faked disks: a test class calling
+     * `Storage::fake('media')` itself re-runs the very same root computation, so
+     * faking only from `rootEveryDiskInTheTestTree()` would leave those roots
+     * shared again.
+     *
+     * Setting a token outside a paratest run is otherwise inert, because every
+     * other framework reader of it is gated on `ParallelTesting::inParallel()`,
+     * which additionally requires `LARAVEL_PARALLEL_TESTING` (only paratest sets
+     * that): the test-database name (`TestDatabases::testDatabase()`), the
+     * compiled-view path (`TestViews`) and the cache prefix (`TestCaches`) are
+     * all reached exclusively from `setUpProcess()`/`setUpTestCase()`/
+     * `setUpTestDatabase()` callbacks, and those are wrapped in
+     * `whenRunningInParallel()`. `Storage::fake()` (line 110) is the one place
+     * that reads the token unconditionally. Nothing outside `tests/` is
+     * touched, so production cannot see any of this.
+     *
+     * Public and static so the cross-process probe
+     * (`tests/Support/FakeDiskSuiteProbeTest.php`) can install the exact same
+     * isolation in a child process instead of a copy of it.
+     */
+    public static function isolateFakeDisksInThisProcess(): string
+    {
+        $token = self::$fakeDiskToken ??= self::resolveFakeDiskToken();
+
+        ParallelTesting::resolveTokenUsing(static fn (): string => $token);
+
+        self::pruneLegacySharedRoots();
+        self::armProcessRootCleanup($token);
+
+        return $token;
+    }
+
+    /**
+     * Delete the UNTOKENED roots that predate this arrangement, once per process.
+     *
+     * Before the token, `Storage::fake()` rooted every disk at
+     * `…/disks/<disk>` and nothing ever removed those directories, so a
+     * developer's checkout can still carry `…/disks/media` full of files from
+     * runs of the old code. Nothing reads them any more — every root is
+     * tokenized now — but leaving them would mean `storage/framework/testing/`
+     * never returns to just its tracked `.gitignore`, which is precisely the
+     * guarantee WP-11 established and which the per-process suffix would
+     * otherwise appear to break.
+     *
+     * Only the four roots this suite itself fakes are removed, and only
+     * untokened ones (`<disk>` exactly — never `<disk>_test_<token>`, which
+     * belongs to whichever process owns it). `s3` and anything else outside
+     * `FAKE_DISKS` is not touched, and `storage/app/**` is nowhere near this.
+     */
+    private static function pruneLegacySharedRoots(): void
+    {
+        if (self::$legacyRootsPruned) {
+            return;
+        }
+
+        self::$legacyRootsPruned = true;
+
+        self::pruneLegacySharedRootsIn(storage_path('framework/testing/disks'));
+    }
+
+    /**
+     * The sweep behind `pruneLegacySharedRoots()`, with the tree passed in.
+     *
+     * Split out so it can be pointed at a throwaway directory by
+     * `FakeDiskProcessIsolationTest`: the version that matters operates on the
+     * real `storage/framework/testing/disks` and DELETES, so testing it there
+     * would mean a test destroying the tree another test is asserting on. The
+     * parameter changes nothing about the logic — same `FAKE_DISKS` list, same
+     * exact-name match that excludes every `_test_<token>` root.
+     *
+     * @return list<string> The names of the removed directories.
+     */
+    public static function pruneLegacySharedRootsIn(string $testingTree): array
+    {
+        $filesystem = new Filesystem;
+        $removed = [];
+
+        foreach (self::FAKE_DISKS as $disk) {
+            $legacy = $testingTree.DIRECTORY_SEPARATOR.$disk;
+
+            // Comparing the whole name against the untokened one is what
+            // excludes `<disk>_test_<token>`: a name that merely *contains* the
+            // disk name belongs to a process that may be running right now, and
+            // deleting that is the very bug this arrangement removes.
+            if (basename($legacy) === $disk && is_dir($legacy)) {
+                $filesystem->deleteDirectory($legacy);
+
+                $removed[] = $disk;
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * The token identifying this OS process, computed exactly once.
+     *
+     * Unique per process because the OS PID is: two runs in the same checkout
+     * are two live processes and cannot share one, which is the whole property
+     * the concurrent-runs fix rests on. The `paratest` token is kept as a prefix
+     * when there is one, so a worker's path stays recognisable
+     * (`media_test_3-4242`) while still being unique — paratest restarts its
+     * worker numbering at `1` per run, so on its own it isolates workers of ONE
+     * run but not two concurrent runs.
+     *
+     * Statically cached, so every test of a process sees the same root. That is
+     * not a nicety: a test that writes a file and a later assertion in the same
+     * test that reads it back, or `Tests\TestCase::purgeFakeDiskRoots()` in
+     * `tearDown()` cleaning the root the test body is still using, both break
+     * the moment the root moves between calls.
+     *
+     * A PID is unique among *live* processes, which is exactly the property
+     * needed. It is not unique forever: a root orphaned by a process that was
+     * `SIGKILL`ed (so its shutdown hook never ran) would be inherited by whatever
+     * process gets that PID next. Harmless — `Storage::fake()` empties the root
+     * it installs, and the new owner's shutdown hook then removes the directory —
+     * but it is the reason this is a PID and not, say, a `uniqid()`: a random
+     * token would leave a fresh orphan directory behind on every hard kill, with
+     * nothing guaranteed to reclaim it.
+     */
+    private static function resolveFakeDiskToken(): string
+    {
+        $paratestToken = $_SERVER['TEST_TOKEN'] ?? null;
+
+        // `Storage::fake()` appends the suffix only `if ($token = …)`, i.e. only
+        // for a token PHP considers truthy — and `'0'` is falsy. Checking the
+        // same way keeps this in step with the framework: a `TEST_TOKEN` of `'0'`
+        // or `''` is no worker identity and must not turn into a
+        // `media_test_-45123` root.
+        return is_string($paratestToken) && $paratestToken !== '' && $paratestToken !== '0'
+            ? $paratestToken.'-'.getmypid()
+            : (string) getmypid();
+    }
+
+    /**
+     * The token of the current process, for assertions and diagnostics.
+     */
+    public static function fakeDiskToken(): string
+    {
+        return self::$fakeDiskToken ?? self::resolveFakeDiskToken();
+    }
+
+    /**
+     * Delete this process' own fake roots once, when the process ends.
+     *
+     * `purgeFakeDiskRoots()` empties the roots after every single test, but the
+     * *directories* are what `Storage::fake()` creates and what the per-process
+     * suffix now makes unique — so a run would leave four `…_test_<pid>`
+     * directories behind and `storage/framework/testing/` would no longer hold
+     * just its tracked `.gitignore`. A shutdown hook removes exactly this
+     * process' roots, which is the one moment no test can be looking at them.
+     *
+     * A shutdown function rather than a `tearDown()`: it also runs after a test
+     * failure and after a PHP fatal error, which is when a half-run is most
+     * likely to leave something behind.
+     *
+     * It removes ONLY directories carrying this process' token, so a suite
+     * running concurrently in the same checkout is never affected.
+     */
+    private static function armProcessRootCleanup(string $token): void
+    {
+        if (self::$processRootCleanupArmed) {
+            return;
+        }
+
+        self::$processRootCleanupArmed = true;
+
+        // Resolved now, while the container is alive: at shutdown the
+        // application may already be torn down and `storage_path()` unavailable.
+        $testingTree = storage_path('framework/testing/disks');
+
+        register_shutdown_function(static function () use ($testingTree, $token): void {
+            self::purgeFakeDiskRootsOwnedBy($testingTree, $token);
+        });
+    }
+
+    /**
+     * Delete every root below `$testingTree` that carries `$token`, and only
+     * those.
+     *
+     * The token is per process, so "carries the token" is exactly "was created
+     * by this process" — no liveness check and no heuristic is needed, which is
+     * what keeps this safe to run while other suites are active.
+     *
+     * Deliberately NOT sweeping roots of *other* tokens: they may belong to a
+     * process that is running right now, and deleting those is precisely the bug
+     * this whole arrangement exists to remove. A root orphaned by a process that
+     * was `SIGKILL`ed and never got to run its shutdown hook therefore stays
+     * until its PID comes up again — at which point the next run reusing that
+     * PID cleans and finally deletes it. That trade is deliberate: a reaper
+     * guessing liveness from PIDs could delete a live suite's files.
+     *
+     * For the same reason this leaves the shared `…/disks/` directory itself in
+     * place and only ever removes what is inside it. Removing the parent as well
+     * would mean deleting a directory another process may be creating files in
+     * right now, for no gain: it is gitignored, and an empty one cannot affect
+     * any run.
+     *
+     * @return list<string> The names of the removed directories.
+     */
+    public static function purgeFakeDiskRootsOwnedBy(string $testingTree, string $token): array
+    {
+        if ($token === '' || ! is_dir($testingTree)) {
+            return [];
+        }
+
+        $filesystem = new Filesystem;
+        $suffix = '_test_'.$token;
+        $removed = [];
+
+        foreach ($filesystem->directories($testingTree) as $directory) {
+            if (str_ends_with($directory, $suffix)) {
+                $filesystem->deleteDirectory($directory);
+
+                $removed[] = basename($directory);
+            }
+        }
+
+        return $removed;
     }
 
     /**
@@ -101,6 +379,10 @@ abstract class TestCase extends BaseTestCase
      * Only the test tree is emptied. `storage/app/private` and
      * `storage/app/media` are deliberately left untouched — in a local
      * checkout they hold real dev media, and no test may delete that.
+     *
+     * Empties, never deletes: the roots this process owns are removed as a
+     * whole by the shutdown hook (`armProcessRootCleanup()`), while a test that
+     * is still running must keep its root addressable.
      */
     protected function purgeFakeDiskRoots(): void
     {
