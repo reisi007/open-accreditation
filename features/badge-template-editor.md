@@ -260,8 +260,10 @@ die zod-Seite erhält die Werte als Props/Konstanten-Export, nicht hart codiert.
   `contain`). Die Quelle wird serverseitig aufgelöst (`brand` →
   `MandantMediaService`-Pfad des aktuellen Mandanten, `upload` →
   mandantengescopete `badge_images`-Zeile); fehlende Quelle → leere Box wie
-  `photo` ohne Portrait. Alt-Templates ohne `image`-Entries rendern
-  unverändert.
+  `photo` ohne Portrait. Der Mandanten-Scope des `upload`-Lookups ist
+  **unbedingt** (`forMandant()`): ohne aufgelösten Mandanten rendert der Entry
+  eine leere Box, statt den Filter zu fallen lassen (WP-2-d). Alt-Templates ohne
+  `image`-Entries rendern unverändert.
 
 ## Phasing (jede Etappe separat umsetz- und testbar)
 

@@ -1,0 +1,655 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\UserRole;
+use App\Models\Application;
+use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
+use App\Models\User;
+use App\Models\UserMedia;
+use App\Services\QrTokenService;
+use App\Support\MandantContext;
+use Database\Seeders\RoleSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+/**
+ * WP-2 / R-D3 — the QR verification token, format v2.
+ *
+ * v2 = `base64url(id . hmac(secret, "v2:"+id+":"+mandantId) . mandantId)`: the
+ * signature covers BOTH claims, so a token is bound to the mandant that issued
+ * it. This suite pins the three properties that were broken before:
+ *
+ * 1. **Tenant binding** — a token minted for mandant A neither resolves nor
+ *    leaks any holder data on mandant B's host, and a tampered `mandant_id`
+ *    segment is rejected.
+ * 2. **Legacy (v1) compatibility** — a two-segment token whose HMAC verifies
+ *    against a known key still resolves, but it carries no tenant claim: the
+ *    mandant-scoped lookup of `VerifyController` is (and must stay) its
+ *    isolation boundary.
+ * 3. **Key-rotation self-healing** — a stored token stays valid while its key
+ *    is listed in `APP_PREVIOUS_KEYS`, and `make()` re-mints it (updating the
+ *    row) when it no longer verifies against any known key.
+ */
+class QrTokenV2Test extends TestCase
+{
+    use RefreshDatabase;
+
+    private const NEW_KEY = 'base64:0cW0kZm9vdHM5bm90aGluZ0hlcmVGb3JUaGVXZXk=';
+
+    /**
+     * Fixed key for the ambiguous legacy-signature fixture. Under this key the
+     * HMAC of application id 1 contains a '.' byte with an all-digit tail
+     * ("…d2e.8"), i.e. a v1 token whose signature is indistinguishable from a
+     * v2 token by segment shape alone. Fixed so the fixture is deterministic
+     * and cannot silently degrade into "no fixture found".
+     */
+    private const LEGACY_FIXTURE_KEY = 'wp1-ambiguous-v1-signature-fixture-4809';
+
+    /**
+     * The application id the fixture key is ambiguous for.
+     */
+    private const AMBIGUOUS_LEGACY_ID = 1;
+
+    private Mandant $mandantA;
+
+    private Mandant $mandantB;
+
+    private static int $categorySeq = 0;
+
+    private static int $mediaCount = 0;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(RoleSeeder::class);
+        Storage::fake('private');
+
+        config(['app.previous_keys' => []]);
+
+        $this->mandantA = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
+        $this->mandantB = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+
+        MandantContext::set($this->mandantA);
+    }
+
+    protected function tearDown(): void
+    {
+        MandantContext::reset();
+
+        parent::tearDown();
+    }
+
+    /* ---------------------------------------------------------------------
+     | Format
+     | ------------------------------------------------------------------- */
+
+    public function test_minted_token_is_the_tenant_bound_v2_format(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+
+        $token = app(QrTokenService::class)->make($application);
+        $decoded = (string) base64_decode(strtr($token, '-_', '+/'), true);
+        $parts = explode('.', $decoded);
+
+        $this->assertCount(3, $parts, 'a v2 token has exactly three segments');
+        $this->assertSame((string) $application->id, $parts[0]);
+        $this->assertSame((string) $this->mandantA->id, $parts[2]);
+
+        // The signature covers BOTH claims (and is version-marked, so it can
+        // never be confused with a v1 signature over the same id).
+        $this->assertSame(
+            hash_hmac('sha256', 'v2:'.$application->id.':'.$this->mandantA->id, (string) config('app.key'), true),
+            $parts[1],
+        );
+
+        $claims = app(QrTokenService::class)->parse($token);
+
+        $this->assertNotNull($claims);
+        $this->assertSame($application->id, $claims->applicationId);
+        $this->assertSame($this->mandantA->id, $claims->mandantId);
+        $this->assertSame(2, $claims->version);
+        $this->assertTrue($claims->isTenantBound());
+        $this->assertTrue($claims->matchesMandant((int) $this->mandantA->id));
+        $this->assertFalse($claims->matchesMandant((int) $this->mandantB->id));
+    }
+
+    public function test_a_signature_containing_a_dot_still_parses(): void
+    {
+        $service = app(QrTokenService::class);
+        $key = (string) config('app.key');
+
+        // The raw HMAC is binary, so ~12 % of signatures contain a '.' byte.
+        // The parser takes the segments from the outside in, so such a token
+        // must not be mistaken for a v2 token with a corrupt mandant claim.
+        $legacyId = $this->firstIdWithDottedSignature(static fn (int $id): string => hash_hmac('sha256', (string) $id, $key, true));
+
+        $this->assertGreaterThan(0, $legacyId, 'no dotted v1 signature found — the fixture search is broken');
+
+        $legacyClaims = $service->parse($this->encode($legacyId.'.'.hash_hmac('sha256', (string) $legacyId, $key, true)));
+        $this->assertNotNull($legacyClaims);
+        $this->assertSame($legacyId, $legacyClaims->applicationId);
+        $this->assertNull($legacyClaims->mandantId);
+
+        $v2 = $this->firstIdWithDottedSignature(
+            static fn (int $id): string => hash_hmac('sha256', 'v2:'.$id.':1', $key, true),
+        );
+
+        $this->assertGreaterThan(0, $v2, 'no dotted v2 signature found — the fixture search is broken');
+
+        $v2Claims = $service->parse($this->encode($v2.'.'.hash_hmac('sha256', 'v2:'.$v2.':1', $key, true).'.1'));
+        $this->assertNotNull($v2Claims);
+        $this->assertSame($v2, $v2Claims->applicationId);
+        $this->assertSame(1, $v2Claims->mandantId);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Tenant binding
+     | ------------------------------------------------------------------- */
+
+    public function test_token_of_mandant_a_does_not_resolve_on_mandant_b(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $this->storePortrait($application->user);
+        $token = app(QrTokenService::class)->make($application);
+
+        // The token is perfectly valid — for mandant A.
+        $this->assertNotNull(app(QrTokenService::class)->parse($token));
+
+        // On mandant B's host it must resolve to nothing at all, and disclose
+        // nothing: no status, no name, no category, no photo URL.
+        MandantContext::set($this->mandantB);
+
+        $response = $this->getJson('/api/verify/'.$token)
+            ->assertStatus(404)
+            ->assertExactJson(['message' => 'Invalid verification token.']);
+
+        $response->assertJsonMissingPath('data');
+        $response->assertJsonMissingPath('data.name');
+        $response->assertJsonMissingPath('data.photo_url');
+        $this->assertStringNotContainsString('Jane Doe', $response->getContent());
+
+        // The portrait route is behind the very same resolution.
+        $this->getJson('/api/verify/'.$token.'/photo')->assertStatus(404);
+    }
+
+    public function test_tampered_mandant_segment_is_rejected(): void
+    {
+        $service = app(QrTokenService::class);
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = $service->make($application);
+
+        $decoded = (string) base64_decode(strtr($token, '-_', '+/'), true);
+        [, $signature] = explode('.', $decoded);
+
+        // Mandant A's signature, mandant B's claim: the HMAC no longer covers
+        // the claims, so the token is unverifiable.
+        $forged = $this->encode($application->id.'.'.$signature.'.'.$this->mandantB->id);
+
+        $this->assertNull($service->parse($forged));
+        $this->assertFalse($service->isValidFor($application, $forged));
+
+        $this->getJson('/api/verify/'.$forged)
+            ->assertStatus(404)
+            ->assertExactJson(['message' => 'Invalid verification token.']);
+
+        // … and it is never persisted as a repair, because it does not verify.
+        $this->assertNotSame($forged, $service->make($application->fresh()));
+    }
+
+    public function test_tampered_application_id_segment_is_rejected(): void
+    {
+        $service = app(QrTokenService::class);
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = $service->make($application);
+
+        $decoded = (string) base64_decode(strtr($token, '-_', '+/'), true);
+        [, $signature, $mandantId] = explode('.', $decoded);
+
+        $forged = $this->encode(($application->id + 1).'.'.$signature.'.'.$mandantId);
+
+        $this->assertNull($service->parse($forged));
+        $this->getJson('/api/verify/'.$forged)->assertStatus(404);
+    }
+
+    public function test_a_corrupt_mandant_segment_falls_back_to_the_legacy_check_and_is_rejected(): void
+    {
+        $service = app(QrTokenService::class);
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = $service->make($application);
+
+        $decoded = (string) base64_decode(strtr($token, '-_', '+/'), true);
+        [, $signature] = explode('.', $decoded);
+
+        // A non-digit mandant segment is read as part of the (binary)
+        // signature — the token is then re-checked as a legacy v1 token, whose
+        // signed message differs, so it is rejected instead of silently
+        // resolving without a tenant claim.
+        $this->assertNull($service->parse($this->encode($application->id.'.'.$signature.'.abc')));
+        $this->assertNull($service->parse($this->encode($application->id.'.'.$signature.'.0')));
+        $this->assertNull($service->parse($this->encode($application->id.'.'.$signature.'.-1')));
+        $this->getJson('/api/verify/'.$this->encode($application->id.'.'.$signature.'.abc'))->assertStatus(404);
+    }
+
+    public function test_verify_without_a_resolved_mandant_resolves_nothing(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = app(QrTokenService::class)->make($application);
+
+        // Fail closed: a request that cannot be attributed to a tenant (only
+        // reachable in console/test contexts — in production the middleware
+        // answers 404 for an unknown host) resolves nothing.
+        MandantContext::reset();
+
+        $this->getJson('/api/verify/'.$token)
+            ->assertStatus(404)
+            ->assertExactJson(['message' => 'Invalid verification token.']);
+    }
+
+    public function test_is_valid_for_rejects_tokens_of_other_applications_and_mandants(): void
+    {
+        $service = app(QrTokenService::class);
+        $applicationA = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $applicationB = $this->approvedApplication($this->mandantB, 'Max Muster');
+
+        $tokenA = $service->make($applicationA);
+
+        $this->assertTrue($service->isValidFor($applicationA, $tokenA));
+        $this->assertFalse($service->isValidFor($applicationB, $tokenA));
+        $this->assertFalse($service->isValidFor($applicationA, $this->legacyToken((int) $applicationA->id)));
+        $this->assertFalse($service->isValidFor($applicationA, 'garbage'));
+    }
+
+    /* ---------------------------------------------------------------------
+     | Legacy (v1) compatibility
+     | ------------------------------------------------------------------- */
+
+    public function test_legacy_v1_token_still_verifies_and_the_mandant_scope_isolates_it(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $legacy = $this->legacyToken((int) $application->id);
+        $application->update(['qr_token' => $legacy]);
+
+        $service = app(QrTokenService::class);
+        $claims = $service->parse($legacy);
+
+        // A v1 token authenticates the application id only …
+        $this->assertNotNull($claims);
+        $this->assertSame($application->id, $claims->applicationId);
+        $this->assertNull($claims->mandantId);
+        $this->assertFalse($claims->isTenantBound());
+        // … so it cannot restrict the tenant itself: the mandant-scoped lookup
+        // of VerifyController is the isolation boundary for legacy badges.
+        $this->assertTrue($claims->matchesMandant((int) $this->mandantB->id));
+
+        // Owning mandant: full payload, as before the format change.
+        $this->getJson('/api/verify/'.$legacy)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.name', 'Jane Doe');
+
+        // Foreign mandant: the mandant-scoped query finds nothing.
+        MandantContext::set($this->mandantB);
+
+        $this->getJson('/api/verify/'.$legacy)
+            ->assertStatus(404)
+            ->assertExactJson(['message' => 'Invalid verification token.']);
+    }
+
+    public function test_legacy_token_of_a_foreign_secret_is_rejected(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $forged = $this->legacyToken((int) $application->id, 'some-other-secret');
+
+        $this->assertNull(app(QrTokenService::class)->parse($forged));
+        $this->getJson('/api/verify/'.$forged)->assertStatus(404);
+    }
+
+    public function test_a_legacy_signature_ending_in_a_dot_and_digits_still_verifies(): void
+    {
+        // The ambiguous split: a raw HMAC may contain '.' bytes, so a v1 token
+        // whose signature happens to end in a '.' followed by digits only is
+        // indistinguishable from a v2 token by segment shape alone. The parser
+        // used to read that digit run as a `mandantId` claim, fail the v2 check
+        // and reject the token — ~0.05 % of issued ids (measured: 4 of 40 000),
+        // so a real badge silently 404s.
+        //
+        // The key is fixed so the fixture id is deterministic.
+        config(['app.key' => self::LEGACY_FIXTURE_KEY, 'app.previous_keys' => []]);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+
+        $this->assertSame(
+            self::AMBIGUOUS_LEGACY_ID,
+            (int) $application->id,
+            'precondition: the fixture key is ambiguous for this application id',
+        );
+
+        $signature = hash_hmac('sha256', (string) self::AMBIGUOUS_LEGACY_ID, self::LEGACY_FIXTURE_KEY, true);
+        $lastDot = strrpos($signature, '.');
+
+        $this->assertIsInt($lastDot, 'precondition: the fixture signature must contain a dot');
+        $this->assertTrue(
+            ctype_digit(substr($signature, $lastDot + 1)),
+            'precondition: everything after the last dot must be digits, or the token is a well-formed v2 token',
+        );
+
+        $legacy = $this->encode(self::AMBIGUOUS_LEGACY_ID.'.'.$signature);
+        $application->update(['qr_token' => $legacy]);
+
+        $claims = app(QrTokenService::class)->parse($legacy);
+
+        $this->assertNotNull($claims, 'a legacy token must never be rejected for the shape of its signature');
+        $this->assertSame(self::AMBIGUOUS_LEGACY_ID, $claims->applicationId);
+        $this->assertNull($claims->mandantId, 'a v1 token carries no tenant claim');
+        $this->assertFalse($claims->isTenantBound());
+
+        // … and the mandant-scoped lookup of VerifyController still resolves it
+        // for the owning mandant (and only for it).
+        $this->getJson('/api/verify/'.$legacy)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'approved')
+            ->assertJsonPath('data.name', 'Jane Doe');
+
+        MandantContext::set($this->mandantB);
+        $this->getJson('/api/verify/'.$legacy)->assertStatus(404);
+    }
+
+    public function test_the_legacy_fallback_never_turns_a_tampered_v2_token_into_a_v1_token(): void
+    {
+        // The parser now always retries the legacy check over the whole payload.
+        // That must stay harmless: the legacy check is the full HMAC of the
+        // application id under a known key, which a tampered payload cannot
+        // produce — so a v2 token with a forged mandant segment is still
+        // rejected outright rather than silently resolving WITHOUT a tenant
+        // claim.
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = app(QrTokenService::class)->make($application);
+
+        $decoded = (string) base64_decode(strtr($token, '-_', '+/'), true);
+        [$id, $signature, $mandantId] = explode('.', $decoded);
+
+        foreach ([$this->mandantB->id.'0', '0', (string) ((int) $mandantId + 1)] as $forgedMandant) {
+            $forged = $this->encode($id.'.'.$signature.'.'.$forgedMandant);
+
+            $this->assertNull(app(QrTokenService::class)->parse($forged), 'mandant segment: '.$forgedMandant);
+            $this->assertFalse(app(QrTokenService::class)->isValidFor($application, $forged));
+        }
+    }
+
+    public function test_make_upgrades_a_stored_legacy_token_to_v2(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $legacy = $this->legacyToken((int) $application->id);
+        $application->update(['qr_token' => $legacy]);
+
+        $token = app(QrTokenService::class)->make($application);
+
+        $this->assertNotSame($legacy, $token);
+        $this->assertSame($token, $application->fresh()->qr_token);
+
+        $claims = app(QrTokenService::class)->parse($token);
+        $this->assertNotNull($claims);
+        $this->assertTrue($claims->isTenantBound());
+        $this->assertSame($this->mandantA->id, $claims->mandantId);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Key rotation
+     | ------------------------------------------------------------------- */
+
+    public function test_stored_token_stays_valid_after_a_key_rotation_with_previous_keys(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $oldKey = (string) config('app.key');
+        $token = app(QrTokenService::class)->make($application);
+
+        // `php artisan key:generate` + the old key in APP_PREVIOUS_KEYS.
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => [$oldKey]]);
+
+        $claims = app(QrTokenService::class)->parse($token);
+        $this->assertNotNull($claims, 'a token signed with a previous key must still verify');
+        $this->assertSame($application->id, $claims->applicationId);
+        $this->assertSame($this->mandantA->id, $claims->mandantId);
+
+        $this->getJson('/api/verify/'.$token)
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Jane Doe');
+
+        // Idempotency survives the rotation: a still-valid token is NOT re-minted.
+        $this->assertSame($token, app(QrTokenService::class)->make($application->fresh()));
+        $this->assertSame($token, $application->fresh()->qr_token);
+    }
+
+    public function test_make_remints_a_stored_token_that_no_longer_verifies(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $oldToken = app(QrTokenService::class)->make($application);
+
+        // A rotation WITHOUT APP_PREVIOUS_KEYS used to kill every issued badge:
+        // the stored token is dead and `/api/verify` answers 404 forever (the
+        // old `make()` returned the stored value verbatim and the backfill
+        // skipped non-NULL rows, so nothing could repair it).
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => []]);
+
+        $this->assertNull(app(QrTokenService::class)->parse($oldToken));
+        $this->getJson('/api/verify/'.$oldToken)->assertStatus(404);
+
+        // The first write path that touches the row heals it.
+        $newToken = app(QrTokenService::class)->make($application);
+
+        $this->assertNotSame($oldToken, $newToken);
+        $this->assertSame($newToken, $application->fresh()->qr_token);
+        $this->assertNotNull(app(QrTokenService::class)->parse($newToken));
+
+        $this->getJson('/api/verify/'.$newToken)
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Jane Doe');
+    }
+
+    public function test_previous_keys_are_not_used_for_minting(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => ['base64:b2xkLWtleS0xMjM0NTY3ODkwMTIzNDU2Nzg5MA==']]);
+
+        $token = app(QrTokenService::class)->make($application);
+        $parts = explode('.', (string) base64_decode(strtr($token, '-_', '+/'), true));
+
+        $this->assertSame(
+            hash_hmac('sha256', 'v2:'.$application->id.':'.$this->mandantA->id, self::NEW_KEY, true),
+            $parts[1],
+            'tokens are always signed with the CURRENT key, so a rotation heals the column',
+        );
+    }
+
+    /* ---------------------------------------------------------------------
+     | Backfill command
+     | ------------------------------------------------------------------- */
+
+    public function test_backfill_upgrades_legacy_and_null_tokens_to_v2_and_is_idempotent(): void
+    {
+        $missing = $this->approvedApplication($this->mandantA, 'Ohne Token');
+        $legacy = $this->approvedApplication($this->mandantA, 'Legacy');
+        $legacy->update(['qr_token' => $this->legacyToken((int) $legacy->id)]);
+        $current = $this->approvedApplication($this->mandantA, 'Aktuell');
+        $currentToken = app(QrTokenService::class)->make($current);
+        $requested = $this->approvedApplication($this->mandantA, 'Beantragt', 'requested');
+        $requested->update(['qr_token' => $this->legacyToken((int) $requested->id)]);
+
+        $this->assertNull($missing->fresh()->qr_token);
+
+        $this->assertSame(0, Artisan::call('accreditation:backfill-qr-tokens'));
+
+        $service = app(QrTokenService::class);
+        $missingClaims = $service->parse((string) $missing->fresh()->qr_token);
+        $legacyClaims = $service->parse((string) $legacy->fresh()->qr_token);
+
+        $this->assertNotNull($missingClaims);
+        $this->assertTrue($missingClaims->isTenantBound());
+        $this->assertNotNull($legacyClaims);
+        $this->assertTrue($legacyClaims->isTenantBound(), 'a legacy v1 token must be upgraded to v2');
+        $this->assertSame($currentToken, $current->fresh()->qr_token, 'an up-to-date token is not rewritten');
+
+        // Non-approved rows are not part of the command's scope.
+        $this->assertSame($this->legacyToken((int) $requested->id), $requested->fresh()->qr_token);
+
+        // Idempotent: a second run changes nothing at all.
+        $before = $this->tokenSnapshot();
+        $this->assertSame(0, Artisan::call('accreditation:backfill-qr-tokens'));
+        $this->assertSame($before, $this->tokenSnapshot());
+    }
+
+    public function test_backfill_heals_tokens_of_a_rotated_key(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $deadToken = app(QrTokenService::class)->make($application);
+
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => []]);
+
+        $this->assertSame(0, Artisan::call('accreditation:backfill-qr-tokens'));
+
+        $this->assertNotSame($deadToken, $application->fresh()->qr_token);
+        $this->assertNotNull(app(QrTokenService::class)->parse((string) $application->fresh()->qr_token));
+    }
+
+    /* ---------------------------------------------------------------------
+     | Read paths
+     | ------------------------------------------------------------------- */
+
+    public function test_admin_resource_serves_a_valid_v2_url_for_a_legacy_row_without_writing(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $legacy = $this->legacyToken((int) $application->id);
+        $application->update(['qr_token' => $legacy]);
+
+        $entry = collect($this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/applications')
+            ->assertOk()
+            ->json('data'))
+            ->firstWhere('id', $application->id);
+
+        $this->assertIsArray($entry);
+        $served = substr((string) $entry['qr_url'], strlen('/verify/'));
+
+        $this->assertNotSame($legacy, $served, 'the admin view must not hand out an outdated token');
+        $this->assertNotNull(app(QrTokenService::class)->parse($served));
+
+        // Read path stays read-only: the column is repaired by the write paths
+        // and the backfill command, never by serialization.
+        $this->assertSame($legacy, $application->fresh()->qr_token);
+    }
+
+    public function test_admin_resource_prefers_a_valid_stored_token(): void
+    {
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $token = app(QrTokenService::class)->make($application);
+
+        $entry = collect($this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/applications')
+            ->assertOk()
+            ->json('data'))
+            ->firstWhere('id', $application->id);
+
+        $this->assertIsArray($entry);
+        $this->assertSame('/verify/'.$token, $entry['qr_url']);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Helpers
+     | ------------------------------------------------------------------- */
+
+    private function approvedApplication(Mandant $mandant, string $name, string $status = 'approved'): Application
+    {
+        $category = $mandant->categories()->create([
+            'name' => 'Presse',
+            'slug' => 'presse-'.(++self::$categorySeq),
+        ]);
+
+        $accreditation = $mandant->accreditations()->create([
+            'category_id' => $category->id,
+            'scope' => 'season',
+            'quota' => 5,
+        ]);
+
+        return Application::create([
+            'accreditation_id' => $accreditation->id,
+            'user_id' => User::factory()->create(['name' => $name])->id,
+            'status' => $status,
+            'priority' => false,
+        ]);
+    }
+
+    private function storePortrait(?User $user): UserMedia
+    {
+        $media = UserMedia::create([
+            'user_id' => $user->id,
+            'type' => 'portrait',
+            'path' => 'user-media/verband-a/'.$user->id.'/portrait/portrait-'.(++self::$mediaCount).'.png',
+            'mime' => 'image/png',
+            'size' => 21,
+            'original_name' => 'portrait.png',
+        ]);
+
+        Storage::disk('private')->put($media->path, 'fake-portrait-bytes');
+
+        return $media;
+    }
+
+    /**
+     * A legacy (v1) token: `base64url(id . hmac(secret, id))`.
+     */
+    private function legacyToken(int $applicationId, ?string $key = null): string
+    {
+        $key ??= (string) config('app.key');
+
+        return $this->encode($applicationId.'.'.hash_hmac('sha256', (string) $applicationId, $key, true));
+    }
+
+    private function encode(string $payload): string
+    {
+        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    }
+
+    /**
+     * The first id (1..5000) whose signature under `$signer` contains a '.'
+     * byte — the binary-signature edge case of the token parser.
+     */
+    private function firstIdWithDottedSignature(callable $signer): int
+    {
+        for ($id = 1; $id <= 5000; $id++) {
+            if (str_contains($signer($id), '.')) {
+                return $id;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @return array<int, string|null> application id => stored token
+     */
+    private function tokenSnapshot(): array
+    {
+        return Application::query()->orderBy('id')->pluck('qr_token', 'id')->all();
+    }
+
+    private function superAdmin(): User
+    {
+        $user = User::factory()->create();
+        $role = Role::query()->where('slug', UserRole::SUPER_ADMIN->value)->firstOrFail();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        return $user;
+    }
+}

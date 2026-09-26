@@ -8,41 +8,67 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * P4 follow-up (F2, low): one-time backfill of the `qr_token` column for
- * approved applications that predate the P4 token issuance at approval time.
+ * P4 follow-up (F2, low) + R-D3: the `qr_token` column of every approved
+ * application is brought into the current (tenant-bound v2) format.
  *
- * The admin application resource computes the token deterministically on READ
- * (`QrTokenService::token`) and never writes it back, so legacy approved rows
- * keep working without a DB write during serialization. This command
- * materialises the token on those rows once, so they match the post-P4
- * invariant ("every approved application has a qr_token") and admin views stay
- * consistent with a stored value.
+ * The command covers three cases in one idempotent pass, all delegated to
+ * `QrTokenService::make()`:
  *
- * Idempotent: `make()` only writes when the column is NULL, so re-runs (or a
- * scheduled repeat) are harmless — already-populated rows are skipped.
+ * 1. a NULL column — an approved row that predates the token issuance at
+ *    approval time,
+ * 2. a legacy v1 token — the pre-R-D3 format carried the application id only;
+ *    it stays verifiable but is not tenant-bound, so it is upgraded,
+ * 3. a token that no longer verifies against any known key — e.g. after an
+ *    `APP_KEY` rotation that was performed without `APP_PREVIOUS_KEYS`.
+ *
+ * Idempotent by construction: `make()` re-mints only when the stored token is
+ * missing or unusable, so re-runs (or a scheduled repeat) are no-ops. Chunked
+ * with `chunkById` so a large accreditation set does not materialise at once
+ * (the chunk's `accreditation` is eager-loaded — one query per chunk, not one
+ * per application).
+ *
+ * Only `approved` rows are touched: a token is issued at approval time, and a
+ * revoked (denied/blacklisted) row keeps the token it had so the badge still
+ * verifies as revoked. Such a row is re-minted when it is approved again (or by
+ * a manual run after the status is corrected).
  */
 class BackfillQrTokens extends Command
 {
+    /** Applications per `chunkById` batch (rows, each with a portrait path). */
+    private const CHUNK_SIZE = 200;
+
     protected $signature = 'accreditation:backfill-qr-tokens';
 
-    protected $description = 'Backfill qr_token for approved applications that have none (one-time, idempotent)';
+    protected $description = 'Backfill/refresh qr_token for approved applications (NULL, legacy v1, or unverifiable after key rotation)';
 
     public function handle(QrTokenService $qrTokenService): int
     {
-        $count = 0;
+        $scanned = 0;
+        $written = 0;
 
         Application::query()
             ->where('status', 'approved')
-            ->whereNull('qr_token')
+            ->with('accreditation:id,mandant_id')
             ->orderBy('id')
-            ->chunkById(200, function (Collection $applications) use ($qrTokenService, &$count): void {
+            ->chunkById(self::CHUNK_SIZE, function (Collection $applications) use ($qrTokenService, &$scanned, &$written): void {
                 foreach ($applications as $application) {
-                    $qrTokenService->make($application);
-                    $count++;
+                    $before = $application->qr_token;
+                    $after = $qrTokenService->make($application);
+
+                    $scanned++;
+
+                    if ($after !== $before) {
+                        $written++;
+                    }
                 }
             });
 
-        $this->info("Backfilled qr_token for {$count} approved application(s).");
+        $this->info(sprintf(
+            'qr_token up to date for %d approved application(s) — %d written, %d already current.',
+            $scanned,
+            $written,
+            $scanned - $written,
+        ));
 
         return self::SUCCESS;
     }

@@ -32,16 +32,36 @@ class AdminApplicationResource extends JsonResource
             'reason' => $this->reason,
             'created_at' => $this->created_at?->toISOString(),
             // P4: the verification URL (relative — the frontend prefixes its
-            // own origin), only for approved applications. The token is
-            // computed deterministically on READ (`QrTokenService::token`) and
-            // NEVER written back here — a DB write during serialization is a
-            // side effect. Approved rows carry a stored `qr_token` from
-            // approval time / the one-time backfill command; legacy rows fall
-            // back to the computed value.
+            // own origin), only for approved applications. Serialization NEVER
+            // writes: the stored `qr_token` is used as-is, and a row without a
+            // usable one (never issued, legacy v1, or unverifiable after an
+            // APP_KEY rotation) falls back to the freshly computed value of
+            // `QrTokenService::token()`. Repairing the column is the job of the
+            // write paths (approval, resend, export, wallet pass) and of
+            // `accreditation:backfill-qr-tokens` — a DB write here would be a
+            // side effect of a read.
             'qr_url' => $this->status === 'approved'
-                ? '/verify/'.($this->qr_token ?? app(QrTokenService::class)->token($this->resource))
+                ? '/verify/'.$this->verifyToken()
                 : null,
         ];
+    }
+
+    /**
+     * The token of the `qr_url`: the stored one when it is a valid, tenant-bound
+     * v2 token of this application, else the computed one. Both carry the same
+     * claims, so the URL is always verifiable — only the column may lag behind
+     * until the next write path or the backfill command repairs it.
+     */
+    private function verifyToken(): string
+    {
+        $tokens = app(QrTokenService::class);
+        $stored = $this->qr_token;
+
+        if (is_string($stored) && $stored !== '' && $tokens->isValidFor($this->resource, $stored)) {
+            return $stored;
+        }
+
+        return $tokens->token($this->resource);
     }
 
     /**

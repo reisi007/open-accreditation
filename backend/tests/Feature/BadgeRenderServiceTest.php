@@ -499,6 +499,115 @@ class BadgeRenderServiceTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | WP-2-d — badge image lookup: one query per distinct id, tenancy fail-closed
+     | ------------------------------------------------------------------- */
+
+    public function test_badge_image_is_looked_up_once_per_distinct_id_across_many_cards(): void
+    {
+        $this->storeRealPng('badge-images/verband-a/upload.png');
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
+        $template = $this->makeTemplate([
+            ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id]],
+        ]);
+
+        $applications = new Collection([
+            $this->approvedApplication(),
+            $this->approvedApplication(),
+            $this->approvedApplication(),
+        ]);
+
+        // Without the per-run image cache every card re-ran the same
+        // `badge_images` lookup (N×M queries per export, M = layout entries).
+        DB::enableQueryLog();
+        $pdf = $this->renderer->renderPdf($applications, $template);
+        $imageQueries = count(array_filter(
+            DB::getQueryLog(),
+            fn (array $q) => str_contains($q['query'], 'badge_images'),
+        ));
+        DB::disableQueryLog();
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertSame(1, $imageQueries, 'one distinct image id must cost exactly one query, not one per card');
+    }
+
+    public function test_badge_image_is_never_embedded_without_a_resolved_mandant(): void
+    {
+        $bytes = $this->storeRealPng('badge-images/verband-a/upload.png');
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
+        $template = $this->makeTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id]],
+        ]);
+
+        // No mandant context (console/seed/test context): the tenancy filter
+        // used to be dropped (`->when(hasCurrent(), …)`) and the file was
+        // embedded fail-open. Without a mandant the render path is fail-closed.
+        MandantContext::reset();
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        $this->assertStringNotContainsString(base64_encode($bytes), $html);
+        $this->assertStringNotContainsString('left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;"><img', $html);
+    }
+
+    public function test_badge_image_cache_does_not_leak_across_mandant_contexts(): void
+    {
+        $bytesA = $this->storeRealPng('badge-images/verband-a/upload.png');
+        $imageA = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => 'badge-images/verband-a/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
+        $other = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+        $bytesB = $this->storeRealPng('badge-images/verband-b/upload.png', [10, 200, 40]);
+        $imageB = BadgeImage::create([
+            'mandant_id' => $other->id,
+            'path' => 'badge-images/verband-b/upload.png',
+            'mime' => 'image/png',
+            'original_name' => 'upload.png',
+        ]);
+
+        $templateA = $this->makeTemplate([
+            ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $imageA->id]],
+        ]);
+        $templateB = BadgeTemplate::create([
+            'mandant_id' => $other->id,
+            'name' => 'Fremd',
+            'layout' => [
+                ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $imageB->id]],
+            ],
+            'is_default' => false,
+        ]);
+
+        $application = $this->approvedApplication();
+
+        $htmlA = $this->renderer->cardHtml($application, $templateA);
+        $this->assertStringContainsString(base64_encode($bytesA), $htmlA);
+
+        // Same service instance, other mandant: the cache is keyed by
+        // `mandantId:imageId`, so mandant B resolves its own row and mandant A's
+        // bytes are never served to the other tenant.
+        MandantContext::set($other);
+        $htmlB = $this->renderer->cardHtml($application, $templateB);
+        $this->assertStringContainsString(base64_encode($bytesB), $htmlB);
+        $this->assertStringNotContainsString(base64_encode($bytesA), $htmlB);
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 
@@ -589,14 +698,17 @@ class BadgeRenderServiceTest extends TestCase
     /**
      * Store a REAL decodable PNG at an arbitrary private-disk path (brand
      * media, badge image) without registering a media row — returns the
-     * exact bytes that must survive into the markup.
+     * exact bytes that must survive into the markup. `$fill` makes the bytes
+     * distinguishable between two images of identical dimensions (the encoder
+     * is deterministic, so two calls with the same colours yield the same file).
      *
+     * @param  array{int, int, int}  $fill
      * @return string the exact PNG bytes written to the private disk
      */
-    private function storeRealPng(string $path): string
+    private function storeRealPng(string $path, array $fill = [40, 90, 160]): string
     {
         $image = imagecreatetruecolor(60, 60);
-        $background = imagecolorallocate($image, 40, 90, 160);
+        $background = imagecolorallocate($image, $fill[0], $fill[1], $fill[2]);
         $accent = imagecolorallocate($image, 230, 200, 150);
 
         imagefilledrectangle($image, 0, 0, 59, 59, $background);

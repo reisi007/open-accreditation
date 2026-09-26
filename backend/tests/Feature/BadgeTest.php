@@ -625,7 +625,7 @@ class BadgeTest extends TestCase
         $token = $service->make($application);
 
         $this->assertNotNull($token);
-        $this->assertSame($application->id, $service->parse($token));
+        $this->assertSame($application->id, $service->parse($token)?->applicationId);
 
         // Deterministic: same application → same token, stored on the row.
         $this->assertSame($token, $service->make($application->fresh()));
@@ -664,7 +664,7 @@ class BadgeTest extends TestCase
 
         // The same explicit secret reproduces the token.
         $sameSecret = new QrTokenService((string) config('app.key'));
-        $this->assertSame($application->id, $sameSecret->parse($token));
+        $this->assertSame($application->id, $sameSecret->parse($token)?->applicationId);
         $this->assertSame($token, $sameSecret->make($application->fresh()));
     }
 
@@ -684,7 +684,7 @@ class BadgeTest extends TestCase
         $token = $application->fresh()->qr_token;
 
         $this->assertNotNull($token);
-        $this->assertSame($application->id, app(QrTokenService::class)->parse($token));
+        $this->assertSame($application->id, app(QrTokenService::class)->parse($token)?->applicationId);
     }
 
     public function test_qr_token_is_set_on_bulk_allocate_all(): void
@@ -700,7 +700,7 @@ class BadgeTest extends TestCase
 
         $this->assertNotNull($first->fresh()->qr_token);
         $this->assertNotNull($second->fresh()->qr_token);
-        $this->assertSame($first->id, app(QrTokenService::class)->parse((string) $first->fresh()->qr_token));
+        $this->assertSame($first->id, app(QrTokenService::class)->parse((string) $first->fresh()->qr_token)?->applicationId);
     }
 
     public function test_qr_token_is_set_on_bulk_allocate_first(): void
@@ -873,7 +873,7 @@ class BadgeTest extends TestCase
 
         // The computed token still resolves to the application (idempotent HMAC).
         $computed = substr($approvedEntry['qr_url'], strlen('/verify/'));
-        $this->assertSame($approved->id, app(QrTokenService::class)->parse($computed));
+        $this->assertSame($approved->id, app(QrTokenService::class)->parse($computed)?->applicationId);
 
         $this->assertNull($requestedEntry['qr_url']);
     }
@@ -894,7 +894,7 @@ class BadgeTest extends TestCase
         $this->assertStringStartsWith('/verify/', $array['qr_url']);
 
         $token = substr($array['qr_url'], strlen('/verify/'));
-        $this->assertSame($application->id, app(QrTokenService::class)->parse($token));
+        $this->assertSame($application->id, app(QrTokenService::class)->parse($token)?->applicationId);
 
         // No write-on-read: the DB row remains untouched.
         $this->assertNull($application->fresh()->qr_token);
@@ -920,7 +920,7 @@ class BadgeTest extends TestCase
         // Only the approved row got a token; requested rows are untouched.
         $token = $approved->fresh()->qr_token;
         $this->assertNotNull($token);
-        $this->assertSame($approved->id, app(QrTokenService::class)->parse($token));
+        $this->assertSame($approved->id, app(QrTokenService::class)->parse($token)?->applicationId);
         $this->assertNull($requested->fresh()->qr_token);
 
         // Idempotent: a second run keeps the same token and does not error.

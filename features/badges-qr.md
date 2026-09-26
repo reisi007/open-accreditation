@@ -13,7 +13,10 @@ PDF-/QR-Rendering und CSV/Excel-Export genehmigter Akkreditierungen.
 | `App\Models\BadgeTemplate` | Template-Modell (Mandant, `layout`-JSON, `is_default`) |
 | `App\Services\BadgeTemplateService` | "Ein Default pro Mandant"-Invariante |
 | `App\Services\BadgeRenderService` | A6-Karte, Feld-Positionierung, QR-Rendering (PDF) |
-| `App\Services\BadgeExportService` | Streamed PDF- und CSV-Export |
+| `App\Services\BadgeExportService` | Streamed PDF- und CSV-Export (gechunkt) |
+| `App\Services\QrTokenService` | QR-Token Format v2 (mandant-gebunden, `APP_PREVIOUS_KEYS`) |
+| `App\Services\QrTokenClaims` | Value-Object der verifizierten Token-Claims (v1/v2) |
+| `App\Http\Controllers\Api\VerifyController` | public Verifikation, mandant-scoped (Defense in Depth) |
 
 ## Badge-Template-Modell (`BadgeTemplate`)
 
@@ -91,8 +94,100 @@ Die Verify-URL ist `{scheme}://{host}/verify/{token}`:
   ->domains()->orderBy('id')->value('hostname')`) oder — ohne Domain — der Host
   aus `config('app.url')` (Fallback `localhost`).
 - `scheme` aus `config('app.url')` (Fallback `https`).
-- `token` = deterministisch via `QrTokenService::make(application)` (gleiche
-  Application → gleicher Token).
+- `token` = mandant-gebundener Token aus `QrTokenService::make(application)`
+  (Format v2, siehe unten). Deterministisch: gleiche Application + gleicher
+  Mandant + gleicher `APP_KEY` → gleicher Token.
+
+### QR-Token-Format v2 (R-D3) — Tenant-Binding + Key-Rotation
+
+```
+token = base64url( applicationId . '.' . hmac_sha256(secret, "v2:"+applicationId+":"+mandantId) . '.' . mandantId )
+```
+
+- **Mandant-Binding:** Die Signatur deckt **beide** Claims ab, und die
+  `mandantId` ist zusätzlich Teil des Base64-Payloads. Ein Ausweis von Verband A
+  validiert damit **nie** auf dem Host von Verband B — auch nicht, weil die
+  Application-Id global eindeutig ist. Vor v2 trug der Token nur die Id; der
+  Mandant kam allein aus der DB-Zeile, wodurch `/api/verify` auf einem fremden
+  Host Name, Kategorie, Event, Datum und Portrait des Inhabers preisgab.
+- **`hash_equals` über beide Claims:** `parse()` liefert ein Value-Object
+  (`QrTokenClaims`: `applicationId`, `mandantId`, `version`) oder `null`; jede
+  Abweichung in einem Claim, ein unbekannter Schlüssel oder ein defekter
+  Token ⇒ `null` ⇒ 404.
+- **Binäre Signatur:** das HMAC ist roh (32 Byte) und kann selbst `.`-Bytes
+  enthalten. Der Parser liest die Segmente deshalb von außen nach innen
+  (Id = erstes Segment, `mandantId` = letztes all-digit-Segment, dazwischen die
+  Signatur) und probiert **beide** Lesarten: erst die mandant-gebundene
+  v2-Prüfung, danach **unbedingt** die Legacy-v1-Prüfung über den gesamten
+  Rest-Payload (eine v1-Signatur *ist* der Payload, Dots inklusive). Ein
+  v1-Token, dessen Signatur zufällig auf `.` + reine Ziffern endet (selten,
+  gemessen 4 von 40 000 ausgestellten Tokens), wird so nicht mehr als v2 mit
+  kaputtem Mandant-Claim fehlinterpretiert und **abgewiesen**, sondern über die
+  v1-Prüfung akzeptiert — die ist an den vollen HMAC der Application-Id
+  gebunden und kann daher nicht missbraucht werden. Ein v2-Token mit
+  manipuliertem oder korruptem Mandant-Segment scheitert an beiden Lesarten und
+  wird abgewiesen.
+- **Key-Rotation:** Minting nutzt **immer** den aktuellen Key; die Prüfung
+  durchläuft zuerst `config('app.key')` und danach `config('app.previous_keys')`
+  (`APP_PREVIOUS_KEYS`, kommasepariert). `php artisan key:generate` invalidiert
+  damit **keine** bereits gedruckten Ausweise, solange der alte Key in
+  `APP_PREVIOUS_KEYS` steht.
+- **Self-healing `make()`:** Ein gespeicherter `qr_token` wird neu gemintet,
+  wenn er fehlt, mit **keinem** bekannten Key verifizierbar ist (Rotation ohne
+  `APP_PREVIOUS_KEYS`) oder kein gültiges v2-Token dieser Application ist. Der
+  Write-Pfad (Approve, Resend, Export, Wallet-Pass) repariert die Zeile damit
+  beim nächsten Berühren — früher lieferte `make()` den gespeicherten Wert
+  blind zurück und die Zeile war für immer tot.
+
+**Legacy-Format v1 (Kompatibilität):** `base64url(applicationId . '.'
++ hmac_sha256(secret, applicationId))` — zwei Segmente, **kein** Mandant-Claim.
+Ein v1-Token wird weiterhin akzeptiert, **sofern** seine Signatur gegen einen
+bekannten Key prüft, gilt aber als *nicht* mandant-gebunden
+(`QrTokenClaims::isTenantBound() === false`): er authentifiziert nur die
+Application-Id. Für diese Bestands-Ausweise ist die **DB-Scope** die
+Isolationsgrenze, nicht der Token — `VerifyController` löst die Application
+deshalb **immer** mandant-scoped auf (`Application::scopeForMandant`, also
+`whereHas('accreditation')`). Jeder Write-Pfad und
+`accreditation:backfill-qr-tokens` migrieren v1 → v2.
+
+**Verify-Endpunkt (Defense in Depth):** `GET /api/verify/{token}` ist public
+und host-geroutet; `MandantContextMiddleware` hat den Mandanten dann bereits
+aufgelöst (in Produktion 404 bei unbekanntem Host). Zusätzlich gilt:
+
+1. Der signierte `mandantId`-Claim muss zum aktuellen Mandanten passen
+   (`QrTokenClaims::matchesMandant()`) — v1-Tokens passen hier immer und fallen
+   auf Punkt 2 zurück,
+2. die Application-Suche ist **unbedingt** mandant-scoped,
+3. ohne aufgelösten Mandanten wird **nichts** aufgelöst (fail closed, 404).
+
+`VerifyResource` ist selbst keine Isolationsgrenze, sondern serialisiert nur,
+was der Controller mandant-scoped geladen hat; `photo_url` wiederholt den
+Token des Aufrufers, und die Portrait-Route nutzt dieselbe Auflösung.
+
+### Backfill: `accreditation:backfill-qr-tokens`
+
+Ein idempotenter, `chunkById`-gechunkter Einmal-Lauf über **alle** genehmigten
+Applications; `make()` erledigt die Arbeit, der Command zählt nur:
+
+- `NULL` → wird gefüllt (Legacy aus der Zeit vor der Token-Issued-Bei-Approve),
+- v1-Token → wird auf v2 migriert (nicht mandant-gebunden → gebunden),
+- Token, der mit keinem bekannten Key mehr prüft → wird neu gemintet
+  (Key-Rotation ohne `APP_PREVIOUS_KEYS`),
+- aktuelles v2-Token → bleibt unangetastet (kein Write-on-Read).
+
+Nur `approved`-Zeilen sind im Scope: ein Token wird bei der Genehmigung
+ausgestellt. Eine entzogene (`denied`/`blacklisted`) Zeile **behält** ihr Token —
+aber nur solange dieser Token noch verifiziert: `/api/verify` löst ihn über
+`parse()` auf, nicht über die Spalte `qr_token`. Nach einer `APP_KEY`-Rotation
+**ohne** `APP_PREVIOUS_KEYS` ist er tot, der Backfill nimmt die Zeile nicht auf
+(er scannt nur `approved`), also antwortet `/api/verify` **404** statt
+`status: denied`. Einen Write-Pfad, der das repariert, gibt es für eine
+entzogene Zeile nicht: der alte Key muss in `APP_PREVIOUS_KEYS` stehen (dann
+verifiziert der Token weiter) oder die Zeile wird kurz auf `approved` gesetzt
+(`make()` migriert sie dann auf v2). Beim erneuten Genehmigen (oder bei einem
+manuellen Lauf nach einer Statuskorrektur) wird die Zeile ohnehin mitgezogen.
+Das `accreditation` wird pro Chunk eager geladen (eine Query pro Chunk, nicht
+eine pro Application).
 
 **Historische Fixposition (Fallback):** Templates ohne `qr`-Entry rendern
 den QR an der festen Position unten rechts. Ein dort platziertes Nutzer-Feld
@@ -120,6 +215,27 @@ A6-Seite (PDF) bzw. nur die Header-Zeile (CSV) — **nicht** 204. Das Template m
 immer auflösbar sein (explizites `template_id` oder der Mandant-Default); sonst
 antwortet der Controller **422 "No badge template"**, bevor dieser Service läuft.
 
+### Export — Speicherprofil (WP-2-d)
+
+Der Export liest die genehmigten Applications **gechunkt** (`lazyById`, 200 pro
+Batch; Eager-Loading auf `user.media`, `accreditation.category/event/team`
+bleibt erhalten) und streamt sie:
+
+- **CSV** ist vollständig streaming: `fputcsv` pro Zeile direkt in
+  `php://output`, der Speicherbedarf ist O(1) unabhängig von der Anzahl.
+- **PDF** hängt an dompdf: das erzeugte HTML (mit allen Base64-Portraits) und
+  der Canvas-Objektgraph müssen in das PHP-`memory_limit` passen. Der
+  Chunking-Fix entfernt den zweiten, bisher größten Brocken (alle
+  Application-Modelle + Media-Rows auf einmal); die dompdf-Grenze bleibt
+  **bewusst** und ist damit nicht versteckt, sondern hier dokumentiert. Wer sehr
+  große Bestände exportiert, braucht ein entsprechendes `memory_limit` bzw. den
+  Weg über den CSV-Export.
+
+Die Karten eines Laufs teilen sich zusätzlich zwei pro Run gecachte Lookups:
+den Verify-Host (`MediaHostResolver`) und die aufgelösten `BadgeImage`-Data-URIs
+(Schlüssel `mandantId:imageId`). Dadurch kostet ein Export mit M Bildern
+**O(distinct image ids)** Queries statt O(Karten × M).
+
 ### CSV-Formula-Injection-Schutz (P4-F1)
 
 `sanitizeCsvCell()` neutralisiert CSV-Formula-Injection: eine Zelle, die mit
@@ -138,4 +254,20 @@ vertrauenswürdige Server-Werte und bleiben unangetastet.
   bräche die SQLite-Portabilität der Tests (AGENTS.md §2).
 - Portrait wird ausschließlich von der `private`-Disk gelesen (auth-gated).
 - Verify-URL trägt keine Secrets; der QR verifiziert die (genehmigte) Application
-  über einen deterministischen Token + Mandant-Host-Chain.
+  über einen mandant-gebundenen, signierten Token (v2) + Mandant-Host-Chain.
+- **Der Verify-Pfad ist mandant-scoped, ohne Ausnahme:** die Application-Suche
+  in `VerifyController` trägt immer `forMandant()`; ein `->when(hasCurrent(), …)`
+  (fail-open) darf dort nicht eingeführt werden. Dasselbe gilt im Render-Pfad
+  für `BadgeImage` (Lookup immer `forMandant()`; ohne aufgelösten Mandanten
+  rendert der `image`-Entry eine leere Box).
+- **Read-Pfade schreiben nicht:** `AdminApplicationResource` benutzt den
+  gespeicherten Token, wenn er ein gültiges v2-Token der Application ist, sonst
+  den frisch berechneten — die Spalte reparieren ausschließlich die
+  Write-Pfade und `accreditation:backfill-qr-tokens`.
+- **Wer Tokens mintet, lädt `accreditation`:** der v2-Token braucht
+  `accreditation.mandant_id`, und `QrTokenService::mandantIdOf()` liest sie aus
+  der Relation. Jeder Bulk-Pfad über Applications MUSS sie eager laden
+  (`with('accreditation:id,mandant_id')` — eine Query pro Bulk) — sonst N+1 mit
+  einer `accreditations`-Query pro Zeile. Referenz: `BackfillQrTokens` und
+  `AllocationService::issueQrTokens()`; gepinnt in
+  `AllocationQrTokenQueryTest`.

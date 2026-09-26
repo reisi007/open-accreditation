@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\Accreditation;
 use App\Models\Application;
 use App\Models\BadgeTemplate;
-use Illuminate\Support\Collection;
+use Illuminate\Support\LazyCollection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -23,10 +23,20 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * page for PDF, the header row only for CSV — not 204. The template must
  * always resolve (explicit `template_id` or the mandant's default), otherwise
  * the controller answers 422 "No badge template" before this service runs.
+ *
+ * Memory profile (WP-2-d): the applications are read in chunks
+ * (`lazyById`, eager-loading preserved) and streamed, so neither the query
+ * layer nor the CSV path ever holds the full result set. The PDF path is
+ * bounded by dompdf, which is inherently in-memory: the generated HTML with
+ * every Base64 portrait plus the canvas object graph must fit into the PHP
+ * memory limit (documented in features/badges-qr.md).
  */
 final class BadgeExportService
 {
     public const CSV_HEADER = ['Name', 'E-Mail', 'Kategorie', 'Event', 'Status', 'Verify-URL'];
+
+    /** Applications read per `lazyById` batch during an export. */
+    private const CHUNK_SIZE = 200;
 
     public function __construct(private readonly BadgeRenderService $renderer) {}
 
@@ -43,19 +53,27 @@ final class BadgeExportService
      * The approved applications of one accreditation in stable order, eager-
      * loaded for the renderer (user + portrait, category, event).
      *
-     * @return Collection<int, Application>
+     * A `LazyCollection` (`lazyById`) instead of `get()`: only one chunk of
+     * applications exists at a time, so a 500-badge export no longer
+     * materialises every application (with its media rows) up front. The
+     * generator is consumed exactly once — the caller must not iterate twice.
+     *
+     * @return LazyCollection<int, Application>
      */
-    private function approvedApplications(Accreditation $accreditation): Collection
+    private function approvedApplications(Accreditation $accreditation): LazyCollection
     {
         return Application::query()
             ->where('accreditation_id', $accreditation->id)
             ->where('status', 'approved')
             ->with(['user.media', 'accreditation.category', 'accreditation.event', 'accreditation.team'])
             ->orderBy('id')
-            ->get();
+            ->lazyById(self::CHUNK_SIZE);
     }
 
-    private function pdf(Collection $applications, BadgeTemplate $template, int $accreditationId): StreamedResponse
+    /**
+     * @param  LazyCollection<int, Application>  $applications
+     */
+    private function pdf(LazyCollection $applications, BadgeTemplate $template, int $accreditationId): StreamedResponse
     {
         return response()->streamDownload(
             function () use ($applications, $template): void {
@@ -66,7 +84,10 @@ final class BadgeExportService
         );
     }
 
-    private function csv(Collection $applications): StreamedResponse
+    /**
+     * @param  LazyCollection<int, Application>  $applications
+     */
+    private function csv(LazyCollection $applications): StreamedResponse
     {
         return response()->streamDownload(
             function () use ($applications): void {

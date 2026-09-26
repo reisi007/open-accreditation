@@ -157,10 +157,16 @@ kontrolliert (siehe `config/wallet.php`):
 ## QR / Verify-URL
 
 Der Barcode kodiert die **öffentliche Verify-URL** (Host-Chain via `VerifyLink`):
-deterministischer Token (`QrTokenService::make`) + Mandant-Host. Der Token ist
-reproduzierbar (gleiche Application → gleicher Token). Für Sub-Applications ist
-die **Main-Application** der Token-Träger — der QR verifiziert die verknüpfte
-genehmigte Haupt-Akkreditierung. Der Pass trägt **keine Secrets**.
+mandant-gebundener Token aus `QrTokenService::make()` (Format v2 — der Token
+trägt zusätzlich zur Application-Id die `mandantId`, und die Signatur deckt beide
+Claims ab) + Mandant-Host. Der Token ist für eine gegebene Application
+reproduzierbar (gleiche Application + Mandant + `APP_KEY` → gleicher Token); nach
+einer `APP_KEY`-Rotation bleibt ein ausgestellter Pass gültig, solange der alte
+Key in `APP_PREVIOUS_KEYS` steht, und `make()` mintet die Zeile sonst beim
+nächsten Ausstellen neu. Details + Backfill: `badges-qr.md`
+(„QR-Token-Format v2"). Für Sub-Applications ist die **Main-Application** der
+Token-Träger — der QR verifiziert die verknüpfte genehmigte
+Haupt-Akkreditierung. Der Pass trägt **keine Secrets**.
 
 ## `relevantDate`-Semantik (P6-B1, USER-DECISION)
 

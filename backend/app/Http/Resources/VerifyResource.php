@@ -11,6 +11,14 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * `requested`/`denied`/`blacklisted` answer with the bare status so a revoked
  * badge still verifies without leaking the holder's data. `photo_url` is a
  * relative path — the frontend prefixes its own origin.
+ *
+ * This resource is NOT an isolation boundary: it serializes whatever
+ * application it is given. Single-tenancy is enforced by the controller
+ * (`VerifyController`) — the token's signed mandant claim must match the
+ * current mandant and the lookup is mandant-scoped, so an instance can never
+ * carry a foreign mandant's application. Keep that contract when adding fields:
+ * every additional relation is a potential cross-tenant disclosure unless the
+ * controller's scope stays in place.
  */
 class VerifyResource extends JsonResource
 {

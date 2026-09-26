@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\VerifyResource;
 use App\Models\Application;
 use App\Services\QrTokenService;
+use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -21,6 +22,27 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *       inline portrait from the private disk, ONLY for approved applications
  *       that own a portrait; otherwise 404. The portrait is never leaked for a
  *       revoked (denied) badge.
+ *
+ * ## Tenant isolation (R-D3)
+ *
+ * The route is public and host-routed, so `MandantContextMiddleware` has already
+ * resolved the mandant from the request host — and answers 404 itself for an
+ * unknown host in production. Two independent guards keep the surface single
+ * tenant even so:
+ *
+ * 1. The token's signed mandant claim must name the current mandant
+ *    (`QrTokenClaims::matchesMandant()`). A token minted for another Verband
+ *    can never validate here, even though it is a perfectly valid signature.
+ * 2. Defence in depth: the application lookup is mandant-scoped
+ *    (`Application::scopeForMandant`) on top of the id. A legacy v1 token
+ *    carries no mandant claim at all — for those this DB scope IS the isolation
+ *    boundary, which is why the scope is unconditional.
+ *
+ * Without a resolved mandant the lookup is refused (404, fail closed): a
+ * verification request that cannot be attributed to a tenant resolves nothing
+ * rather than resolving globally. In production this branch is unreachable
+ * (the middleware 404s an unknown host first); it only guards the console/test
+ * contexts that run without a host.
  */
 class VerifyController extends Controller
 {
@@ -60,14 +82,31 @@ class VerifyController extends Controller
 
     private function resolveApplication(string $token): ?Application
     {
-        $id = $this->tokens->parse($token);
+        $claims = $this->tokens->parse($token);
 
-        if ($id === null) {
+        if ($claims === null) {
+            return null;
+        }
+
+        // Fail closed: no resolved mandant (console/test context) resolves
+        // nothing — see the class docblock.
+        $mandantId = MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return null;
+        }
+
+        // Tenant claim (v2 tokens) must name the current mandant. Legacy tokens
+        // carry no claim and pass here — the mandant-scoped query below is
+        // their isolation boundary.
+        if (! $claims->matchesMandant($mandantId)) {
             return null;
         }
 
         return Application::query()
+            ->forMandant($mandantId)
+            ->whereKey($claims->applicationId)
             ->with(['user.media', 'accreditation.category', 'accreditation.event'])
-            ->find($id);
+            ->first();
     }
 }

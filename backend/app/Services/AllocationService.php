@@ -295,8 +295,31 @@ final class AllocationService
 
     /**
      * Issue the P4 QR verification token for every application that was just
-     * marked approved by a bulk allocation (skip rows that already carry one —
-     * deterministic tokens make the whole call idempotent).
+     * marked approved by a bulk allocation.
+     *
+     * No `whereNull('qr_token')` filter: every write path must be able to UPGRADE
+     * a stored legacy v1 token to the tenant-bound v2 format
+     * (`QrTokenService`'s documented invariant, restated in
+     * `features/badges-qr.md` and `AdminApplicationResource::verifyToken()`).
+     * Filtering on `qr_token IS NULL` here made the bulk path the ONE write path
+     * that silently left a v1 token in place, so
+     * `AdminApplicationResource::verifyToken()` served a fresh v2 URL while the
+     * column still showed v1 — a display/column divergence and a badge that
+     * only verified through the legacy (tenant-unbound) branch.
+     *
+     * This is not write amplification: `QrTokenService::make()` is idempotent —
+     * a row that already holds a valid, tenant-bound v2 token returns early
+     * after one HMAC verification and performs NO write. Dropping the filter
+     * therefore costs one `parse()` per approved row and zero extra queries
+     * (see the eager load below).
+     *
+     * The restricted eager load is mandatory, not an optimisation: the v2 token
+     * carries the mandant id of the application's accreditation, and
+     * `QrTokenService::mandantIdOf()` reads it from the relation. Without
+     * `with()` every single row lazy-loads its accreditation — one extra
+     * `select * from accreditations where id = ?` per approved application
+     * (measured: 10 approvals ⇒ 10 extra round-trips; 500 badges ⇒ 500). The
+     * same call site in `accreditation:backfill-qr-tokens` already loads it.
      *
      * @param  list<int>  $ids
      */
@@ -308,7 +331,7 @@ final class AllocationService
 
         Application::query()
             ->whereIn('id', $ids)
-            ->whereNull('qr_token')
+            ->with('accreditation:id,mandant_id')
             ->get()
             ->each(fn (Application $application) => $this->qrTokenService->make($application));
     }

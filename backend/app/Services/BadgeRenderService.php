@@ -8,8 +8,6 @@ use App\Models\BadgeTemplate;
 use App\Support\MandantContext;
 use Dompdf\Dompdf;
 use Endroid\QrCode\Builder\Builder;
-use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -49,10 +47,14 @@ use Illuminate\Support\Facades\Storage;
  * `{kind: brand, ref: logo|header}` → the mandant's brand media, `{kind:
  * upload, image_id: <int>}` → the mandant-scoped `badge_images` row. `fit`
  * defaults to `contain` (logos are untouched); a missing source renders an
- * empty box at the layout position (the card still prints).
+ * empty box at the layout position (the card still prints). The upload lookup
+ * is mandant-scoped unconditionally and cached per render run, so an export
+ * issues O(distinct image ids) queries instead of one per card.
  *
  * The verify URL is `{scheme}://{host}/verify/{token}`: `host` is the current
  * mandant's first domain or, without a domain, the host of `config('app.url')'.
+ * `{token}` is the tenant-bound token of `QrTokenService` (format v2) and is
+ * (re-)minted on the row when it is missing or no longer verifiable.
  */
 final class BadgeRenderService
 {
@@ -77,6 +79,20 @@ final class BadgeRenderService
      */
     private array $hostCache = [];
 
+    /**
+     * In-memory cache of the resolved `BadgeImage` data URIs for one render run
+     * (WP-2-d). An `image` layout entry addresses a `badge_images` row by id and
+     * the SAME template (with the same one or two images) renders for every card
+     * of an export — without a cache every card re-ran the DB lookup AND
+     * re-read + re-encoded the file (N×M queries and N×M base64 encodes per
+     * export). Keyed by `mandantId:imageId` so a single service instance stays
+     * correct when the mandant context changes between renders. Not persisted —
+     * rebuilt per request when Laravel re-resolves the service.
+     *
+     * @var array<string, string|null>
+     */
+    private array $badgeImageCache = [];
+
     public function __construct(
         private readonly QrTokenService $tokens,
         private readonly MandantMediaService $mandantMedia,
@@ -86,8 +102,9 @@ final class BadgeRenderService
 
     /**
      * The full verify URL of one application (used by the QR and the CSV
-     * export). Deterministic — `QrTokenService::make()` returns the same token
-     * for the same application.
+     * export). The token is tenant-bound (QrTokenService format v2) and, because
+     * this is a write path, a row whose stored token is missing, legacy (v1) or
+     * unverifiable after a key rotation is repaired here.
      */
     public function verifyUrl(Application $application): string
     {
@@ -98,8 +115,19 @@ final class BadgeRenderService
      * Render the PDF for one accreditation's approved applications. An empty
      * collection yields a blank A6 page (the export endpoint answers 200 with
      * an empty document, not 204).
+     *
+     * The applications may be an eager-loaded `Collection` or a chunked
+     * `LazyCollection` (the export passes the latter): they are consumed once, in
+     * order, and are never materialised as a whole. dompdf itself remains
+     * inherently in-memory — the complete HTML (including every base64 portrait)
+     * plus the canvas object graph must fit into the PHP memory limit. That
+     * residual limit is documented in features/badges-qr.md ("Export —
+     * Speicherprofil"); the DB side is chunked, so a large export no longer also
+     * holds every application model.
+     *
+     * @param  iterable<Application>  $applications
      */
-    public function renderPdf(Collection $applications, BadgeTemplate $template): string
+    public function renderPdf(iterable $applications, BadgeTemplate $template): string
     {
         $dompdf = new Dompdf;
         $dompdf->loadHtml($this->html($applications, $template), 'UTF-8');
@@ -123,7 +151,10 @@ final class BadgeRenderService
         };
     }
 
-    private function html(Collection $applications, BadgeTemplate $template): string
+    /**
+     * @param  iterable<Application>  $applications
+     */
+    private function html(iterable $applications, BadgeTemplate $template): string
     {
         $cards = '';
 
@@ -313,6 +344,11 @@ final class BadgeRenderService
      * `MandantMediaService`; upload ids resolve against the current mandant's
      * `badge_images` rows only (never a raw path/URL).
      *
+     * The tenancy scope is UNCONDITIONAL in the render path (WP-2-d): without a
+     * resolved mandant the entry renders as an empty box. A fail-open filter
+     * (`->when(MandantContext::hasCurrent(), …)`) would drop the filter exactly
+     * in the console/test context and embed a foreign mandant's file.
+     *
      * @param  mixed  $src  the raw `src` discriminator of an image entry
      */
     private function resolveImageSource(mixed $src): ?string
@@ -353,22 +389,40 @@ final class BadgeRenderService
                 return null;
             }
 
-            $image = BadgeImage::query()
-                ->when(
-                    MandantContext::hasCurrent(),
-                    fn (EloquentBuilder $q) => $q->where('mandant_id', MandantContext::currentId()),
-                )
-                ->find($imageId);
+            $mandantId = MandantContext::currentId();
 
-            if ($image === null || ! $this->mediaStorage->exists($image->path)) {
+            if ($mandantId === null) {
                 return null;
             }
 
-            return 'data:'.$image->mime.';base64,'
-                .base64_encode($this->mediaStorage->get($image->path));
+            $cacheKey = $mandantId.':'.$imageId;
+
+            if (array_key_exists($cacheKey, $this->badgeImageCache)) {
+                return $this->badgeImageCache[$cacheKey];
+            }
+
+            return $this->badgeImageCache[$cacheKey] = $this->resolveUploadSource($imageId, $mandantId);
         }
 
         return null;
+    }
+
+    /**
+     * The mandant-scoped `BadgeImage` upload as a Base64 data URI, or null when
+     * the row belongs to another mandant, is gone, or its file is missing. The
+     * `forMandant()` scope is always applied — a foreign id yields null, never a
+     * foreign file.
+     */
+    private function resolveUploadSource(int $imageId, int $mandantId): ?string
+    {
+        $image = BadgeImage::query()->forMandant($mandantId)->find($imageId);
+
+        if ($image === null || ! $this->mediaStorage->exists($image->path)) {
+            return null;
+        }
+
+        return 'data:'.$image->mime.';base64,'
+            .base64_encode($this->mediaStorage->get($image->path));
     }
 
     /**
