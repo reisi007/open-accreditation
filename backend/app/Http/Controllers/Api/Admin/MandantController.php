@@ -14,6 +14,7 @@ use App\Support\MandantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -126,20 +127,45 @@ class MandantController extends Controller
         // behind; the weekly `media:prune-orphans` is only a safety net for
         // historical drift. Teams cannot exist here (409 above), so their media
         // is already gone.
-        foreach ($mandant->eventTypes()->get() as $eventType) {
-            $this->eventTypes->purge($eventType);
-        }
+        //
+        // Fail-safe order (WP-4 review, finding 1): the brand media is purged
+        // FIRST, before any child file is touched. Every purge can raise (R-D7 —
+        // an unremovable file keeps its reference), and a raise used to surface
+        // AFTER the event-type/badge files were already gone: the `mandants` row
+        // and all `event_types`/`badge_images` rows survived while their files
+        // did not, so the live tenant served broken images and the columns
+        // dangled. With the brand first, the reported trigger (children
+        // removable, brand file stuck behind a read-only bind mount) aborts
+        // before the first child file is destroyed.
+        //
+        // The DB part runs in one transaction, so a raise in the middle rolls
+        // the `badge_images` row deletions back and leaves mandant, event types
+        // and badge images as they were.
+        //
+        // Residual, documented rather than papered over: file deletion is not
+        // transactional, so if the brand purge SUCCEEDS and a later child purge
+        // fails, the tenant survives with `logo_path`/`header_path` pointing at
+        // removed files. The reverse order would make that the common case
+        // instead of the rare one. A retry converges — an already absent file is
+        // an idempotent `true` (R-D7). See `features/media-domain-layout.md`,
+        // „Schreib- und Lösch-Invariante".
+        DB::transaction(function () use ($mandant): void {
+            // Drop the brand media (logo/header + their `.webp` siblings) before
+            // the row goes, so deleting a mandant leaves no public-media
+            // orphans (W11).
+            $this->media->purge($mandant, 'logo');
+            $this->media->purge($mandant, 'header');
 
-        foreach (BadgeImage::query()->where('mandant_id', $mandant->id)->get() as $badgeImage) {
-            $this->badges->destroy($badgeImage);
-        }
+            foreach ($mandant->eventTypes()->get() as $eventType) {
+                $this->eventTypes->purge($eventType);
+            }
 
-        // Drop the brand media (logo/header + their `.webp` siblings) before the
-        // row goes, so deleting a mandant leaves no public-media orphans (W11).
-        $this->media->purge($mandant, 'logo');
-        $this->media->purge($mandant, 'header');
+            foreach (BadgeImage::query()->where('mandant_id', $mandant->id)->get() as $badgeImage) {
+                $this->badges->destroy($badgeImage);
+            }
 
-        $mandant->delete();
+            $mandant->delete();
+        });
 
         return response()->noContent();
     }

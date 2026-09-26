@@ -26,8 +26,10 @@ use RuntimeException;
  * layout` backfill moves them. Upload validation mirrors the brand media
  * exactly; the extension derives from the validated MIME type.
  *
- * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`; the row
- * is only dropped on `true`, otherwise a `RuntimeException` (500) keeps it.
+ * **Delete contract (R-D7):** `MediaStorage::deleteWithVariants()` returns
+ * `bool` for the file and all of its extension variants and removes the current
+ * file LAST; the row is only dropped on `true`, otherwise a `RuntimeException`
+ * (500) keeps it.
  */
 class BadgeImageService
 {
@@ -51,9 +53,10 @@ class BadgeImageService
      * `MediaPathService::sanitizeFileName`; lower-casing stays injective over
      * the ULID alphabet, so two uploads never collide (W1-F3).
      *
-     * A write failure (`putFileAs()` returns `false`) aborts with a
-     * `RuntimeException` before the addressing row is created, so no row can
-     * ever point at a file that was never written.
+     * A write failure (`putFileAs()` returns `false` — the adapter result AND
+     * the post-condition are verified) aborts with a `RuntimeException` before
+     * the addressing row is created, so no row can ever point at a file that
+     * was never written.
      *
      * @throws ValidationException
      * @throws RuntimeException when the file could not be written
@@ -94,16 +97,15 @@ class BadgeImageService
      * The row is only dropped when the file is verifiably gone from both disks
      * (R-D7): a failed unlink raises a `RuntimeException` and the row — the
      * file's only reference — survives, so a still-served badge image is never
-     * silently forgotten.
+     * silently forgotten. `MediaStorage::deleteWithVariants()` removes the
+     * current file LAST, so a surviving variant is reported while the row still
+     * resolves instead of after the image is already gone.
      *
      * @throws RuntimeException when the file could not be removed
      */
     public function destroy(BadgeImage $image): void
     {
-        $removed = $this->storage->delete($image->path);
-        $removed = $this->storage->deleteAlternateExtensions($image->path) && $removed;
-
-        if (! $removed) {
+        if (! $this->storage->deleteWithVariants($image->path)) {
             Log::error('Could not remove a badge image file; the row was kept.', [
                 'path' => $image->path,
                 'badge_image_id' => $image->id,

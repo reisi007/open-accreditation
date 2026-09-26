@@ -241,6 +241,70 @@ class MediaWriteFailureTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | WP-4-b — the write-side post-condition: a reported success that did
+     | not materialise a file must not destroy the predecessor
+     | ------------------------------------------------------------------- */
+
+    /**
+     * Finding 5 — `false` is the only failure signal Laravel/Flysystem itself
+     * produces, so a driver that returns a path for a file it never wrote used
+     * to sail through: the predecessor's file was unlinked, the column was
+     * rewritten to the new path, and the tenant served a 404 at a path the DB
+     * claimed to own. The post-condition probe is what closes that door.
+     */
+    public function test_mandant_store_failure_on_a_lost_write_keeps_the_previous_logo(): void
+    {
+        $service = app(MandantMediaService::class);
+
+        $previous = '_tenants/'.$this->mandant->id.'/logo.png';
+        $this->realMedia->put($previous, 'old-logo');
+        $this->mandant->update(['logo_path' => $previous]);
+
+        $this->mockWriteWithoutFileDisk(MediaStorage::PUBLIC_DISK);
+
+        $this->expectRuntimeExceptionFrom(
+            fn () => $service->store($this->mandant, 'logo', UploadedFile::fake()->image('neu.png')),
+        );
+
+        $this->assertSame($previous, $this->mandant->fresh()->logo_path);
+        $this->realMedia->assertExists($previous);
+    }
+
+    public function test_badge_image_store_failure_on_a_lost_write_creates_no_row(): void
+    {
+        $service = app(BadgeImageService::class);
+
+        $this->mockWriteWithoutFileDisk(MediaStorage::PUBLIC_DISK);
+
+        $this->expectRuntimeExceptionFrom(
+            fn () => $service->store($this->mandant, UploadedFile::fake()->image('wappen.png')),
+        );
+
+        $this->assertSame(0, BadgeImage::query()->count());
+        $this->assertSame([], $this->realMedia->allFiles());
+    }
+
+    public function test_user_media_store_failure_on_a_lost_write_keeps_the_previous_portrait(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        $previous = $this->seedUserMedia($user, MediaType::PORTRAIT, 'portrait/alt.jpg', 2 * 1024 * 1024);
+
+        $this->mockWriteWithoutFileDisk(MediaStorage::LEGACY_DISK);
+
+        $this->expectRuntimeExceptionFrom(
+            fn () => $service->store($user, MediaType::PORTRAIT, UploadedFile::fake()->image('neu.jpg'), 'verband-a'),
+        );
+
+        // The applicant keeps the photo, its row and the quota slot — and the
+        // phantom the driver claimed to have written is not left on the disk.
+        $this->assertSame($previous, UserMedia::query()->firstOrFail()->path);
+        $this->realPrivate->assertExists($previous);
+        $this->assertSame([$previous], $this->realPrivate->allFiles());
+    }
+
+    /* ---------------------------------------------------------------------
      | WP-4-a — user media (private disk): write-then-delete
      | ------------------------------------------------------------------- */
 
@@ -413,6 +477,31 @@ class MediaWriteFailureTest extends TestCase
 
         Storage::shouldReceive('disk')->andReturnUsing(
             fn (string $name): Filesystem => $name === MediaPathService::DISK ? $mediaDisk : $this->realPrivate,
+        );
+    }
+
+    /**
+     * Swap the disk named `$disk` for one that reports a successful write
+     * WITHOUT materialising the file: `putFileAs()` hands back the relative path
+     * it derived, `exists()` answers `false`. This is the shape the write-side
+     * post-condition exists for — the adapter claims success and the file is not
+     * there, so trusting the return value alone would delete the predecessor and
+     * persist a path to nothing.
+     */
+    private function mockWriteWithoutFileDisk(string $disk): void
+    {
+        $real = $disk === MediaStorage::PUBLIC_DISK ? $this->realMedia : $this->realPrivate;
+        $other = $disk === MediaStorage::PUBLIC_DISK ? $this->realPrivate : $this->realMedia;
+
+        $lying = Mockery::mock(Filesystem::class);
+        $lying->shouldReceive('putFileAs')->andReturnUsing(
+            fn (string $directory, $file, string $name): string => trim($directory.'/'.$name, '/'),
+        );
+        $lying->shouldReceive('exists')->andReturn(false);
+        $lying->shouldNotReceive('delete');
+
+        Storage::shouldReceive('disk')->andReturnUsing(
+            fn (string $name): Filesystem => $name === $disk ? $lying : $other,
         );
     }
 

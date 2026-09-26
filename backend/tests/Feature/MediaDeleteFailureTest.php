@@ -24,6 +24,7 @@ use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
 use RuntimeException;
@@ -50,6 +51,21 @@ class MediaDeleteFailureTest extends TestCase
     use RefreshDatabase;
 
     private Mandant $mandant;
+
+    /**
+     * Paths the partial `unremovablePathsDisk()` stub refuses to delete. See the
+     * helper for why this is a property.
+     *
+     * @var list<string>
+     */
+    private array $unremovablePaths = [];
+
+    /**
+     * Optional observer for every delete attempt of the partial disk stub.
+     *
+     * @var (callable(string): void)|null
+     */
+    private $onDeleteAttempt = null;
 
     private FilesystemAdapter $realMedia;
 
@@ -383,6 +399,219 @@ class MediaDeleteFailureTest extends TestCase
         $this->realMedia->assertExists($path);
     }
 
+    /**
+     * Finding 1 — the half-destroyed tenant. The brand logo is the only file
+     * that cannot be removed (a read-only bind mount covering that single file);
+     * every event-type and badge file of the mandant IS removable.
+     *
+     * The cascade must abort before it touches a child file, so the whole tenant
+     * — rows AND files — survives intact and the operator can retry.
+     */
+    public function test_mandant_delete_with_a_stuck_brand_file_destroys_no_child_file(): void
+    {
+        $logoPath = $this->seedMandantLogo();
+
+        $eventType = EventType::query()->create([
+            'mandant_id' => $this->mandant->id,
+            'slug' => 'bundesliga',
+            'name' => 'Bundesliga',
+        ]);
+        $eventLogo = 'verband-a.test/event-types/bundesliga/logo.png';
+        $this->realMedia->put($eventLogo, 'event-type-logo');
+        $eventType->update(['logo_path' => $eventLogo]);
+
+        $badgePath = 'verband-a.test/badges/01j0abc.png';
+        $this->realMedia->put($badgePath, 'badge-bytes');
+        $badge = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => $badgePath,
+            'mime' => 'image/png',
+            'original_name' => 'wappen.png',
+        ]);
+
+        // Only the brand file is unremovable — the exact shape of the reported
+        // trigger (a read-only mount over `<domain>/logo.png`).
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$logoPath]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(500);
+
+        // Every row survives …
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandant->id]);
+        $this->assertDatabaseHas('event_types', ['id' => $eventType->id]);
+        $this->assertDatabaseHas('badge_images', ['id' => $badge->id]);
+        $this->assertSame($logoPath, $this->mandant->fresh()->logo_path);
+        $this->assertSame($eventLogo, $eventType->fresh()->logo_path);
+
+        // … and, crucially, every file is still there: no reference was left
+        // dangling at a still-served path. Pre-fix the event-type and badge
+        // files were already unlinked at this point, so the live tenant served
+        // broken images and every retry 500'd on the same stuck logo.
+        $this->realMedia->assertExists($logoPath);
+        $this->realMedia->assertExists($eventLogo);
+        $this->realMedia->assertExists($badgePath);
+    }
+
+    /**
+     * The same trigger, seen from the retry side: the stuck brand file makes the
+     * delete fail, but it must not consume the child files either. A retry after
+     * the volume is writable completes and leaves nothing behind.
+     */
+    public function test_mandant_delete_converges_once_the_stuck_brand_file_is_gone(): void
+    {
+        $logoPath = $this->seedMandantLogo();
+
+        $eventType = EventType::query()->create([
+            'mandant_id' => $this->mandant->id,
+            'slug' => 'bundesliga',
+            'name' => 'Bundesliga',
+        ]);
+        $eventLogo = 'verband-a.test/event-types/bundesliga/logo.png';
+        $this->realMedia->put($eventLogo, 'event-type-logo');
+        $eventType->update(['logo_path' => $eventLogo]);
+
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$logoPath]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(500);
+
+        // The mount is gone: every delete really happens again — what a retry in
+        // a fixed deployment sees.
+        $this->unremovablePaths = [];
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(204);
+
+        $this->assertDatabaseMissing('mandants', ['id' => $this->mandant->id]);
+        $this->assertDatabaseMissing('event_types', ['id' => $eventType->id]);
+        $this->realMedia->assertMissing($eventLogo);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Finding 4 — the column is rewritten BEFORE the best-effort cleanup, so a
+     | logged leftover really is an unreferenced orphan
+     | ------------------------------------------------------------------- */
+
+    public function test_mandant_store_rewrites_the_column_before_the_best_effort_cleanup(): void
+    {
+        $service = app(MandantMediaService::class);
+        $service->store($this->mandant, 'logo', UploadedFile::fake()->image('logo.png'));
+
+        $previous = (string) $this->mandant->fresh()->logo_path;
+
+        // The predecessor cannot go, so the cleanup pass runs to the end.
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$previous]);
+
+        $columnWhenCleaning = [];
+        $this->onDeleteAttempt = function () use (&$columnWhenCleaning): void {
+            $columnWhenCleaning[] = $this->mandant->fresh()->logo_path;
+        };
+
+        $service->store($this->mandant, 'logo', UploadedFile::fake()->image('logo.jpg'));
+
+        // Every delete attempt of the cleanup pass already saw the NEW path in
+        // the column: the write precedes the cleanup, so a leftover it could
+        // not remove is genuinely unreferenced (the documented rationale).
+        // Pre-fix the first attempt still saw the old path.
+        $this->assertNotSame([], $columnWhenCleaning);
+        $this->assertSame(
+            ['verband-a.test/logo.jpg'],
+            array_values(array_unique($columnWhenCleaning)),
+        );
+        $this->assertSame('verband-a.test/logo.jpg', $this->mandant->fresh()->logo_path);
+        $this->realMedia->assertExists($previous);
+    }
+
+    public function test_team_store_rewrites_the_column_before_the_best_effort_cleanup(): void
+    {
+        $service = app(TeamMediaService::class);
+        $team = Team::factory()->create(['mandant_id' => $this->mandant->id, 'slug' => 'verein-a', 'name' => 'Verein A']);
+
+        $service->store($team, UploadedFile::fake()->image('logo.png'));
+
+        $previous = (string) $team->fresh()->logo_path;
+
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$previous]);
+
+        $columnWhenCleaning = [];
+        $this->onDeleteAttempt = function () use (&$columnWhenCleaning, $team): void {
+            $columnWhenCleaning[] = $team->fresh()->logo_path;
+        };
+
+        $service->store($team, UploadedFile::fake()->image('logo.jpg'));
+
+        $this->assertNotSame([], $columnWhenCleaning);
+        $this->assertSame(
+            ['verband-a.test/teams/verein-a/logo.jpg'],
+            array_values(array_unique($columnWhenCleaning)),
+        );
+        $this->assertSame('verband-a.test/teams/verein-a/logo.jpg', $team->fresh()->logo_path);
+        $this->realMedia->assertExists($previous);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Finding 2 — the leftover message must not promise a self-healing that
+     | does not exist
+     | ------------------------------------------------------------------- */
+
+    /**
+     * A stuck pre-W6 legacy file lives on the `private` disk in a layout
+     * `media:prune-orphans` never scans (see `MediaPruneOrphansTest`). The log
+     * message therefore has to name the manual step — an operator who is told
+     * "the reaper collects it" will never clean it up.
+     */
+    public function test_a_stuck_legacy_leftover_is_logged_as_manual_work(): void
+    {
+        $this->seedMandantLogo();
+        $this->realPrivate->put('mandants/verband-a/logo.png', 'legacy-logo');
+
+        // Only the legacy file is unremovable.
+        $this->unremovablePathsDisk(MediaStorage::LEGACY_DISK, ['mandants/verband-a/logo.png']);
+
+        Log::spy();
+
+        app(MandantMediaService::class)->destroy($this->mandant, 'logo');
+
+        // The referenced file was removable, so the column is cleared; the
+        // legacy leftover is not and says so.
+        $this->assertNull($this->mandant->fresh()->logo_path);
+        $this->realPrivate->assertExists('mandants/verband-a/logo.png');
+
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn (string $message, array $context): bool => str_contains($message, 'delete it manually')
+                && ($context['path'] ?? '') === 'mandants/verband-a/logo.<ext>'
+                && ($context['context'] ?? '') === sprintf('mandant#%d logo (pre-W6 legacy)', $this->mandant->id),
+        );
+    }
+
+    /**
+     * The managed counterpart keeps the short promise: a leftover in the layout
+     * the reaper scans really is collected by `media:prune-orphans`.
+     */
+    public function test_a_stuck_managed_leftover_is_logged_as_reapable(): void
+    {
+        $service = app(MandantMediaService::class);
+        $service->store($this->mandant, 'logo', UploadedFile::fake()->image('logo.png'));
+
+        $previous = (string) $this->mandant->fresh()->logo_path;
+
+        // The predecessor of the new upload is the one thing that cannot go.
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$previous]);
+
+        Log::spy();
+
+        $service->store($this->mandant, 'logo', UploadedFile::fake()->image('logo.jpg'));
+
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn (string $message, array $context): bool => str_contains($message, '`media:prune-orphans` reaps it')
+                && ($context['path'] ?? '') === $previous
+                && ($context['context'] ?? '') === sprintf('mandant#%d logo', $this->mandant->id),
+        );
+    }
+
     /* ---------------------------------------------------------------------
      | Prune command — a failed delete must not look like success
      | ------------------------------------------------------------------- */
@@ -425,6 +654,115 @@ class MediaDeleteFailureTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | Post-condition BEFORE the destructive act: a stuck sibling variant
+     | ------------------------------------------------------------------- */
+
+    /**
+     * Finding 3 — a directory named `logo.webp` can never be unlinked
+     * (`delete()` on a directory always reports failure), while `logo.png` is
+     * perfectly removable. Removing the current file first deleted the only
+     * served variant and only THEN reported the failure, so the column survived
+     * pointing at a deleted file and every retry 500'd on the same directory.
+     */
+    public function test_mandant_brand_destroy_keeps_the_file_when_a_sibling_variant_is_stuck(): void
+    {
+        $path = $this->seedMandantLogo();
+
+        // `logo.png` is removable, the sibling variant is not.
+        $this->realMedia->makeDirectory('verband-a.test/logo.webp');
+        $this->assertFalse($this->realMedia->delete('verband-a.test/logo.webp'));
+
+        $this->expectRemovalFailure(
+            fn () => app(MandantMediaService::class)->destroy($this->mandant, 'logo'),
+            $path,
+        );
+
+        // The referenced file survives, so the tenant keeps serving its logo
+        // instead of a 404 at a path the DB still points at.
+        $this->assertSame($path, $this->mandant->fresh()->logo_path);
+        $this->realMedia->assertExists($path);
+    }
+
+    public function test_team_destroy_keeps_the_file_when_a_sibling_variant_is_stuck(): void
+    {
+        $team = Team::factory()->create(['mandant_id' => $this->mandant->id, 'slug' => 'verein-a', 'name' => 'Verein A']);
+        $path = 'verband-a.test/teams/verein-a/logo.png';
+        $this->realMedia->put($path, 'team-logo');
+        $team->update(['logo_path' => $path]);
+
+        $this->realMedia->makeDirectory('verband-a.test/teams/verein-a/logo.webp');
+
+        $this->expectRemovalFailure(
+            fn () => app(TeamMediaService::class)->destroy($team),
+            $path,
+        );
+
+        $this->assertSame($path, $team->fresh()->logo_path);
+        $this->realMedia->assertExists($path);
+    }
+
+    public function test_event_type_destroy_keeps_the_file_when_a_sibling_variant_is_stuck(): void
+    {
+        $eventType = EventType::query()->create([
+            'mandant_id' => $this->mandant->id,
+            'slug' => 'bundesliga',
+            'name' => 'Bundesliga',
+        ]);
+        $path = 'verband-a.test/event-types/bundesliga/logo.png';
+        $this->realMedia->put($path, 'event-type-logo');
+        $eventType->update(['logo_path' => $path]);
+
+        $this->realMedia->makeDirectory('verband-a.test/event-types/bundesliga/logo.webp');
+
+        $this->expectRemovalFailure(
+            fn () => app(EventTypeMediaService::class)->destroy($eventType),
+            $path,
+        );
+
+        $this->assertSame($path, $eventType->fresh()->logo_path);
+        $this->realMedia->assertExists($path);
+    }
+
+    public function test_badge_image_destroy_keeps_the_file_when_a_sibling_variant_is_stuck(): void
+    {
+        $path = 'verband-a.test/badges/01j0abc.png';
+        $this->realMedia->put($path, 'badge-bytes');
+
+        $image = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => $path,
+            'mime' => 'image/png',
+            'original_name' => 'wappen.png',
+        ]);
+
+        $this->realMedia->makeDirectory('verband-a.test/badges/01j0abc.webp');
+
+        $this->expectRemovalFailure(
+            fn () => app(BadgeImageService::class)->destroy($image),
+            $path,
+        );
+
+        $this->assertDatabaseHas('badge_images', ['id' => $image->id]);
+        $this->realMedia->assertExists($path);
+    }
+
+    /**
+     * The happy path is unchanged: with no stuck variant, the current file AND
+     * its `.webp` sibling are gone and the reference is dropped.
+     */
+    public function test_mandant_brand_destroy_removes_the_file_and_the_sibling_variant(): void
+    {
+        $path = $this->seedMandantLogo();
+        $this->realMedia->put('verband-a.test/logo.webp', 'sibling-bytes');
+
+        app(MandantMediaService::class)->destroy($this->mandant, 'logo');
+
+        $this->assertNull($this->mandant->fresh()->logo_path);
+        $this->realMedia->assertMissing($path);
+        $this->realMedia->assertMissing('verband-a.test/logo.webp');
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
 
@@ -438,11 +776,74 @@ class MediaDeleteFailureTest extends TestCase
     }
 
     /**
+     * Replace the disk named `$disk` with one whose `delete()` fails for exactly
+     * the paths in `$this->unremovablePaths` and really removes every other one.
+     * That is the partial-failure shape a read-only bind mount over a single
+     * file produces: the brand logo is stuck, the child media is writable.
+     *
+     * The block list is a property on purpose: `Storage::shouldReceive()` reuses
+     * an already mocked facade, so a second stub would NOT replace the first one
+     * — a test that simulates "the mount is gone" empties the list instead.
+     *
+     * `$this->onDeleteAttempt` (a `callable(string): void`) is invoked for every
+     * delete attempt, which lets a test observe DB state at exactly that point
+     * in time.
+     *
+     * @param  list<string>  $paths
+     */
+    private function unremovablePathsDisk(string $disk, array $paths): void
+    {
+        $this->unremovablePaths = $paths;
+
+        $real = $disk === MediaStorage::PUBLIC_DISK ? $this->realMedia : $this->realPrivate;
+        $other = $disk === MediaStorage::PUBLIC_DISK ? $this->realPrivate : $this->realMedia;
+
+        $partial = Mockery::mock(Filesystem::class);
+        $partial->shouldReceive('delete')->andReturnUsing(
+            function ($path) use ($real): bool {
+                if (is_string($path) && $this->onDeleteAttempt !== null) {
+                    ($this->onDeleteAttempt)($path);
+                }
+
+                if (is_string($path) && in_array($path, $this->unremovablePaths, true)) {
+                    return false;
+                }
+
+                return (array) $real->delete((array) $path) !== [];
+            },
+        );
+        $partial->shouldReceive('exists')->andReturnUsing(
+            fn (string $path): bool => $real->exists($path),
+        );
+        $partial->shouldReceive('allFiles')->andReturnUsing(
+            fn (): array => $real->allFiles(),
+        );
+        $partial->shouldReceive('getDriver')->andReturnUsing(
+            fn () => $real->getDriver(),
+        );
+        $partial->shouldReceive('put')->andReturnUsing(
+            fn (string $path, $contents): bool => $real->put($path, $contents),
+        );
+        $partial->shouldReceive('get')->andReturnUsing(
+            fn (string $path): string => $real->get($path),
+        );
+        $partial->shouldReceive('putFileAs')->andReturnUsing(
+            fn (string $directory, $file, string $name): string|false => $real->putFileAs($directory, $file, $name),
+        );
+
+        Storage::shouldReceive('disk')->andReturnUsing(
+            fn (string $name): Filesystem => $name === $disk ? $partial : $other,
+        );
+    }
+
+    /**
      * Replace the disk named `$disk` with one whose `delete()` is a no-op
      * reporting failure — a read-only volume. Everything else (`exists`,
-     * `allFiles`, `put`, `putFileAs`) keeps answering from the real (faked)
-     * disk, so every "the file is still there" assertion stays honest and an
-     * upload can still write through the same wrapper.
+     * `allFiles`, `getDriver`, `put`, `putFileAs`) keeps answering from the
+     * real (faked) disk, so every "the file is still there" assertion stays
+     * honest and an upload can still write through the same wrapper.
+     * `getDriver` is what the prune command's lazy directory walk goes
+     * through (WP-10-a replaced the buffered `allFiles()` listing).
      */
     private function unremovableDisk(string $disk): void
     {
@@ -456,6 +857,9 @@ class MediaDeleteFailureTest extends TestCase
         );
         $unremovable->shouldReceive('allFiles')->andReturnUsing(
             fn (): array => $real->allFiles(),
+        );
+        $unremovable->shouldReceive('getDriver')->andReturnUsing(
+            fn () => $real->getDriver(),
         );
         $unremovable->shouldReceive('put')->andReturnUsing(
             fn (string $path, $contents): bool => $real->put($path, $contents),

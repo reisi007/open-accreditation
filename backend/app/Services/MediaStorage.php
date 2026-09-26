@@ -37,10 +37,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * 1. A `false` from `put()`/`putFileAs()` is NOT "written" — callers must abort
  *    before they delete the previous file or rewrite a stored path. `put()`
  *    raises on `false` itself; `putFileAs()` hands the decision to the caller.
+ *    Neither trusts the adapter alone: `put()` and `putFileAs()` verify their
+ *    own post-condition (the file is on the disk afterwards), mirroring `delete()`.
  * 2. A `false` from `delete()` is NOT "deleted" — the file may still be on disk
  *    and keeps being served. `delete()` therefore verifies its own post-
  *    condition and returns `bool`; a caller may only drop the DB reference on
- *    `true` (R-D7).
+ *    `true` (R-D7). `deleteWithVariants()` builds on it for the "current file +
+ *    extension variants" case of every `purge()`/`destroy()`.
  */
 final class MediaStorage
 {
@@ -93,31 +96,67 @@ final class MediaStorage
      * surfaces as a `false` return instead of an exception. A silent `false`
      * MUST never be mistaken for a successful write: the caller would
      * otherwise update the DB path and remove the legacy source for a file
-     * that was never written. `put()` therefore fails loudly.
+     * that was never written. `put()` therefore fails loudly — and checks the
+     * post-condition as well, so a driver that reports success for a file it
+     * did not materialise is caught too (see `putFileAs()`).
      *
-     * @throws RuntimeException when the disk reports a write failure
+     * @throws RuntimeException when the write did not happen
      */
     public function put(string $path, string $contents): void
     {
         if (Storage::disk(self::PUBLIC_DISK)->put($path, $contents) === false) {
             throw new RuntimeException(sprintf('Could not write media file "%s".', $path));
         }
+
+        if (! $this->isWritten($path)) {
+            throw new RuntimeException(sprintf('Media file "%s" is missing after the write.', $path));
+        }
     }
 
     /**
      * Persist an uploaded file below `$directory` under the given leaf name and
-     * return the stored relative path, or `false` when the disk reported a
-     * write failure (`throw => false` on the `media` disk).
+     * return the stored relative path, or `false` when the write did not happen.
      *
      * Callers MUST treat `false` as fatal: delete the previous file and update
      * the stored path only after a truthy return, otherwise they would point
      * the DB at a file that does not exist while destroying the previous one.
      *
+     * Two independent signals decide, and BOTH must say "written" (WP-4-b):
+     *
+     * 1. the adapter return value — `false` for `UnableToWriteFile` /
+     *    `UnableToSetVisibility` under `throw => false`, and
+     * 2. the post-condition — `putFileAs()` hands back the relative path it
+     *    derived, so the file can be probed on the disk it was just written to.
+     *
+     * Signal 2 is the write-side twin of the verified `delete()`: the returned
+     * path is what the caller is about to persist, and a path that is not there
+     * must never reach a column. Without it a driver that reports success for
+     * a file it did not materialise would delete the predecessor's file and
+     * leave the column pointing at nothing — the data loss write-then-delete
+     * exists to prevent, reached through the write side. A false negative is
+     * possible only in a TOCTOU window (the file disappears between the write
+     * and the probe) and is the safe direction: the upload is refused, nothing
+     * is destroyed.
+     *
      * @return string|false the stored relative path, or `false` on write failure
      */
     public function putFileAs(string $directory, UploadedFile $file, string $name): string|false
     {
-        return Storage::disk(self::PUBLIC_DISK)->putFileAs($directory, $file, $name);
+        $stored = Storage::disk(self::PUBLIC_DISK)->putFileAs($directory, $file, $name);
+
+        if ($stored === false || ! $this->isWritten($stored)) {
+            return false;
+        }
+
+        return $stored;
+    }
+
+    /**
+     * Whether the file is on the public disk — the write-side post-condition.
+     */
+    private function isWritten(string $path): bool
+    {
+        return Storage::disk(self::PUBLIC_DISK)->exists($path);
     }
 
     /**
@@ -312,6 +351,45 @@ final class MediaStorage
         }
 
         return $removed;
+    }
+
+    /**
+     * Remove `$path` together with every sibling image-extension variant of the
+     * same leaf — the primitive every `purge()`/`destroy()` of the media
+     * services needs (original + `.webp` sibling, and any stale extension a
+     * previous replacement left behind).
+     *
+     * **The current file is removed LAST, and a surviving sibling aborts before
+     * that happens.** Deleting the current file first is what made the
+     * aggregate observable after the damage: a `false` from a stuck variant
+     * (a directory sitting on `logo.webp`, where `unlink` can never succeed)
+     * was only reported once `logo.png` was already gone, so the caller kept
+     * the column/row — pointing at a file that no longer existed — and every
+     * retry 500'd on the same stuck sibling. Siblings first means the `false`
+     * is discovered while the referenced file is still on the disk: the
+     * reference is kept, the image keeps being served, and a retry attempts
+     * exactly the same set again.
+     *
+     * The same reasoning holds the other way round: a `false` for the current
+     * file alone still means "it is still there", so the caller's reference
+     * must survive. Aggregate semantics as in `deleteAlternateExtensions()`:
+     * `true` only when no variant survived, `false` when at least one is still
+     * on disk. Every candidate is attempted, so one stuck variant never hides
+     * the others.
+     */
+    public function deleteWithVariants(string $path): bool
+    {
+        if ($path === '') {
+            return true;
+        }
+
+        // `$keep` holds the current path, so this pass can only touch the
+        // SIBLING variants — the referenced file is off limits here.
+        if (! $this->deleteAlternateExtensions($path, [$path])) {
+            return false;
+        }
+
+        return $this->delete($path);
     }
 
     /**

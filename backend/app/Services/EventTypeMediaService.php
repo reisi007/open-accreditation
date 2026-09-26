@@ -19,12 +19,15 @@ use RuntimeException;
  * `_tenants/<id>/event-types/<slug>/logo.<ext>` for a mandant without a domain
  * (id keeps same-slug types of different mandants apart, W2-F2 L3).
  *
- * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`. The logo
- * only loses its `logo_path` reference when the file is verifiably gone from
- * both disks; otherwise a `RuntimeException` (500) aborts and the column keeps
- * its value. Cleanup of files the new upload already supersedes is the one
- * exception — there the new file is written and the column is about to point at
- * it, so a failure is logged and the leftover is left to `media:prune-orphans`.
+ * **Delete contract (R-D7):** `MediaStorage::deleteWithVariants()` returns
+ * `bool` for the logo and all of its extension variants and removes the current
+ * file LAST. The logo only loses its `logo_path` reference when the file is
+ * verifiably gone from both disks; otherwise a `RuntimeException` (500) aborts,
+ * the column keeps its value and the image keeps being served. Cleanup of files
+ * the new upload already supersedes is the one exception — there the column
+ * already points at the new file, so a failure is logged and the leftover is
+ * left to `media:prune-orphans`, which covers every path an event-type logo
+ * can have (they only ever existed in the managed `media` layout).
  */
 class EventTypeMediaService
 {
@@ -44,11 +47,12 @@ class EventTypeMediaService
     /**
      * Upload/replace the event-type logo. The new file is persisted first, the
      * previous one removed afterwards. A write failure (`putFileAs()` returns
-     * `false`) aborts with a `RuntimeException` before the previous file is
-     * deleted or the path column is rewritten.
+     * `false` — the adapter result AND the post-condition are verified) aborts
+     * with a `RuntimeException` before the previous file is deleted or the path
+     * column is rewritten.
      *
-     * From the successful write on, a failure to remove a superseded file is
-     * logged, not raised — see the class docblock.
+     * The column is rewritten BEFORE the best-effort cleanup, so a leftover that
+     * gets logged is really unreferenced — see the class docblock.
      *
      * @throws ValidationException
      * @throws RuntimeException when the new file could not be written
@@ -74,6 +78,8 @@ class EventTypeMediaService
 
         $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
 
+        $eventType->update(['logo_path' => $path]);
+
         // W11: drop the previous path and stale extension variants
         // (`logo.png` -> `logo.jpg`) — best effort, see the class docblock.
         if ($previous !== null && ! in_array($previous, $keep, true) && ! $this->storage->delete($previous)) {
@@ -83,8 +89,6 @@ class EventTypeMediaService
         if (! $this->storage->deleteAlternateExtensions($path, $keep)) {
             $this->logLeftover($path);
         }
-
-        $eventType->update(['logo_path' => $path]);
     }
 
     /**
@@ -102,8 +106,12 @@ class EventTypeMediaService
 
     /**
      * Remove the logo file only (no column update) — used when the event-type
-     * row itself is deleted and the column write would be pointless. The
-     * derived `.webp` sibling is removed with it (W11).
+     * row itself is deleted and the column write would be pointless. The derived
+     * `.webp` sibling and stale extension variants are removed with it (W11).
+     *
+     * `MediaStorage::deleteWithVariants()` removes the current file LAST, so a
+     * surviving variant is discovered while the column still resolves: the
+     * raise keeps a servable logo instead of a dangling reference.
      *
      * @throws RuntimeException when the file could not be removed
      */
@@ -113,10 +121,7 @@ class EventTypeMediaService
             return;
         }
 
-        $removed = $this->storage->delete($eventType->logo_path);
-        $removed = $this->storage->deleteAlternateExtensions($eventType->logo_path) && $removed;
-
-        if (! $removed) {
+        if (! $this->storage->deleteWithVariants($eventType->logo_path)) {
             throw $this->removalFailed($eventType);
         }
     }

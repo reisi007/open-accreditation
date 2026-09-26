@@ -20,17 +20,22 @@ use Throwable;
  * validate requests and enforce ownership.
  *
  * **Write-then-delete:** every write happens BEFORE anything is deleted or
- * created. The `private` disk runs with `throw => false`, so a failed write
- * (disk full, permissions, unmounted volume) returns `false` instead of
- * raising — that `false` aborts the upload with a `RuntimeException` while the
- * applicant's previous portrait/press id is still intact. The predecessor is
- * only removed once the replacement is really on disk; the quota arithmetic
+ * created, and a write counts as successful only if BOTH signals agree — the
+ * adapter does not report a failure (`putFileAs()` returns `false` instead of
+ * raising under `throw => false`) AND the file is on the disk afterwards. A
+ * write that fails either way aborts the upload with a `RuntimeException` while
+ * the applicant's previous portrait/press id is still intact: its row, its file
+ * and its quota slot survive. The predecessor is only removed once the
+ * replacement is really on disk and its row is committed; the quota arithmetic
  * runs before both, so a rejected upload changes nothing at all.
  *
  * **Delete contract (R-D7):** a row is only dropped when its file is
  * verifiably gone from the disk; an already absent file counts as success (a
  * harmless re-run never becomes a 500), a file that survives the delete attempt
  * raises and keeps its row.
+ *
+ * **Not guaranteed:** the "exactly one row per user+type" invariant for the
+ * singular types under real concurrency — see `supersededRows()`.
  */
 class UserMediaService
 {
@@ -99,11 +104,25 @@ class UserMediaService
         // AFTER the previous portrait had already been deleted, so the failed
         // upload destroyed the applicant's existing photo. Abort instead.
         if ($path === false) {
-            throw new RuntimeException(sprintf(
-                'Could not store the %s upload of user #%d on the private disk.',
-                $type->value,
-                $user->id,
-            ));
+            throw $this->writeFailed($type, $user);
+        }
+
+        // Write-side post-condition, the twin of the verified `removeFile()`
+        // below: `false` is the only failure the adapter reports (disk full,
+        // permissions, unmounted volume), so the file itself is probed before
+        // anything is deleted or persisted. Without it a driver that reports a
+        // successful write for a file it did not materialise would drop the
+        // predecessor's row AND unlink its file — the exact data loss
+        // write-then-delete exists to prevent, reached through the write side.
+        // A false negative is possible only in a TOCTOU window (the file
+        // disappears between write and probe) and errs on the safe side: the
+        // upload is refused, the applicant keeps the file they had.
+        if (! Storage::disk('private')->exists($path)) {
+            // Nothing references the path, so drop whatever the driver may have
+            // left behind instead of leaking a quota-consuming file.
+            $this->removeFile($path);
+
+            throw $this->writeFailed($type, $user);
         }
 
         $superseded = $type->isSingular() ? $this->supersededRows($user, $type) : [];
@@ -166,6 +185,30 @@ class UserMediaService
      * The rows a singular upload supersedes — read before the transaction, so
      * the pre-commit cleanup knows what to unlink afterwards.
      *
+     * **The "exactly one row per user+type" invariant for singular types is
+     * enforced by THIS sequence only, not by the database** (WP-4 review,
+     * finding 6 — pre-existing, not a WP-4 regression):
+     *
+     * - `user_media` carries a plain `index(['user_id', 'type'])`, NOT a
+     *   `unique` constraint, because `attachment` is legitimately many-valued.
+     *   A unique index on those two columns is therefore impossible without
+     *   either breaking attachments or adding a nullable "slot" column (a
+     *   partial/filtered unique index is not expressible through Laravel's
+     *   portable schema builder — see `features/02-domain-model.md`).
+     * - The read happens OUTSIDE the transaction and the transaction takes no
+     *   row/advisory lock, so two truly concurrent singular uploads can both
+     *   read the same predecessor, both insert, and both commit → two portrait
+     *   rows and two quota-consuming files. The loser's unlink still removes
+     *   the file the winner references, so the duplicate is visible as a broken
+     *   image rather than as lost data.
+     * - The `throttle:media` rate limit (30/min per user) makes this a
+     *   double-click-scale race, not a realistic one, and it is not
+     *   reproducible on SQLite `:memory:`. Fixing it properly needs either a
+     *   serializable/`SELECT … FOR UPDATE` transaction (Postgres-only locking
+     *   semantics, so a service abstraction + integration test per §2 of
+     *   `AGENTS.md`) or the slot column. Neither is a media-lifecycle change,
+     *   so neither belongs in WP-4.
+     *
      * @return list<UserMedia>
      */
     private function supersededRows(User $user, MediaType $type): array
@@ -174,6 +217,21 @@ class UserMediaService
             ->where('user_media.type', $type->value)
             ->get()
             ->all();
+    }
+
+    /**
+     * The single failure the caller reports for a write that did not happen
+     * (adapter `false` OR a file that is missing afterwards). One message for
+     * both signals on purpose: the two are indistinguishable for the applicant,
+     * and neither is retry-safe to continue with.
+     */
+    private function writeFailed(MediaType $type, User $user): RuntimeException
+    {
+        return new RuntimeException(sprintf(
+            'Could not store the %s upload of user #%d on the private disk.',
+            $type->value,
+            $user->id,
+        ));
     }
 
     /**

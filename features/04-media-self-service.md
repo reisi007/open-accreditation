@@ -131,12 +131,21 @@ Gemeinsame Basis:
 - `MediaStorage` — Schreiben immer auf `media`; Lesen `media` → `private`;
   Löschen auf beiden Disks, **Ergebnis geprüft** (`bool`, siehe
   `features/media-domain-layout.md` „Schreib- und Lösch-Invariante"). Ein
-  Schreibfehler (`false`) bricht laut ab, **bevor** die DB umgeschrieben oder die
-  Vorgängerdatei gelöscht wird. Ein Fehlschlag beim Löschen bricht ebenso ab:
+  Schreibfehler bricht laut ab, **bevor** die DB umgeschrieben oder die
+  Vorgängerdatei gelöscht wird — und als „Schreibfehler" gilt **beides**: der
+  `false`-Rückgabewert der Disk *und* die Nachbedingung (die Datei liegt danach
+  wirklich auf der Disk). Ein Fehlschlag beim Löschen bricht ebenso ab:
   `destroy()`/`purge()` löschen die Pfad-Spalte nur, wenn die Datei danach
-  wirklich weg ist (sonst 500, Spalte bleibt). Das Aufräumen von Dateien, die
-  der **neue** Upload gerade ersetzt hat, ist best effort (Log-Warning) — der
-  neue Pfad steht zu dem Zeitpunkt bereits in der Spalte.
+  wirklich weg ist (sonst 500, Spalte bleibt). `deleteWithVariants()` prüft die
+  Nachbedingung, **bevor** die aktuelle Datei unlinked wird: die Alt-/Geschwister-
+  Varianten zuerst, die referenzierte Datei zuletzt — ein hängendes Geschwister
+  wird also gemeldet, während das Bild noch ausgeliefert wird.
+  Das Aufräumen von Dateien, die der **neue** Upload gerade ersetzt hat, ist
+  best effort (Log-Warning) und läuft **nach** dem Rewrite der Pfad-Spalte, ist
+  also tatsächlich eine unreferenzierte Waise.
+  **Ausnahme Slug-Move:** `moveForSlugChange()` kopiert die Datei *vor* dem
+  Spalten-Rewrite (die Spalte darf nie auf eine nicht existierende Datei zeigen)
+  und räumt danach nur best effort auf.
 - `ImageUploadRules` — gemeinsamer Upload-Kontrakt (MIME→Endung, Dimensionslimit).
 
 ## Legacy-Lesbarkeit
@@ -154,8 +163,44 @@ nicht umgezogen (sie liegen bereits auf `media`), Team-/Event-Typ-Logos existier
 erst seit W2/W4 und damit nie im alten Layout. Details:
 `features/media-domain-layout.md`.
 
+**Bleibt eine Legacy-Datei hängen** (read-only Volume, Rechte-Regression), ist
+sie eine Waise **außerhalb** des Reaper-Scopes: `media:prune-orphans`
+enumeriert ausschließlich das verwaltete Layout auf der `media`-Disk, eine
+`private`-Datei unter `mandants/{slug}/…` sieht er nie. Services und Backfill
+sagen das im Log explizit („delete it manually", vgl. WP-4-Review) — **keine
+Selbstheilung versprechen**. Genau das Verhalten ist in
+`backend/tests/Feature/MediaPruneOrphansTest.php`
+(`test_a_pre_w6_legacy_leftover_on_the_private_disk_is_never_reaped`)
+festgenagelt. Waisen im verwalteten `media`-Layout werden dagegen sehr wohl
+wöchentlich aufgeräumt.
+
 Personenbilder (`user-media/*`) bleiben unberührt auf der `private`-Disk und
 auth-gated.
+
+## Personenbilder: was die Singular-Invariante garantiert — und was nicht
+
+`portrait`/`press_id` sind singular: ein neuer Upload ersetzt Datei **und** Row
+des Vorgängers (Transaktion → Vorgänger-File erst nach dem Commit unlinken).
+Die Invariante „genau eine Row pro User+Typ" ist dabei **durch die Sequenz
+garantiert, nicht durch die Datenbank**:
+
+- `user_media` trägt einen normalen `index(['user_id','type'])`, **keine**
+  `unique`-Constraint — `attachment` ist legitim mehrwertig, ein Unique-Index
+  über beide Spalten würde Anhänge brechen; eine partielle/bedingte
+  Unique-Constraint ist über Laravels portablen Schema-Builder nicht
+  ausdrückbar (§2 `AGENTS.md`).
+- `supersededRows()` liest **außerhalb** der Transaktion, die Transaktion
+  nimmt keinen Row-/Advisory-Lock. Zwei wirklich gleichzeitige
+  Singular-Uploads können deshalb beide einfügen ⇒ zwei Portrait-Rows und zwei
+  quota-verbrauchende Dateien. Sichtbar als kaputtes Bild (der Verlierer
+  unlinkt die Datei, auf die der Gewinner zeigt), nicht als Datenverlust.
+- `throttle:media` (30/min pro User) begrenzt das auf Doppelklick-Maßstab; auf
+  SQLite `:memory:` ist es nicht reproduzierbar.
+
+Bewusst **nicht** geändert: eine `slot`-Spalte oder ein partieller
+Unique-Index wäre ein Schema-/Migrations-Thema und würde für einen
+Media-Lifecycle-Task eine Schema-Änderung mit sich bringen. Festgehalten
+stattdessen im Docblock von `UserMediaService::supersededRows()`.
 
 ## Sicherheit
 

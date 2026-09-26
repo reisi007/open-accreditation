@@ -21,13 +21,16 @@ use RuntimeException;
  * so un-migrated data survives until the `media:migrate-to-domain-layout`
  * backfill moves it.
  *
- * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`. A file
- * is only dropped together with its DB reference — a failed unlink raises a
- * `RuntimeException` (500) and the column keeps its value. Cleanup of files the
- * NEW upload already supersedes is the one exception: there the new file is
- * written and the column is about to point at it, so a failure is logged and
- * the leftover is left to `media:prune-orphans` (raising would strand the new,
- * unreferenced file and keep serving the old one).
+ * **Delete contract (R-D7):** `MediaStorage::deleteWithVariants()` returns
+ * `bool` for the current file and all of its variants, and removes the current
+ * file LAST. A file is only dropped together with its DB reference — a failed
+ * unlink raises a `RuntimeException` (500) and the column keeps its value,
+ * which also means the image keeps being served. Cleanup of files the NEW
+ * upload already supersedes is the one exception: there the column already
+ * points at the new file, so a failure is logged and the leftover is left
+ * behind. `media:prune-orphans` collects such leftovers ONLY in the managed
+ * `media` layout; a pre-W6 legacy leftover on the `private` disk has to be
+ * deleted by hand, and the log message says so.
  */
 class MandantMediaService
 {
@@ -55,12 +58,13 @@ class MandantMediaService
      * Store (or replace) the logo or header image of a mandant. The new file is
      * persisted first; the previous file (new or legacy layout) is removed only
      * afterwards, so a failed write keeps the old image intact. A write failure
-     * (`putFileAs()` returns `false`) aborts with a `RuntimeException` before
-     * anything is deleted or the path column is rewritten, so the stored path
-     * can never point at a file that was never written.
+     * (`putFileAs()` returns `false` — the adapter result AND the post-condition
+     * are verified) aborts with a `RuntimeException` before anything is deleted
+     * or the path column is rewritten, so the stored path can never point at a
+     * file that was never written.
      *
-     * From the successful write on, a failure to remove a superseded file is
-     * logged, not raised — see the class docblock.
+     * The path column is rewritten BEFORE the best-effort cleanup, so a leftover
+     * that gets logged is really unreferenced.
      *
      * @throws ValidationException
      * @throws RuntimeException when the new file could not be written
@@ -87,9 +91,9 @@ class MandantMediaService
 
         $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
 
-        $this->removeSuperseded($mandant, $previous, $path, $keep, $kind);
-
         $mandant->update([$this->columnFor($kind) => $path]);
+
+        $this->removeSuperseded($mandant, $previous, $path, $keep, $kind);
     }
 
     /**
@@ -112,30 +116,29 @@ class MandantMediaService
      * without touching the path column — used when the mandant row itself is
      * deleted and the column write would be pointless.
      *
-     * The current file is mandatory and raises on failure (R-D7). Pre-W6
-     * legacy variants are no longer delivered once the reference is gone, so a
-     * leftover there is only logged.
+     * The current file and its variants are removed in one verified pass whose
+     * CURRENT file goes last (`MediaStorage::deleteWithVariants()`), so a
+     * variant that survives the attempt is discovered while the column still
+     * resolves: the raise keeps a servable image instead of a dangling
+     * reference. Pre-W6 legacy variants are no longer delivered once the
+     * reference is gone, so a leftover there is only logged.
      *
-     * @throws RuntimeException when the current file could not be removed
+     * @throws RuntimeException when a file that is still referenced could not be
+     *                          removed
      */
     public function purge(Mandant $mandant, string $kind): void
     {
         $path = $this->path($mandant, $kind);
 
-        if ($path !== null) {
-            $removed = $this->storage->delete($path);
-            // W11: the derived WebP sibling must not outlive its original.
-            $removed = $this->storage->deleteAlternateExtensions($path) && $removed;
-
-            if (! $removed) {
-                throw $this->removalFailed($path, sprintf('mandant#%d %s', $mandant->id, $kind));
-            }
+        if ($path !== null && ! $this->storage->deleteWithVariants($path)) {
+            throw $this->removalFailed($path, sprintf('mandant#%d %s', $mandant->id, $kind));
         }
 
         if (! $this->deleteLegacy($mandant, $kind)) {
             $this->logLeftover(
                 sprintf('mandants/%s/%s.<ext>', $mandant->slug, $kind),
                 sprintf('mandant#%d %s (pre-W6 legacy)', $mandant->id, $kind),
+                reapable: false,
             );
         }
     }
@@ -216,11 +219,15 @@ class MandantMediaService
      * path (if it is not one of the just-written files), every stale extension
      * variant (`logo.png` -> `logo.jpg`) and the pre-W6 legacy variants.
      *
-     * All of it runs AFTER a successful write and BEFORE the path column is
-     * rewritten, so a failure here is logged instead of raised: aborting would
-     * leave the new file on disk without any reference while the old image
-     * stays referenced and keeps being served. Once the column is rewritten the
-     * leftovers are unreferenced orphans, which `media:prune-orphans` reaps.
+     * This runs AFTER the path column was rewritten, so every leftover it logs
+     * is genuinely unreferenced — the new file is the one that is referenced, a
+     * failure is logged instead of raised (aborting would leave the new file
+     * unreferenced while the old image keeps being served) and a retry of the
+     * upload is the only thing that could unstick it.
+     *
+     * The one exception is the pre-W6 legacy variant: it lives on the `private`
+     * disk in a layout `media:prune-orphans` does not scan, so its message says
+     * "delete it manually" (see `logLeftover()`).
      *
      * @param  list<string>  $keep  the files that were just written
      */
@@ -235,16 +242,35 @@ class MandantMediaService
         }
 
         if (! $this->deleteLegacy($mandant, $kind)) {
-            $this->logLeftover(sprintf('mandants/%s/%s.<ext>', $mandant->slug, $kind), sprintf('mandant#%d %s (pre-W6 legacy)', $mandant->id, $kind));
+            $this->logLeftover(
+                sprintf('mandants/%s/%s.<ext>', $mandant->slug, $kind),
+                sprintf('mandant#%d %s (pre-W6 legacy)', $mandant->id, $kind),
+                reapable: false,
+            );
         }
     }
 
-    private function logLeftover(string $path, string $context): void
+    /**
+     * Log a file that is unreferenced but could not be removed.
+     *
+     * `$reapable` states whether `media:prune-orphans` will actually collect
+     * the file. That command enumerates the managed layout on the `media` disk
+     * ONLY, so a pre-W6 leftover on the `private` disk (`mandants/{slug}/…`) is
+     * outside its view forever — promising automatic convergence there would be
+     * a lie an operator acts on, so the message names the manual step instead
+     * (same wording as `media:migrate-to-domain-layout`).
+     */
+    private function logLeftover(string $path, string $context, bool $reapable = true): void
     {
-        Log::warning('A superseded media file could not be removed; it is unreferenced now and `media:prune-orphans` reaps it.', [
-            'path' => $path,
-            'context' => $context,
-        ]);
+        Log::warning(
+            $reapable
+                ? 'A superseded media file could not be removed; it is unreferenced now and `media:prune-orphans` reaps it.'
+                : 'A superseded media file could not be removed; it is unreferenced now and no automated reaper covers it — delete it manually (`media:prune-orphans` only scans the managed layout on the `media` disk).',
+            [
+                'path' => $path,
+                'context' => $context,
+            ],
+        );
     }
 
     /**

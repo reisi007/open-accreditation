@@ -28,19 +28,35 @@ Exception** — die Konsequenz gilt für *jeden* Schreib- und Löschpfad:
 
 | Schritt | Kontrakt |
 |---|---|
-| **Write** (`put`/`putFileAs`) | `false` heißt „nicht geschrieben“. **Vor** dem Löschen der Vorgängerdatei und **vor** dem Umschreiben eines DB-Pfads abbrechen (`RuntimeException` → 500). Es darf nie `UserMedia::create(['path' => (string) false])` o. Ä. entstehen — das persistiert einen Pfad `''`. |
-| **Delete** (`MediaStorage::delete()`) | Liefert `bool` und prüft seine **Nachbedingung** selbst: Erfolg = der Pfad ist danach auf **keiner** der beiden Disks mehr vorhanden. `false` nur, wenn die Datei **vorhanden war und danach noch da ist** (read-only `MEDIA_ROOT`, Rechte-Regression). Ein Pfad, der **vor** dem Versuch auf beiden Disks fehlt, ist „nichts zu löschen“ und `true` — ein wiederholter Cleanup darf nie 500 werden. `deleteAlternateExtensions()` aggregiert dieselbe Aussage über alle Alt-Endungen. |
+| **Write** (`put`/`putFileAs`) | `false` heißt „nicht geschrieben". **Vor** dem Löschen der Vorgängerdatei und **vor** dem Umschreiben eines DB-Pfads abbrechen (`RuntimeException` → 500). Es darf nie `UserMedia::create(['path' => (string) false])` o. Ä. entstehen — das persistiert einen Pfad `''`. Zusätzlich wird die **Nachbedingung geprüft** (die Datei liegt danach wirklich auf der Disk): `false` vom Adapter *oder* eine fehlende Datei gelten beide als Fehlschlag. Ein Treiber, der Erfolg meldet, ohne die Datei zu erzeugen, würde sonst genau den Verlust erzeugen, den Write-then-delete verhindern soll. `UserMediaService` prüft dieselbe Nachbedingung direkt auf der `private`-Disk. |
+| **Delete** (`MediaStorage::delete()`) | Liefert `bool` und prüft seine **Nachbedingung** selbst: Erfolg = der Pfad ist danach auf **keiner** der beiden Disks mehr vorhanden. `false` nur, wenn die Datei **vorhanden war und danach noch da ist** (read-only `MEDIA_ROOT`, Rechte-Regression). Ein Pfad, der **vor** dem Versuch auf beiden Disks fehlt, ist „nichts zu löschen" und `true` — ein wiederholter Cleanup darf nie 500 werden. `deleteAlternateExtensions()` aggregiert dieselbe Aussage über alle Alt-Endungen. |
+| **Delete mit Varianten** (`MediaStorage::deleteWithVariants()`) | Der Sammel-Primitive für `purge()`/`destroy()`: **Alt-/Geschwister-Varianten zuerst, die referenzierte Datei zuletzt**. Ein `false` aus der Varianten-Runde wird damit entdeckt, **während die Referenz noch auflöst** — das Bild wird weiter ausgeliefert und ein Retry versucht dieselbe Menge erneut. Die umgekehrte Reihenfolge (aktuelle Datei zuerst) ließ bei hängender Variante (deterministisch: ein *Verzeichnis* `logo.webp`, `unlink` scheitert immer) genau die einzige Datei verschwinden, die noch referenziert war. |
 | **Referenz fällt weg?** | Eine DB-Referenz (`logo_path`/`header_path`/`badge_images.path`/`user_media`-Row) wird **ausschließlich bei `true`** entfernt. Sonst `RuntimeException` (500, `Log::error`) und die Referenz bleibt. Das gilt auch für den Entity-Delete-Kaskaden-Pfad (`MandantController::destroy` → `purge()`): der Mandant wird nicht gelöscht, solange seine Logo-Datei nicht wegbekommen werden kann. |
-| **Referenz wandert nur?** | Aufräumen von Dateien, die ein **neuer, bereits geschriebener und referenzierter** Upload ersetzt (Vorgänger-Pfad, Alt-Endungen, Legacy-Varianten, Slug-Move), ist **best effort**: Fehlschlag → `Log::warning`, Ablauf läuft weiter. Ein Abbruch würde die neue Datei ohne Referenz zurücklassen und das alte Bild weiter ausliefern. Der Rest ist eine Waise, die `media:prune-orphans` aufräumt. |
+| **Reihenfolge der Kaskade** | `MandantController::destroy` räumt **zuerst die Brand-Medien** (Logo/Header) und **erst danach** Event-Typ- und Badge-Dateien, alles in **einer** Transaktion. Grund: `purge()` kann jederzeit raisen; mit der Brand zuerst bricht der gemeldete Auslöser (Kind-Dateien löschbar, Brand-Datei hängt) ab, **bevor** die erste Kind-Datei zerstört ist, und der Rollback stellt die `badge_images`-Rows wieder her. Restunsicherheit, bewusst dokumentiert statt wegdefiniert: Datei-Löschung ist nicht transaktional — gelingt die Brand und scheitert später ein Kind, bleibt der Mandant mit `logo_path`/`header_path` auf entfernte Dateien stehen. Ein Retry konvergiert (eine bereits fehlende Datei ist ein idempotentes `true`). |
+| **Referenz wandert nur?** | Aufräumen von Dateien, die ein **neuer, bereits geschriebener und referenzierter** Upload ersetzt (Vorgänger-Pfad, Alt-Endungen, Legacy-Varianten), ist **best effort**: Fehlschlag → `Log::warning`, Ablauf läuft weiter. Ein Abbruch würde die neue Datei ohne Referenz zurücklassen und das alte Bild weiter ausliefern. Es läuft **nach** dem Rewrite der Pfad-Spalte, ist also tatsächlich eine unreferenzierte Waise. **Ausnahme Slug-Move** (`moveForSlugChange()`): dort wird die Datei *vor* dem Spalten-Rewrite kopiert, weil die Spalte nie auf eine nicht existierende Datei zeigen darf; die Alt-Datei wird danach nur best effort entfernt. |
+| **Wer räumt Waisen auf?** | `media:prune-orphans` enumeriert **ausschließlich das verwaltete Layout auf der `media`-Disk**. Eine Waise, die dort liegt, wird wöchentlich aufgeräumt. Eine **pre-W6-Legacy-Waise auf der `private`-Disk** (`mandants/{slug}/logo|header.<ext>`, `badge-images/{slug}/…`) sieht der Command **per Default nie** — `isManagedPath()` lehnt sie ab, und die Disk wird nicht einmal enumeriert. Services und `media:migrate-to-domain-layout` sagen das im Log explizit („delete it manually"); **eine automatische Selbstheilung wird dort nicht versprochen**. Festgenagelt in `MediaPruneOrphansTest::test_a_pre_w6_legacy_leftover_on_the_private_disk_is_never_reaped`. **WP-10-c:** bewusst opt-in gibt es `--include-legacy`, das zusätzlich die zwei Legacy-Layouts auf der `private`-Disk durchsucht (dry-run gilt auch dort, eigener Report, Exit-Code ≠ 0 bei Fehlschlag). Default **aus** ⇒ ein geplanter `media:prune-orphans --force` behält exakt seinen Scope; `user-media/**` ist auch hinter dem Flag **nie** im Scope (Personenbilder sind live privat). Siehe „Optionaler Reaper-Scope" unten. |
+| **Root-Validierung (WP-10-b)** | `isManagedPath()` prüft das **erste** Pfadsegment, nicht nur das zweite: es muss ein kanonischer, normalisierbarer Mandant-Host sein (`MediaPathService::dirForHost($segment) === $segment`, **plus** ein Punkt) oder der reservierte `_tenants/<positive id>`-Präfix. Damit kann `<anything>/badges/…` — auch `mandants/badges/…`, `user-media/badges/…` oder ein beliebiges Deployment-Verzeichnis — **nie** als DB-verwaltet klassifiziert werden, und `_tenants/0\|abc\|-1\|007/…` ebenso wenig. **Unbekannte Roots werden nie gelöscht** (fail closed: im schlimmsten Fall bleibt eine Waise manuell zu löschen; fail open hieße, Dateien zu zerstören, die der Anwendung nicht gehören). Traversal-Segmente, Backslashes und Steuerzeichen in einem gelisteten Pfad werden vor jeder Layout-Prüfung abgewiesen. Festgenagelt in `MediaPruneOrphansTest::test_an_unknown_root_directory_is_never_reaped` (14 Pfadformen) + `test_a_real_domain_badge_file_is_managed`. |
+| **Speicher (WP-10-a)** | Die drei Batch-Commands (`media:prune-orphans` wöchentlich, `media:convert-to-webp`, `reminders:send` täglich) lesen ihre Kandidaten-Tabellen in `chunkById`-Batches und verarbeiten **jeden Batch, bevor der nächste gelesen wird** — kein `->get()` über die ganze Installation. `media:prune-orphans` enumeriert den Baum **lazy** (`listContents()` als Generator) statt `allFiles()`, das genau diese Iteration plus ein Array ist. **Bleibt unbegrenzt:** die Referenz-Menge (Pfad-Strings) und die Waisen-Liste (Pfad-Strings) wachsen weiterhin mit dem Datenbestand — sie sind aber **Strings**, keine Modelle, und die Waisen werden vor dem Report bewusst sortiert (deterministische Ausgabe). |
 | **Commands** | `media:prune-orphans --force`: nicht löschbare Waisen → Warnung **+ Exit-Code ≠ 0** (ein geplanter Lauf darf nicht erfolgreich aussehen, während Waisen liegen bleiben). `media:migrate-to-domain-layout` / `media:convert-to-webp --prune-originals`: nicht entfernbare Quelle/Original → Warnung, **kein** Abbruch (die DB zeigt bereits auf die neue Datei; ein Re-Run würde es ohnehin nicht wiederholen). |
 
 `UserMediaService` (Personenbilder, `private`-Disk) folgt derselben Reihenfolge:
-Quota-Prüfung → **Write** → Transaktion (Vorgänger-Row ersetzen + neue Row) →
+Quota-Prüfung → **Write** (Adapter-Rückgabewert *und* Nachbedingung müssen
+sagen „geschrieben") → Transaktion (Vorgänger-Row ersetzen + neue Row) →
 **unlink** der Vorgänger-Datei. Ein Write-Fehler lässt Foto *und* Row des
 Antragstellers unangetastet; ein fehlgeschlagener `create` rollt die
 Vorgänger-Row zurück und entfernt die frisch geschriebene Datei wieder (sonst
 ein Quota-verbrauchendes Phantom). `destroy()` droppt die Row nur, wenn die
 Datei wirklich weg ist.
+
+Die „genau eine Row pro User+Typ"-Invariante der singularen Typen ist **nicht**
+durch die Datenbank garantiert: `user_media` hat einen normalen
+`index(['user_id','type'])` (Attachment ist legitim mehrwertig → ein
+`unique(['user_id','type'])` würde Anhänge brechen), `supersededRows()` liest
+außerhalb der Transaktion und die Transaktion nimmt keinen Lock. Zwei
+gleichzeitige Singular-Uploads können deshalb beide einfügen (Sichtbarkeits-
+Folge: zwei Rows, ein unlinktes File, kaputtes Bild — kein Datenverlust).
+Details + Begründung: `features/04-media-self-service.md` und der Docblock von
+`UserMediaService::supersededRows()`.
 
 Grenze der Aussage: „Erfolg“ ist immer relativ zu den Disks, wie der Prozess
 sie gerade sieht — ein **komplett unmountetes** Volume ist von einem leeren
@@ -270,7 +286,9 @@ per Extension-Swap (`<base>.webp`) auf die `media`-Disk:
   `--force`, `--prune-originals`) erzeugt Geschwister für Bestandsdaten,
   idempotent; `--prune-originals` löscht das Raster-Original und stellt
   Pfad/Mime der DB-Zeile auf `.webp` um (der Badge-Renderer/DomPDF verarbeitet
-  WebP).
+  WebP). Die vier Medientabellen werden `chunkById`-weise gelesen und **jeder
+  Batch im Callback verarbeitet** (nicht erst gesammelt) — ein One-Shot-Lauf über
+  die ganze Installation materialisiert sie nicht (WP-10-a).
 - **Alpha/Exif/Format** sind durch `WebpConversionTest` abgedeckt; die
   Badge-PDF-Pipeline mit WebP durch `BadgeRenderServiceTest`.
 
@@ -285,7 +303,10 @@ Abgeleitete `.webp`-Dateien dürfen keine Waisen werden:
   werden (409); dessen Team-Dateien sind über den Team-Delete bereits weg.
   Zusätzlich löscht ein Replace alle Alt-Endungen desselben Blatts
   (`deleteAlternateExtensions`), sodass `logo.png` → `logo.jpg` keine
-  `logo.jpeg`/`logo.webp`-Reste hinterlässt.
+  `logo.jpeg`/`logo.webp`-Reste hinterlässt. Der Delete läuft über
+  `MediaStorage::deleteWithVariants()` und damit **Varianten zuerst, aktuelle
+  Datei zuletzt** — ein hängendes Geschwister wird gemeldet, während das Bild
+  noch ausgeliefert wird, statt es vorher zu löschen.
 - **Reconciliation:** `php artisan media:prune-orphans` (dry-run default,
   `--force`) listet/löscht `media`-Dateien, deren Pfad durch **keine** DB-Zeile
   referenziert wird (alle `logo_path`/`path`-Spalten plus deren `.webp`-
@@ -300,6 +321,28 @@ Abgeleitete `.webp`-Dateien dürfen keine Waisen werden:
   Rhythmus: **wöchentlich** über den Scheduler
   (`Schedule::command('media:prune-orphans --force')->weekly();`) — die
   Scheduler-Infrastruktur selbst wird hier nicht aufgebaut.
+  **Grenze:** Der Command enumeriert **per Default** nur die `media`-Disk und
+  nur das verwaltete Layout. Eine hängende **pre-W6-Legacy-Datei auf der `private`-Disk**
+  (`mandants/{slug}/…`, `badge-images/{slug}/…`) ist für ihn unsichtbar und
+  bleibt manuell zu löschen — genau das sagen die Services im Log. Wer sie
+  automatisch einsammeln will, muss es **explizit** verlangen (siehe
+  „Optionaler Reaper-Scope" unten).
+- **Root-Validierung (WP-10-b):** „verwaltetes Layout" heißt jetzt auch, dass das
+  **erste** Segment ein echtes Layout-Root ist: `<domain>/…` mit kanonischem,
+  normalisierbarem Host **mit Punkt** (`dirForHost($segment) === $segment`, dieselbe
+  Regel wie der Accel-Guard) oder `_tenants/<positive Mandant-ID>/…`. Vorher hat
+  der Command `segments[0]` nur *entfernt* und `segments[1]` geprüft — jedes
+  Verzeichnis, das zufällig als `<beliebig>/badges/…` auf dem Media-Root lag,
+  galt als DB-verwaltet und wäre unter `--force` gelöscht worden. **Fail closed**:
+  ein unbekanntes Root-Verzeichnis (z. B. `uploads/`, `not-a-host/`,
+  `Verband-A.test/` mit abweichendem Case) bleibt unangetastet; der Preis ist
+  höchstens eine Waise, die von Hand weg muss.
+- **Speicher (WP-10-a):** Der Lauf ist ein Wochen-Batch über die wachsende
+  Media-Struktur, deshalb wird nichts davon mehr am Stück materialisiert: die
+  vier Medientabellen werden per `chunkById` gelesen und der Baum **lazy**
+  enumeriert (`getDriver()->listContents('', true)` als Generator). `allFiles()`
+  war genau diese Iteration **plus** ein Array über den gesamten Baum — die
+  Datei-Menge ist identisch, der Puffer ist es nicht.
 
 ## Badge-Public-Posture
 
@@ -326,14 +369,14 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 |---|---|
 | `App\Services\MediaPathService` | Reiner Pfad-Vertrag: Host-Normalisierung, Pfad-Builder, Traversal-Abwehr (kein Disk-/DB-Zugriff) |
 | `App\Services\MediaHostResolver` | Erste Mandant-Domain als Primär-Host, `null` ohne Domain |
-| `App\Services\MediaStorage` | Disk-Adapter: Schreiben auf `media`, Lesen `media` → `private`, Löschen beider Disks mit **geprüftem** Ergebnis (`bool`, Nachbedingung statt Rückgabewert) |
+| `App\Services\MediaStorage` | Disk-Adapter: Schreiben auf `media` (Rückgabewert **und** Nachbedingung geprüft), Lesen `media` → `private`, Löschen beider Disks mit **geprüftem** Ergebnis (`bool`, Nachbedingung statt Rückgabewert; `deleteWithVariants()` = Varianten zuerst, aktuelle Datei zuletzt) |
 | `App\Services\ImageUploadRules` | Upload-Kontrakt: MIME-Whitelist → Endung, max. 2000×2000 px |
 | `App\Services\{Mandant,Team,EventType}MediaService` | Upload/Replace/Delete je Entität im Domain-/host-neutralen Layout |
 | `App\Services\BadgeImageService` | Badge-Upload unter ULID + Addressing-Zeile |
 | `App\Services\WebpConverter` | Synchrones GD-WebP-Geschwister (Presets, Alpha, Exif, animiert-Ablehnung) |
 | `App\Console\Commands\MediaMigrateToDomainLayoutCommand` | Dry-Run-Backfill der Legacy-`private`-Pfade |
-| `App\Console\Commands\MediaConvertToWebpCommand` | WebP-Backfill (`--prune-originals`) |
-| `App\Console\Commands\MediaPruneOrphansCommand` | Waise-Reconciliation (`media:prune-orphans`) |
+| `App\Console\Commands\MediaConvertToWebpCommand` | WebP-Backfill (`--prune-originals`; Kandidaten-Tabellen `chunkById`) |
+| `App\Console\Commands\MediaPruneOrphansCommand` | Waise-Reconciliation (`media:prune-orphans`; verwaltete `media`-Disk, Root-validiert, lazy enumeriert; Legacy-`private`-Waisen nur per `--include-legacy`) |
 | `deployment/caddy-media-overrides.Caddyfile` | Root-Brand-Dateien + Cache-Semantik (Entwurf) |
 | `deployment/caddy-media-api-accel.Caddyfile` | API-Accel-Delivery der DB-Media (Entwurf) |
 
@@ -354,14 +397,34 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 - **Accel default AUS (R1):** `MEDIA_ACCEL_PREFIX` leer → Streaming; niemals
   Flag und Snippet gegenläufig ausrollen.
 - **Derivat-Cache selbstreinigend:** kein `.webp` überlebt Original/Entität;
-  `media:prune-orphans` hält die Disk konvergent.
+  `media:prune-orphans` hält die **verwaltete `media`-Disk** konvergent. Für
+  pre-W6-Legacy-Waisen auf der `private`-Disk gilt das **nicht automatisch** —
+  dort bleibt der manuelle Schritt bzw. ein bewusst opt-in gesetztes
+  `--include-legacy` (siehe „Wer räumt Waisen auf?" oben).
+- **Nur echte Roots werden angefasst (WP-10-b):** Der Reaper löscht ausschließlich
+  Pfade, deren **erstes** Segment ein kanonischer `<domain>`-Root oder
+  `_tenants/<positive id>` ist. `<anything>/badges/…`, `mandants/badges/…`,
+  `user-media/…` und nicht-kanonische Hosts bleiben unangetastet — auch nicht im
+  Dry-Run-Report. Personenbilder sind **nie** Reaper-Scope, auch nicht mit
+  `--include-legacy`.
+- **Batch-Commands streamen (WP-10-a):** `media:prune-orphans`,
+  `media:convert-to-webp` und `reminders:send` lesen in `chunkById`-Batches und
+  enumerieren Disks lazy; ein Lauf darf nicht die Installation bzw. den kompletten
+  Media-Baum materialisieren.
 - **Write-then-delete:** kein Pfad löscht die Vorgängerdatei, bevor der Ersatz
   wirklich geschrieben ist; ein Schreibfehler lässt den vorherigen Zustand
   unverändert (inkl. DB-Zeile). Gilt für öffentliches Brand-/Team-/Event-Typ-/
-  Badge-Media **und** für `user-media/*`.
+  Badge-Media **und** für `user-media/*`. „Wirklich geschrieben" = Adapter
+  meldet keinen Fehler **und** die Datei liegt danach auf der Disk.
 - **Referenz nur bei verifiziertem Delete:** eine DB-Spalte/Row wird nie
   gelöscht, solange die Datei den Löschversuch überlebt hat (R-D7). Ein bereits
-  fehlender Pfad ist ein Erfolg (idempotent), kein Fehler.
+  fehlender Pfad ist ein Erfolg (idempotent), kein Fehler. Und: die Datei, auf
+  die die Referenz zeigt, wird **zuletzt** gelöscht — Varianten zuerst, damit
+  ein `false` aus der Varianten-Runde nicht erst nach dem Verlust der einzigen
+  noch gültigen Datei auffällt.
+- **Kaskaden fail-safe:** Der Mandant-Delete räumt die Brand zuerst und läuft in
+  einer Transaktion; ein abbrechendes `purge()` darf keinen live geschalteten
+  Mandanten mit bereits gelöschten Dateien hinterlassen.
 - **Portabilität (§2):** reine PHP-/Query-Builder-Logik, keine PG-Funktionen.
 
 ## Tests
@@ -373,12 +436,20 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 - `backend/tests/Feature/MediaWriteFailureTest.php` — Write-Failure bricht vor
   DB-Update/Delete ab; seit WP-4 auch für `user-media/*` (Write-Failure lässt
   Porträt **und** Row stehen, keine Row mit `path = ''`), plus Quota-Semantik
-  der Singular-Ersetzung.
-- `backend/tests/Feature/MediaDeleteFailureTest.php` — `delete()`/`deleteAlternateExtensions()`
+  der Singular-Ersetzung. **Nachbedingung:** ein Adapter, der Erfolg meldet,
+  ohne die Datei zu erzeugen (`putFileAs()` liefert den Pfad, `exists()` sagt
+  `false`), bricht genauso ab — `*_failure_on_a_lost_write_*`.
+- `backend/tests/Feature/MediaDeleteFailureTest.php` — `delete()`/`deleteAlternateExtensions()`/`deleteWithVariants()`
   als `bool` (false bei überlebender Datei, true bei „nichts zu löschen“),
   `destroy()`/`purge()` je Service (Mandant/Team/Event-Typ/Badge/User-Media)
   behält die Referenz und wirft, Entity-Delete-Kaskade bricht mit 500 ab,
-  Commands melden nicht entfernte Dateien (Prune-Exit-Code ≠ 0).
+  Commands melden nicht entfernte Dateien (Prune-Exit-Code ≠ 0). Dazu:
+  `*_when_a_sibling_variant_is_stuck` (Verzeichnis `logo.webp` ⇒ aktuelle Datei
+  bleibt, Referenz bleibt, Bild wird weiter ausgeliefert),
+  `mandant delete with a stuck brand file destroys no child file` (Kaskaden-
+  Reihenfolge: Brand zuerst, keine Kind-Datei wird zerstört) inkl. Retry-
+  Konvergenz, und die Leftover-Meldung: Legacy → „delete it manually",
+  verwaltet → „`media:prune-orphans` reaps it".
 - `backend/tests/Feature/AdminTeamParticipationTest.php` +
   `AdminEventTypeTest.php` — Team-/Event-Typ-Logo Upload/Replace/Delete,
   Cross-Domain-Isolation.
@@ -393,7 +464,26 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 - `backend/tests/Feature/MediaConvertToWebpTest.php` — Backfill dry-run/force/
   prune/svg/idempotent.
 - `backend/tests/Feature/MediaPruneOrphansTest.php` — dry-run listet Waise,
-  referenzierte/brand-root nicht; `--force` löscht nur Waise; idempotent.
+  referenzierte/brand-root nicht; `--force` löscht nur Waise; idempotent; und die
+  **Grenze**: eine pre-W6-Legacy-Waise auf der `private`-Disk wird nie gesehen
+  (`test_a_pre_w6_legacy_leftover_on_the_private_disk_is_never_reaped`) — deshalb
+  der manuelle Schritt in den Log-Meldungen. **WP-10-b:** Root-Validierung —
+  `<domain>/badges/…` ist verwaltet, `<not-a-host>/…`, `mandants/badges/…`,
+  `user-media/badges/…`, nicht-kanonische Hosts und `_tenants/0|abc|-1|007/…`
+  dagegen nie (14 Pfadformen), inkl. Dry-run-Nennung.
+- `backend/tests/Feature/MediaPruneOrphansLegacyTest.php` — **WP-10-c**
+  `--include-legacy`: beide Legacy-Layouts werden gesammelt (Default **aus**,
+  ohne Flag wird die `private`-Disk nachweislich gar nicht enumeriert), Idempotenz,
+  referenzierte Legacy-Dateien bleiben, `user-media/**` bleibt unberührt, Nonsense-
+  Formen bleiben, Dry-run meldet beide Pässe getrennt und löscht nichts, ein
+  gescheiterter Legacy-Delete ⇒ Exit-Code ≠ 0.
+- `backend/tests/Feature/ConsoleCommandChunkingTest.php` — **WP-10-a**: für
+  `media:prune-orphans` (alle vier Medientabellen), `media:convert-to-webp` (alle
+  vier) und `reminders:send` (Akkreditationen **und** Anträge je Akkreditierung)
+  wird per Query-Count gepinnt, dass eine Menge größer als die Chunk-Size in
+  **mehr als einem** Round Trip gelesen und der letzte Batch wirklich verarbeitet
+  wird; plus lazy-Walk statt `allFiles()` und ein Kontrolltest, dass der Zähler
+  einen ungechunkten Read (1 Statement) von einem gechunkten (≥ 2) unterscheidet.
 - `BadgeRenderServiceTest` — Badge-PDF mit WebP-Upload-Bild (DomPDF).
 - `caddy validate` + Laufzeitmatrix C1–C7 (caddy:2 + php:8.5-fpm).
 
@@ -405,6 +495,18 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
   erst nach Freigabe.
 - **Scheduler-Cron:** `media:prune-orphans --force` wöchentlich einplanen
   (Infrastruktur außerhalb dieses Repos).
+- **Optionaler Reaper-Scope — UMGESETZT (WP-10-c, 2026-09-26):**
+  `media:prune-orphans --include-legacy` enumeriert zusätzlich die zwei
+  Legacy-Layouts auf der `private`-Disk (`mandants/{slug}/{logo,header}.<ext>`,
+  `badge-images/{slug}/<ulid>.<ext>`), **nur** hinter dem expliziten Opt-in-Flag,
+  damit ein geplanter Lauf nie unerwartet Dateien löscht. Dry-run gilt dort
+  ebenfalls, beide Pässe melden getrennt, ein gescheiterter Legacy-Delete gibt
+  Exit-Code ≠ 0, und `user-media/**` bleibt auch hinter dem Flag draußen.
+  **Absichtlich nicht im Default:** der wöchentliche Scheduler-Eintrag bleibt
+  `media:prune-orphans --force` ohne Flag; wer die Altbestände abräumen will,
+  startet den Lauf einmal manuell mit `--include-legacy --force` (bzw. einmal im
+  Dry-run zur Bestandsaufnahme). Die Log-Meldung der Services („delete it
+  manually") bleibt damit **korrekt** — sie beschreibt den Default-Lauf.
 - **Alias-Domains:** Multi-Domain-Mandanten vor Go-Live klären (Alias-Verzeichnisse
   oder Host-Mapping).
 - **Case-Annahme (L1):** beobachten; bei Bedarf Host-Normalisierung in Caddy
