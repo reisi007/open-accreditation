@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\MediaRemovalFailedException;
 use App\Models\Mandant;
 use DomainException;
 use Illuminate\Http\UploadedFile;
@@ -276,14 +277,14 @@ class MandantMediaService
     /**
      * Log and build the exception for a file that must not lose its reference.
      */
-    private function removalFailed(string $path, string $context): RuntimeException
+    private function removalFailed(string $path, string $context): MediaRemovalFailedException
     {
         Log::error('Could not remove a media file; the stored reference was kept.', [
             'path' => $path,
             'context' => $context,
         ]);
 
-        return new RuntimeException(sprintf(
+        return new MediaRemovalFailedException($path, sprintf(
             'Could not remove the media file "%s"; the stored reference was kept.',
             $path,
         ));

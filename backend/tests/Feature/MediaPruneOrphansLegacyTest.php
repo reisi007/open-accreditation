@@ -51,7 +51,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         $this->seedPrivate('mandants/verband-a/logo.jpg');
         $this->seedPrivate('mandants/verband-a/header.png');
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
 
         $this->assertSame(0, $exitCode);
         Storage::disk(MediaStorage::LEGACY_DISK)->assertMissing('mandants/verband-a/logo.jpg');
@@ -64,7 +64,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         // the MIME whitelist produced before the domain layout.
         $this->seedPrivate('badge-images/verband-a/01M3EX7MXB8CBEGPY0VX9TPA5R.png');
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
 
         $this->assertSame(0, $exitCode);
         Storage::disk(MediaStorage::LEGACY_DISK)->assertMissing('badge-images/verband-a/01M3EX7MXB8CBEGPY0VX9TPA5R.png');
@@ -74,8 +74,8 @@ class MediaPruneOrphansLegacyTest extends TestCase
     {
         $this->seedPrivate('mandants/verband-a/logo.jpg');
 
-        Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
-        Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        Artisan::call('media:prune-orphans', $this->reapOptions());
+        Artisan::call('media:prune-orphans', $this->reapOptions());
 
         $this->assertStringContainsString('No orphaned media files', Artisan::output());
     }
@@ -90,7 +90,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         $this->seedPrivate('mandants/verband-a/logo.jpg');
         $this->mandant->update(['logo_path' => 'mandants/verband-a/logo.jpg']);
 
-        Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        Artisan::call('media:prune-orphans', $this->reapOptions());
 
         Storage::disk(MediaStorage::LEGACY_DISK)->assertExists('mandants/verband-a/logo.jpg');
     }
@@ -107,7 +107,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
             'original_name' => 'wappen.png',
         ]);
 
-        Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        Artisan::call('media:prune-orphans', $this->reapOptions());
 
         Storage::disk(MediaStorage::LEGACY_DISK)->assertExists($path);
     }
@@ -126,7 +126,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         $this->seedPrivate($pressId);
         $this->seedPrivate($attachment);
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
         $output = Artisan::output();
 
         $this->assertSame(0, $exitCode);
@@ -154,7 +154,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
             $this->seedPrivate($path);
         }
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('No orphaned media files', Artisan::output());
@@ -169,7 +169,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         $this->seedMedia('verband-a.test/teams/gone/logo.png');
         $this->seedPrivate('mandants/verband-a/logo.jpg');
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions(withoutForce: true));
         $output = Artisan::output();
 
         $this->assertSame(0, $exitCode);
@@ -190,7 +190,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
     {
         $this->seedPrivate('mandants/verband-a/logo.jpg');
 
-        Artisan::call('media:prune-orphans', ['--force' => true, '--dry-run' => true, '--include-legacy' => true]);
+        Artisan::call('media:prune-orphans', $this->reapOptions(['--dry-run' => true], withoutForce: true));
 
         $this->assertStringContainsString('[dry-run] legacy orphan: mandants/verband-a/logo.jpg', Artisan::output());
         Storage::disk(MediaStorage::LEGACY_DISK)->assertExists('mandants/verband-a/logo.jpg');
@@ -219,7 +219,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
             fn (string $name): Filesystem => $name === MediaStorage::LEGACY_DISK ? $notEnumerated : $media,
         );
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions(includeLegacy: false));
 
         $this->assertSame(0, $exitCode);
         $private->assertExists('mandants/verband-a/logo.jpg');
@@ -246,7 +246,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
             fn (string $name): Filesystem => $name === MediaStorage::LEGACY_DISK ? $unremovable : $media,
         );
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
         $output = Artisan::output();
 
         $this->assertNotSame(0, $exitCode);
@@ -268,7 +268,7 @@ class MediaPruneOrphansLegacyTest extends TestCase
         $media->put('verband-a.test/teams/gone/logo.png', 'orphan-bytes');
         $private->put('mandants/verband-a/logo.jpg', 'legacy-bytes');
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--include-legacy' => true]);
+        $exitCode = Artisan::call('media:prune-orphans', $this->reapOptions());
         $output = Artisan::output();
 
         $this->assertSame(0, $exitCode);
@@ -279,6 +279,34 @@ class MediaPruneOrphansLegacyTest extends TestCase
 
         $media->assertMissing('verband-a.test/teams/gone/logo.png');
         $private->assertMissing('mandants/verband-a/logo.jpg');
+    }
+
+    /**
+     * The reaper options this class runs with.
+     *
+     * `--min-age` is switched off deliberately: every scenario here writes its
+     * file and reaps it in the same millisecond. The default of 300 s exists
+     * because in production a file an upload just wrote is unreferenced for a
+     * moment (see `MediaPruneOrphansCommand`), which is precisely the opposite
+     * of what these tests need; the guard itself is covered by
+     * `MediaPruneOrphansTest::test_only_files_older_than_the_min_age_are_reaped()`.
+     *
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    private function reapOptions(array $options = [], bool $includeLegacy = true, bool $withoutForce = false): array
+    {
+        $options['--min-age'] = 0;
+
+        if ($includeLegacy) {
+            $options['--include-legacy'] = true;
+        }
+
+        if (! $withoutForce) {
+            $options['--force'] = true;
+        }
+
+        return $options;
     }
 
     private function seedMedia(string $path): void

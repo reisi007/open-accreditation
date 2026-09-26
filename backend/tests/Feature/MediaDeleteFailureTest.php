@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Exceptions\MediaRemovalFailedException;
+use App\Http\Controllers\Api\Admin\MandantController;
 use App\Models\BadgeImage;
 use App\Models\EventType;
 use App\Models\Mandant;
@@ -20,6 +22,7 @@ use App\Services\TeamMediaService;
 use App\Services\UserMediaService;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Database\QueryException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -27,6 +30,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
+use PDOException;
+use ReflectionClass;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -534,10 +539,198 @@ class MediaDeleteFailureTest extends TestCase
 
         $this->unremovablePaths = [];
 
-        $this->assertSame(0, Artisan::call('media:prune-orphans', ['--force' => true]));
+        $this->assertSame(0, Artisan::call('media:prune-orphans', ['--force' => true, '--min-age' => 0]));
 
         $this->realMedia->assertMissing($logoPath);
         $this->realMedia->assertMissing($eventLogo);
+    }
+
+    /* ---------------------------------------------------------------------
+     | The bounded retry itself (F3) and what it must NOT retry (F1)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * F3: the three cascade tests above only see the terminal outcome, so they
+     * would pass identically with `PURGE_ATTEMPTS = 1` — the retry could be
+     * deleted and nothing would notice. This counts the delete attempts against
+     * ONE stuck path instead: the retry has to be real, bounded, and applied
+     * per file.
+     *
+     * The count is read through `$this->onDeleteAttempt`, i.e. at the moment the
+     * unlink is issued, so it cannot be distorted by a later pass. The expected
+     * value is a LITERAL on purpose: "a stuck file is attempted three times and
+     * then given up on" is the contract, and reading `PURGE_ATTEMPTS` out of
+     * the controller would make the assertion agree with any retune — including
+     * `= 1`, which is exactly the shape this test has to catch.
+     */
+    public function test_a_stuck_file_is_unlinked_exactly_purge_attempts_times(): void
+    {
+        $logoPath = $this->seedMandantLogo();
+
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$logoPath]);
+
+        $attempts = [];
+        $this->onDeleteAttempt = function (string $path) use (&$attempts, $logoPath): void {
+            if ($path === $logoPath) {
+                $attempts[] = $path;
+            }
+        };
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(500);
+
+        $this->assertSame(
+            3,
+            count($attempts),
+            'Der stuck file muss exakt dreimal unlinked werden: einmal gäbe es keinen Retry, mehr wäre er unbounded.',
+        );
+
+        $this->assertSame(3, $this->purgeAttempts(), 'Der Retry-Bound ist Teil des Vertrags — ändert er sich, ändert sich dieser Test bewusst mit.');
+    }
+
+    /**
+     * The counterpart: a file that CAN be removed is unlinked once and then the
+     * cascade moves on. Without this, a controller that blindly retried every
+     * purge N times would also satisfy the test above.
+     */
+    public function test_a_removable_file_is_unlinked_once(): void
+    {
+        $logoPath = $this->seedMandantLogo();
+
+        // Nothing is unremovable here: the observer still has to see the
+        // unlink, so the same wrapper is used with an empty block list.
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, []);
+
+        $attempts = [];
+        $this->onDeleteAttempt = function (string $path) use (&$attempts, $logoPath): void {
+            if ($path === $logoPath) {
+                $attempts[] = $path;
+            }
+        };
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(204);
+
+        $this->assertSame(
+            1,
+            count($attempts),
+            'Ein entfernbarer file darf genau einmal unlinked werden — der Cascade darf ihn nicht mehrfach aufrufen.',
+        );
+    }
+
+    /**
+     * F1: `purgeWithRetry()` caught `RuntimeException`, and a `QueryException`
+     * IS one (PDOException → RuntimeException). So the database failure raised
+     * by `BadgeImageService::destroy()`'s `$image->delete()` — the file is gone,
+     * the row is not — was retried three times with a growing backoff and then
+     * reported as a media-removal problem: the wrong cause, three times over,
+     * 150 ms of sleep wasted, and the row still there.
+     *
+     * The cascade must therefore propagate a database failure on the FIRST
+     * attempt: no retry, no backoff, and the real cause intact.
+     *
+     * The observable is the number of times the badge row's delete is REACHED,
+     * not the number of unlinks: the unlink in this scenario SUCCEEDS, so a
+     * second purge attempt finds the file already gone and reports success
+     * without touching the disk at all (`delete()` is idempotent). Only the row
+     * delete happens on every attempt, which is exactly the point.
+     */
+    public function test_a_database_failure_in_the_cascade_is_not_retried_as_a_removal_failure(): void
+    {
+        $badgePath = 'verband-a.test/badges/01j0abc.png';
+        $this->realMedia->put($badgePath, 'badge-bytes');
+
+        $badge = BadgeImage::create([
+            'mandant_id' => $this->mandant->id,
+            'path' => $badgePath,
+            'mime' => 'image/png',
+            'original_name' => 'wappen.png',
+        ]);
+
+        // Empty block list: nothing is stuck here, the wrapper only exists so
+        // the observer sees the unlink.
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, []);
+
+        $attempts = [];
+        $this->onDeleteAttempt = function (string $path) use (&$attempts, $badgePath): void {
+            if ($path === $badgePath) {
+                $attempts[] = $path;
+            }
+        };
+
+        // The unlink succeeds (this is a database problem, not a stuck file) and
+        // the row delete right after it raises. Raising from the model event is
+        // the closest reproducible stand-in for a `QueryException` the driver
+        // would raise — the class is what the catch clause keys on, and PDO
+        // exceptions are the real-world source of it.
+        $rowDeletes = 0;
+        $imageId = $badge->id;
+        BadgeImage::deleting(function () use (&$rowDeletes, $imageId): void {
+            $rowDeletes++;
+
+            throw new QueryException(
+                'sqlite',
+                'delete from "badge_images" where "id" = ?',
+                [$imageId],
+                new PDOException('SQLSTATE[HY000]: General error: 1 no such table: badge_images'),
+            );
+        });
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
+            ->assertStatus(500);
+
+        // Once, not three times: a `QueryException` is not a file that might
+        // become removable, and re-running the purge does not touch the row
+        // delete a second time — it fails again in the same place.
+        $this->assertSame(
+            1,
+            $rowDeletes,
+            'Ein QueryException darf nicht als Removal-Failure retryt werden.',
+        );
+
+        // The unlink itself did happen once, before the database gave up.
+        $this->assertSame(1, count($attempts));
+
+        // The cascade did not swallow it either: the mandant row was already
+        // dropped, so the only way this request can still fail is the database
+        // exception making it all the way out.
+        $this->assertDatabaseMissing('mandants', ['id' => $this->mandant->id]);
+    }
+
+    /**
+     * F4: the services' own message ("the reference was kept" / "the row was
+     * kept") is true for THEIR single-entity path and false in this cascade,
+     * where the row is long gone. The 500 has to describe the situation the
+     * operator is actually in.
+     *
+     * Called through the controller rather than over HTTP: the exception
+     * handler turns the raise into a bare 500, so the message is only
+     * observable here. The 500 itself is covered by
+     * `test_mandant_delete_surfaces_a_failed_logo_removal()`.
+     */
+    public function test_the_mandant_delete_message_names_the_leftover_instead_of_a_kept_reference(): void
+    {
+        $logoPath = $this->seedMandantLogo();
+
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$logoPath]);
+
+        try {
+            app(MandantController::class)->destroy($this->mandant);
+
+            $this->fail('Der Delete muss mit einer RemovalFailure abbrechen.');
+        } catch (MediaRemovalFailedException $exception) {
+            $this->assertSame($logoPath, $exception->path);
+            $this->assertStringContainsString('Mandant gelöscht, aber Datei konnte nicht entfernt werden', $exception->getMessage());
+            $this->assertStringContainsString($logoPath, $exception->getMessage());
+
+            // The inverted claim is the whole point: the tenant is gone, so
+            // nothing was "kept".
+            $this->assertStringNotContainsString('reference was kept', $exception->getMessage());
+            $this->assertStringNotContainsString('row was kept', $exception->getMessage());
+        }
     }
 
     /* ---------------------------------------------------------------------
@@ -673,7 +866,9 @@ class MediaDeleteFailureTest extends TestCase
 
         $this->unremovableDisk(MediaStorage::PUBLIC_DISK);
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true]);
+        // `--min-age=0`: the orphan is written and reaped in the same
+        // millisecond, which the recency guard would (correctly) protect.
+        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--min-age' => 0]);
         $output = Artisan::output();
 
         $this->assertNotSame(0, $exitCode);
@@ -701,6 +896,77 @@ class MediaDeleteFailureTest extends TestCase
         $this->assertStringContainsString('the legacy source could not be removed', $output);
         $this->assertSame('verband-a.test/logo.png', $this->mandant->fresh()->logo_path);
         $this->realPrivate->assertExists('mandants/verband-a/logo.png');
+    }
+
+    /* ---------------------------------------------------------------------
+     | The backfill command must not let ONE unusable row abort the run (W3),
+     | and must say so in its exit code (W4)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * W3: `brandPath()` caught the `DomainException` of the DOMAIN-layout
+     * attempt only, then fell through to `hostNeutralFile()` — which
+     * sanitises the very same leaf name and raises again. One legacy column
+     * with a name the sanitizer rejects (`wappen-münchen.png`: non-ASCII, which
+     * `sanitizeFileName()` refuses) therefore aborted the entire backfill: every
+     * row AFTER the corrupt one stayed in the legacy layout, and the operator
+     * got a stack trace instead of a per-row warning.
+     *
+     * Pre-fix this test errors out on the escaping `DomainException`; the
+     * second mandant's migration is what proves the run continued.
+     */
+    public function test_migrate_command_survives_a_column_it_cannot_derive_a_path_for(): void
+    {
+        // The corrupt column: the leaf name carries a character the sanitizer
+        // rejects, so NO layout can hold it.
+        $this->mandant->update(['logo_path' => 'mandants/verband-a/wappen-m\u{00fc}nchen.png']);
+
+        // A perfectly migratable row behind it, on the same disk.
+        $second = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+        $second->domains()->create(['hostname' => 'verband-b.test']);
+        $this->realPrivate->put('mandants/verband-b/logo.png', 'legacy-logo-b');
+        $second->update(['logo_path' => 'mandants/verband-b/logo.png']);
+
+        $exitCode = Artisan::call('media:migrate-to-domain-layout', ['--force' => true]);
+        $output = Artisan::output();
+
+        // The unusable row is reported by name…
+        $this->assertStringContainsString('no usable target path', $output);
+        $this->assertStringContainsString('mandant#'.$this->mandant->id.' logo', $output);
+
+        // …and the row behind it was migrated anyway — that is the fix.
+        $this->assertSame('verband-b.test/logo.png', $second->fresh()->logo_path);
+        $this->assertStringContainsString('migrated mandant#'.$second->id.' logo', $output);
+
+        // The corrupt column is left exactly as it was: no guess, no rewrite.
+        $this->assertSame('mandants/verband-a/wappen-m\u{00fc}nchen.png', $this->mandant->fresh()->logo_path);
+
+        // W4: a candidate that was left behind is NOT a successful run.
+        $this->assertNotSame(0, $exitCode);
+    }
+
+    /**
+     * W4: the run counts what it did. "Migrated N file(s)" without the
+     * denominator read as a total, so a run that migrated one of two looked
+     * complete — and a run that migrated NOTHING of a fully broken table
+     * reported exactly the same line as a clean one.
+     */
+    public function test_migrate_command_reports_how_many_candidates_it_actually_migrated(): void
+    {
+        $this->realPrivate->put('mandants/verband-a/logo.png', 'legacy-logo');
+        $this->mandant->update(['logo_path' => 'mandants/verband-a/logo.png']);
+
+        // A second candidate whose source file is not on the disk any more.
+        $second = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
+        $second->domains()->create(['hostname' => 'verband-b.test']);
+        $second->update(['logo_path' => 'mandants/verband-b/logo.png']);
+
+        $exitCode = Artisan::call('media:migrate-to-domain-layout', ['--force' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, 'Ein fehlender Quelldatei-Skip ist kein Fehlschlag des Laufs.');
+        $this->assertStringContainsString('Migrated 1 of 2 candidate(s)', $output);
+        $this->assertStringContainsString('1 candidate(s) were skipped', $output);
     }
 
     /* ---------------------------------------------------------------------
@@ -823,6 +1089,21 @@ class MediaDeleteFailureTest extends TestCase
         $this->mandant->update(['logo_path' => $path]);
 
         return $path;
+    }
+
+    /**
+     * The controller's own `PURGE_ATTEMPTS`, read through reflection so
+     * raising the bound scales the assertion instead of turning it into a
+     * tautology (`count($attempts) === 3` would keep passing at 3, 4, 5 … and
+     * would be a claim about a literal rather than about the retry).
+     */
+    private function purgeAttempts(): int
+    {
+        $attempts = (new ReflectionClass(MandantController::class))->getConstant('PURGE_ATTEMPTS');
+
+        $this->assertIsInt($attempts, 'MandantController::PURGE_ATTEMPTS must be an int attempt count.');
+
+        return $attempts;
     }
 
     /**

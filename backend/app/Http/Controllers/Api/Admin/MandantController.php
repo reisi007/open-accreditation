@@ -2,22 +2,24 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exceptions\MediaRemovalFailedException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\BadgeImage;
+use App\Models\EventType;
 use App\Models\Mandant;
 use App\Rules\ValidUtf8;
 use App\Services\BadgeImageService;
 use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
 use App\Support\MandantContext;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
-use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -39,6 +41,21 @@ class MandantController extends Controller
      * transient filesystem error, short enough to stay invisible in a request.
      */
     private const PURGE_RETRY_DELAY_MICROSECONDS = 50_000;
+
+    /**
+     * Wall-clock budget for the WHOLE delete cascade, not for one file.
+     *
+     * `PURGE_ATTEMPTS` bounds a single purge; without an aggregate bound the
+     * total is `N × 3 × backoff` on a read-only MEDIA_ROOT, where every one of
+     * the N children fails and the request spends its whole time asleep. Thirty
+     * seconds is far beyond any honest local unlink (which is a single
+     * `unlink()` call) and short enough that the request stays inside a normal
+     * gateway timeout. What is left when the budget runs out is NOT lost: the
+     * rows are already deleted, so the files are unreferenced orphans that the
+     * weekly `media:prune-orphans` collects — the same residual the failure
+     * path leaves behind anyway.
+     */
+    private const PURGE_TOTAL_BUDGET_SECONDS = 30.0;
 
     public function __construct(
         private readonly MandantMediaService $media,
@@ -163,7 +180,9 @@ class MandantController extends Controller
         // every row goes or none does. What is NOT atomic is the file phase
         // that follows: a process death between the two leaves unreferenced
         // files, which is exactly the residual this order accepts in exchange
-        // for never publishing a dangling reference.
+        // for never publishing a dangling reference. The reference snapshot the
+        // file phase works from is taken INSIDE that transaction, under a
+        // `lockForUpdate()` on the mandant row — see `deleteRowsThenFiles()`.
         $this->deleteRowsThenFiles($mandant);
 
         return response()->noContent();
@@ -172,26 +191,60 @@ class MandantController extends Controller
     /**
      * Drop the mandant row, then remove the files its rows referenced.
      *
-     * Step 1 loads the references while the rows still exist (afterwards there
-     * is nothing left to read them from), step 2 deletes the row, step 3 purges
-     * the files with a bounded retry.
+     * The reference snapshot, the row delete and the `lockForUpdate()` all
+     * happen inside ONE transaction (F6). The snapshot has to run there and not
+     * before: read outside, it saw the rows as they were at an earlier instant,
+     * so a concurrent writer could commit a new `logo_path` in between and its
+     * file would then be published by nothing — an orphan the delete had
+     * promised to collect. The row lock is what makes the snapshot and the
+     * delete one atomic decision against other transactions: once this
+     * transaction holds the `mandants` row, no other transaction can change the
+     * mandant (or, through it, reach the children) until the commit.
      */
     private function deleteRowsThenFiles(Mandant $mandant): void
     {
-        // Snapshot phase — only the two media references and the child models
-        // the service purges need. `$mandant` itself keeps its attributes in
-        // memory, so `MandantMediaService::purge()` can still read `logo_path`,
-        // `header_path` and `slug` after the row is gone.
-        $eventTypes = $mandant->eventTypes()->get();
-        $badgeImages = BadgeImage::query()->where('mandant_id', $mandant->id)->get();
+        /** @var Collection<int, EventType> $eventTypes */
+        $eventTypes = new Collection;
+        /** @var Collection<int, BadgeImage> $badgeImages */
+        $badgeImages = new Collection;
 
-        DB::transaction(static function () use ($mandant): void {
-            $mandant->delete();
+        $deleted = DB::transaction(function () use ($mandant, &$eventTypes, &$badgeImages): ?Mandant {
+            // Re-read under the lock: the route-bound instance may be stale by
+            // the time this runs, and the snapshot below has to describe the
+            // row that is about to go.
+            $locked = Mandant::query()->whereKey($mandant->id)->lockForUpdate()->first();
+
+            if ($locked === null) {
+                return null;
+            }
+
+            $eventTypes = $locked->eventTypes()->get();
+            $badgeImages = BadgeImage::query()->where('mandant_id', $locked->id)->get();
+
+            $locked->delete();
+
+            // Handed back so the file phase purges the SAME attributes the
+            // snapshot was taken from. The route-bound `$mandant` is only
+            // "probably" that row: a concurrent commit between the route
+            // binding and this transaction would leave it stale, and purging
+            // `logo_path` from a stale instance removes the wrong file while
+            // the current one survives as an orphan. The locked instance keeps
+            // its attributes in memory after `delete()`.
+            return $locked;
         });
 
+        if ($deleted === null) {
+            // A concurrent delete won the race. It ran the same cascade — rows
+            // and files — so there is nothing left for this request to do.
+            return;
+        }
+
+        // The mandant row is gone; `$deleted` still carries its attributes in
+        // memory, which is why the file phase must not read them from the
+        // database any more.
         $purges = [
-            'mandant logo' => fn () => $this->media->purge($mandant, 'logo'),
-            'mandant header' => fn () => $this->media->purge($mandant, 'header'),
+            'mandant logo' => fn () => $this->media->purge($deleted, 'logo'),
+            'mandant header' => fn () => $this->media->purge($deleted, 'header'),
         ];
 
         foreach ($eventTypes as $eventType) {
@@ -206,16 +259,27 @@ class MandantController extends Controller
 
         if ($failed !== []) {
             Log::error('Deleting a mandant removed its rows but not every media file; the leftovers are unreferenced now.', [
-                'mandant_id' => $mandant->id,
+                'mandant_id' => $deleted->id,
                 'failed' => array_keys($failed),
             ]);
 
-            // The service's own exception (it names the file and has already
-            // logged the removal failure) — surfaced as a 500, like every other
-            // failed media removal in the codebase. Note the tenant IS gone: a
-            // retry answers 404, and the leftovers are what
-            // `media:prune-orphans` collects.
-            throw array_values($failed)[0];
+            // F4: the services' own message says "the reference was kept" /
+            // "the row was kept" — true for THEIR single-entity path, false
+            // here. In this cascade the row is long gone: the mandant delete
+            // dropped every row before the first unlink, which is exactly why
+            // the leftover is a harmless orphan instead of a dangling
+            // reference. An operator reading a 500 for a tenant that no longer
+            // exists must not be told its logo reference survived.
+            $first = array_values($failed)[0];
+
+            throw new MediaRemovalFailedException(
+                $first->path,
+                sprintf(
+                    'Mandant gelöscht, aber Datei konnte nicht entfernt werden: %s. Die Datei ist unreferenziert und wird vom Reaper aufgeräumt.',
+                    $first->path,
+                ),
+                previous: $first,
+            );
         }
     }
 
@@ -234,22 +298,67 @@ class MandantController extends Controller
      * every other file is collectable right now, and stopping at the first stuck
      * file would strand all of them for the reaper as well.
      *
+     * **Only `MediaRemovalFailedException` is retried** (F1). That is the one
+     * failure "a second unlink might still succeed" applies to. A
+     * `QueryException` from the row delete a purge performs
+     * (`BadgeImageService::destroy()` deletes after the unlink) is a DATABASE
+     * failure: the file is gone but the row is not, which no retry of the
+     * unlink can fix. Retrying it three times with a growing backoff would turn
+     * one loud, immediate database error into a request that burns 150 ms of
+     * sleep before reporting the wrong cause — so it propagates on the first
+     * attempt, exactly like every other non-removal exception.
+     *
+     * The whole loop is additionally bounded by `PURGE_TOTAL_BUDGET_SECONDS`
+     * (F2). `PURGE_ATTEMPTS` bounds ONE file; nothing bounded the aggregate, and
+     * with a fully read-only MEDIA_ROOT every one of the N children burns its
+     * 3 × backoff — pure sleep, N-fold. Once the budget is spent the loop
+     * breaks and the remainder is left to `media:prune-orphans`: the rows are
+     * already deleted, so the files are unreferenced orphans by definition and
+     * nothing about a longer request makes them any more collectable.
+     *
      * @param  array<string, callable(): void>  $purges
-     * @return array<string, RuntimeException> label => the last failure
+     * @return array<string, MediaRemovalFailedException> label => the last failure
      */
     private function purgeWithRetry(array $purges): array
     {
         $failed = [];
+        $attempted = [];
+        $deadline = hrtime(true) + (int) (self::PURGE_TOTAL_BUDGET_SECONDS * 1_000_000_000);
 
         foreach ($purges as $label => $purge) {
+            // F2: the aggregate deadline. Checked BEFORE the first attempt of a
+            // label, so a purge never starts when no budget is left to finish it.
+            if (hrtime(true) > $deadline) {
+                Log::error('The media purge of a mandant delete ran out of its time budget; the remaining files are left to `media:prune-orphans`.', [
+                    'budget_seconds' => self::PURGE_TOTAL_BUDGET_SECONDS,
+                    'attempts_per_file' => self::PURGE_ATTEMPTS,
+                    'skipped' => array_values(array_diff(array_keys($purges), $attempted)),
+                ]);
+
+                break;
+            }
+
+            $attempted[] = $label;
+
             for ($attempt = 1; ; $attempt++) {
                 try {
                     $purge();
 
                     break;
-                } catch (RuntimeException $exception) {
+                } catch (MediaRemovalFailedException $exception) {
                     if ($attempt >= self::PURGE_ATTEMPTS) {
                         $failed[$label] = $exception;
+
+                        // F2: the path is logged the moment it is known to be
+                        // stuck, not only in the post-hoc summary of the whole
+                        // cascade — with a read-only volume that summary can be
+                        // arbitrarily far in the future, and the operator needs
+                        // the concrete file now.
+                        Log::error('A media file of a deleted mandant could not be removed; the leftover is unreferenced now and `media:prune-orphans` reaps it.', [
+                            'label' => $label,
+                            'path' => $exception->path,
+                            'attempts' => self::PURGE_ATTEMPTS,
+                        ]);
 
                         break;
                     }

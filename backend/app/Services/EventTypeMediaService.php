@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\MediaRemovalFailedException;
 use App\Models\EventType;
 use DomainException;
 use Illuminate\Http\UploadedFile;
@@ -189,14 +190,14 @@ class EventTypeMediaService
     /**
      * Log and build the exception for a file that must not lose its reference.
      */
-    private function removalFailed(EventType $eventType): RuntimeException
+    private function removalFailed(EventType $eventType): MediaRemovalFailedException
     {
         Log::error('Could not remove the event-type logo; `logo_path` was kept.', [
             'path' => $eventType->logo_path,
             'event_type_id' => $eventType->id,
         ]);
 
-        return new RuntimeException(sprintf(
+        return new MediaRemovalFailedException((string) $eventType->logo_path, sprintf(
             'Could not remove the event-type logo "%s"; the stored reference was kept.',
             (string) $eventType->logo_path,
         ));

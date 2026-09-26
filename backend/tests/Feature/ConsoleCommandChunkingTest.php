@@ -113,7 +113,9 @@ class ConsoleCommandChunkingTest extends TestCase
             fn (string $name): Filesystem => $name === MediaPathService::DISK ? $lazyOnly : $private,
         );
 
-        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true]);
+        // `--min-age=0`: the orphan is written and reaped in the same
+        // millisecond, which the recency guard would (correctly) protect.
+        $exitCode = Artisan::call('media:prune-orphans', ['--force' => true, '--min-age' => 0]);
 
         $this->assertSame(0, $exitCode);
         $media->assertMissing('verband-a.test/teams/gone/logo.png');

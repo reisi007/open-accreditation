@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\MediaRemovalFailedException;
 use App\Models\BadgeImage;
 use App\Models\Mandant;
 use DomainException;
@@ -111,7 +112,7 @@ class BadgeImageService
                 'badge_image_id' => $image->id,
             ]);
 
-            throw new RuntimeException(sprintf(
+            throw new MediaRemovalFailedException($image->path, sprintf(
                 'Could not remove the badge image file "%s"; the stored reference was kept.',
                 $image->path,
             ));
