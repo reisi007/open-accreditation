@@ -391,11 +391,20 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 - [ ] **WP-9-D2 (wird umgesetzt):** `features/05-e2e-test-image.md` wiederholt die
   falsche „immutable / rollback-safe"-Behauptung (identisch zu den zwei Workflows, die
   WP-9 bereits korrigiert hat).
-- [ ] **WP-9-D3 (offen, Gate-Abschwächung):** der Nightly-Lauf erbt `retries: 2` und
-  `maxFailures: 10` aus `frontend/playwright.config.ts` ⇒ ein Test, der einmal
-  fehlschlägt und dann grün ist, bleibt **grün**. Für einen Gate-Lauf, der Flakes
-  erkennen soll, ist das kontraproduktiv. Bewusst **nicht** angefasst, während #6-1
-  die E2E-Suite zur Verifikation fährt.
+- [ ] **WP-9-D3 (offen, Gate-Abschwächung) — Premisse nachgemessen:**
+  `frontend/playwright.config.ts:10-13` (alle `process.env.CI`-gegated):
+  `retries: 2`, `maxFailures: 10`, `workers: 4`, `timeout: 120000`,
+  `fullyParallel: true`. Also `baseURL: 'http://localhost:5173'` **hartkodiert**
+  (:18) — das ist derselbe Port-Fallstrick, den WP-9-a hier behoben hat
+  (`preview.port` defaultet auf 4173).
+  **Auswirkung:** ein Test, der einmal fehlschlägt und beim Retry grün ist, bleibt
+  **grün**; ein Test, der 10× in einem Lauf fehlschlägt, ebenfalls. Für einen
+  Gate, der Flakes **erkennen** soll, ist das kontraproduktiv.
+  **Richtige Form:** `retries`/`maxFailures` sind **Laufprofil**, kein
+  Monolith — eigener `playwright.regression.config.ts` für den Nightly
+  (strikt: `retries: 0`, `maxFailures: 1`), damit der Smoke-Gate seine Retains
+  für echte Flakes behält und der Nightly-Gate ausschlaggebend bleibt.
+  **Bewusst noch nicht angefasst**, solange #6-1 die Suite zur Verifikation fährt.
 - [ ] **WP-9-D4 (offen, Test-Isolation):** die sechs aus `@smoke` abgestuften Tests sind
   grün, **ein** voller Suite-Lauf ließ jedoch `a11y.spec.ts` + `badge-editor.spec.ts`
   gemeinsam scheitern — Auslöser ist **akkumulierter DB-Zustand** aus wiederholten
