@@ -164,15 +164,21 @@ erst seit W2/W4 und damit nie im alten Layout. Details:
 `features/media-domain-layout.md`.
 
 **Bleibt eine Legacy-Datei hängen** (read-only Volume, Rechte-Regression), ist
-sie eine Waise **außerhalb** des Reaper-Scopes: `media:prune-orphans`
-enumeriert ausschließlich das verwaltete Layout auf der `media`-Disk, eine
-`private`-Datei unter `mandants/{slug}/…` sieht er nie. Services und Backfill
-sagen das im Log explizit („delete it manually", vgl. WP-4-Review) — **keine
-Selbstheilung versprechen**. Genau das Verhalten ist in
-`backend/tests/Feature/MediaPruneOrphansTest.php`
+sie eine Waise **außerhalb** des Reaper-Scopes des **Default-Laufs**:
+`media:prune-orphans` enumeriert ausschließlich das verwaltete Layout auf der
+`media`-Disk, eine `private`-Datei unter `mandants/{slug}/…` sieht er im Default
+nie. Services und Backfill sagen das im Log explizit („delete it manually",
+vgl. WP-4-Review) — **keine Selbstheilung versprechen**. Genau das Verhalten ist
+in `backend/tests/Feature/MediaPruneOrphansTest.php`
 (`test_a_pre_w6_legacy_leftover_on_the_private_disk_is_never_reaped`)
 festgenagelt. Waisen im verwalteten `media`-Layout werden dagegen sehr wohl
 wöchentlich aufgeräumt.
+
+**Opt-in (WP-10-c):** `media:prune-orphans --include-legacy` durchsucht
+zusätzlich die zwei Legacy-Layouts auf der `private`-Disk und räumt dort auf —
+bewusst opt-in, damit ein geplanter `--force`-Lauf exakt seinen Scope behält.
+`user-media/**` bleibt auch hinter dem Flag außerhalb (Personenbilder sind live
+privat). Details: `features/media-domain-layout.md`, „Optionaler Reaper-Scope".
 
 Personenbilder (`user-media/*`) bleiben unberührt auf der `private`-Disk und
 auth-gated.

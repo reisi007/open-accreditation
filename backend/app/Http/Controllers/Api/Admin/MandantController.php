@@ -15,7 +15,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -24,6 +26,20 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class MandantController extends Controller
 {
+    /**
+     * Attempts per media purge in the delete cascade, see `purgeWithRetry()`.
+     * Bounded: a file that is genuinely unremovable must surface as a 500
+     * quickly instead of holding the request open.
+     */
+    private const PURGE_ATTEMPTS = 3;
+
+    /**
+     * Backoff before the second and third attempt, multiplied by the attempt
+     * number (so the waits are 50 ms + 100 ms). Long enough to ride out a
+     * transient filesystem error, short enough to stay invisible in a request.
+     */
+    private const PURGE_RETRY_DELAY_MICROSECONDS = 50_000;
+
     public function __construct(
         private readonly MandantMediaService $media,
         private readonly EventTypeMediaService $eventTypes,
@@ -128,46 +144,122 @@ class MandantController extends Controller
         // historical drift. Teams cannot exist here (409 above), so their media
         // is already gone.
         //
-        // Fail-safe order (WP-4 review, finding 1): the brand media is purged
-        // FIRST, before any child file is touched. Every purge can raise (R-D7 —
-        // an unremovable file keeps its reference), and a raise used to surface
-        // AFTER the event-type/badge files were already gone: the `mandants` row
-        // and all `event_types`/`badge_images` rows survived while their files
-        // did not, so the live tenant served broken images and the columns
-        // dangled. With the brand first, the reported trigger (children
-        // removable, brand file stuck behind a read-only bind mount) aborts
-        // before the first child file is destroyed.
+        // ORDER: rows first, files second (WF-3-D3). Every purge can raise
+        // (R-D7 — an unremovable file keeps its reference), and file unlinks
+        // are NOT transactional: a `DB::transaction()` around the cascade
+        // cannot roll an unlink back, it can only roll the row writes back. So
+        // purging before deleting the row left a real window — the reported
+        // trigger (a brand logo stuck behind a read-only bind mount, every
+        // child file removable) unlinked every event-type and badge file, then
+        // the brand purge raised: HTTP 500, all rows intact, and the live tenant
+        // served broken images off dangling `event_types.logo_path` /
+        // `badge_images.path` values. Deleting the row FIRST closes it: a purge
+        // that fails after the row is gone can only leave an UNREFERENCED file
+        // behind, which `media:prune-orphans` reaps (managed layout) — the
+        // inverse of the old damage is a stranded file, not a broken image.
         //
-        // The DB part runs in one transaction, so a raise in the middle rolls
-        // the `badge_images` row deletions back and leaves mandant, event types
-        // and badge images as they were.
-        //
-        // Residual, documented rather than papered over: file deletion is not
-        // transactional, so if the brand purge SUCCEEDS and a later child purge
-        // fails, the tenant survives with `logo_path`/`header_path` pointing at
-        // removed files. The reverse order would make that the common case
-        // instead of the rare one. A retry converges — an already absent file is
-        // an idempotent `true` (R-D7). See `features/media-domain-layout.md`,
-        // „Schreib- und Lösch-Invariante".
-        DB::transaction(function () use ($mandant): void {
-            // Drop the brand media (logo/header + their `.webp` siblings) before
-            // the row goes, so deleting a mandant leaves no public-media
-            // orphans (W11).
-            $this->media->purge($mandant, 'logo');
-            $this->media->purge($mandant, 'header');
+        // The row delete is a single atomic statement (`mandants.id` cascades
+        // into `event_types`, `badge_images`, `mandant_domains`, …), so either
+        // every row goes or none does. What is NOT atomic is the file phase
+        // that follows: a process death between the two leaves unreferenced
+        // files, which is exactly the residual this order accepts in exchange
+        // for never publishing a dangling reference.
+        $this->deleteRowsThenFiles($mandant);
 
-            foreach ($mandant->eventTypes()->get() as $eventType) {
-                $this->eventTypes->purge($eventType);
-            }
+        return response()->noContent();
+    }
 
-            foreach (BadgeImage::query()->where('mandant_id', $mandant->id)->get() as $badgeImage) {
-                $this->badges->destroy($badgeImage);
-            }
+    /**
+     * Drop the mandant row, then remove the files its rows referenced.
+     *
+     * Step 1 loads the references while the rows still exist (afterwards there
+     * is nothing left to read them from), step 2 deletes the row, step 3 purges
+     * the files with a bounded retry.
+     */
+    private function deleteRowsThenFiles(Mandant $mandant): void
+    {
+        // Snapshot phase — only the two media references and the child models
+        // the service purges need. `$mandant` itself keeps its attributes in
+        // memory, so `MandantMediaService::purge()` can still read `logo_path`,
+        // `header_path` and `slug` after the row is gone.
+        $eventTypes = $mandant->eventTypes()->get();
+        $badgeImages = BadgeImage::query()->where('mandant_id', $mandant->id)->get();
 
+        DB::transaction(static function () use ($mandant): void {
             $mandant->delete();
         });
 
-        return response()->noContent();
+        $purges = [
+            'mandant logo' => fn () => $this->media->purge($mandant, 'logo'),
+            'mandant header' => fn () => $this->media->purge($mandant, 'header'),
+        ];
+
+        foreach ($eventTypes as $eventType) {
+            $purges[sprintf('event-type#%d logo', $eventType->id)] = fn () => $this->eventTypes->purge($eventType);
+        }
+
+        foreach ($badgeImages as $badgeImage) {
+            $purges[sprintf('badge-image#%d', $badgeImage->id)] = fn () => $this->badges->destroy($badgeImage);
+        }
+
+        $failed = $this->purgeWithRetry($purges);
+
+        if ($failed !== []) {
+            Log::error('Deleting a mandant removed its rows but not every media file; the leftovers are unreferenced now.', [
+                'mandant_id' => $mandant->id,
+                'failed' => array_keys($failed),
+            ]);
+
+            // The service's own exception (it names the file and has already
+            // logged the removal failure) — surfaced as a 500, like every other
+            // failed media removal in the codebase. Note the tenant IS gone: a
+            // retry answers 404, and the leftovers are what
+            // `media:prune-orphans` collects.
+            throw array_values($failed)[0];
+        }
+    }
+
+    /**
+     * Run every purge, retrying a raised one a bounded number of times, and
+     * return the ones that never succeeded.
+     *
+     * The retry is for the transient half of "the file could not be removed"
+     * (an NFS hiccup, a briefly read-only mount, an EIO): a purge is idempotent
+     * — `MediaStorage::delete()` of an already absent file reports success — so
+     * a second attempt is safe. It is BOUNDED on purpose: a file that is truly
+     * stuck must not keep a request alive. The delay grows per attempt so a
+     * mount that is remounted read-write in between is picked up.
+     *
+     * A failure does not abort the remaining purges: the row is already gone, so
+     * every other file is collectable right now, and stopping at the first stuck
+     * file would strand all of them for the reaper as well.
+     *
+     * @param  array<string, callable(): void>  $purges
+     * @return array<string, RuntimeException> label => the last failure
+     */
+    private function purgeWithRetry(array $purges): array
+    {
+        $failed = [];
+
+        foreach ($purges as $label => $purge) {
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    $purge();
+
+                    break;
+                } catch (RuntimeException $exception) {
+                    if ($attempt >= self::PURGE_ATTEMPTS) {
+                        $failed[$label] = $exception;
+
+                        break;
+                    }
+
+                    usleep(self::PURGE_RETRY_DELAY_MICROSECONDS * $attempt);
+                }
+            }
+        }
+
+        return $failed;
     }
 
     /**

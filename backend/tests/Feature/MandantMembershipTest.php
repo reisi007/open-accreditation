@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -162,10 +163,9 @@ class MandantMembershipTest extends TestCase
         $user = $this->memberOf($this->mandantA);
         $token = $this->tokenFor($user);
 
-        $this->withJwt($token)
-            ->getJson('http://'.self::HOST_B.'/api/auth/me')
-            ->assertForbidden();
-
+        // `/api/auth/me` is deliberately NOT in this list: it is one of the two
+        // #6-1-D1 exemptions (the caller's own record), see
+        // `test_a_just_revoked_user_can_still_read_itself_and_log_out()`.
         $this->withJwt($token)
             ->getJson('http://'.self::HOST_B.'/api/applications')
             ->assertForbidden();
@@ -283,10 +283,12 @@ class MandantMembershipTest extends TestCase
             ->where('mandant_id', $this->mandantB->id)
             ->delete();
 
+        // `/api/auth/me` and `POST /api/auth/logout` are the two #6-1-D1
+        // exemptions and keep answering; everything else below is 403.
         $this->withJwt($token)
             ->getJson('http://'.self::HOST_B.'/api/auth/me')
-            ->assertForbidden()
-            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
 
         $this->withJwt($token)
             ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$accreditation->id.'/apply')
@@ -299,13 +301,132 @@ class MandantMembershipTest extends TestCase
             ])
             ->assertForbidden();
 
+        $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/user/profile', ['company' => 'Fremder Verband'])
+            ->assertForbidden();
+
         $this->assertDatabaseCount('applications', 0);
         $this->assertDatabaseCount('user_media', 0);
+        $this->assertNull($user->fresh()->company);
         $this->assertSame([], Storage::disk('private')->allFiles('user-media/'.$this->mandantB->slug));
 
         // … and the revocation is SCOPED, not global: the very same token still
         // works on the mandant the account belongs to.
         $this->withJwt($token)->getJson('http://'.self::HOST_A.'/api/auth/me')->assertOk();
+    }
+
+    /* ---------------------------------------------------------------------
+     | #6-1-D1 — the two exemptions: session teardown and "my own record"
+     -------------------------------------------------------------------- */
+
+    /**
+     * A role revoked a second ago must not strand the session: the SPA calls
+     * `/auth/me` on every load and `POST /auth/logout` on sign-out, and neither
+     * may answer 403 (the frontend has no other way to drop the httpOnly
+     * cookie — a 403 is a normal `ApiError`, only a 401 triggers its cleanup).
+     *
+     * `POST /api/auth/logout` answers 200 with the "successfully signed out"
+     * body plus the expired cookie (`AuthController::logout()`), NOT 204.
+     */
+    public function test_a_just_revoked_user_can_still_read_itself_and_log_out(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $this->assign($user, $this->mandantB, 'user');
+
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)->getJson('http://'.self::HOST_B.'/api/auth/me')->assertOk();
+
+        RoleUser::query()
+            ->where('user_id', $user->id)
+            ->where('mandant_id', $this->mandantB->id)
+            ->delete();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id)
+            ->assertJsonPath('data.email', $user->email);
+
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/auth/logout')
+            ->assertOk()
+            ->assertCookieExpired(config('jwt.cookie_key_name'));
+
+        // The exemption ends the session for real — the token is blacklisted, so
+        // a replay of the same cookie is a 401, not a 200.
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertUnauthorized();
+    }
+
+    /**
+     * The exemption is scoped to those two routes and nothing else: the very
+     * same revoked user is still refused on every mandant-scoped WRITE, and no
+     * state is created or written in the foreign mandant.
+     */
+    public function test_the_exemption_does_not_open_the_tenant_scoped_write_routes(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $this->assign($user, $this->mandantB, 'user');
+
+        $accreditation = $this->accreditationOf($this->mandantB);
+        $token = $this->tokenFor($user);
+
+        RoleUser::query()
+            ->where('user_id', $user->id)
+            ->where('mandant_id', $this->mandantB->id)
+            ->delete();
+
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$accreditation->id.'/apply')
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        $this->withJwt($token)
+            ->post('http://'.self::HOST_B.'/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait.jpg'),
+            ])
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/user/profile', ['company' => 'Fremder Verband'])
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        // … and the mandant-scoped READS stay closed as well: `/me` is exempt
+        // because it is the caller's OWN record, not because reads are exempt.
+        $this->withJwt($token)->getJson('http://'.self::HOST_B.'/api/applications')->assertForbidden();
+        $this->withJwt($token)->getJson('http://'.self::HOST_B.'/api/user/media')->assertForbidden();
+
+        $this->assertDatabaseCount('applications', 0);
+        $this->assertDatabaseCount('user_media', 0);
+        $this->assertNull($user->fresh()->company);
+        $this->assertSame([], Storage::disk('private')->allFiles('user-media/'.$this->mandantB->slug));
+    }
+
+    /**
+     * The exemption list is pinned on purpose: it must stay exactly these two
+     * routes, each bound to its own method, so a future route cannot inherit it
+     * by reusing a name and a wildcard entry cannot creep in.
+     */
+    public function test_the_exemption_list_is_exactly_logout_and_me_with_their_methods(): void
+    {
+        $this->assertSame([
+            'api.auth.logout' => 'POST',
+            'api.auth.me' => 'GET',
+        ], EnsureMandantMembership::EXEMPT_ROUTES);
+
+        $routes = app(Router::class)->getRoutes();
+
+        foreach (EnsureMandantMembership::EXEMPT_ROUTES as $name => $method) {
+            $route = $routes->getByName($name);
+
+            $this->assertNotNull($route, sprintf('Die ausgenommene Route "%s" existiert nicht.', $name));
+            $this->assertContains($method, $route->methods());
+        }
     }
 
     /* ---------------------------------------------------------------------

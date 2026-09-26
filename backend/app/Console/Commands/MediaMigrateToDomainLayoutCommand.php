@@ -9,6 +9,7 @@ use App\Services\MediaPathService;
 use App\Services\MediaStorage;
 use DomainException;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * W6 backfill: move public brand/badge media written before the domain layout
@@ -42,9 +43,27 @@ use Illuminate\Console\Command;
  * volume, permissions regression — both disks run with `throw => false`) is
  * reported as a warning and counted as migrated: the DB already points at the
  * new file, the leftover is unreferenced, and a re-run would not retry it.
+ *
+ * **Memory (WP-10-D1).** Both candidate tables are read in `chunkById` batches
+ * and each batch is fully processed before the next one is read, so the peak is
+ * one batch of models instead of every mandant and every badge image of the
+ * installation at once (each of which used to be held in memory together with a
+ * closure per media column, and both lists were merged into one big candidate
+ * array before the first line was printed). Same shape as
+ * `MediaConvertToWebpCommand` / `MediaPruneOrphansCommand` (WP-10-a) and
+ * `BackfillQrTokens`. Rewriting a row inside the batch is safe: only the path
+ * columns change, never the `id` the paging keys on, so the candidate counter
+ * and the summary are unchanged.
  */
 class MediaMigrateToDomainLayoutCommand extends Command
 {
+    /**
+     * Rows per `chunkById` batch, for both candidate tables. Large enough that
+     * a normal installation never pays for a second round trip, small enough
+     * that the peak stays flat.
+     */
+    private const CHUNK_SIZE = 200;
+
     protected $signature = 'media:migrate-to-domain-layout
         {--force : Execute the migration (default is a dry run)}
         {--dry-run : List candidates without touching anything (default)}';
@@ -55,54 +74,59 @@ class MediaMigrateToDomainLayoutCommand extends Command
     {
         $force = (bool) $this->option('force') && ! $this->option('dry-run');
 
-        $candidates = [
-            ...$this->mandantBrandCandidates($paths, $hosts),
-            ...$this->badgeImageCandidates($paths, $hosts),
-        ];
-
-        if ($candidates === []) {
-            $this->info('Nothing to migrate.');
-
-            return self::SUCCESS;
-        }
-
+        $found = 0;
         $migrated = 0;
 
-        foreach ($candidates as $candidate) {
+        // One consumer for both entity tables: the candidate is built inside the
+        // chunk callback and migrated right there, so nothing but the current
+        // batch is alive. A write failure (`put()`) still aborts the whole run
+        // — the exception is deliberately not caught, same as before.
+        $consume = function (string $label, string $from, string $to, callable $apply) use ($force, $storage, &$found, &$migrated): void {
+            $found++;
+
             if (! $force) {
-                $this->line(sprintf('[dry-run] %s: %s -> %s', $candidate['label'], $candidate['from'], $candidate['to']));
+                $this->line(sprintf('[dry-run] %s: %s -> %s', $label, $from, $to));
 
-                continue;
+                return;
             }
 
-            if (! $storage->exists($candidate['from'])) {
-                $this->warn(sprintf('skipped %s: source file is missing (%s).', $candidate['label'], $candidate['from']));
+            if (! $storage->exists($from)) {
+                $this->warn(sprintf('skipped %s: source file is missing (%s).', $label, $from));
 
-                continue;
+                return;
             }
 
-            $storage->put($candidate['to'], $storage->get($candidate['from']));
-            ($candidate['apply'])($candidate['to']);
+            $storage->put($to, $storage->get($from));
+            $apply($to);
 
             $migrated++;
-            $this->line(sprintf('migrated %s: %s -> %s', $candidate['label'], $candidate['from'], $candidate['to']));
+            $this->line(sprintf('migrated %s: %s -> %s', $label, $from, $to));
 
             // The DB now points at the new file, so a legacy source that
             // survives the delete is an unreferenced leftover on the private
             // disk (not served by Caddy). It is reported, not raised: aborting
             // the loop here would strand every candidate after this one, and a
             // re-run skips the row anyway (its path is no longer legacy).
-            if (! $storage->delete($candidate['from'])) {
+            if (! $storage->delete($from)) {
                 $this->warn(sprintf(
                     'migrated %s, but the legacy source could not be removed: %s — delete it manually.',
-                    $candidate['label'],
-                    $candidate['from'],
+                    $label,
+                    $from,
                 ));
             }
+        };
+
+        $this->eachBrandCandidate($consume, $paths, $hosts);
+        $this->eachBadgeImageCandidate($consume, $paths, $hosts);
+
+        if ($found === 0) {
+            $this->info('Nothing to migrate.');
+
+            return self::SUCCESS;
         }
 
         if (! $force) {
-            $this->info(sprintf('%d candidate(s) would be migrated. Re-run with --force to execute.', count($candidates)));
+            $this->info(sprintf('%d candidate(s) would be migrated. Re-run with --force to execute.', $found));
 
             return self::SUCCESS;
         }
@@ -113,77 +137,84 @@ class MediaMigrateToDomainLayoutCommand extends Command
     }
 
     /**
-     * @return list<array{label: string, from: string, to: string, apply: callable(string): void}>
+     * Hand every legacy mandant brand path to `$consume`, one `chunkById`
+     * batch at a time (WP-10-D1).
+     *
+     * @param  callable(string, string, string, callable(string): void): void  $consume
      */
-    private function mandantBrandCandidates(MediaPathService $paths, MediaHostResolver $hosts): array
+    private function eachBrandCandidate(callable $consume, MediaPathService $paths, MediaHostResolver $hosts): void
     {
-        $candidates = [];
+        Mandant::query()
+            ->orderBy('id')
+            ->chunkById(self::CHUNK_SIZE, function (Collection $mandants) use ($consume, $paths, $hosts): void {
+                foreach ($mandants as $mandant) {
+                    foreach (['logo' => 'logo_path', 'header' => 'header_path'] as $kind => $column) {
+                        $current = $mandant->{$column};
 
-        foreach (Mandant::query()->orderBy('id')->get() as $mandant) {
-            foreach (['logo' => 'logo_path', 'header' => 'header_path'] as $kind => $column) {
-                $current = $mandant->{$column};
+                        if (! is_string($current) || ! str_starts_with($current, 'mandants/')) {
+                            continue;
+                        }
 
-                if (! is_string($current) || ! str_starts_with($current, 'mandants/')) {
-                    continue;
+                        $to = $this->brandPath($paths, $hosts, $mandant, basename($current));
+
+                        if ($to === $current) {
+                            continue;
+                        }
+
+                        $consume(
+                            sprintf('mandant#%d %s', $mandant->id, $kind),
+                            $current,
+                            $to,
+                            function (string $path) use ($mandant, $column): void {
+                                $mandant->update([$column => $path]);
+                            },
+                        );
+                    }
                 }
-
-                $to = $this->brandPath($paths, $hosts, $mandant, basename($current));
-
-                if ($to === $current) {
-                    continue;
-                }
-
-                $candidates[] = [
-                    'label' => sprintf('mandant#%d %s', $mandant->id, $kind),
-                    'from' => $current,
-                    'to' => $to,
-                    'apply' => function (string $path) use ($mandant, $column): void {
-                        $mandant->update([$column => $path]);
-                    },
-                ];
-            }
-        }
-
-        return $candidates;
+            });
     }
 
     /**
-     * @return list<array{label: string, from: string, to: string, apply: callable(string): void}>
+     * The same for the badge images. The mandant is eager-loaded per batch (one
+     * query per chunk, not one per image).
+     *
+     * @param  callable(string, string, string, callable(string): void): void  $consume
      */
-    private function badgeImageCandidates(MediaPathService $paths, MediaHostResolver $hosts): array
+    private function eachBadgeImageCandidate(callable $consume, MediaPathService $paths, MediaHostResolver $hosts): void
     {
-        $candidates = [];
+        BadgeImage::query()
+            ->with('mandant')
+            ->orderBy('id')
+            ->chunkById(self::CHUNK_SIZE, function (Collection $images) use ($consume, $paths, $hosts): void {
+                foreach ($images as $image) {
+                    $current = $image->path;
 
-        foreach (BadgeImage::query()->with('mandant')->orderBy('id')->get() as $image) {
-            $current = $image->path;
+                    if (! is_string($current) || ! str_starts_with($current, 'badge-images/')) {
+                        continue;
+                    }
 
-            if (! is_string($current) || ! str_starts_with($current, 'badge-images/')) {
-                continue;
-            }
+                    $mandant = $image->mandant;
 
-            $mandant = $image->mandant;
+                    if ($mandant === null) {
+                        continue;
+                    }
 
-            if ($mandant === null) {
-                continue;
-            }
+                    $to = $this->badgePath($paths, $hosts, $mandant, basename($current));
 
-            $to = $this->badgePath($paths, $hosts, $mandant, basename($current));
+                    if ($to === $current) {
+                        continue;
+                    }
 
-            if ($to === $current) {
-                continue;
-            }
-
-            $candidates[] = [
-                'label' => sprintf('badge-image#%d', $image->id),
-                'from' => $current,
-                'to' => $to,
-                'apply' => function (string $path) use ($image): void {
-                    $image->update(['path' => $path]);
-                },
-            ];
-        }
-
-        return $candidates;
+                    $consume(
+                        sprintf('badge-image#%d', $image->id),
+                        $current,
+                        $to,
+                        function (string $path) use ($image): void {
+                            $image->update(['path' => $path]);
+                        },
+                    );
+                }
+            });
     }
 
     private function brandPath(MediaPathService $paths, MediaHostResolver $hosts, Mandant $mandant, string $name): string

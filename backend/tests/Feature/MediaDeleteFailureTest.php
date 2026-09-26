@@ -379,9 +379,16 @@ class MediaDeleteFailureTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
-     | The entity-delete cascade fails loudly instead of orphaning a file
+     | The entity-delete cascade: rows FIRST, files second (WF-3-D3)
      | ------------------------------------------------------------------- */
 
+    /**
+     * A failed logo removal must be loud (500) and must not leave a reference
+     * behind that points at a file nobody can remove any more. The mandant row
+     * is deleted BEFORE the first unlink, so a stuck brand file can only end up
+     * as an unreferenced orphan — the tenant is gone, and nothing publishes a
+     * dangling `logo_path` any more.
+     */
     public function test_mandant_delete_surfaces_a_failed_logo_removal(): void
     {
         $path = $this->seedMandantLogo();
@@ -392,22 +399,62 @@ class MediaDeleteFailureTest extends TestCase
             ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
             ->assertStatus(500);
 
-        // The mandant row survives with its reference, so the still-served file
-        // stays reachable instead of becoming an anonymous leftover.
-        $this->assertDatabaseHas('mandants', ['id' => $this->mandant->id]);
-        $this->assertSame($path, $this->mandant->fresh()->logo_path);
+        $this->assertDatabaseMissing('mandants', ['id' => $this->mandant->id]);
         $this->realMedia->assertExists($path);
     }
 
     /**
-     * Finding 1 — the half-destroyed tenant. The brand logo is the only file
+     * WF-3-D3, the window itself: at the moment the FIRST file of the cascade is
+     * unlinked, the mandant row must already be gone. Pre-fix the child files
+     * were removed while the row (and therefore `event_types.logo_path` /
+     * `badge_images.path`) was still there, so a raise further down the cascade
+     * published a live tenant with broken images.
+     */
+    public function test_mandant_delete_removes_the_row_before_the_first_file_is_unlinked(): void
+    {
+        $this->seedMandantLogo();
+
+        $eventType = EventType::query()->create([
+            'mandant_id' => $this->mandant->id,
+            'slug' => 'bundesliga',
+            'name' => 'Bundesliga',
+        ]);
+        $eventLogo = 'verband-a.test/event-types/bundesliga/logo.png';
+        $this->realMedia->put($eventLogo, 'event-type-logo');
+        $eventType->update(['logo_path' => $eventLogo]);
+
+        $mandantId = $this->mandant->id;
+        $rowStillThere = [];
+
+        $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, []);
+
+        $this->onDeleteAttempt = function () use ($mandantId, &$rowStillThere): void {
+            $rowStillThere[] = Mandant::query()->whereKey($mandantId)->exists();
+        };
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$mandantId)
+            ->assertStatus(204);
+
+        $this->assertNotSame([], $rowStillThere, 'Der Delete muss überhaupt eine Datei entfernen.');
+        $this->assertSame(
+            [false],
+            array_values(array_unique($rowStillThere)),
+            'Die mandants-Zeile muss vor dem ersten unlink verschwunden sein — sonst bleiben dangling Pfadwerte zurück.',
+        );
+    }
+
+    /**
+     * Finding 1 / WF-3-D3 — the reported trigger: the brand logo is the only file
      * that cannot be removed (a read-only bind mount covering that single file);
      * every event-type and badge file of the mandant IS removable.
      *
-     * The cascade must abort before it touches a child file, so the whole tenant
-     * — rows AND files — survives intact and the operator can retry.
+     * The old order answered 500 with every row intact but the child files
+     * already unlinked. The implemented order deletes the rows first, so the
+     * failure can only leave the stuck brand file behind as an ORPHAN — no
+     * reference anywhere points at it any more.
      */
-    public function test_mandant_delete_with_a_stuck_brand_file_destroys_no_child_file(): void
+    public function test_mandant_delete_with_a_stuck_brand_file_leaves_no_dangling_reference(): void
     {
         $logoPath = $this->seedMandantLogo();
 
@@ -437,28 +484,30 @@ class MediaDeleteFailureTest extends TestCase
             ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
             ->assertStatus(500);
 
-        // Every row survives …
-        $this->assertDatabaseHas('mandants', ['id' => $this->mandant->id]);
-        $this->assertDatabaseHas('event_types', ['id' => $eventType->id]);
-        $this->assertDatabaseHas('badge_images', ['id' => $badge->id]);
-        $this->assertSame($logoPath, $this->mandant->fresh()->logo_path);
-        $this->assertSame($eventLogo, $eventType->fresh()->logo_path);
+        // Every row is gone, so not one path column in the database can point at
+        // a missing file any more. Pre-fix all of them survived while their
+        // files were already unlinked — the live tenant served broken images.
+        $this->assertDatabaseMissing('mandants', ['id' => $this->mandant->id]);
+        $this->assertDatabaseMissing('event_types', ['id' => $eventType->id]);
+        $this->assertDatabaseMissing('badge_images', ['id' => $badge->id]);
 
-        // … and, crucially, every file is still there: no reference was left
-        // dangling at a still-served path. Pre-fix the event-type and badge
-        // files were already unlinked at this point, so the live tenant served
-        // broken images and every retry 500'd on the same stuck logo.
+        // The removable files are gone even though a later purge failed: one
+        // stuck file does not strand the rest of the cascade.
+        $this->realMedia->assertMissing($eventLogo);
+        $this->realMedia->assertMissing($badgePath);
+
+        // The stuck file survives as an unreferenced orphan, which is exactly
+        // what `media:prune-orphans` collects.
         $this->realMedia->assertExists($logoPath);
-        $this->realMedia->assertExists($eventLogo);
-        $this->realMedia->assertExists($badgePath);
     }
 
     /**
-     * The same trigger, seen from the retry side: the stuck brand file makes the
-     * delete fail, but it must not consume the child files either. A retry after
-     * the volume is writable completes and leaves nothing behind.
+     * The retry side of the same trigger. Pre-fix a second DELETE converged
+     * (the tenant had survived). Now the tenant is already gone, so the
+     * convergence happens on the FILE: once the read-only mount is fixed, the
+     * reaper removes the orphan the failed delete left behind.
      */
-    public function test_mandant_delete_converges_once_the_stuck_brand_file_is_gone(): void
+    public function test_mandant_delete_leaves_the_stuck_brand_file_to_the_reaper(): void
     {
         $logoPath = $this->seedMandantLogo();
 
@@ -477,16 +526,17 @@ class MediaDeleteFailureTest extends TestCase
             ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
             ->assertStatus(500);
 
-        // The mount is gone: every delete really happens again — what a retry in
-        // a fixed deployment sees.
-        $this->unremovablePaths = [];
-
+        // A retry answers 404: the tenant really is deleted, only the file
+        // cleanup was incomplete.
         $this->actingAsApi($this->superAdmin())
             ->deleteJson('/api/admin/mandants/'.$this->mandant->id)
-            ->assertStatus(204);
+            ->assertStatus(404);
 
-        $this->assertDatabaseMissing('mandants', ['id' => $this->mandant->id]);
-        $this->assertDatabaseMissing('event_types', ['id' => $eventType->id]);
+        $this->unremovablePaths = [];
+
+        $this->assertSame(0, Artisan::call('media:prune-orphans', ['--force' => true]));
+
+        $this->realMedia->assertMissing($logoPath);
         $this->realMedia->assertMissing($eventLogo);
     }
 

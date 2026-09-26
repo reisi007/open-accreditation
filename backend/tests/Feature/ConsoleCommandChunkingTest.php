@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\MediaConvertToWebpCommand;
+use App\Console\Commands\MediaMigrateToDomainLayoutCommand;
 use App\Console\Commands\MediaPruneOrphansCommand;
 use App\Console\Commands\SendReminders;
 use App\Mail\DeadlineReminderMail;
@@ -32,6 +33,10 @@ use Tests\TestCase;
  * `->get()`, so one run hydrated every mandant, team, event type, badge image,
  * accreditation and application of the installation at once — the prune command
  * additionally buffered the complete media tree via `allFiles()`.
+ *
+ * `media:migrate-to-domain-layout` is the same finding class, closed later
+ * (WP-10-D1): it also read both candidate tables with `->get()` and merged the
+ * two lists into one array before printing a single line.
  *
  * An end-result assertion cannot catch that: the same files are converted,
  * pruned or mailed either way. These tests therefore count the statements —
@@ -144,6 +149,38 @@ class ConsoleCommandChunkingTest extends TestCase
         );
         $this->assertStringContainsString(
             sprintf('mandant#%d logo', (int) DB::table('mandants')->max('id')),
+            $output,
+        );
+    }
+
+    /* ---------------------------------------------------------------------
+     | media:migrate-to-domain-layout (WP-10-D1, same finding class as WP-10-a)
+     | ------------------------------------------------------------------- */
+
+    public function test_migrate_to_domain_layout_reads_both_candidate_tables_in_more_than_one_batch(): void
+    {
+        $this->seedMediaTables($this->rowsFor(MediaMigrateToDomainLayoutCommand::class, 'CHUNK_SIZE'));
+        $this->giveEveryRowALegacyMediaPath();
+
+        $queries = $this->recordQueries(fn () => Artisan::call('media:migrate-to-domain-layout'));
+        $output = Artisan::output();
+
+        foreach (['mandants', 'badge_images'] as $table) {
+            $this->assertGreaterThanOrEqual(
+                2,
+                $this->countSelectsFrom($queries, $table),
+                sprintf('`media:migrate-to-domain-layout` read `%s` in a single statement — the chunking is gone.', $table),
+            );
+        }
+
+        // The tail of the last batch is really processed — a `->get()`-shaped
+        // implementation that dropped the remainder would stop here.
+        $this->assertStringContainsString(
+            sprintf('[dry-run] mandant#%d logo', (int) DB::table('mandants')->max('id')),
+            $output,
+        );
+        $this->assertStringContainsString(
+            sprintf('[dry-run] badge-image#%d', (int) DB::table('badge_images')->max('id')),
             $output,
         );
     }
@@ -304,6 +341,18 @@ class ConsoleCommandChunkingTest extends TestCase
     private function giveEveryMandantARasterLogo(): void
     {
         DB::table('mandants')->update(['logo_path' => 'verband-a.test/logo.png']);
+    }
+
+    /**
+     * The pre-W6 layout `media:migrate-to-domain-layout` looks for: a
+     * `mandants/…` brand path and a `badge-images/…` badge path per row. A dry
+     * run only prints the candidates, so no file has to exist. One shared leaf
+     * name per table is enough — the label carries the row id.
+     */
+    private function giveEveryRowALegacyMediaPath(): void
+    {
+        DB::table('mandants')->update(['logo_path' => 'mandants/verband-a/logo.png']);
+        DB::table('badge_images')->update(['path' => 'badge-images/verband-a/01j0abc.png']);
     }
 
     /**

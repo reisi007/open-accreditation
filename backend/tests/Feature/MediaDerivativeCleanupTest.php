@@ -119,7 +119,7 @@ class MediaDerivativeCleanupTest extends TestCase
         $this->assertDatabaseMissing('badge_images', ['id' => $image->id]);
     }
 
-    public function test_mandant_delete_purges_brand_media_before_the_row_disappears(): void
+    public function test_mandant_delete_purges_brand_media_after_the_row_is_deleted(): void
     {
         $target = Mandant::factory()->create(['slug' => 'verband-c', 'name' => 'Verband C']);
         $target->domains()->create(['hostname' => 'verband-c.test']);

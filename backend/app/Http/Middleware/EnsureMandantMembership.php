@@ -70,6 +70,21 @@ use Symfony\Component\HttpFoundation\Response;
  * budget instead of opening an unthrottled 403 loop. Route-model binding has
  * already resolved at that point; it is an unscoped `find` that creates and
  * mutates nothing, so a foreign id cannot change any state.
+ *
+ * **Two exemptions (`EXEMPT_ROUTES`, #6-1-D1).** `POST /api/auth/logout` and
+ * `GET /api/auth/me` answer even for an account whose role was JUST revoked.
+ * Without that, the revocation the middleware exists for would strand the
+ * session: the SPA calls `/auth/me` on every load and `POST /auth/logout` on
+ * sign-out, a 403 on both leaves the httpOnly cookie in place and the frontend
+ * has no 401-triggered cleanup path — the account would sit on a page it can
+ * no longer use until the cookie expires (`JWT_TTL`, 60 min).
+ * Neither exemption widens the tenant boundary: `/auth/me` answers with the
+ * CALLER's own `UserResource` (own fields, own roles, own media) and never
+ * with foreign data, and `/auth/logout` only tears down the caller's own token
+ * and cookie. Both are read-or-teardown, not a mandant-scoped write, so the
+ * hole this middleware closes is unaffected. Deliberately keyed by route NAME
+ * plus method, never by role: no other route is exempt, and the check runs only
+ * AFTER the membership test, so members never pay for it.
  */
 class EnsureMandantMembership
 {
@@ -82,6 +97,28 @@ class EnsureMandantMembership
      * SPA needs no new error string for it.
      */
     public const DENIED_MESSAGE = 'Dieser Account ist für dieses Portal nicht registriert.';
+
+    /**
+     * The only two routes that answer for an account without a role in the
+     * current mandant: `route name => the method it must be called with`.
+     *
+     * - `POST /api/auth/logout` — session teardown. This is the only way the
+     *   server removes the httpOnly cookie, so denying it would leave a
+     *   just-revoked account logged in until the cookie expires.
+     * - `GET /api/auth/me` — the caller reads ONLY its own record; no foreign
+     *   mandant data can be reached through it.
+     *
+     * The method is part of the entry so a future route reusing one of the
+     * names cannot inherit the exemption by accident. Nothing else is exempt —
+     * in particular the un-gated write routes (`apply`, `user/media`,
+     * `user/profile`) stay denied, and the exemption is not role-based.
+     *
+     * @var array<string, string>
+     */
+    public const EXEMPT_ROUTES = [
+        'api.auth.logout' => 'POST',
+        'api.auth.me' => 'GET',
+    ];
 
     public function __construct(private readonly AuthManager $auth) {}
 
@@ -116,7 +153,55 @@ class EnsureMandantMembership
             return $next($request);
         }
 
+        // After the membership test, not before: a member never reaches this,
+        // so `/me` — called on every SPA load — stays free of the extra branch.
+        if ($this->isExempt($request)) {
+            $this->logExempt($request, $user, $mandantId);
+
+            return $next($request);
+        }
+
         return $this->deny($request, $user, $mandantId);
+    }
+
+    /**
+     * Whether the request targets one of the two `EXEMPT_ROUTES`. Matched on
+     * the resolved route NAME plus the effective method (so Symfony's
+     * `_method` override cannot turn a different route into an exempt one), and
+     * false when no route was matched at all (a 404 is not a session action).
+     */
+    public function isExempt(Request $request): bool
+    {
+        $route = $request->route();
+
+        if (! is_object($route) || ! method_exists($route, 'getName')) {
+            return false;
+        }
+
+        $name = $route->getName();
+
+        if ($name === null) {
+            return false;
+        }
+
+        return (self::EXEMPT_ROUTES[$name] ?? null) === $request->method();
+    }
+
+    /**
+     * Audit trail for the two exemptions: a non-member reaching `/me` or
+     * `/logout` is either a just-revoked account or a foreign token replay, and
+     * both are worth seeing next to the `deny()` notice. `info`, not `notice` —
+     * the answer was NOT a rejection.
+     */
+    private function logExempt(Request $request, User $user, int $mandantId): void
+    {
+        Log::info('EnsureMandantMembership: exempt route answered for an account without a role in the current mandant.', [
+            'user_id' => $user->getAuthIdentifier(),
+            'mandant_id' => $mandantId,
+            'host' => $request->getHost(),
+            'path' => $request->path(),
+            'method' => $request->method(),
+        ]);
     }
 
     /**

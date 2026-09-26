@@ -92,6 +92,23 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      der Login-Fall: „Dieser Account ist für dieses Portal nicht registriert."
      (`EnsureMandantMembership::DENIED_MESSAGE`); der konkrete Grund geht ins
      Log (`Log::notice`), nicht in die Antwort.
+   - **Zwei Ausnahmen (`EnsureMandantMembership::EXEMPT_ROUTES`, #6-1-D1):**
+     `POST /api/auth/logout` und `GET /api/auth/me` antworten **auch** für ein
+     Konto, dem die Rolle **gerade** entzogen wurde. Ohne diese Ausnahme
+     blockierte die Middleware genau die Entziehung, die sie auslösen soll: die
+     SPA ruft `/auth/me` bei **jedem** Laden und `POST /auth/logout` beim
+     Abmelden auf, ein 403 auf beiden lässt den httpOnly-Cookie stehen (nur ein
+     **401** löst im Frontend den globalen Logout-Handler aus), und das Konto
+     bliebe bis zum Cookie-Ablauf (`JWT_TTL`, 60 min) auf einer Seite, die es
+     nicht mehr benutzen darf. Beide Ausnahmen weiten die Mandantengrenze
+     **nicht** auf: `/me` liefert ausschließlich den **eigenen**
+     `UserResource` (eigene Felder, eigene Rollen, eigene Medien) — niemals
+     fremde Mandanten-Daten; `/logout` räumt nur das **eigene** Token und den
+     **eigenen** Cookie ab. Beides ist Lesen bzw. Session-Abbau, **kein**
+     mandant-scoped Write. Die Ausnahme ist **nicht** rollenbasiert und gilt
+     **nur** für genau diese zwei Routen (Match auf Route-**Name** + Methode,
+     damit eine künftige Route den Namen nicht erben kann); sie wird erst
+     **nach** dem Mitgliedschafts-Test geprüft, kostet Mitglieder also nichts.
    - **Ergänzend, nicht ersetzend:** das per-Ressource-`forMandant()`-Scoping in
      den Controllern bleibt unverändert. Die Middleware beantwortet „darf dieses
      Konto in diesem Mandanten überhaupt handeln?", die Controller „gehört
@@ -418,6 +435,23 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   `PUT /user/profile`; der Media-Upload landet damit nicht mehr im
   Storage-Namespace des fremden Mandanten. Zusatzgewinn: Rollenentzug wirkt
   sofort statt erst nach `JWT_TTL`.
+- **#6-1-D1 (erledigt 2026-09-26, Entscheidung des Benutzers):** Ausgenommen sind
+  genau `POST /api/auth/logout` und `GET /api/auth/me`
+  (`EnsureMandantMembership::EXEMPT_ROUTES`, Route-Name + Methode, **nicht**
+  rollenbasiert). Grund: ohne sie bekäme ein gerade entzogenes Konto dort **403**
+  statt 204/200 — konkret **200** mit abgelaufenem Cookie auf `/auth/logout`
+  (`AuthController::logout()` antwortet mit einem JSON-Body, nicht 204) und
+  **200** mit dem eigenen `UserResource` auf `/auth/me` — und könnte den
+  httpOnly-Cookie nicht mehr serverseitig loswerden. Beide Routen sind
+  Session-Abbau bzw. Lesen des **eigenen** Datensatzes, also keine mandant-
+  scoped Mutation: die Cross-Mandant-Lücke bleibt geschlossen, und die
+  Schreibrouten bleiben 403. Festgenagelt in
+  `MandantMembershipTest::test_a_just_revoked_user_can_still_read_itself_and_log_out`
+  (Nutzlast vor dem Entzug 200, danach weiterhin 200, Logout 200 + Cookie
+  abgelaufen, Token danach wirklich blacklisted ⇒ 401),
+  `…test_the_exemption_does_not_open_the_tenant_scoped_write_routes` (403 auf
+  `apply`/`user/media`/`user/profile`/`applications`/`user/media`-Liste) und
+  `…test_the_exemption_list_is_exactly_logout_and_me_with_their_methods`.
 
 Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
 - **F6 (info, bleibt akzeptiert):** Die 403-Texte der Auth-Flows
