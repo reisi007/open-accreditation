@@ -61,6 +61,10 @@ class PortalController extends Controller
      * suite and LAST in production. `nulls last` is explicit ANSI SQL
      * supported by both (Postgres 9.x, SQLite >= 3.30) and pins the calendar
      * to "dated events first, undated after them" on either engine.
+     *
+     * F7: the qualifier comes from the model (`qualifyColumn()`) instead of a
+     * hardcoded `events.date`, so it cannot desynchronise from the table name.
+     * The emitted SQL is byte-identical and pinned by `NullOrderingTest`.
      */
     public function events(Request $request): AnonymousResourceCollection
     {
@@ -93,7 +97,7 @@ class PortalController extends Controller
 
         return PortalEventResource::collection(
             // WP-6-a: never plain `orderBy('date')` here — see the docblock.
-            $query->orderByRaw('events.date asc nulls last')->orderBy('id')->get(),
+            $query->orderByRaw((new Event)->qualifyColumn('date').' asc nulls last')->orderBy('id')->get(),
         );
     }
 

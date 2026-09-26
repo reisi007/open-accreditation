@@ -40,6 +40,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // no-op
+        // no-op — intentionally not reversible: `down()` is never executed in
+        // this project (see backend/AGENTS.md), and a `migrate:refresh` would
+        // drop the index without recreating it, leaving the login hot path on a
+        // sequential scan. See features/02-domain-model.md.
     }
 };

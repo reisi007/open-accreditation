@@ -68,6 +68,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // no-op
+        // no-op — intentionally not reversible: `down()` is never executed in
+        // this project (see backend/AGENTS.md), and a `migrate:refresh` would
+        // drop the old index without recreating it, leaving the table weaker
+        // than before the refresh. See features/02-domain-model.md.
     }
 };

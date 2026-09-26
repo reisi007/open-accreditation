@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Mandant;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Mail\Mailable;
@@ -85,7 +86,7 @@ final class MandantMailerService
      */
     public function transportFor(Mandant $mandant): ?TransportInterface
     {
-        $config = $mandant->smtp_config;
+        $config = $this->readSmtpConfig($mandant);
 
         if (! is_array($config)) {
             return null;
@@ -132,5 +133,34 @@ final class MandantMailerService
         }
 
         return $transport;
+    }
+
+    /**
+     * The mandant's readable `smtp_config`, or null when there is none.
+     *
+     * F4: `smtp_config` is `encrypted:json` (WP-6-d), so a row written BEFORE
+     * that cast holds plain JSON and the encrypter raises `DecryptException` on
+     * every read. `send()` wraps the whole dispatch in `catch (Throwable)`, so
+     * that exception did not surface as an error — it silently DROPPED the mail
+     * without even reaching the documented default-mailer fallback. An
+     * unreadable config means "no mandant relay", which is exactly what a null
+     * return expresses; the warning tells the operator which mandant still owes
+     * the documented re-save.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readSmtpConfig(Mandant $mandant): ?array
+    {
+        try {
+            $config = $mandant->smtp_config;
+        } catch (DecryptException) {
+            Log::warning('A mandant row carries an smtp_config that predates the encrypted cast; its mail falls back to the default mailer until the operator re-saves it.', [
+                'mandant_id' => $mandant->getKey(),
+            ]);
+
+            return null;
+        }
+
+        return is_array($config) ? $config : null;
     }
 }

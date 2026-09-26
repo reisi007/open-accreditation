@@ -11,6 +11,10 @@ use App\Services\MandantMailerService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Foundation\ArrayMaintenanceMode;
+use Illuminate\Foundation\CacheBasedMaintenanceMode;
+use Illuminate\Foundation\FileBasedMaintenanceMode;
+use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -25,12 +29,28 @@ use Tests\TestCase;
  *    `where('email', …)` on the `MandantContext::currentId() === null` branch.
  *  - d (R-D9): `mandants.smtp_config` stored third-party SMTP credentials in
  *    cleartext; `MandantResource` only masked them at the API boundary.
- *  - e: `APP_MAINTENANCE_DRIVER` defaulted to `file`, so `php artisan down`
- *    only propagated when every instance shared that one file.
+ *  - e: `APP_MAINTENANCE_DRIVER` was changed to `database` — a driver Laravel 13
+ *    does NOT implement. `PreventRequestsDuringMaintenance` is global and calls
+ *    `maintenanceMode()->active()` per request, so the unbuildable driver turned
+ *    every request into a 500. The suite stayed green because `phpunit.xml` pins
+ *    `file`, so nothing ever resolved the SHIPPED default through the container;
+ *    these tests now do exactly that.
  */
 class SchemaHardeningTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        // `MandantContext` lives in the CONTAINER, which is rebuilt per test —
+        // but an instance left behind by `test_the_encrypted_cast_does_not_
+        // disturb_role_scopes` would still be visible to anything that resolves
+        // the container before the rebuild, and it made the maintenance-driver
+        // request assertion depend on test order. Reset unconditionally.
+        MandantContext::reset();
+
+        parent::tearDown();
+    }
 
     /* ---------------------------------------------------------------------
      | WP-6-c — index on users.email
@@ -185,49 +205,277 @@ class SchemaHardeningTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | F3 — the documented remediation must not throw
+     | ------------------------------------------------------------------- */
+
+    /**
+     * F3: `features/02-domain-model.md` documents the operator remediation for a
+     * pre-encryption row as "a re-save: `PUT /api/admin/mandants/{id}` with the
+     * same `smtp_config`". The merge in `MandantController::update()` read
+     * `$mandant->smtp_config` for every non-null payload, so on exactly the row
+     * the remediation targets it threw `DecryptException` — only
+     * `{"smtp_config": null}` (i.e. discarding the credentials) ever worked.
+     */
+    public function test_resaving_the_same_smtp_config_on_a_legacy_row_works(): void
+    {
+        $mandant = $this->superAdminMandant();
+        $this->writeLegacyCleartextSmtpConfig($mandant, [
+            'host' => 'legacy.example.com',
+            'port' => 587,
+            'username' => 'relay@example.com',
+            'password' => 'alt',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$mandant->id, [
+                'smtp_config' => [
+                    'host' => 'legacy.example.com',
+                    'port' => 587,
+                    'username' => 'relay@example.com',
+                    'password' => 'alt',
+                ],
+            ])
+            ->assertOk();
+
+        // The row is readable again and stored as ciphertext.
+        $this->assertSame('legacy.example.com', $mandant->fresh()->smtp_config['host']);
+        $this->assertSame('alt', $mandant->fresh()->smtp_config['password']);
+        $this->assertNull(
+            json_decode((string) DB::table('mandants')->where('id', $mandant->id)->value('smtp_config'), true),
+            'the re-saved config must be encrypted, not plain JSON again',
+        );
+    }
+
+    public function test_a_legacy_row_can_still_be_cleared_to_null(): void
+    {
+        $mandant = $this->superAdminMandant();
+        $this->writeLegacyCleartextSmtpConfig($mandant, ['host' => 'legacy.example.com']);
+
+        // "Cleared" is the explicit all-null config (not a SQL NULL) — that is
+        // what makes `smtp_has_password` flip to false. The pre-existing
+        // contract, unchanged here. The API view is the same config without the
+        // `password` key.
+        $cleared = [
+            'host' => null,
+            'port' => null,
+            'username' => null,
+            'password' => null,
+            'encryption' => null,
+        ];
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$mandant->id, ['smtp_config' => null])
+            ->assertOk()
+            ->assertJsonPath('data.smtp_config', array_diff_key($cleared, ['password' => null]))
+            ->assertJsonPath('data.smtp_has_password', false);
+
+        $this->assertSame($cleared, $mandant->fresh()->smtp_config);
+    }
+
+    public function test_a_legacy_row_without_a_new_password_loses_the_unreadable_one(): void
+    {
+        // Documented consequence, pinned: there is nothing to merge into, so the
+        // payload becomes the whole config. The operator cannot keep a password
+        // they cannot read — the API never hands it out (`smtp_has_password`
+        // only reports presence), so the operator must supply it again.
+        $mandant = $this->superAdminMandant();
+        $this->writeLegacyCleartextSmtpConfig($mandant, [
+            'host' => 'legacy.example.com',
+            'password' => 'alt',
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$mandant->id, [
+                'smtp_config' => ['host' => 'neu.example.com'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.smtp_config.host', 'neu.example.com')
+            ->assertJsonPath('data.smtp_has_password', false);
+    }
+
+    /* ---------------------------------------------------------------------
+     | F4 — one legacy row must not 500 the whole list
+     | ------------------------------------------------------------------- */
+
+    public function test_the_mandant_index_survives_a_legacy_cleartext_row(): void
+    {
+        $broken = Mandant::factory()->create(['name' => 'Legacy Verband']);
+        $healthy = Mandant::factory()->create([
+            'name' => 'Gesunder Verband',
+            'smtp_config' => ['host' => 'mail.example.com', 'port' => 587, 'password' => 'geheim'],
+        ]);
+        $this->writeLegacyCleartextSmtpConfig($broken, ['host' => 'legacy.example.com']);
+
+        $response = $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/mandants')
+            ->assertOk();
+
+        $byId = collect($response->json('data'))->keyBy('id');
+
+        // The legacy row degrades to "no config" instead of taking the whole
+        // list down with it.
+        $this->assertNull($byId[$broken->id]['smtp_config']);
+        $this->assertFalse($byId[$broken->id]['smtp_has_password']);
+
+        // A healthy row in the SAME response keeps its config — the catch must
+        // not swallow anything but the failing row.
+        $this->assertSame('mail.example.com', $byId[$healthy->id]['smtp_config']['host']);
+        $this->assertTrue($byId[$healthy->id]['smtp_has_password']);
+        $this->assertArrayNotHasKey('password', $byId[$healthy->id]['smtp_config']);
+    }
+
+    public function test_a_legacy_cleartext_row_does_not_block_mail_delivery(): void
+    {
+        // `MandantMailerService::send()` swallows Throwable, so a DecryptException
+        // out of `transportFor()` did not surface as a 500 — it silently DROPPED
+        // the mail, not even falling back to the default mailer. An unreadable
+        // config must degrade to "no mandant relay", which is the documented
+        // fallback path.
+        $mandant = Mandant::factory()->create();
+        $this->writeLegacyCleartextSmtpConfig($mandant, ['host' => 'legacy.example.com']);
+
+        $this->assertNull(
+            app(MandantMailerService::class)->transportFor(Mandant::query()->findOrFail($mandant->id)),
+            'an unreadable smtp_config means "no relay", not "throw"',
+        );
+    }
+
+    /* ---------------------------------------------------------------------
+     | Helpers for the legacy-row fixtures
+     | ------------------------------------------------------------------- */
+
+    /**
+     * Overwrite `smtp_config` with plain JSON, i.e. exactly what a row written
+     * before the `encrypted:json` cast holds. Bypasses the cast on purpose.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function writeLegacyCleartextSmtpConfig(Mandant $mandant, array $config): void
+    {
+        DB::table('mandants')->where('id', $mandant->id)->update([
+            'smtp_config' => json_encode($config),
+        ]);
+
+        $mandant->refresh();
+    }
+
+    private function superAdminMandant(): Mandant
+    {
+        return Mandant::factory()->create();
+    }
+
+    private function superAdmin(): User
+    {
+        $this->seed(RoleSeeder::class);
+
+        $user = User::factory()->create();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', UserRole::SUPER_ADMIN->value)->valueOrFail('id'),
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        return $user;
+    }
+
+    /* ---------------------------------------------------------------------
      | WP-6-e — maintenance mode driver
      | ------------------------------------------------------------------- */
 
-    public function test_the_maintenance_driver_default_is_the_database_driver(): void
+    /**
+     * The `MaintenanceModeManager` of Laravel 13.32.0 — every driver it can
+     * actually build, mapped to the FQCN it must return. Read from the vendor
+     * source instead of hardcoded so a framework bump that adds or drops a
+     * driver fails here rather than at runtime.
+     *
+     * @return array<string, class-string>
+     */
+    private function implementedMaintenanceDrivers(): array
     {
-        // `phpunit.xml` pins `APP_MAINTENANCE_DRIVER=file` for the suite, so
-        // `config('app.maintenance.driver')` cannot be the assertion here — the
-        // DEFAULT in `config/app.php` is what ships. Read the source.
-        $config = File::get(base_path('config/app.php'));
-
-        $this->assertMatchesRegularExpression(
-            "/'driver'\s*=>\s*env\('APP_MAINTENANCE_DRIVER',\s*'database'\)/",
-            $config,
-            "the maintenance driver must default to 'database' so `artisan down` propagates to every instance",
+        $source = File::get(
+            base_path('vendor/laravel/framework/src/Illuminate/Foundation/MaintenanceModeManager.php'),
         );
-
-        $this->assertMatchesRegularExpression(
-            "/'store'\s*=>\s*env\('APP_MAINTENANCE_STORE',\s*'database'\)/",
-            $config,
-        );
-    }
-
-    public function test_the_env_example_ships_the_propagating_driver(): void
-    {
-        $example = File::get(base_path('.env.example'));
-
-        $this->assertMatchesRegularExpression(
-            '/^APP_MAINTENANCE_DRIVER=database$/m',
-            $example,
-            'copying .env.example must not reintroduce the single-instance `file` driver',
-        );
-    }
-
-    public function test_the_suite_pin_is_an_explicit_isolation_choice(): void
-    {
-        // Documented, not accidental: the test suite keeps the `file` driver so
-        // a maintenance-mode test can never write into the test database. If
-        // this pin is ever removed the assertion above becomes the only guard.
-        $phpunit = File::get(base_path('phpunit.xml'));
 
         $this->assertStringContainsString(
-            '<env name="APP_MAINTENANCE_DRIVER" value="file"/>',
-            $phpunit,
+            'namespace Illuminate\Foundation;',
+            $source,
+            'the driver classes are resolved in the manager\'s own namespace',
+        );
+
+        preg_match_all(
+            '/protected function create(\w+)Driver\(\):\s*(\w+)/',
+            $source,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $drivers = [];
+
+        foreach ($matches as $match) {
+            $drivers[strtolower($match[1])] = 'Illuminate\\Foundation\\'.$match[2];
+        }
+
+        $this->assertNotEmpty($drivers, 'could not read the implemented drivers out of MaintenanceModeManager');
+
+        return $drivers;
+    }
+
+    /**
+     * F1 (CRITICAL): the SHIPPED default must be a driver the manager can build.
+     *
+     * The regression this pins: `config/app.php` defaulted to `database`, which
+     * does not exist. `PreventRequestsDuringMaintenance` sits in the global
+     * middleware stack and calls `maintenanceMode()->active()` on EVERY request,
+     * so an unbuildable driver is not a degraded feature — it is a 500 on every
+     * request. The suite stayed green because `phpunit.xml` pins `file`, so the
+     * tests never went through the container with the shipped value.
+     *
+     * Resolved through the CONTAINER on purpose, exactly like the global
+     * middleware does, instead of being asserted on the config source.
+     */
+    public function test_the_shipped_maintenance_driver_default_resolves_through_the_container(): void
+    {
+        $default = $this->shippedMaintenanceDriver();
+
+        config(['app.maintenance.driver' => $default]);
+
+        $manager = $this->app->make(MaintenanceModeManager::class);
+
+        $this->assertInstanceOf(MaintenanceModeManager::class, $manager);
+        $this->assertSame($default, $manager->getDefaultDriver());
+
+        // `Application::maintenanceMode()` resolves the contract, which is the
+        // driver itself — this is the exact call the global middleware makes and
+        // the exact call that threw `Driver [database] not supported.`
+        $driver = $this->app->maintenanceMode();
+
+        $this->assertInstanceOf($this->implementedMaintenanceDrivers()[$default], $driver);
+        $this->assertFalse($driver->active());
+    }
+
+    public function test_no_request_fails_because_of_the_shipped_maintenance_driver(): void
+    {
+        // The end-to-end form of the same defect: with `database` as the driver
+        // the global middleware turns EVERY request into a 500 carrying
+        // "Driver [database] not supported.". `/api/portal/overview` is public,
+        // unauthenticated and cheap, and it answers 404 in the suite (no mandant
+        // context) — but it must be an APPLICATION answer, never a framework error.
+        config(['app.maintenance.driver' => $this->shippedMaintenanceDriver()]);
+
+        $response = $this->getJson('/api/portal/overview')->assertNotFound();
+
+        $this->assertStringNotContainsString('not supported', $response->getContent());
+        $this->assertStringNotContainsString('InvalidArgumentException', $response->getContent());
+    }
+
+    public function test_the_shipped_maintenance_driver_is_file(): void
+    {
+        $this->assertSame(
+            'file',
+            $this->shippedMaintenanceDriver(),
+            'the default must be a driver Laravel 13 implements; `file` is the framework default and the only one that needs no shared backend',
         );
     }
 
@@ -237,6 +485,126 @@ class SchemaHardeningTest extends TestCase
 
         $this->assertSame('file', config('app.maintenance.driver'));
         $this->assertSame('database', config('app.maintenance.store'));
+    }
+
+    /**
+     * The driver the manager can build for each name, so a future change to the
+     * configured driver cannot reintroduce an unimplemented one.
+     */
+    public function test_the_multi_instance_driver_is_the_cache_driver(): void
+    {
+        $drivers = $this->implementedMaintenanceDrivers();
+
+        $this->assertArrayHasKey(
+            'cache',
+            $drivers,
+            'the documented multi-instance driver must exist — `cache` is what propagates across app containers',
+        );
+        $this->assertArrayNotHasKey(
+            'database',
+            $drivers,
+            'there is no `database` maintenance driver in Laravel 13; documenting it is the F1 defect',
+        );
+
+        config(['app.maintenance.driver' => 'cache']);
+
+        $driver = $this->app->maintenanceMode();
+
+        $this->assertInstanceOf(CacheBasedMaintenanceMode::class, $driver);
+        $this->assertFalse($driver->active());
+    }
+
+    public function test_the_file_and_array_drivers_resolve_too(): void
+    {
+        $expected = [
+            'file' => FileBasedMaintenanceMode::class,
+            'array' => ArrayMaintenanceMode::class,
+        ];
+
+        foreach ($expected as $driver => $class) {
+            config(['app.maintenance.driver' => $driver]);
+
+            $this->assertInstanceOf($class, $this->app->maintenanceMode(), "driver: {$driver}");
+        }
+    }
+
+    public function test_the_env_example_ships_a_driver_laravel_implements(): void
+    {
+        $example = File::get(base_path('.env.example'));
+
+        $this->assertMatchesRegularExpression(
+            '/^APP_MAINTENANCE_DRIVER=(file|cache|array)$/m',
+            $example,
+            'copying .env.example must not set a driver that Laravel 13 cannot build — an unbuildable driver 500s every request',
+        );
+
+        preg_match('/^APP_MAINTENANCE_DRIVER=(\S+)$/m', $example, $match);
+
+        $this->assertArrayHasKey(
+            $match[1],
+            $this->implementedMaintenanceDrivers(),
+            'the driver shipped in .env.example must exist in MaintenanceModeManager',
+        );
+    }
+
+    public function test_the_suite_pin_is_an_explicit_isolation_choice(): void
+    {
+        // Documented, not accidental: the test suite keeps the `file` driver so
+        // a maintenance-mode test can never write into the test database. If
+        // this pin is ever removed the container test above becomes the only
+        // guard.
+        $phpunit = File::get(base_path('phpunit.xml'));
+
+        $this->assertStringContainsString(
+            '<env name="APP_MAINTENANCE_DRIVER" value="file"/>',
+            $phpunit,
+        );
+    }
+
+    /**
+     * The maintenance driver `config/app.php` SHIPS — read from the file's own
+     * `env('APP_MAINTENANCE_DRIVER', …)` default, not from the resolved config.
+     *
+     * `phpunit.xml` pins `APP_MAINTENANCE_DRIVER=file`, so `config(...)` inside
+     * the suite can only ever report the pin. The default is read by evaluating
+     * the config file with that one variable removed from every environment
+     * adapter (`$_SERVER`, `$_ENV`, `putenv`), which is exactly what the
+     * `env()` helper consults. The environment is restored in a `finally`, so
+     * the rest of the suite sees the pinned value again.
+     */
+    private function shippedMaintenanceDriver(): string
+    {
+        $name = 'APP_MAINTENANCE_DRIVER';
+
+        $restore = [
+            'server' => array_key_exists($name, $_SERVER) ? $_SERVER[$name] : null,
+            'env' => array_key_exists($name, $_ENV) ? $_ENV[$name] : null,
+            'putenv' => getenv($name),
+        ];
+
+        unset($_SERVER[$name], $_ENV[$name]);
+        putenv($name);
+
+        try {
+            $config = require base_path('config/app.php');
+        } finally {
+            if ($restore['server'] !== null) {
+                $_SERVER[$name] = $restore['server'];
+            }
+
+            if ($restore['env'] !== null) {
+                $_ENV[$name] = $restore['env'];
+            }
+
+            if ($restore['putenv'] !== false) {
+                putenv($name.'='.$restore['putenv']);
+            }
+        }
+
+        $this->assertIsArray($config, 'config/app.php must return an array');
+        $this->assertArrayHasKey('maintenance', $config);
+
+        return (string) $config['maintenance']['driver'];
     }
 
     /* ---------------------------------------------------------------------

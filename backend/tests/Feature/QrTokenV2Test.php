@@ -4,11 +4,13 @@ namespace Tests\Feature;
 
 use App\Enums\UserRole;
 use App\Models\Application;
+use App\Models\BadgeTemplate;
 use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
 use App\Models\UserMedia;
+use App\Services\MediaHostResolver;
 use App\Services\QrTokenService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
@@ -467,6 +469,127 @@ class QrTokenV2Test extends TestCase
         );
     }
 
+    /**
+     * F5: `APP_PREVIOUS_KEYS` had two consumers that disagreed on key
+     * normalization.
+     *
+     * `QrTokenService` HMAC'd the CONFIGURED STRING verbatim, while the
+     * encrypter runs `parseKey()` — it strips the `base64:` prefix and
+     * base64-decodes. `php artisan key:generate` prints the `base64:` prefix, so
+     * an operator who pastes only the raw value (or pastes the value the encrypter
+     * itself accepts) gets: encryption keeps working, but every badge signed with
+     * that key 404s — silently, with no error anywhere.
+     *
+     * Pinned here: a previous key listed WITHOUT the `base64:` prefix must still
+     * verify a token that was signed with the prefixed form, and `make()` must
+     * not consider such a token stale and re-mint it.
+     */
+    public function test_a_previous_key_without_the_base64_prefix_still_verifies(): void
+    {
+        $rawKey = '0123456789abcdef0123456789abcdef';
+        $prefixed = 'base64:'.base64_encode($rawKey);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        config(['app.key' => $prefixed, 'app.previous_keys' => []]);
+
+        // Signed with the prefixed key, exactly as `key:generate` would.
+        $token = app(QrTokenService::class)->make($application);
+        $this->assertNotNull(app(QrTokenService::class)->parse($token));
+
+        // Rotation, and the operator pastes the previous key WITHOUT the prefix.
+        config([
+            'app.key' => self::NEW_KEY,
+            'app.previous_keys' => [base64_encode($rawKey)],
+        ]);
+
+        $claims = app(QrTokenService::class)->parse($token);
+
+        $this->assertNotNull($claims, 'a prefix-less previous key must verify the badges it signed');
+        $this->assertSame($application->id, $claims->applicationId);
+        $this->assertSame($this->mandantA->id, $claims->mandantId);
+
+        $this->getJson('/api/verify/'.$token)
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Jane Doe');
+
+        // …and the stored token is still considered current, so the backfill and
+        // the write paths do not churn the column for nothing.
+        $this->assertSame($token, app(QrTokenService::class)->make($application->fresh()));
+    }
+
+    /**
+     * The counterpart: the PREFIXED spelling of a previous key keeps working —
+     * the normalization adds an alias, it must not replace the literal key
+     * material that every already-issued badge was signed with.
+     */
+    public function test_a_previous_key_with_the_base64_prefix_still_verifies(): void
+    {
+        $rawKey = 'abcdef0123456789abcdef0123456789';
+        $prefixed = 'base64:'.base64_encode($rawKey);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        config(['app.key' => $prefixed, 'app.previous_keys' => []]);
+
+        $token = app(QrTokenService::class)->make($application);
+
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => [$prefixed]]);
+
+        $this->assertNotNull(app(QrTokenService::class)->parse($token));
+        $this->assertSame($token, app(QrTokenService::class)->make($application->fresh()));
+    }
+
+    /**
+     * The normalized alias is exactly the encrypter's key material — the same
+     * secret, never a weaker or wider acceptance. A token signed with the RAW
+     * bytes is recognized, and a token signed with an unrelated secret is still
+     * rejected.
+     */
+    public function test_the_previous_key_normalization_does_not_widen_acceptance(): void
+    {
+        $rawKey = 'fedcba9876543210fedcba9876543210';
+        $prefixed = 'base64:'.base64_encode($rawKey);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => [$prefixed]]);
+
+        $rawSignature = hash_hmac('sha256', 'v2:'.$application->id.':'.$this->mandantA->id, $rawKey, true);
+        $rawSigned = $this->encode($application->id.'.'.$rawSignature.'.'.$this->mandantA->id);
+
+        $claims = app(QrTokenService::class)->parse($rawSigned);
+        $this->assertNotNull($claims, 'the raw key material is the same secret the encrypter uses');
+        $this->assertTrue($claims->isTenantBound());
+
+        $foreign = $this->encode(
+            $application->id
+            .'.'.hash_hmac('sha256', 'v2:'.$application->id.':'.$this->mandantA->id, 'some-other-secret', true)
+            .'.'.$this->mandantA->id,
+        );
+
+        $this->assertNull(app(QrTokenService::class)->parse($foreign));
+        $this->getJson('/api/verify/'.$foreign)->assertStatus(404);
+    }
+
+    /**
+     * A previous key that is not valid base64 (a legacy raw passphrase) must
+     * stay usable verbatim — the normalization is additive and falls back to the
+     * literal string when the value cannot be decoded.
+     */
+    public function test_a_non_base64_previous_key_stays_usable_verbatim(): void
+    {
+        $legacy = 'wp1-legacy-raw-passphrase-not-base64-9911';
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        config(['app.key' => $legacy, 'app.previous_keys' => []]);
+
+        $token = app(QrTokenService::class)->make($application);
+
+        config(['app.key' => self::NEW_KEY, 'app.previous_keys' => [$legacy]]);
+
+        $this->assertNotNull(app(QrTokenService::class)->parse($token));
+        $this->assertSame($token, app(QrTokenService::class)->make($application->fresh()));
+    }
+
     /* ---------------------------------------------------------------------
      | Backfill command
      | ------------------------------------------------------------------- */
@@ -560,8 +683,113 @@ class QrTokenV2Test extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | F2 — the verify URL must be attributable to the exporting mandant
+     | ------------------------------------------------------------------- */
+
+    /**
+     * F2: `BadgeRenderService::host()` falls back to the host of
+     * `config('app.url')` when the mandant has no domain. In production that
+     * host is the PRIMARY mandant's own host, so a domain-less mandant's badges
+     * embed a verify URL pointing at a FOREIGN host. A v2 token signs the
+     * owning mandant id and `VerifyController` requires `matchesMandant()`, so
+     * every single scan answers 404 — and no backfill repairs it, because the
+     * token is fine; the URL around it is wrong.
+     *
+     * The export therefore refuses (422) instead of printing badges that can
+     * never verify.
+     */
+    public function test_badge_export_refuses_a_mandant_whose_verify_host_belongs_to_another_mandant(): void
+    {
+        $primary = Mandant::factory()->create([
+            'slug' => 'verband-primary',
+            'name' => 'Primaerer Verband',
+            'is_primary' => true,
+        ]);
+        $this->writeDomain($primary, 'akademie.test');
+
+        // The deployment shape: APP_URL is the primary mandant's own host.
+        config(['app.url' => 'https://akademie.test']);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $this->createDefaultBadgeTemplate();
+
+        $this->assertNull(
+            app(MediaHostResolver::class)->hostFor($this->mandantA),
+            'precondition: the exporting mandant has no domain of its own',
+        );
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$application->accreditation_id.'/badges/export', ['format' => 'csv'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Mandant hat keine Domain — QR-Codes können nicht generiert werden.');
+    }
+
+    /**
+     * The counterpart: a mandant WITH a domain exports normally and the embedded
+     * verify URL carries its own host — the guard must not fire on the healthy
+     * path.
+     */
+    public function test_badge_export_embeds_the_own_domain_of_a_mandant_that_has_one(): void
+    {
+        $this->writeDomain($this->mandantA, 'verband-a.test');
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $this->createDefaultBadgeTemplate();
+
+        $response = $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$application->accreditation_id.'/badges/export', ['format' => 'csv'])
+            ->assertOk();
+
+        $csv = $response->streamedContent();
+
+        $this->assertStringContainsString('https://verband-a.test/verify/', $csv);
+        $this->assertStringNotContainsString('akademie.test', $csv);
+    }
+
+    /**
+     * A mandant with no domain whose verify host is NOT owned by anybody is the
+     * local-dev shape (`APP_URL=http://localhost`, no tenant routed to it). The
+     * export stays allowed there — that fallback is the documented
+     * `config('app.url')` behaviour every media service shares, and refusing it
+     * would break single-box development over a missing domain row.
+     */
+    public function test_badge_export_allows_a_domain_less_mandant_while_its_verify_host_is_unowned(): void
+    {
+        config(['app.url' => 'http://localhost']);
+
+        $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
+        $this->createDefaultBadgeTemplate();
+
+        $response = $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$application->accreditation_id.'/badges/export', ['format' => 'csv'])
+            ->assertOk();
+
+        $this->assertStringContainsString(
+            'http://localhost/verify/',
+            $response->streamedContent(),
+        );
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    private function writeDomain(Mandant $mandant, string $hostname): void
+    {
+        $mandant->domains()->create(['hostname' => $hostname]);
+    }
+
+    private function createDefaultBadgeTemplate(): void
+    {
+        BadgeTemplate::create([
+            'mandant_id' => $this->mandantA->id,
+            'name' => 'Presseausweis',
+            'layout' => [
+                ['field' => 'name', 'x' => 10, 'y' => 10, 'w' => 80, 'h' => 10, 'size' => 14, 'align' => 'left'],
+            ],
+            'is_default' => true,
+        ]);
+    }
 
     private function approvedApplication(Mandant $mandant, string $name, string $status = 'approved'): Application
     {

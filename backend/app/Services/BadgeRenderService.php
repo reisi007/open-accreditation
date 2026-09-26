@@ -52,9 +52,16 @@ use Illuminate\Support\Facades\Storage;
  * issues O(distinct image ids) queries instead of one per card.
  *
  * The verify URL is `{scheme}://{host}/verify/{token}`: `host` is the current
- * mandant's first domain or, without a domain, the host of `config('app.url')'.
+ * mandant's first domain or, without a domain, the host of `config('app.url')`.
  * `{token}` is the tenant-bound token of `QrTokenService` (format v2) and is
  * (re-)minted on the row when it is missing or no longer verifiable.
+ *
+ * That host fallback is only sound while it routes BACK to this mandant: a v2
+ * token is tenant-bound, so a URL on a foreign host 404s on every scan no matter
+ * how valid the token is. `BadgeExportController` therefore refuses such an
+ * export up front (F2, `MediaHostResolver::ownsFallbackHost()`); this class
+ * keeps rendering unconditionally so a direct/service-level call still produces
+ * a document instead of throwing.
  */
 final class BadgeRenderService
 {
@@ -469,10 +476,11 @@ final class BadgeRenderService
         $mandant = MandantContext::current();
         // W6-F3: share the central "first domain = primary" convention instead
         // of querying `domains` a second time (MediaHostResolver defines it
-        // once for every media service).
+        // once for every media service) — and with it the app.url fallback host,
+        // so the verify URL's host is derived in exactly one place.
         $domain = $mandant !== null ? $this->hosts->hostFor($mandant) : null;
-        $host = $domain ?? (string) parse_url((string) config('app.url'), PHP_URL_HOST);
-        $resolved = $host === '' ? 'localhost' : $host;
+        $host = $domain ?? $this->hosts->fallbackHost();
+        $resolved = $host === null || $host === '' ? 'localhost' : $host;
 
         $this->hostCache[$mandantId] = $resolved;
 

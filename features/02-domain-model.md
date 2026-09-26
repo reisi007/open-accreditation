@@ -172,15 +172,69 @@ entscheidet, ob die Credentials überhaupt noch gültig sind. Eine
 `APP_KEY`-Rotation ohne den alten Schlüssel in `APP_PREVIOUS_KEYS` invalidiert
 die Config erneut.
 
-### WP-6-e — `APP_MAINTENANCE_DRIVER` defaultet auf `database`
+**Wie sich eine unlesbare Zeile verhält (F3/F4):** `DecryptException` darf den
+Rest des Requests nie mitnehmen. Drei Lesestellen umgehen das:
 
-Laravels Default `file` schreibt `storage/framework/down` und wirkt nur, wenn
-**jede** Instanz dieselbe Datei teilt: auf einem Replica-Set bleiben die
-anderen Instanzen live im Betrieb, während `php artisan down` „erfolgreich"
-war. `.env.example` liefert jetzt `database`; `file` bleibt als bewusste
-Single-Instance-Entwickler-Entscheidung per Env überschreibbar.
-`phpunit.xml` pinnt weiterhin auf `file`, damit ein Maintenance-Test niemals
-die Test-DB anfasst.
+| Stelle | Verhalten auf einer Legacy-Zeile |
+| --- | --- |
+| `PUT /api/admin/mandants/{id}` | `DecryptException` ⇒ Payload wird zur **kompletten** Config (kein Merge), verschlüsselt gespeichert. `getDirty()` würde den Klartext-Originalwert ebenfalls entschlüsseln, deshalb wird das Attribut auf der Instanz neutralisiert. |
+| `GET /api/admin/mandants` (Liste) | `smtp_config: null`, `smtp_has_password: false` — **eine** unlesbare Zeile darf nicht die ganze Liste 500en. |
+| `MandantMailerService::transportFor()` | `null` ⇒ Fallback auf den Default-Mailer. `send()` schluckt `Throwable`, der `DecryptException` hätte die Mail also **stillschweigend verworfen**, statt sie über den dokumentierten Fallback zu senden. |
+
+Alle drei Fälle loggen einen `warning` mit der `mandant_id` — das ist das
+Signal, welcher Mandant noch die Re-Save schuldig ist. **Bekannte
+Folge:** das unlesbare Passwort wird nicht übernommen. Die API gibt es nie aus
+(`smtp_has_password` meldet nur Präsenz), also muss der Operator es mitschicken,
+falls es noch gültig ist.
+
+**Schlüssel-Normalisierung (F5):** `APP_KEY`/`APP_PREVIOUS_KEYS` haben zwei
+Consumer, die nicht übereinstimmten — der Encrypter läuft durch `parseKey()`
+(strippt `base64:`, dekodiert), `QrTokenService` HMACte den konfigurierten String
+literal. Ein Operator, der den alten Schlüssel **ohne** `base64:`-Prefix
+einträgt, hätte deshalb jedes damit signierte Badge stillschweigend 404en lassen
+(`accreditation:backfill-qr-tokens` repariert das nicht: das Token ist gültig,
+nur die Schlüsselliste nicht). Die QR-Verifikation erkennt einen konfigurierten
+Schlüssel jetzt in **allen** Kodierungen, die dieses Projekt je zum Signieren
+verwendet hat: literal, kanonisch `base64:<wert>` und die rohen dekodierten
+Bytes. Das ist dasselbe Schlüsselmaterial in drei Kodierungen — ein fremdes
+Secret fällt durch alle drei Aliase. **Das Signieren selbst ändert sich nicht**
+(weiterhin der literale `APP_KEY`): eine Umstellung würde jedes im Umlauf
+befindliche Badge invalidieren.
+
+### WP-6-e — `APP_MAINTENANCE_DRIVER`: `file`, und warum `database` nie eine Option war
+
+Ursprünglich war hier dokumentiert, `.env.example` liefere jetzt `database` als
+„the framework default". Das war **falsch** und ein Produktionsausfall:
+
+`Illuminate\Foundation\MaintenanceModeManager` implementiert genau **drei**
+Treiber — `file`, `array`, `cache` (die `createXxxDriver()`-Methoden). Ein
+`database`-Treiber existiert nicht; Laravels eigener Config-Stub listet ihn
+zwar, aber `Manager::createDriver()` wirft dann
+`InvalidArgumentException: Driver [database] not supported.` Da
+`PreventRequestsDuringMaintenance` im **globalen** Middleware-Stack liegt und
+pro Request `maintenanceMode()->active()` aufruft, war das kein degradiertes
+Feature, sondern ein **500 auf jedem einzelnen Request** — ausgelöst genau dann,
+wenn `APP_MAINTENANCE_DRIVER` nicht explizit gesetzt ist (Docker ohne
+`environment:`-Eintrag, CI via `cp .env.example .env`). Die Suite blieb grün,
+weil `phpunit.xml` den Treiber auf `file` pinnt.
+
+**Soll-Zustand:**
+
+- Default `file` — der Framework-Default, braucht keinen geteilten Backend und
+  ist der einzige Treiber, der ohne jede weitere Konfiguration funktioniert.
+- **Mehrinstanz-Betrieb** (Replica-Set, mehrere App-Container) setzt
+  `APP_MAINTENANCE_DRIVER=cache`: der Flag liegt dann im Cache-Store, den alle
+  Instanzen teilen, und `php artisan down` nimmt sie alle gemeinsam offline.
+  `APP_MAINTENANCE_STORE` benennt diesen Store (Default `database`, derselbe
+  geteilte Postgres wie `CACHE_STORE`).
+- `file` propagiert nur, wenn **jede** Instanz dieselbe `storage/framework/down`
+  teilt, und bleibt damit eine bewusste Single-Instance-Entscheidung.
+
+`phpunit.xml` pinnt weiterhin auf `file`, damit ein Maintenance-Test niemals die
+Test-DB anfasst. `SchemaHardeningTest` löst den **ausgelieferten** Default
+zusätzlich durch den Container (nicht per Regex auf dem Config-Quelltext) und
+fährt eine echte Anfrage damit — genau der Weg, den die Suite vorher nicht
+geprüft hat.
 
 ### Extend vs. new — warum drei neue Migrationen (trotz „erweitern bis Go-Live")
 
@@ -211,6 +265,38 @@ einmal auf einer Umgebung gelaufen sein *kann*, die nicht per
 `migrate:fresh` neu aufgebaut wird, bekommt jede weitere Änderung eine eigene
 Migration. `down()` bleibt per Repo-Regel leer; die exakten Statements, die ein
 `down()` bräuchte, stehen als Kommentar in den Dateien.
+
+Jedes dieser drei `down()` trägt zusätzlich eine Zeile, die sagt, **warum** es
+absichtlich nicht reversibel ist — inklusive der Folge, die ein
+`migrate:refresh` hätte (Index/Constraint fallen weg, Spaltentyp `text` → `json`,
+was den Ciphertext der `encrypted:json`-Cast wieder ablehnt). Leeres `down()`
+ist sonst von einem Bug nicht unterscheidbar. Kein Script, CI-Job oder
+Dokument dieses Repos nutzt `refresh` oder `rollback`; die Zeilen machen die
+Vorgabe explizit, statt sie als Versehen zu lesen.
+
+### QR-Badges brauchen eine Domain — F2
+
+Ein v2-QR-Token ist **mandanten-gebunden**: er signiert die `mandant_id`, und
+`VerifyController` verlangt, dass dieser Claim den Mandanten des Request-Hosts
+benennt. Damit ist die Verify-URL eines Badges nur dann scanbar, wenn ihr Host
+auf **denselben** Mandanten zeigt.
+
+`BadgeRenderService` nimmt als Host die erste Domain des Mandanten und fällt
+sonst auf den Host von `config('app.url')` zurück. Im Produktivbetrieb ist das
+die Domain des **primären** Verbands — ein domainloser Mandant bekam also
+Badges, die auf einem fremden Host landen und dort **bei jedem Scan 404en**.
+Nicht reparierbar: `accreditation:backfill-qr-tokens` ist nicht das Problem, das
+Token ist gültig, nur die URL drumherum nicht.
+
+**Soll-Zustand:** `BadgeExportController` verweigert den Export (422,
+„Mandant hat keine Domain — QR-Codes können nicht generiert werden"), wenn der
+Mandant keine Domain hat **und** der `app.url`-Fallback-Host einem *anderen*
+Mandanten gehört (`MediaHostResolver::ownsFallbackHost()`). Ein Fallback-Host,
+der **niemandem** gehört, bleibt erlaubt — das ist die dokumentierte
+Single-Box-Entwicklerform (`APP_URL=http://localhost`, kein Tenant geroutet), die
+`MandantContextMiddleware` in Dev ohnehin auf den Default-Mandanten abbildet, und
+der auch alle Media-Services über `MediaPathService` teilen. Betroffen sind PDF
+**und** CSV, weil beide die Verify-URL ausgeben.
 
 ### Engine-Verifikationsstand (2026-09-26)
 

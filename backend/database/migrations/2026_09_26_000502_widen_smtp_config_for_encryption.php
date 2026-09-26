@@ -50,6 +50,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // no-op
+        // no-op — intentionally not reversible: `down()` is never executed in
+        // this project (see backend/AGENTS.md), and a `migrate:refresh` would
+        // put the column back to `json`, which rejects the ciphertext the
+        // `encrypted:json` cast writes. See features/02-domain-model.md.
     }
 };

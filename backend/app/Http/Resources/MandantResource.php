@@ -3,8 +3,10 @@
 namespace App\Http\Resources;
 
 use App\Models\MandantDomain;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Public representation of a mandant (Verband) for the Super Admin API.
@@ -22,6 +24,11 @@ class MandantResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // Read the cast ONCE: `smtp_config` is `encrypted:json`, so a row
+        // written before that cast throws on every read (F4) — and reading it
+        // twice would log the same remediation hint twice per row.
+        $smtpConfig = $this->readSmtpConfig();
+
         return [
             'id' => $this->id,
             'slug' => $this->slug,
@@ -30,8 +37,8 @@ class MandantResource extends JsonResource
             'header_url' => $this->header_path !== null ? route('api.admin.mandants.header', ['mandant' => $this->id]) : null,
             'impressum_text' => $this->impressum_text,
             'privacy_text' => $this->privacy_text,
-            'smtp_config' => $this->smtpConfig(),
-            'smtp_has_password' => $this->smtpHasPassword(),
+            'smtp_config' => $this->smtpConfig($smtpConfig),
+            'smtp_has_password' => $this->smtpHasPassword($smtpConfig),
             'teams_enabled' => (bool) $this->teams_enabled,
             'is_primary' => (bool) $this->is_primary,
             'is_active' => (bool) $this->is_active,
@@ -41,15 +48,46 @@ class MandantResource extends JsonResource
     }
 
     /**
-     * The SMTP config without the `password` key. Null when no config exists.
+     * The stored `smtp_config`, or null when there is none.
+     *
+     * F4: `smtp_config` is `encrypted:json` (WP-6-d), so rows written BEFORE that
+     * cast hold plain JSON and the encrypter raises `DecryptException` on every
+     * read. This resource is serialized for the whole mandant list, so one such
+     * row took the ENTIRE admin list down with a 500 — a single unremediated
+     * tenant blocked the page for every other tenant.
+     *
+     * The unreadable config therefore degrades to "no config" (`smtp_config`
+     * null, `smtp_has_password` false) and the row is LOGGED, which is the
+     * operator's signal that this mandant is still awaiting the documented
+     * re-save. The write path degrades the same way; see
+     * `MandantController::readStoredSmtpConfig()`.
      *
      * @return array<string, mixed>|null
      */
-    private function smtpConfig(): ?array
+    private function readSmtpConfig(): ?array
     {
-        $config = $this->smtp_config;
+        try {
+            $config = $this->smtp_config;
+        } catch (DecryptException) {
+            Log::warning('A mandant row carries an smtp_config that predates the encrypted cast; it is reported as "no config" until the operator re-saves it.', [
+                'mandant_id' => $this->id,
+            ]);
 
-        if (! is_array($config)) {
+            return null;
+        }
+
+        return is_array($config) ? $config : null;
+    }
+
+    /**
+     * The SMTP config without the `password` key. Null when no config exists.
+     *
+     * @param  array<string, mixed>|null  $config
+     * @return array<string, mixed>|null
+     */
+    private function smtpConfig(?array $config): ?array
+    {
+        if ($config === null) {
             return null;
         }
 
@@ -58,11 +96,12 @@ class MandantResource extends JsonResource
         return $config;
     }
 
-    private function smtpHasPassword(): bool
+    /**
+     * @param  array<string, mixed>|null  $config
+     */
+    private function smtpHasPassword(?array $config): bool
     {
-        $config = $this->smtp_config;
-
-        return is_array($config) && ! empty($config['password']);
+        return $config !== null && ! empty($config['password']);
     }
 
     /**

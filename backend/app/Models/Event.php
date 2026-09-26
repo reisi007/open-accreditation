@@ -58,11 +58,18 @@ class Event extends Model
      * both (Postgres 9.x, SQLite >= 3.30), so the display order is identical
      * in prod and in the test suite; slots without a number sort after the
      * numbered ones.
+     *
+     * F7: the qualifier is derived from the RELATED model, not written as a
+     * literal. The raw fragment runs against `event_participants`, so
+     * `$this->qualifyColumn()` would have produced `events.sort_order`; the
+     * table name stays in one place (the related model) instead of a string that
+     * a future join or a table rename would silently desynchronise. The emitted
+     * SQL is byte-identical and pinned by `NullOrderingTest`.
      */
     public function participants(): HasMany
     {
         return $this->hasMany(EventParticipant::class)
-            ->orderByRaw('event_participants.sort_order asc nulls last');
+            ->orderByRaw((new EventParticipant)->qualifyColumn('sort_order').' asc nulls last');
     }
 
     /**

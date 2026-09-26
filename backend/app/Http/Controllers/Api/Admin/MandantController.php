@@ -13,6 +13,7 @@ use App\Services\BadgeImageService;
 use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
 use App\Support\MandantContext;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,6 +95,13 @@ class MandantController extends Controller
     {
         $validated = $request->validate($this->rules($mandant));
 
+        // F3: read the stored config BEFORE anything touches the model. On a row
+        // written before the `encrypted:json` cast this both yields "nothing to
+        // merge into" and takes the unreadable plaintext off the instance, so
+        // neither the dirty comparison in `update()` nor the response resource
+        // can trip over it again.
+        $storedSmtpConfig = $this->takeStoredSmtpConfig($mandant);
+
         // Distinguish "key absent" (no-op) from "key present with null"
         // (explicit clear) via `$request->has()`: in a JSON payload a present
         // null key reaches the request data with a null value, while an absent
@@ -106,15 +114,14 @@ class MandantController extends Controller
             if ($incoming === null) {
                 $validated['smtp_config'] = $this->clearedSmtpConfig();
             } else {
-                $stored = (array) ($mandant->smtp_config ?? []);
                 $password = $incoming['password'] ?? null;
                 unset($incoming['password']);
 
                 if (is_string($password) && $password !== '') {
-                    $stored['password'] = $password;
+                    $storedSmtpConfig['password'] = $password;
                 }
 
-                $validated['smtp_config'] = array_merge($stored, $incoming);
+                $validated['smtp_config'] = array_merge($storedSmtpConfig, $incoming);
             }
         }
 
@@ -418,5 +425,63 @@ class MandantController extends Controller
             'password' => null,
             'encryption' => null,
         ];
+    }
+
+    /**
+     * The stored `smtp_config` to merge an incoming payload into — and, when
+     * there is nothing readable, the cleanup that makes the rest of the request
+     * survive that fact.
+     *
+     * F3: `smtp_config` is `encrypted:json` (WP-6-d), so a row written BEFORE
+     * that cast holds plain JSON and the encrypter raises `DecryptException` on
+     * every read. This runs inside the very remediation
+     * `features/02-domain-model.md` documents for such a row ("a re-save: PUT
+     * the same `smtp_config`"), and the exception came from THREE places, not
+     * one:
+     *
+     *  1. the merge in `update()` — reading `$mandant->smtp_config`,
+     *  2. `$mandant->update()` itself: `getDirty()` casts the ORIGINAL value to
+     *     decide whether `smtp_config` changed, which decrypts the plaintext,
+     *  3. the `MandantResource` the response serializes, which reads it again.
+     *
+     * So catching only the merge — the naive fix — still 500s, and the only
+     * working call stays `{"smtp_config": null}`, i.e. discarding the
+     * credentials. This method therefore ALSO takes the unreadable value off the
+     * in-memory instance: with the attribute gone, `getDirty()` has nothing to
+     * compare, an incoming `smtp_config` is plainly dirty, and the resource reads
+     * the freshly written ciphertext. The database row keeps its plaintext until
+     * the operator's payload replaces it (or it is explicitly cleared) — which
+     * is the documented per-mandant decision, not a silent data migration.
+     *
+     * A `DecryptException` therefore means exactly one thing: "legacy plaintext
+     * row, replace it entirely". The payload becomes the whole config and is
+     * encrypted on save. Consequence, deliberately accepted and documented: the
+     * unreadable password is NOT carried over — the API never hands it out
+     * (`smtp_has_password` reports presence only), so the operator has to supply
+     * it again if it is still needed. The failure is logged because it is the
+     * signal that this mandant is one of the rows awaiting remediation.
+     *
+     * @return array<string, mixed>
+     */
+    private function takeStoredSmtpConfig(Mandant $mandant): array
+    {
+        try {
+            $config = $mandant->smtp_config;
+        } catch (DecryptException) {
+            Log::warning('Updating a mandant whose smtp_config predates the encrypted cast: the stored plaintext is replaced by the payload, an unreadable password is not carried over.', [
+                'mandant_id' => $mandant->getKey(),
+            ]);
+
+            $attributes = $mandant->getAttributes();
+            unset($attributes['smtp_config']);
+            // `$sync = true` re-baselines `original` onto those attributes, so
+            // `getDirty()` finds no ORIGINAL value to decrypt either — that is
+            // the second of the two casts the plaintext would have triggered.
+            $mandant->setRawAttributes($attributes, true);
+
+            return [];
+        }
+
+        return is_array($config) ? $config : [];
     }
 }

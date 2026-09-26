@@ -39,9 +39,15 @@ use LogicException;
  *
  * ## Keys and rotation
  *
- * Minting always uses the CURRENT key. Verification walks the current key first
- * and then every entry of `config('app.previous_keys')` (`APP_PREVIOUS_KEYS`),
- * so a key rotation does not invalidate the badges already in the wild.
+ * Minting always uses the CURRENT key, as the CONFIGURED string (never a
+ * normalized form — that would invalidate every badge already in the wild).
+ * Verification walks the current key first and then every entry of
+ * `config('app.previous_keys')` (`APP_PREVIOUS_KEYS`), so a key rotation does
+ * not invalidate the badges already in the wild. Each configured key is matched
+ * under EVERY encoding this project has ever signed with — the literal string,
+ * the canonical `base64:` form and the encrypter's raw bytes — because the
+ * encrypter and this service did not agree on what a key string is
+ * (F5, see `signingKeys()`).
  * `make()` re-mints a stored token that no longer verifies (or that is not a
  * tenant-bound token of this application), which makes stored tokens
  * self-healing: the row is repaired on the next touch instead of 404-ing
@@ -298,6 +304,30 @@ final class QrTokenService
      * the configured previous keys (`APP_PREVIOUS_KEYS`). Verification walks
      * this list, so a rotation never invalidates an already-issued badge.
      *
+     * ## Key normalization (F5)
+     *
+     * `APP_KEY`/`APP_PREVIOUS_KEYS` have TWO consumers and they did not agree on
+     * what a key string is. The encrypter runs `parseKey()`: it strips the
+     * `base64:` prefix and base64-decodes, so it signs/encrypts with the RAW 32
+     * bytes. This service HMACs the CONFIGURED STRING verbatim. That is fine
+     * while every value carries the prefix `php artisan key:generate` prints —
+     * and silently broken the moment an operator pastes the value without it (a
+     * raw base64 blob, or whatever the encrypter itself accepts): the stored
+     * `smtp_config` kept decrypting, so nothing looked wrong, while every badge
+     * signed with that key 404s and `accreditation:backfill-qr-tokens` cannot
+     * repair it (the token is fine; the key list is not).
+     *
+     * So each configured key contributes every ENCODING of it this project has
+     * ever HMAC'd with, not just the literal string: the literal value (what the
+     * `APP_KEY` in force at mint time produced), the canonical `base64:`-prefixed
+     * form, and the raw decoded bytes the encrypter works with. All three are the
+     * SAME secret material in different encodings, so this widens nothing — an
+     * unrelated secret still fails every alias.
+     *
+     * The bare-base64 alias is the F5 trigger: `php artisan key:generate` prints
+     * `base64:XXXX`, an operator who pastes `XXXX` into `APP_PREVIOUS_KEYS` would
+     * otherwise verify nothing, and no backfill repairs it.
+     *
      * @return list<string>
      */
     private function signingKeys(): array
@@ -306,14 +336,59 @@ final class QrTokenService
             return [$this->secret];
         }
 
-        $keys = [$this->mintingKey()];
+        $keys = [];
 
-        foreach ((array) config('app.previous_keys') as $previous) {
-            if (is_string($previous) && $previous !== '' && ! in_array($previous, $keys, true)) {
-                $keys[] = $previous;
+        foreach ([$this->mintingKey(), ...(array) config('app.previous_keys')] as $configured) {
+            if (! is_string($configured) || $configured === '') {
+                continue;
+            }
+
+            foreach ($this->keyAliases($configured) as $alias) {
+                if (! in_array($alias, $keys, true)) {
+                    $keys[] = $alias;
+                }
             }
         }
 
         return $keys;
+    }
+
+    /**
+     * Every encoding of one configured key: the literal value, the canonical
+     * `base64:` form and the raw decoded bytes.
+     *
+     * A value that is neither prefixed nor valid strict base64 (a legacy raw
+     * passphrase) yields exactly one alias — itself — and stays usable verbatim.
+     *
+     * @return list<string>
+     */
+    private function keyAliases(string $key): array
+    {
+        $aliases = [$key];
+        $raw = $this->decodeKey($key);
+
+        if (! str_starts_with($key, 'base64:') && $raw !== null) {
+            $aliases[] = 'base64:'.$key;
+        }
+
+        if ($raw !== null) {
+            $aliases[] = $raw;
+        }
+
+        return array_values(array_unique($aliases));
+    }
+
+    /**
+     * The raw key bytes a configured value stands for — `Encrypter::parseKey()`
+     * semantics, extended to a value that carries no `base64:` prefix (that is
+     * the F5 trigger, so a prefixed spelling must be recoverable from a bare
+     * one). Null when the value is not valid strict base64.
+     */
+    private function decodeKey(string $key): ?string
+    {
+        $encoded = str_starts_with($key, 'base64:') ? substr($key, 7) : $key;
+        $decoded = base64_decode($encoded, true);
+
+        return $decoded === false ? null : $decoded;
     }
 }

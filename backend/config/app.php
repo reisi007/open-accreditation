@@ -114,21 +114,32 @@ return [
     | manage Laravel's "maintenance mode" status. The "cache" driver will
     | allow maintenance mode to be controlled across multiple machines.
     |
-    | Supported drivers: "file", "cache", "array", "database"
+    | WP-6-e, corrected: the drivers Laravel 13.32 actually implements are
+    | "file", "array" and "cache" — see the createXxxDriver() methods of
+    | Illuminate\Foundation\MaintenanceModeManager. There is NO "database"
+    | driver: the framework's own config stub lists one, but the manager has
+    | no createDatabaseDriver(), so `Manager::createDriver()` raises
+    | `InvalidArgumentException: Driver [database] not supported.` The suite
+    | never saw it because phpunit.xml pins APP_MAINTENANCE_DRIVER=file, and
+    | "database" as the shipped default turned every single request into a 500
+    | (PreventRequestsDuringMaintenance is in the GLOBAL stack and calls
+    | maintenanceMode()->active() per request) — Docker, which sets no
+    | APP_MAINTENANCE_DRIVER, included.
     |
-    | WP-6-e: the default is "database", NOT Laravel's "file". The file driver
-    | writes storage/framework/down and only propagates when EVERY instance
-    | shares that one file — on a replica set (or with several app containers)
-    | `php artisan down` silently leaves the other instances serving live
-    | traffic. The database driver puts the flag where all instances see it.
-    | "file" stays available as a deliberate single-instance dev choice via
-    | APP_MAINTENANCE_DRIVER=file (and the test suite pins it in phpunit.xml so
-    | a maintenance test can never reach the test database).
+    | The default is therefore "file" again: it needs no shared backend at all
+    | and is the framework default. The multi-instance answer this config was
+    | after is "cache" (APP_MAINTENANCE_DRIVER=cache), which puts the flag in a
+    | cache store every instance shares — "store" below names it and defaults
+    | to the same shared "database" cache store. A "file" driver only propagates
+    | when EVERY instance shares that one file, so it remains a deliberate
+    | single-instance choice.
+    |
+    | Supported drivers: "file", "array", "cache"
     |
     */
 
     'maintenance' => [
-        'driver' => env('APP_MAINTENANCE_DRIVER', 'database'),
+        'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
