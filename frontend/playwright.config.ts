@@ -15,7 +15,13 @@ export default defineConfig({
         ['html', {open: 'never'}]
     ],
     use: {
-        baseURL: 'http://localhost:5173',
+        // Single source of truth for the origin the suite drives. Read from the
+        // environment with the dev/preview default as fallback: a hardcoded port
+        // is exactly the WP-9-a trap — `vite preview` serves 4173 unless
+        // `vite.config.ts` pins it (it does today, with `strictPort`), so a
+        // change there, or any origin served on another port, would otherwise
+        // turn every test into connection-refused instead of a config error.
+        baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
         trace: 'on-first-retry',
         video: 'off',
     },

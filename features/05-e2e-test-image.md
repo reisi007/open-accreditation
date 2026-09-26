@@ -147,6 +147,56 @@ Digest muss CI-Laufzeit sein.
      bei Versionsdrift zwischen Dependabot-Bump und Image-Rebuild; ohne `--with-deps`,
      da apt-Deps im Image gebacken sind)
 
+## Die zwei E2E-Laufprofile (Stand 2026-09-26, WP-9-D3)
+
+Der E2E-Gate kennt **zwei** Playwright-Profile. Sie teilen `testDir`, `projects` und
+`baseURL` (erst damit ist es garantiert **dasselbe** Testset) und unterscheiden sich nur im
+Fehler-Budget:
+
+| Profil | Config | Fehler-Budget (CI) | Gate |
+|---|---|---|---|
+| **Smoke** | `frontend/playwright.config.ts` | `retries: 2`, `maxFailures: 10` | `push` / `pull_request` / `workflow_dispatch` — `--grep @smoke --workers=1` (kritischer Pfad, schnell) |
+| **Nightly** | `frontend/playwright.regression.config.ts` | `retries: 0`, `maxFailures: 1` | `schedule`-Cron — **volle** Suite, serial |
+
+**Warum das Nightly strikt bleiben MUSS:** Es ist der einzige Lauf, dessen Aufgabe das
+*Erkennen* von Flakiness ist. Mit `retries: 2` gilt ein Test, der im ersten Versuch scheitert
+und im Retry grün wird, als bestanden — der Job bleibt grün und die Flakiness ist unsichtbar.
+`retries: 0` + `maxFailures: 1` bedeuten: **ein roter Test ist der komplette Befund** (kein
+Weiterlaufen, um neun weitere Fehler zu beweisen). Deshalb wird das Nightly **nicht**
+„grünkonfiguriert": ein roter Nightly wird behoben oder mit Datei/Testname + Ursache in
+`AGENTS.todo.md` begründet — sichtbar dokumentiert, nicht wegretried. Das Smoke-Profil
+bleibt demgegenüber bewusst verzeihend, weil geteilte GitHub-Runner echtes Timing-Rauschen
+erzeugen; **beide** Werte nicht vermischen.
+
+Beide Profile lesen `use.baseURL` aus `E2E_BASE_URL` (Default `http://localhost:5173`; beide
+Vite-Server pinnen Port 5173, `preview` zusätzlich mit `strictPort`). Der
+`vite preview`-Default-Port 4173 darf die Suite also nicht still treffen.
+
+## E2E-DB-Isolation: geteilte Zustands-Reserven (Stand 2026-09-26, WP-9-D4)
+
+Der E2E-Gate fährt **alle** Specs gegen **eine** Datenbank — in CI eine frisch migrierte
+(leerer Cache-Store, also kein übertragener Rate-Limiter-Zustand), lokal eine persistente
+Dev-DB über mehrere Läufe hinweg. Daraus folgt der Isolations-Vertrag der Suite, der
+**nicht** regressieren darf:
+
+- **Fixtures sind markiert, Cleanup ist markiert — nie mandantweit.** Jedes E2E-Fixture
+  trägt seinen Marker im Namen (`Portal-Test <workerKey> <ts>`, `E2E Akkreditierung <ts>`,
+  `E2E Heimverein <ts>`, `E2E *`-Mandanten …), und ein Helper löscht **nur seinen eigenen**
+  Marker. Mandantweit löschen darf ausschließlich die **serielle** `globalTeardown`
+  (`purgeAllE2EArtifacts`), weil dort garantiert kein Test mehr läuft. Grund: `fullyParallel`
+  lässt Desktop- und Mobile-Projekt **dieselbe** Spec gleichzeitig laufen; ein mandantweites
+  Cleanup löschte dem jeweils anderen Projekt das lebende Fixture (gemessen: 7 von 24 Slots
+  rot, reproduzierbar).
+- **Worker-Key statt Run-Key.** Der Portal-Fixture-Key ist `TEST_WORKER_INDEX` (Fallback
+  `p<pid>`), weil ein Worker zu jedem Zeitpunkt genau *einen* Test ausführt — „darf ich das
+  löschen?" ist damit ohne Koordination beantwortbar. Ein Run hat keine ID im Worker-Prozess,
+  und beide Projekte teilen sich denselben Run.
+- **Geteilter Zustand wird serialisiert, nicht wegdefiniert.** Das Logo des primären
+  Mandanten schreibt `admin-mandant.spec.ts` (Upload) und liest `portal.spec.ts`
+  (Fallback `/logo.svg`). Beide nehmen denselben `acquirePrimaryMandantLogoLock()`
+  (exklusiv erzeugte Lock-Datei; Timeout **wirft**, Stale-Lock wird nach 5 min übernommen).
+  Keine Assertion wurde abgeschwächt.
+
 ## Rate-Limiter-State (P3e-B5)
 
 Named Rate-Limiter (u. a. `login`) persistieren ihre Zähler im **DB-Cache-

@@ -390,45 +390,26 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 > `role_user`-Zeile) — Fixture-Realismus, keine Abschwächung; der alte Zustand ist
 > in Produktion nicht erreichbar.
 > **Bewiesen:** 7 der 13 neuen Tests scheitern auf dem Pre-Fix-Code; E2E 17/0 mit
-> und ohne Middleware-Register identisch. Verbleibend offen: `#6-1-D1`.
+> und ohne Middleware-Register identisch.
 
 ### Offene Follow-ups
 
-- [ ] **WP-9-D4 (offen, Test-Isolation):** die sechs aus `@smoke` abgestuften Tests sind
-  grün, **ein** voller Suite-Lauf ließ jedoch `a11y.spec.ts` + `badge-editor.spec.ts`
-  gemeinsam scheitern — Auslöser ist **akkumulierter DB-Zustand** aus wiederholten
-  Vollausführungen. CI migriert pro Job frisch, dort sollte es nicht auftreten; die
-  Schwäche ist real. Dieselbe Wurzel wie unten.
 - [ ] **WP-9-D5 (offen, Verhalten):** `CACHE_STORE=array` für den E2E-Backend war **nicht
   optional** — ohne ihn war der Nightly-Lauf beim ersten Lauf rot (6 Fehler, **alle** der
   Login-Limiter, inkl. `@smoke`; ein Fehler war der globale Teardown ⇒ vergiftete
   Folgetests). Der Env-Floor in `AppServiceProvider.php:63` trägt damit faktisch die
   Tests, nicht nur Dev-Bequemlichkeit. `AuthThrottleTest` deckt das Throttling weiter ab.
-- [ ] **#6-1-D1 (neu, Frontend-Entscheidung):** `POST /api/auth/logout` und
-  `GET /api/auth/me` liegen in der `auth:api`-Gruppe ⇒ ein User, dem die Rolle
-  **soeben** entzogen wurde, bekommt dort **403** statt 204/200. Die SPA rendert
-  die deutsche Meldung als normalen `ApiError` (nur **401** löst den globalen
-  Logout-Handler aus), nichts crasht aber der Server-Cookie wird bei diesem Logout
-  **nicht** vom Server entfernt. Route wurde bewusst **nicht** ausgenommen.
-  **Entscheidung offen:** (a) bewusst so lassen ( der Cookie läuft ohnehin nach
-  `JWT_TTL` ab) oder (b) die beiden Routen ausnehmen — dann verlässt ein
-  entzogener User die Seite sauber, verliert aber den Sofort-Effekt für alle
-  anderen Routen. Frontend-Scope.
-- [ ] **WP-10-D1:** `MediaMigrateToDomainLayoutCommand` nutzt weiterhin `->get()`
-  (dieselbe Befundklasse wie WP-10-a, aber nicht in dessen Dateiliste). Einmaliger
-  Backfill, deshalb nachrangig.
-- [ ] **WP-10-D2 (Doku):** `features/04-media-self-service.md:166-175` sollte um
-  `--include-legacy` ergänzt werden (für den Default weiterhin richtig, nur unvollständig).
-- [ ] **WF-3-D3:** Mandant-Delete — nach erfolgreichem Brand-Purge kann ein späterer
-  Kinder-Purge scheitern ⇒ Mandant lebt mit `logo_path` auf einer entfernten Datei.
-  Datei-Löschung ist nicht transaktional; Fenster dokumentiert, nicht behoben.
-- [ ] **Test-Parallelität (dauerhaft, Kandidat für `AGENTS.md` §7):** der
-  Cross-Prozess-Race auf `storage/framework/testing/disks/*` hat **drei** Agenten bis zu
-  243 Fehlschläge kassieren lassen. Die bestehende Notiz („Volle Suite nur in EINEM
-  Subagenten") ist eine Disziplinregel; die eigentliche Ursache ist ein **geteilter**
-  Fake-Root. WP-11 hat die *Aufräum*-Seite gelöst, nicht die *Kollisions*-Seite:
-  `Storage::fake()` legt pro Prozess denselben Pfad an. Durable Lösung:
-  prozess-eindeutiger Root (PID/Paratest-Token im Pfad).
+  **Nachtrag (2026-09-26):** `scripts/e2e-up.sh` setzt `CACHE_STORE` **nicht** (kopiert
+  `.env.example` → `database`); CI seds `ARRAY` in `.env`. Ein lokaler wiederholter
+  Vollsuite-Lauf kann darum 429 auf `throttle:media` (30/min, geteilter Admin) oder
+  `throttle:login` (40/min) bekommen, das CI nicht treffen kann. Nicht editiert —
+  bewusst als Operator-Hinweis dokumentiert.
+- [ ] **E2E `Date.now()`-Kollisionsrisiko (neu, 2026-09-26):** `a11y.spec.ts` +
+  `badge-editor.spec.ts` lokalisieren ihre Zeile nach eindeutigem Namen in einer
+  unpaginierten Liste; zwei weitere `admin-mandant.spec.ts`-Tests leiten ihren
+  eindeutigen Slug aus einem nackten `Date.now()` ab. Same-ms-Kollisionen ⇒ `422`
+  bzw. Shared-Row-Strict-Mode-Violation. In jedem Vollsuite-Lauf grün; die Kollisionen
+  traten nur unter `--repeat-each`-Amplification auf. Kandidat für einen Follow-up.
 - [ ] **Nachtrag zu `AGENTS.md` §10 A3:** `MandantContext::forgetHostnames()` ist jetzt an
   allen drei hostname-schreibenden Pfaden vorhanden (Domain anlegen/ändern/löschen,
   Mandant löschen). Ein **Domain-Update**-Endpunkt existiert weiterhin nicht — falls einer

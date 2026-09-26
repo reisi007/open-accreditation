@@ -127,6 +127,21 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 - Vor Deployment: `test:e2e` (full suite)
 - Wiederholung fehlgeschlagener Tests: `npx playwright test --last-failed`
 
+**Die zwei Laufprofile (gleiches Testset, unterschiedliches Fehler-Budget):**
+
+- **`playwright.config.ts` = Smoke-Profil** (`retries: 2`, `maxFailures: 10` in CI). Der
+  Push-/PR-/Dispatch-Gate (`--grep @smoke --workers=1`) benutzt es. Bewusst **verzeihend**:
+  geteilte Runner haben echtes Timing-Rauschen. **Nicht** verschärfen.
+- **`playwright.regression.config.ts` = Nightly-Profil** (`retries: 0`, `maxFailures: 1` in
+  CI). Der `schedule`-Cron benutzt es und läuft die **volle** Suite. Es ist der
+  **Flakiness-Detektor** und muss deshalb **strikt** bleiben: Ein erster Fehlversuch IST das
+  Ergebnis. Wer `retries`/höheres `maxFailures` hier einführt, macht das Gate blind — der
+  Nightly wird nicht „grüngezogen", sondern der flaky Test wird behoben oder mit
+  Datei/Testname + Ursache in `AGENTS.todo.md` begründet.
+- Die Profile teilen `testDir`/`projects`/`baseURL` (identisches Testset). Die `use.baseURL`
+  kommt aus `E2E_BASE_URL` (Default `http://localhost:5173`) — beide Vite-Server pinnen Port
+  5173, ein Dev→Preview-Wechsel darf darum nicht an einem hartkodierten Port zerschellen.
+
 **Workflow-Reihenfolge für Test-Fixes:** (1) SOLL in `features/` dokumentieren → (2) Backend-Tests
 (`php artisan test --filter`) → (3) Frontend-Unit-Tests (`pnpm vitest run`) → (4) erst danach E2E.
 

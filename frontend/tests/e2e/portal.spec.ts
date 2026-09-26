@@ -1,16 +1,24 @@
 import { expect, test } from '@playwright/test';
-import { ensurePrimaryMandantActivePortalEvent } from './helpers/admin-data';
+import { acquirePrimaryMandantLogoLock, ensurePrimaryMandantActivePortalEvent } from './helpers/admin-data';
 
 test.describe('Portal (P3a)', () => {
     test('landing shows the static fallback logo when the mandant has no uploaded logo', { tag: ['@smoke', '@feature:portal'] }, async ({ page }) => {
-        // Initial guest load is the only allowed page.goto.
-        await page.goto('/');
+        // The admin media spec uploads a logo to this same (primary) mandant, so
+        // "no logo" is shared global state — take turns on it instead of racing
+        // (WP-9-D4).
+        const releaseLogoLock = await acquirePrimaryMandantLogoLock();
+        try {
+            // Initial guest load is the only allowed page.goto.
+            await page.goto('/');
 
-        const main = page.getByRole('main');
+            const main = page.getByRole('main');
 
-        // The seeded primary mandant has no uploaded logo → the homepage shows
-        // the static React fallback (root asset, e.g. later overridden by Caddy).
-        await expect(main.getByRole('img', { name: 'Hauptseite' })).toHaveAttribute('src', '/logo.svg');
+            // The seeded primary mandant has no uploaded logo → the homepage shows
+            // the static React fallback (root asset, e.g. later overridden by Caddy).
+            await expect(main.getByRole('img', { name: 'Hauptseite' })).toHaveAttribute('src', '/logo.svg');
+        } finally {
+            releaseLogoLock();
+        }
     });
 
     test('landing shows mandant, event list, team filter and event detail', { tag: ['@smoke', '@feature:accreditation'] }, async ({ page }) => {
@@ -35,11 +43,12 @@ test.describe('Portal (P3a)', () => {
         await expect(main.getByRole('combobox', { name: 'Team' })).toHaveValue(String(team.id));
         await expect(eventLink).toBeVisible();
 
-        // Isolate the test's own event via the (unique per run) competition
+        // Isolate the test's own event via its (per-worker unique) competition
         // filter: the shared dev DB accumulates active events from parallel
-        // @feature:accreditation specs, and a long, still-growing calendar
-        // breaks the auto-scroll click hit-test on the mobile viewport. With
-        // exactly one card left the click is stable.
+        // @feature:accreditation specs — and, since WP-9-D4, this spec's own
+        // Desktop/Mobile copies coexist instead of deleting each other — so a
+        // long, still-growing calendar breaks the auto-scroll click hit-test on
+        // the mobile viewport. With exactly one card left the click is stable.
         await main.getByRole('combobox', { name: 'Wettbewerb' }).selectOption(String(event.competition));
         await expect(eventLink).toBeVisible();
         await expect(

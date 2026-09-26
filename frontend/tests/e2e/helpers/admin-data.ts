@@ -1,4 +1,7 @@
 import { request } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { MailpitHelper } from './mailpit';
 
 const FRONTEND_BASE_URL = 'http://localhost:5173';
@@ -583,22 +586,45 @@ export async function allocateAccreditationApi(accreditationId = 0, mode = 'all'
 }
 
 /**
- * Creates a unique active portal event (team-scoped, future date + deadline)
- * so the public portal calendar has deterministic content. Returns the event,
- * its team and the mandant name shown as the portal heading.
+ * Fixture key of the CURRENT Playwright worker, stamped into every portal
+ * fixture's title and competition (`Portal-Test w3 <ts>` /
+ * `E2E Wettbewerb w3 <ts>`).
  *
- * @returns {Promise<{ event: object; team: object; mandantName: string }>}
+ * Why the key is per WORKER and not per run: Playwright's two projects
+ * (`Desktop Chrome`, `Mobile Chrome`) run the SAME test in the SAME run, and a
+ * run does not expose a run id to the worker process. A worker, on the other
+ * hand, runs exactly one test at a time, so a worker key is precisely the
+ * granularity at which "may I delete this fixture?" is answerable without
+ * coordination. `process.pid` is the fallback for contexts Playwright does not
+ * give a worker index to (e.g. the teardown process).
  */
+const PORTAL_FIXTURE_KEY = (() => {
+    const workerIndex = process.env.TEST_WORKER_INDEX;
+    return workerIndex === undefined || workerIndex === '' ? `p${process.pid}` : `w${workerIndex}`;
+})();
+
 /**
- * Removes E2E portal events (titled "Portal-Test *" / competition
- * "E2E Wettbewerb *") for the current primary mandant so repeated runs never
- * accumulate duplicates that break the portal calendar's single-card assertion.
+ * Removes THIS worker's own leftover portal fixtures (title
+ * "Portal-Test <workerKey> *" / competition "E2E Wettbewerb <workerKey> *") for
+ * the current primary mandant, so repeated invocations never accumulate
+ * duplicates that break the portal calendar's single-card assertion.
  *
- * This helper is the only producer of these events and is invoked once per run,
- * so removing its own prior artifacts is safe under Playwright's parallel
- * workers. It deliberately does NOT touch the shared "E2E Heimverein" team
- * (created by `ensurePrimaryMandantHasTeam` and consumed by other specs in
- * parallel) — that is reclaimed by the serial global teardown instead.
+ * WP-9-D4: the previous version deleted EVERY `Portal-Test *` / `E2E Wettbewerb
+ * *` event mandant-wide and assumed "this helper is the only producer, so
+ * removing prior artifacts is safe". That assumption is false under
+ * `fullyParallel`: the Desktop and Mobile projects call this helper at the same
+ * time, so the second project's cleanup wiped the first project's event and its
+ * assertions died on "element(s) not found" (measured: 7 of 24 slots red,
+ * reproducibly). Scoping the delete to the current worker's own marker makes
+ * the two projects write-only-disjoint namespaces: neither can delete the
+ * other's live fixture, and both still reclaim their own leftovers.
+ *
+ * Cross-RUN hygiene stays where it belongs: the serial `globalTeardown`
+ * (`purgeAllE2EArtifacts`) purges every E2E marker mandant-wide, once, after
+ * all tests have finished — it is the only place a mandant-wide delete is safe.
+ * It deliberately does NOT touch the shared "E2E Heimverein" team (created by
+ * `ensurePrimaryMandantHasTeam` and consumed by other specs in parallel) —
+ * that is reclaimed by the same serial teardown.
  */
 async function cleanupPrimaryMandantPortalEvents() {
     const api = await loginAdminApi();
@@ -608,7 +634,10 @@ async function cleanupPrimaryMandantPortalEvents() {
         for (const event of events) {
             const title = event.title ?? '';
             const competition = event.competition ?? '';
-            if (title.startsWith('Portal-Test ') || competition.startsWith('E2E Wettbewerb ')) {
+            if (
+                title.startsWith(`Portal-Test ${PORTAL_FIXTURE_KEY} `) ||
+                competition.startsWith(`E2E Wettbewerb ${PORTAL_FIXTURE_KEY} `)
+            ) {
                 await api.delete(`/api/admin/events/${event.id}`);
             }
         }
@@ -617,6 +646,13 @@ async function cleanupPrimaryMandantPortalEvents() {
     }
 }
 
+/**
+ * Creates a unique active portal event (team-scoped, future date + deadline)
+ * so the public portal calendar has deterministic content. Returns the event,
+ * its team and the mandant name shown as the portal heading.
+ *
+ * @returns {Promise<{ event: object; team: object; mandantName: string }>}
+ */
 export async function ensurePrimaryMandantActivePortalEvent() {
     const api = await loginAdminApi();
     try {
@@ -661,13 +697,17 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             team = (await teamCreate.json()).data;
         }
 
-        // Self-cleaning: drop any portal event left by a previous run before
-        // creating the deterministic one for this run, so the portal calendar
-        // always holds exactly one matching card.
+        // Self-cleaning: drop THIS worker's leftover portal event before creating
+        // the deterministic one, so the portal calendar holds exactly one
+        // matching card for the competition this test filters by. A concurrently
+        // running project keeps its own event (see PORTAL_FIXTURE_KEY).
         await cleanupPrimaryMandantPortalEvents();
 
-        const title = `Portal-Test ${Date.now()}`;
-        const competition = `E2E Wettbewerb ${Date.now()}`;
+        // Title and competition share ONE stamp, so the competition filter the
+        // portal spec applies isolates exactly this one card.
+        const stamp = `${PORTAL_FIXTURE_KEY} ${Date.now()}`;
+        const title = `Portal-Test ${stamp}`;
+        const competition = `E2E Wettbewerb ${stamp}`;
         const create = await api.post('/api/admin/events', {
             data: {
                 title,
@@ -797,5 +837,101 @@ export async function purgeAllE2EArtifacts() {
         console.warn('[e2e-hygiene] purgeAllE2EArtifacts failed:', error);
     } finally {
         await api.dispose();
+    }
+}
+
+/**
+ * Cross-process mutex for the one piece of global E2E state that two DIFFERENT
+ * spec files mutate: the primary mandant's logo.
+ *
+ * WP-9-D4. `admin-mandant.spec.ts` uploads a logo to the primary mandant (and
+ * removes it again), while `portal.spec.ts` asserts that the primary mandant has
+ * NO logo and therefore shows the static `/logo.svg` fallback. Both address the
+ * same mandant row through the same host-resolved origin, so under
+ * `fullyParallel` the portal assertion could land inside the upload window and
+ * see the mandant logo. No assertion was weakened: the two tests now take turns
+ * on the shared row instead of racing for it.
+ *
+ * Why a lock file and not `test.describe.serial`: serial mode only orders tests
+ * within one file, and Playwright offers no cross-file/cross-project
+ * serialisation primitive. The lock is a plain exclusive-create file, which is
+ * the standard mutex and works across the worker processes of one machine (local
+ * runs, the screenshots suite, and the CI container alike). The contended region
+ * is a few seconds of wall clock; the acquisition fails LOUDLY on timeout so a
+ * deadlock can never turn into a silently skipped assertion, and a lock left
+ * behind by a killed process is stolen once it is older than the stale window.
+ *
+ * Usage (the release must sit in a `finally`, as everywhere else here):
+ *
+ *   const release = await acquirePrimaryMandantLogoLock();
+ *   try { ... } finally { release(); }
+ */
+const LOGO_LOCK_DIR = path.join(os.tmpdir(), 'open-accreditation-e2e');
+const LOGO_LOCK_FILE = path.join(LOGO_LOCK_DIR, 'primary-mandant-logo.lock');
+const LOGO_LOCK_TIMEOUT_MS = 60000;
+const LOGO_LOCK_STALE_MS = 300000;
+
+/**
+ * Exclusive-create the lock file. Returns false when it is already held (the
+ * normal contended case) and rethrows anything else.
+ */
+function tryCreateLogoLock() {
+    try {
+        fs.closeSync(fs.openSync(LOGO_LOCK_FILE, 'wx'));
+        return true;
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Removes the lock file. Idempotent: a lock that is already gone (a stale-lock
+ * steal removed it first) is not an error. Written with an explicit errno check
+ * instead of `rmSync(…, { force: true })` because the E2E lint rule bans the
+ * `force` property in this directory — it exists to stop Playwright's
+ * `click({ force: true })`, and a blanket `eslint-disable` is not an option.
+ */
+function removeLogoLock() {
+    try {
+        fs.unlinkSync(LOGO_LOCK_FILE);
+    } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+            throw error;
+        }
+    }
+}
+
+/**
+ * Waits for exclusive ownership of the primary mandant's logo state and returns
+ * the release function. Throws instead of degrading if the lock cannot be taken
+ * within `LOGO_LOCK_TIMEOUT_MS`.
+ */
+export async function acquirePrimaryMandantLogoLock() {
+    fs.mkdirSync(LOGO_LOCK_DIR, { recursive: true });
+    const deadline = Date.now() + LOGO_LOCK_TIMEOUT_MS;
+    for (;;) {
+        if (tryCreateLogoLock()) {
+            fs.writeFileSync(LOGO_LOCK_FILE, `pid=${process.pid} at=${new Date().toISOString()}\n`);
+            return removeLogoLock;
+        }
+        // Held by someone else. A lock older than the stale window belongs to a
+        // process that died mid-test, so it is reclaimed instead of wedging the
+        // whole suite.
+        if (Date.now() - fs.statSync(LOGO_LOCK_FILE).mtimeMs > LOGO_LOCK_STALE_MS) {
+            console.warn(`[e2e-hygiene] stealing stale logo lock ${LOGO_LOCK_FILE}`);
+            removeLogoLock();
+            continue;
+        }
+        if (Date.now() > deadline) {
+            throw new Error(
+                `Timed out after ${LOGO_LOCK_TIMEOUT_MS}ms waiting for the primary-mandant-logo E2E lock (${LOGO_LOCK_FILE})`,
+            );
+        }
+        await new Promise((resolve) => {
+            setTimeout(resolve, 100);
+        });
     }
 }

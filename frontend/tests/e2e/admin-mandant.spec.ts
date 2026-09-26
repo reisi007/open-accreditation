@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginAdminApi } from './helpers/admin-data';
+import { acquirePrimaryMandantLogoLock, loginAdminApi } from './helpers/admin-data';
 
 // 1×1 transparent PNG — the same fixture bytes used for the portrait upload
 // in helpers/admin-data.ts.
@@ -71,44 +71,53 @@ test.describe('Admin: Mandanten (P2a)', () => {
     });
 
     test('self-service logo upload', { tag: ['@smoke', '@feature:admin:mandant'] }, async ({ page }) => {
-        // Initial guest load is the only allowed page.goto.
-        await page.goto('/');
+        // The portal spec asserts that the PRIMARY mandant has no logo (it must
+        // fall back to the static asset), so the upload window below is global
+        // state on a row another spec reads. Take turns instead of racing
+        // (WP-9-D4).
+        const releaseLogoLock = await acquirePrimaryMandantLogoLock();
+        try {
+            // Initial guest load is the only allowed page.goto.
+            await page.goto('/');
 
-        await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
-        await expect(page).toHaveURL(/\/login$/);
+            await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
+            await expect(page).toHaveURL(/\/login$/);
 
-        const loginMain = page.getByRole('main');
-        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
-        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
-        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+            const loginMain = page.getByRole('main');
+            await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+            await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+            await loginMain.getByRole('button', { name: 'Anmelden' }).click();
 
-        await expect(page).toHaveURL(/\/admin\/mandants$/);
+            await expect(page).toHaveURL(/\/admin\/mandants$/);
 
-        // Navigate via the sidebar to the self-service media page.
-        await page.getByRole('complementary').getByRole('link', { name: 'Logo & Header' }).click();
-        await expect(page).toHaveURL(/\/admin\/media$/);
+            // Navigate via the sidebar to the self-service media page.
+            await page.getByRole('complementary').getByRole('link', { name: 'Logo & Header' }).click();
+            await expect(page).toHaveURL(/\/admin\/media$/);
 
-        const mediaMain = page.getByRole('main');
-        await expect(mediaMain.getByRole('heading', { level: 1, name: 'Logo & Header' })).toBeVisible();
+            const mediaMain = page.getByRole('main');
+            await expect(mediaMain.getByRole('heading', { level: 1, name: 'Logo & Header' })).toBeVisible();
 
-        // The seeded primary mandant has no logo → the Logo field shows the empty state.
-        const logoField = mediaMain.getByLabel('Logo', { exact: true }).locator('..');
-        await expect(logoField.getByText('Kein Bild hinterlegt.')).toBeVisible();
+            // The seeded primary mandant has no logo → the Logo field shows the empty state.
+            const logoField = mediaMain.getByLabel('Logo', { exact: true }).locator('..');
+            await expect(logoField.getByText('Kein Bild hinterlegt.')).toBeVisible();
 
-        // Upload the 1×1 PNG fixture.
-        await logoField.getByLabel('Logo', { exact: true }).setInputFiles({
-            name: 'logo.png',
-            mimeType: 'image/png',
-            buffer: Buffer.from(PNG_1PX_BASE64, 'base64'),
-        });
-        await logoField.getByRole('button', { name: 'Hochladen' }).click();
+            // Upload the 1×1 PNG fixture.
+            await logoField.getByLabel('Logo', { exact: true }).setInputFiles({
+                name: 'logo.png',
+                mimeType: 'image/png',
+                buffer: Buffer.from(PNG_1PX_BASE64, 'base64'),
+            });
+            await logoField.getByRole('button', { name: 'Hochladen' }).click();
 
-        // After the overview re-fetch the logo preview image becomes visible.
-        await expect(logoField.getByRole('img', { name: 'Logo' })).toBeVisible();
+            // After the overview re-fetch the logo preview image becomes visible.
+            await expect(logoField.getByRole('img', { name: 'Logo' })).toBeVisible();
 
-        // Remove it again and the preview returns to the empty state.
-        await logoField.getByRole('button', { name: 'Entfernen' }).click();
-        await expect(logoField.getByText('Kein Bild hinterlegt.')).toBeVisible();
+            // Remove it again and the preview returns to the empty state.
+            await logoField.getByRole('button', { name: 'Entfernen' }).click();
+            await expect(logoField.getByText('Kein Bild hinterlegt.')).toBeVisible();
+        } finally {
+            releaseLogoLock();
+        }
     });
 
     test('mandant list shows logo column and portal link', { tag: ['@smoke', '@feature:admin:mandant'] }, async ({ page }) => {
