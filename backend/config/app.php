@@ -114,12 +114,21 @@ return [
     | manage Laravel's "maintenance mode" status. The "cache" driver will
     | allow maintenance mode to be controlled across multiple machines.
     |
-    | Supported drivers: "file", "cache", "array"
+    | Supported drivers: "file", "cache", "array", "database"
+    |
+    | WP-6-e: the default is "database", NOT Laravel's "file". The file driver
+    | writes storage/framework/down and only propagates when EVERY instance
+    | shares that one file — on a replica set (or with several app containers)
+    | `php artisan down` silently leaves the other instances serving live
+    | traffic. The database driver puts the flag where all instances see it.
+    | "file" stays available as a deliberate single-instance dev choice via
+    | APP_MAINTENANCE_DRIVER=file (and the test suite pins it in phpunit.xml so
+    | a maintenance test can never reach the test database).
     |
     */
 
     'maintenance' => [
-        'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
+        'driver' => env('APP_MAINTENANCE_DRIVER', 'database'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 

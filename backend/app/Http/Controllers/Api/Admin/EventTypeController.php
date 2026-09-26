@@ -97,9 +97,17 @@ class EventTypeController extends Controller
 
         $validated = $this->validatePayload($request, $mandantId, forCreate: true);
 
+        // WP-6-g: the host-derived key is placed AFTER the validated spread,
+        // so it wins the merge (a later string key overwrites an earlier one)
+        // and a `mandant_id` in the payload can never reach the row — same
+        // order as `CategoryController::store` / `EventController::store`. Not
+        // exploitable today (`validatePayload()` has no `mandant_id` rule, so
+        // `$validated` cannot carry the key), but `EventType` lists
+        // `mandant_id` in `#[Fillable]`: one added rule away from a
+        // super_admin writing into a foreign mandant.
         $eventType = EventType::create([
-            'mandant_id' => $mandantId,
             ...$validated,
+            'mandant_id' => $mandantId,
         ]);
 
         return (new EventTypeResource($eventType))

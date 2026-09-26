@@ -46,13 +46,23 @@ class Event extends Model
     }
 
     /**
-     * The event's participant slots (W4), ordered by `sort_order`. Each row
-     * points at an optional team and/or carries a free-text `name` override,
-     * so Single/Versus/tournament events use the same model.
+     * The event's participant slots (W4), ordered by `sort_order` ASC with
+     * NULLs LAST. Each row points at an optional team and/or carries a
+     * free-text `name` override, so Single/Versus/tournament events use the
+     * same model.
+     *
+     * WP-6-a: `sort_order` is nullable (a direct insert without a slot gets
+     * NULL, see the W4-F2 note in the migration) and the two engines disagree
+     * on where NULLs belong in an ASC sort — Postgres defaults to NULLS LAST,
+     * SQLite sorts them FIRST. `nulls last` is explicit ANSI SQL supported by
+     * both (Postgres 9.x, SQLite >= 3.30), so the display order is identical
+     * in prod and in the test suite; slots without a number sort after the
+     * numbered ones.
      */
     public function participants(): HasMany
     {
-        return $this->hasMany(EventParticipant::class)->orderBy('sort_order');
+        return $this->hasMany(EventParticipant::class)
+            ->orderByRaw('event_participants.sort_order asc nulls last');
     }
 
     /**

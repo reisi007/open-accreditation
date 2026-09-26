@@ -58,9 +58,19 @@ class AdminSubApplicationResource extends JsonResource
      */
     private function accreditationData(): ?array
     {
+        // WP-6-f: check `relationLoaded` BEFORE touching the relation, exactly
+        // like `subAccreditationData()` above. Reading `$this->subAccreditation`
+        // first lazy-loads it — one extra query per row when the eager load was
+        // dropped — and the block would still render `null` for the whole
+        // `accreditation` payload, i.e. silently lose data instead of failing
+        // loudly.
+        if (! $this->relationLoaded('subAccreditation') || $this->subAccreditation === null) {
+            return null;
+        }
+
         $sub = $this->subAccreditation;
 
-        if ($sub === null || ! $sub->relationLoaded('accreditation') || $sub->accreditation === null) {
+        if (! $sub->relationLoaded('accreditation') || $sub->accreditation === null) {
             return null;
         }
 

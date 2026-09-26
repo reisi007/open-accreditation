@@ -50,9 +50,17 @@ class PortalController extends Controller
     }
 
     /**
-     * All active events of the current mandant, ordered by date ASC.
-     * Filterable by `team_id` (must belong to the current mandant, else 422)
-     * and `competition` (partial, portably LIKE-escaped).
+     * All active events of the current mandant, ordered by date ASC with
+     * NULLs LAST (`id` breaks ties). Filterable by `team_id` (must belong to
+     * the current mandant, else 422) and `competition` (partial, portably
+     * LIKE-escaped).
+     *
+     * WP-6-a: `events.date` is nullable and the two engines disagree on where
+     * NULLs belong in an ASC sort — Postgres defaults to NULLS LAST, SQLite
+     * sorts them FIRST, so an undated event was rendered FIRST by the test
+     * suite and LAST in production. `nulls last` is explicit ANSI SQL
+     * supported by both (Postgres 9.x, SQLite >= 3.30) and pins the calendar
+     * to "dated events first, undated after them" on either engine.
      */
     public function events(Request $request): AnonymousResourceCollection
     {
@@ -84,7 +92,8 @@ class PortalController extends Controller
         }
 
         return PortalEventResource::collection(
-            $query->orderBy('date')->orderBy('id')->get(),
+            // WP-6-a: never plain `orderBy('date')` here — see the docblock.
+            $query->orderByRaw('events.date asc nulls last')->orderBy('id')->get(),
         );
     }
 
