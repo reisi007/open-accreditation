@@ -105,6 +105,16 @@ Default-`APP_KEY` im Repo hieße: alle `Crypt`-Payloads und QR-Tokens forgerbar)
 `--env-file deployment/dev.env` wird im Prod-Pfad **nie** benutzt; die Datei ist
 DEV-ONLY.
 
+**Build-Kontext:** der `backend`-Service baut mit Kontext = **Repo-Root** (damit
+`backend/` ins Image kommt), gefiltert über die `.dockerignore` im Repo-Root. Die
+zieht `frontend/node_modules`, `backend/vendor`, `.git`, `backend/storage/`,
+Test-Artefakte und `.env*` heraus — von 359,7 MB auf 4,1 MB pro Build (gemessen,
+WP-5-D1). Sie fasst `deployment/` nicht an, weil die CI-Basis-Image-Rolle mit
+`context: deployment` baut und dort `deployment/entrypoint.sh` braucht; eine
+`deployment/Dockerfile.dockerignore` würde die Root-Regeln still ersetzen und
+darum nicht existieren. Details in `.dockerignore` und im Kopf von
+`deployment/Dockerfile`.
+
 Was der Start macht — Compose zieht die Abhängigkeiten von `backend` hoch:
 
 | Reihenfolge | Service | Rolle |

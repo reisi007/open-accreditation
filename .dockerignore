@@ -1,0 +1,173 @@
+# ==========================================================================
+# open-accreditation — Root-`.dockerignore`
+# --------------------------------------------------------------------------
+# GILT NUR FÜR DEN BUILD-KONTEXT REPO-ROOT — also genau für die PROD-ROLLE,
+# die `deployment/docker-compose.yml` baut (`context: ..`, `APP_SOURCE=1`).
+#
+# Die ANDERE Rolle dieses Dockerfiles — das Basis-Image
+# (`.github/workflows/base-image.yml`, genauso `e2e-image.yml`) — baut mit
+# `context: deployment`. BuildKit liest für einen Kontext nur
+# `<dockerfile>.dockerignore` bzw. `<kontext>/.dockerignore`; die Wurzel ist
+# dort `deployment/` — diese Datei wird für dieses CI-Build also NICHT
+# gelesen (deshalb liegt sie hier und nicht in `deployment/`, und deshalb
+# bleibt `deployment/` unten vollständig im Kontext).
+# Umgekehrt gilt: NICHT `deployment/Dockerfile.dockerignore` anlegen — die
+# Datei würde für den Compose-Build VOR dieser hier greifen (BuildKit prüft
+# den Dockerfile-nahen Namen zuerst) und die Repo-Root-Regeln still ersetzen.
+#
+# --------------------------------------------------------------------------
+# REGEL: hier steht nur, was **kein** Build liest. Alles, was
+# `deployment/Dockerfile` aus dem Kontext braucht, steht unten unter
+# „BEWUSST NICHT AUSGESCHLOSSEN" — die drei Zeilen, die der Build tatsächlich
+# aus dem Kontext zieht:
+#   1. `deployment/entrypoint.sh`   → `/ctx/deployment/entrypoint.sh`
+#                                    (BEIDE Rollen, `RUN --mount=type=bind`)
+#   2. `backend/` ohne vendor/storage/tests/.env/.sqlite
+#                                 → `RUN --mount=type=bind` + `tar` (Rolle 2)
+#   3. `deployment/dev.env`        → nicht vom Build gelesen, aber bewusst
+#                                    im Kontext gelassen (Platzhalter-Datei,
+#                                    AGENTS.md §10 A2).
+#
+# GEMESSEN (Docker 29.5.3 / BuildKit 0.30, linux/arm64, jeweils „kalt" — der
+# Kontextpfad wurde für beide Messungen variiert, weil BuildKit nur die seit
+# dem letzten Sync DESSELBEN Builders geänderten Dateien überträgt und die
+# `transferring context:`-Zeile damit nur ein Delta zeigt):
+#   an den Builder gesendet:  359,72 MB / 2,9 s  ->  4,10 MB / 0,1 s
+#   materialisierter Inhalt:   441 MB / 31.407 Dateien  ->  5,2 MB / 519 Dateien
+# Lokal kostet der Kontext-Transfer ~1 s (Platte -> lokaler Builder), der
+# messbare Build-Zeitgewinn ist also klein; der eigentliche Gewinn ist jeder
+# NICHT-Lokale Builder (CI-Cache, Cloud-/Remote-Builder), wo diese Bytes pro
+# Build übers Netz gehen.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+# 1) Versionsverwaltung — `.git` ist die zweitgrößte Einzelquelle und für
+#    keinen Build nötig: `composer.json` setzt `preferred-install: dist`, und
+#    das Image hat kein `git`-Binary (siehe Kommentar im Dockerfile).
+# --------------------------------------------------------------------------
+.git
+
+# --------------------------------------------------------------------------
+# 2) Abhängigkeitsbäume — werden im Image IMMER frisch installiert
+#    (`composer install --no-dev`, `pnpm install`), der Dev-Checkout-Stand ist
+#    nie die Build-Quelle. Das sind zusammen ~359 MB der 441 MB.
+#    Kein getracktes File liegt unter einem solchen Pfad (geprüft:
+#    `git ls-files | grep -E '(^|/)(vendor|node_modules)/'` → 0 Treffer).
+# --------------------------------------------------------------------------
+**/node_modules
+**/vendor
+
+# --------------------------------------------------------------------------
+# 3) Secrets — dürfen nie in einen Build-Kontext. Der `tar`-Schritt im
+#    Dockerfile exclude't `.env`/`.env.*` bereits; hier ist die erste
+#    Verteidigungslinie, damit sie nicht einmal den Builder erreichen.
+#    `.env.example` ist bewusst MIT ausgeschlossen: das Prod-Image braucht
+#    es nicht (8 KB), und so kann die Regel nicht versehentlich ein echtes
+#    `.env` durchlassen. Die PHPUnit-/E2E-CI nutzt die GitHub-Checkout-Kopie
+#    und ist davon nicht betroffen.
+# --------------------------------------------------------------------------
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+
+# --------------------------------------------------------------------------
+# 4) Laravel-Laufzeitverzeichnisse. Das Image legt das Skelett selbst an
+#    (`mkdir -p bootstrap/cache storage/app/{media,private,public}
+#    storage/framework/{cache/data,sessions,views} storage/logs` im
+#    Dockerfile), und der `tar`-Schritt exclude't `./storage` bzw.
+#    `./bootstrap/cache` ohnehin — hier ist es also reine Kontext-Hygiene.
+#    Im Dev-Checkout stecken darin echte Nutzdaten: `storage/app`
+#    (Portraits/Badge-Bilder), `storage/framework` (Sessions, kompilierte
+#    Views, Cache, Test-Disks), `storage/logs` (~10 MB Dev-Logs).
+#    Generisch (`**/…`) statt `backend/…`, damit die Regel auch greift, wenn
+#    `APP_PATH` im Dockerfile mal auf ein anderes App-Verzeichnis zeigt.
+# --------------------------------------------------------------------------
+**/storage/app
+**/storage/framework
+**/storage/logs
+**/bootstrap/cache
+
+# --------------------------------------------------------------------------
+# 5) Generierte Build- und Test-Artefakte
+# --------------------------------------------------------------------------
+frontend/dist
+dist
+**/coverage
+**/test-results
+**/playwright-report
+**/.vite
+**/*.tsbuildinfo
+**/.phpunit.result.cache
+# Lokale SQLite-Dateien (Dev-Checkout `backend/database/database.sqlite`).
+# Achtung `*.sqlite` ist hier bewusst BREIT: es gibt keine getrackte Datei
+# mit dieser Endung (geprüft), und der tar-Schritt filtert `*.sqlite` auch.
+**/*.sqlite
+**/*.sqlite-journal
+**/*.sqlite-wal
+**/*.sqlite-shm
+
+# --------------------------------------------------------------------------
+# 6) Editor-, OS- und lokale Tooling-Reste
+#    `.codegraph` (≈ 29 MB) ist ein lokaler Code-Index, kein Build-Input
+#    (versioniert ist davon nur `.codegraph/.gitignore`).
+# --------------------------------------------------------------------------
+**/.DS_Store
+**/._*
+Thumbs.db
+desktop.ini
+.idea
+.vscode
+*.iml
+**/.run
+.codegraph
+
+# ==========================================================================
+# BEWUSST NICHT AUSGESCHLOSSEN (nicht vergessen zu prüfen, wenn hier
+# geändert wird — jeder dieser Pfunde bricht einen der beiden Builds):
+#
+#   deployment/            vollständig, insbesondere
+#     entrypoint.sh        wird von BEIDEN Rollen gelesen; der Build bricht
+#                          mit "FATAL: entrypoint.sh not found" ab, wenn es
+#                          fehlt. Bei `context: deployment` (Basis-Rolle) ist
+#                          es `/ctx/entrypoint.sh`, beim Prod-Build
+#                          `/ctx/deployment/entrypoint.sh`.
+#     dev.env              Platzhalter (keine Secrets, AGENTS.md §10 A2).
+#     Dockerfile*          wird selbst gelesen.
+#     *.Caddyfile          Host-Caddy-Snippets, kein Build-Input — bleiben
+#                          einfach drin (72 KB, das ist es nicht wert).
+#   backend/               der App-Code via `tar` (Rolle 2). Pflicht darin:
+#     composer.json        `composer install` liest die Autoload-/Config-
+#     composer.lock        Definition und die GEPINNTEN Versionen.
+#     artisan              Entry-Point des Deploy-Schritts (`migrate`).
+#     app/ bootstrap/*.php config/ database/ public/ resources/ routes/
+#                          bzw. `app.php` + `providers.php` ohne `cache/`.
+#                          (`lang/` gehoert dazu, existiert in diesem Checkout
+#                          nur noch nicht; die Regel oben ist bewusst
+#                          generisch und nicht auf `backend/` fixiert.)
+#     package.json phpunit.xml vite.config.js .editorconfig .gitattributes
+#                          wandern mit ins Image (siehe `tar`-Ausschlussliste
+#                          im Dockerfile) — sie dürfen hier NICHT
+#                          wegfallen, sonst ändert sich der Image-Inhalt.
+#   frontend/              nur die GENERIERTEN Teile sind ausgeschlossen
+#                          (Abschnitt 5). Die Quellen bleiben im Kontext:
+#                          das Prod-Image enthält zwar kein Frontend (Caddy
+#                          liefert es aus), aber ein künftiger
+#                          Multi-Stage-Frontend-Build mit demselben Root-
+#                          Kontext soll nicht an einer fehlenden Datei
+#                          scheitern.
+#   backend/tests/         bleibt drin (1,3 MB): im Image ist es per
+#                          `tar --exclude=./tests` ohnehin nicht, und
+#                          PHPUnit läuft in CI gegen den Checkout, nicht
+#                          gegen einen Build-Kontext.
+#   backend/public/storage steht in .gitignore und ist auf manchen Checkouts
+#                          ein Symlink auf `../storage/app/public`; nicht
+#                          ausgeschlossen, weil das Image seinen eigenen Link
+#                          ohnehin per `ln -sfn` setzt und ein Symlink 0 Byte
+#                          wiegt.
+#   .github/ features/ *.md
+#                          Doku/CI-Definition, ~380 KB zusammen, von keinem
+#                          Build gelesen. Nicht ausgeschlossen, weil der
+#                          Gewinn den Irritationsfaktor (Doku, die beim
+#                          Image-Build fehlt) nicht aufwiegt.
+# ==========================================================================

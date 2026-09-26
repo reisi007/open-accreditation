@@ -274,9 +274,13 @@ services:
     build:
       # Kontext = Repo-Root, damit `backend/` im Image landen kann;
       # `APP_SOURCE=1` schaltet die App-Rolle im Dockerfile ein.
-      # Achtung: ohne `.dockerignore` im Repo-Root geht der komplette
-      # Kontext (frontend/node_modules, .git) zum Builder — das Image ist
-      # trotzdem sauber, der Build aber langsam.
+      # Gefiltert wird über die `.dockerignore` im Repo-Root: sie nimmt
+      # frontend/node_modules, backend/vendor, .git, .codegraph, storage/,
+      # Test-Artefakte und `.env*` heraus — der an den Builder gesendete
+      # Kontext fällt damit von 359,7 MB auf 4,1 MB (gemessen, WP-5-D1).
+      # Der Basis-Image-CI-Build läuft mit `context: deployment` und ist von
+      # dieser Datei NICHT betroffen; `deployment/entrypoint.sh` und `backend/`
+      # müssen im Kontext bleiben (Details in `.dockerignore` + Dockerfile-Kopf).
       context: ..
       dockerfile: deployment/Dockerfile
       args:

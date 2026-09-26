@@ -24,13 +24,23 @@
 # (`.env`, `vendor/`, `storage/**`, `bootstrap/cache/*.php`, `tests/`).
 #
 # ANFORDERUNG AN DEN BUILD-CONTEXT (Prod-Rolle): Kontext ist der REPO-ROOT.
-# Ein `.dockerignore` im Repo-Root ist Pflicht, sonst wandern
-# frontend/node_modules (~255 MB), .git und backend/vendor mit zum Builder.
-# Ohne die Datei ist das Image nur funktionsfähig, aber der Build langsam.
+# Im Root liegt eine `.dockerignore` (Stand WP-5-D1), die genau das ausfiltert,
+# was der Build nicht liest: `frontend/node_modules` (256 MB), `backend/vendor`
+# (103 MB), `.git`, `.codegraph`, `backend/storage`, Test-/Build-Artefakte und
+# `.env*`. GEMESSEN (Docker 29.5.3 / BuildKit 0.30, linux/arm64) sinkt der
+# wirklich an den Builder gesendete Kontext dadurch von 359,7 MB auf 4,1 MB
+# (materialisierter Kontextinhalt: 441 MB / 31.407 Dateien -> 5,2 MB / 519).
+# Wichtig: BuildKit liest fuer einen Kontext NUR
+# `<dockerfile>.dockerignore` bzw. `<kontext>/.dockerignore` — die Datei im
+# Repo-Root gilt also ausschliesslich fuer `context: ..` und NICHT fuer die
+# Basis-Image-Rolle mit `context: deployment`.
 #
 # `deployment/entrypoint.sh` wird von BEIDEN Rollen gebraucht (siehe unten) und
 # muss deshalb im Repo committed sein — die Basis-Image-Rolle baut mit
 # `context: deployment`, kann die Datei also nur finden, wenn sie dort liegt.
+# Die `.dockerignore` fasst `deployment/` deshalb nicht an; sie dokumentiert am
+# Ende jeder Regel, was sie NICHT ausschliesst. Wird das hier je angefasst,
+# ist ein beider-Rollen-Build der Pflicht-Schritt.
 #
 # RUNTIME-USER: www-data (UID 33 / GID 33) — der FPM-Master läuft NICHT als
 # root (R-D10). Der Container kann deshalb zur Laufzeit KEINE Rechte
