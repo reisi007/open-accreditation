@@ -684,7 +684,10 @@ class AllocationTest extends TestCase
 
     public function test_apply_rate_limit_blocks_31st_request(): void
     {
-        $user = User::factory()->create();
+        // A member of the mandant: `EnsureMandantMembership` refuses an
+        // authenticated account without a mandant-scoped role row, and such an
+        // account could not even log in.
+        $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
 
         $accreditations = [];
         for ($i = 0; $i < 31; $i++) {

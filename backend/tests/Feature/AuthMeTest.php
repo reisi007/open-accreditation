@@ -72,7 +72,21 @@ class AuthMeTest extends TestCase
             'hostname' => 'verband.test',
         ]);
 
+        // A real account always carries the mandant-scoped role row
+        // (`AuthController::register`), and `EnsureMandantMembership` refuses
+        // an authenticated account without one.
         $user = User::factory()->create();
+        $role = Role::query()->where('slug', 'user')->firstOrCreate(
+            ['slug' => 'user'],
+            ['name' => 'User'],
+        );
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'mandant_id' => $mandant->id,
+            'team_id' => null,
+        ]);
 
         // MandantContext is set by MandantContextMiddleware in production;
         // here we simulate the resolved mandant for the request host.

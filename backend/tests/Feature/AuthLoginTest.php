@@ -176,9 +176,17 @@ class AuthLoginTest extends TestCase
      | the email (falling back to global `mandant_id = null` accounts such
      | as the bootstrap super admin) and never an account that only exists
      | on another mandant's domain.
+     |
+     | Split into one test per mandant on purpose: the suite reuses one
+     | application — hence one `api` guard instance — for every request of a
+     | test method, and `login()` stores the user on that guard. A second
+     | login in the same method would therefore be evaluated against the
+     | PREVIOUS account (the guard is already resolved, and
+     | `EnsureMandantMembership` reads it), which is not what these tests are
+     | about. A real request boots a fresh application per request.
      -------------------------------------------------------------------- */
 
-    public function test_login_resolves_the_account_of_the_current_mandants_domain(): void
+    public function test_login_uses_the_account_of_the_current_mandants_domain(): void
     {
         $mandantA = Mandant::factory()->create(['slug' => 'verband-a']);
         $mandantB = Mandant::factory()->create(['slug' => 'verband-b']);
@@ -204,12 +212,36 @@ class AuthLoginTest extends TestCase
             'password' => 'password',
         ])->assertOk();
 
+        // … and the password of the mandant-B account with the same address
+        // does not unlock it.
         $this->postJson('/api/auth/login', [
             'email' => 'alice@x.com',
             'password' => 'other-pass',
         ])->assertStatus(401);
 
-        // … and on mandant B's domain the mandant-B account with ITS OWN password.
+        // Sanity: both independent accounts really exist side by side.
+        $this->assertSame($mandantA->id, $userA->fresh()->mandant_id);
+        $this->assertSame($mandantB->id, $userB->fresh()->mandant_id);
+    }
+
+    public function test_login_uses_the_other_mandants_account_on_its_domain(): void
+    {
+        $mandantA = Mandant::factory()->create(['slug' => 'verband-a']);
+        $mandantB = Mandant::factory()->create(['slug' => 'verband-b']);
+
+        $userRole = Role::query()->where('slug', 'user')->firstOrFail();
+        $userA = User::factory()->forMandant($mandantA)->create(['email' => 'alice@x.com']);
+        $userB = User::factory()->forMandant($mandantB)->create(['email' => 'alice@x.com', 'password' => 'other-pass']);
+        foreach ([$userA, $userB] as $account) {
+            RoleUser::create([
+                'user_id' => $account->id,
+                'role_id' => $userRole->id,
+                'mandant_id' => $account->mandant_id,
+                'team_id' => null,
+            ]);
+        }
+
+        // On mandant B's domain the mandant-B account with ITS OWN password.
         MandantContext::set($mandantB);
         $this->postJson('/api/auth/login', [
             'email' => 'alice@x.com',
@@ -220,10 +252,6 @@ class AuthLoginTest extends TestCase
             'email' => 'alice@x.com',
             'password' => 'password',
         ])->assertStatus(401);
-
-        // Sanity: both independent accounts really exist side by side.
-        $this->assertSame($mandantA->id, $userA->fresh()->mandant_id);
-        $this->assertSame($mandantB->id, $userB->fresh()->mandant_id);
     }
 
     public function test_login_rejects_an_email_that_only_exists_on_another_mandant(): void

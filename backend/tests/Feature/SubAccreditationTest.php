@@ -401,7 +401,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_without_approved_main_is_422(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
@@ -412,7 +412,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_with_requested_or_denied_main_is_422(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         Application::create([
             'accreditation_id' => $sub->accreditation_id,
@@ -435,7 +435,7 @@ class SubAccreditationTest extends TestCase
     {
         $accreditation = $this->createAccreditation(['quota' => 20]);
         $sub = $accreditation->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approveMain($accreditation, $user);
 
         $this->actingAsApi($user)
@@ -460,7 +460,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_inactive_or_foreign_sub_is_404(): void
     {
         $inactive = $this->createSubAccreditation(['quota' => 5, 'active' => false]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$inactive->id.'/apply')
@@ -482,7 +482,7 @@ class SubAccreditationTest extends TestCase
             'deadline_start' => '2026-08-10',
             'deadline_end' => '2026-08-20',
         ]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $this->approveMain($sub->accreditation, $user);
 
         Carbon::setTestNow('2026-08-10 00:00:00');
@@ -518,7 +518,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_duplicate_is_422(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $this->approveMain($sub->accreditation, $user);
 
         $this->actingAsApi($user)
@@ -535,7 +535,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_duplicate_unique_constraint_blocks_second_row(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approveMain($sub->accreditation, $user);
 
         SubApplication::create([
@@ -558,7 +558,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_allows_overbooking(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 1]);
-        $users = $this->users(3);
+        $users = $this->members(3);
 
         foreach ($users as $user) {
             $this->approveMain($sub->accreditation, $user);
@@ -576,7 +576,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_apply_rate_limit_blocks_31st_request(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $this->approveMain($sub->accreditation, $user);
 
         $this->actingAsApi($user)
@@ -1373,7 +1373,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_applications_index_lists_only_own_and_mandant_scoped(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $other = User::factory()->create();
 
         $mine = $this->subRequest($sub, $me);
@@ -1404,7 +1404,7 @@ class SubAccreditationTest extends TestCase
         $accreditation = $this->createAccreditation(['quota' => 20]);
         $park = $accreditation->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
         $seat = $accreditation->subAccreditations()->create(['type' => 'seat', 'quota' => 5]);
-        $me = User::factory()->create();
+        $me = $this->createUser();
 
         Carbon::setTestNow('2026-08-01 10:00:00');
         $older = $this->subRequest($park, $me);
@@ -1424,7 +1424,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_applications_withdraw_own_requested(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $mine = $this->subRequest($sub, $me);
 
         $this->actingAsApi($me)
@@ -1439,7 +1439,7 @@ class SubAccreditationTest extends TestCase
         $accreditation = $this->createAccreditation(['quota' => 20]);
         $park = $accreditation->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
         $seat = $accreditation->subAccreditations()->create(['type' => 'seat', 'quota' => 5]);
-        $me = User::factory()->create();
+        $me = $this->createUser();
 
         $approved = $this->subRequest($park, $me, ['status' => 'approved']);
         $denied = $this->subRequest($seat, $me, ['status' => 'denied']);
@@ -1459,7 +1459,7 @@ class SubAccreditationTest extends TestCase
     public function test_sub_applications_withdraw_foreign_is_404(): void
     {
         $sub = $this->createSubAccreditation(['quota' => 5]);
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $other = User::factory()->create();
 
         $theirs = $this->subRequest($sub, $other);
@@ -1603,6 +1603,26 @@ class SubAccreditationTest extends TestCase
         return User::factory()->count($count)->create()->all();
     }
 
+    /**
+     * Members of mandant A — the state a real applicant account is in: the role
+     * row scoped to the mandant is written by `AuthController::register` and is
+     * what `EnsureMandantMembership` verifies per request. A user without such a
+     * row could not even log in.
+     *
+     * @return list<User>
+     */
+    private function members(int $count): array
+    {
+        return array_map(fn (): User => $this->createUser(), range(1, $count));
+    }
+
+    private function createUser(): User
+    {
+        $user = User::factory()->forMandant($this->mandantA)->create();
+
+        return $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, $user);
+    }
+
     private function superAdmin(): User
     {
         return $this->createUserWithRole(UserRole::SUPER_ADMIN->value, null);
@@ -1613,9 +1633,9 @@ class SubAccreditationTest extends TestCase
         return $this->createUserWithRole(UserRole::MANDANT_ADMIN->value, $this->mandantA->id);
     }
 
-    private function createUserWithRole(string $roleSlug, ?int $mandantId, ?int $teamId = null): User
+    private function createUserWithRole(string $roleSlug, ?int $mandantId, ?int $teamId = null, ?User $user = null): User
     {
-        $user = User::factory()->create();
+        $user ??= User::factory()->create();
         $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
 
         RoleUser::create([

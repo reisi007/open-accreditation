@@ -1,6 +1,7 @@
 # Auth & Rollen (P1)
 
 SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
+`backend/app/Http/Middleware/EnsureMandantMembership.php`,
 `backend/app/Http/Controllers/Api/AuthController.php`,
 `backend/app/Http/Controllers/Api/ProfileController.php`,
 `backend/app/Http/Controllers/Api/UserMediaController.php`,
@@ -75,6 +76,55 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      Profilfelder + Rollen (slug/name/mandant_id/team_id aus Pivot) + Media.
      **Keine Secrets** (`password`, `activation_token` sind `$hidden`;
      Storage-Pfade nie serialisiert).
+6. **Mitgliedschaft pro Request** `EnsureMandantMembership`
+   - Der JWT trägt **keinen** Mandanten-Claim (`getJWTCustomClaims()` = `[]`),
+     und der Login-Check aus Schritt 3 läuft **einmal**. Ohne zweiten Check ist
+     ein auf `a.example` ausgestelltes Token auf `b.example` gültig — und die
+     ungegateten Schreibrouten der `auth:api`-Gruppe (`POST
+     /accreditations/{id}/apply`, `POST /user/media`, `PUT /user/profile`) haben
+     nur ihre **Ressource** mandant-scoped geprüft, nicht die **Identität**: es
+     entstanden Anträge im fremden Mandanten (inkl. Porträt/Presse-ID in dessen
+     Freigabe-Queue) und Uploads im Storage-Namespace des fremden Mandanten.
+   - **Regel:** Für jeden Request unter `auth:api` mit aufgelöstem Mandanten
+     muss der authentifizierte User **mindestens eine `role_user`-Zeile für
+     diesen Mandanten** haben. Globaler `super_admin` (`mandant_id IS NULL`) ist
+     wie beim Login überall erlaubt. Verstöß → **403** mit derselben Meldung wie
+     der Login-Fall: „Dieser Account ist für dieses Portal nicht registriert."
+     (`EnsureMandantMembership::DENIED_MESSAGE`); der konkrete Grund geht ins
+     Log (`Log::notice`), nicht in die Antwort.
+   - **Ergänzend, nicht ersetzend:** das per-Ressource-`forMandant()`-Scoping in
+     den Controllern bleibt unverändert. Die Middleware beantwortet „darf dieses
+     Konto in diesem Mandanten überhaupt handeln?", die Controller „gehört
+     DIESE Ressource dem Mandanten/gehört sie mir?".
+   - **Warum pro Request statt Claim im JWT:** Ein `mid`-Claim müsste bei jedem
+     Rollenwechsel **und** bei jedem Mandantenwechsel neu ausgestellt werden und
+     bricht Multi-Mandant-User (Rollen in mehreren Mandanten ⇒ ein Claim
+     reicht nicht). Der Pivot wird stattdessen pro Request gelesen: **genau eine**
+     Query (`User::isMemberOfMandant()`), dafür greift die Entziehung **sofort**
+     — eine in Mandant B entzogene Rolle wirkt im nächsten Request, nicht erst
+     nach `JWT_TTL` (60 min). Eine Claim-Optimierung ist bewusst nicht Teil des
+     Scopes.
+   - **Inert ohne Session:** Routen ohne `auth:api` (öffentliches Portal,
+     öffentliche Akkreditierungs-Liste, QR-`verify`, `login`/`register`/
+     `activate`) lösen den `api`-Guard nicht auf — `hasUser()` löst ihn *nicht*
+     auf, die Middleware stellt in dem Fall **0 Queries** und kann die Antwort
+     nicht ändern. Ebenso inert ohne aufgelösten Mandanten (Console/CLI, Tests
+     ohne Host) — dieselbe `MandantContext`-Escapetür wie im Login.
+   - **Position in der Pipeline:** an die `api`-Gruppe **angehängt** und in der
+     Middleware-Priority-Liste direkt **nach `SubstituteBindings`** eingereiht
+     (`bootstrap/app.php` ⇒ `appendToPriorityList(SubstituteBindings::class, …)`).
+     Dadurch läuft sie als **letzte** Middleware vor der Controller-Action: nach
+     `auth:api` (der User muss aufgelöst sein), nach allen route-spezifischen
+     Rate-Limitern, vor jeder mandant-bezogenen Mutation. Die Limit-Reihenfolge
+     entspricht der des Logins (`throttle:login` → `mayLogInOnCurrentMandant()`);
+     ein abgelehnter Cross-Mandant-Request läuft also **innerhalb** des
+     `throttle:apply`/`throttle:media`-Budgets, statt eine unbegrenzte 403-Schleife
+     zu öffnen. Route-Model-Binding ist zu diesem Zeitpunkt bereits gelaufen —
+     es ist ein ungegatetes `find`, das nichts anlegt oder verändert.
+   - **Kosten:** 1 Query pro authentifiziertem Request mit aufgelöstem
+     Mandanten (Postgres: `Index Scan using role_user_scope_unique` auf
+     `user_id`, `EXISTS`-Zweig auf `roles.slug` wird im Normalfall nicht
+     ausgeführt; gemessen 0,057 ms). 0 Queries auf allen öffentlichen Routen.
 
 ## CSRF-Härtung (WP-1, 2026-09-26)
 
@@ -359,6 +409,15 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   (Hinweis: der bestehende `apply`-Limiter nutzt noch `$request->user()` und
   fällt damit faktisch auf per-IP zurück — bewusst nicht geändert, siehe
   Befund im Review.)
+- **#6-1 (erledigt 2026-09-26):** `EnsureMandantMembership` erzwingt die
+  Mandanten-Mitgliedschaft **pro Request** für die gesamte `auth:api`-Gruppe
+  (Details im Auth-Flow, Schritt 6). Ein JWT ohne Mandanten-Claim, der auf einer
+  fremden Mandanten-Domain wiedergespielt wird, erhält jetzt **403** auf jeder
+  authentifizierten Route — inklusive der zuvor ungegateten Schreibrouten
+  `POST /accreditations/{id}/apply`, `POST /user/media` und
+  `PUT /user/profile`; der Media-Upload landet damit nicht mehr im
+  Storage-Namespace des fremden Mandanten. Zusatzgewinn: Rollenentzug wirkt
+  sofort statt erst nach `JWT_TTL`.
 
 Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
 - **F6 (info, bleibt akzeptiert):** Die 403-Texte der Auth-Flows
@@ -366,14 +425,13 @@ Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
   Portal nicht registriert.") offenbaren bewusst die Kontoexistenz. Der
   Origin-Guard (WP-1-b) ändert daran nichts — seine Meldung ist
   absichtlich uniform und verrät keine Ursache.
-- **F7 (info, bleibt OFFEN — vom WP-1-Batch nicht geschlossen):** „Mandant-Check
-  nur beim Login". Der Login pflegt den Rollen-Scope des aktuellen Mandanten zu
-  prüfen; die einzelnen Ressourcen-Endpunkte leiten ihren Scope (in der Regel
-  über `MandantContext` bzw. Route-Model-Binding) **nicht** aus dem Token, und
-  ein JWT bleibt bis zum Ablauf mandant-gebunden, auch wenn die Domain
-  gewechselt wird. Konkrete Folge: meldet sich ein Nutzer auf Mandant A an und
-  surft danach auf der Domain von Mandant B, so greift der Login-Check nicht
-  mehr — der Zugriff wird stattdessen von der jeweils zuständigen
-  Ressourcen-Ebene entschieden. Das ist eine **Scope- und nicht mehr
-  Cookie/CSRF-Frage** und bleibt ein eigenes Arbeitspaket (Ressourcen-Scoping);
-  WP-1 schließt F7 **nicht**.
+- **F7 (geschlossen 2026-09-26, Review-Finding #6-1 — war als „Mandant-Check
+  nur beim Login" als info-Restrisiko geführt):** Umgesetzt als
+  `EnsureMandantMembership` (Middleware, pro Request), siehe „Mitgliedschaft
+  pro Request" im Auth-Flow und den Hardening-Eintrag weiter unten. Die
+  damalige Einschätzung („der Zugriff wird von der Ressourcen-Ebene entschieden,
+  bleibt ein eigenes Arbeitspaket") galt nur für den **Ressourcen-Scope**: das
+  per Ressource vorhandene `forMandant()`-Scoping deckte die **Identität** nicht
+  ab, und genau die Lücke ist jetzt zentral geschlossen. Bewusst **kein**
+  Rest-Risiko mehr, sondern Invariante: „wer authentifiziert ist, muss im
+  aktuellen Mandanten eine Rolle haben".

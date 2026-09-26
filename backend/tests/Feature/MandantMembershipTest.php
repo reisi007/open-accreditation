@@ -1,0 +1,528 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Http\Middleware\EnsureMandantMembership;
+use App\Models\Accreditation;
+use App\Models\Mandant;
+use App\Models\MandantDomain;
+use App\Models\Role;
+use App\Models\RoleUser;
+use App\Models\User;
+use App\Models\UserMedia;
+use App\Support\MandantContext;
+use Database\Seeders\RoleSeeder;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
+
+/**
+ * #6-1: mandant membership is enforced PER REQUEST, not only at login.
+ *
+ * The JWT carries no mandant claim (`User::getJWTCustomClaims()` is empty) and
+ * the only mandant check in the auth flow ran at login time, so a token minted
+ * on mandant A was accepted on mandant B's domain. The un-gated write routes of
+ * the `auth:api` group then created state inside the foreign mandant: `apply`
+ * inserted an application into B (whose admins saw the foreign applicant,
+ * portrait included), media uploads landed in B's storage namespace.
+ *
+ * `EnsureMandantMembership` closes that: a role assignment for the mandant the
+ * request host resolved to — or a global `super_admin` — is required for every
+ * authenticated API request.
+ *
+ * The hosts are REAL mandant domains (`a.test` / `b.test`) and the requests go
+ * to them as absolute URLs, so the "attacker" here is exactly the documented
+ * attack: one valid cookie replayed with a foreign `Host` header. Every
+ * negative test proves the same token works on its OWN mandant first, so a 403
+ * can never be confused with a broken token or a broken fixture.
+ */
+class MandantMembershipTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const HOST_A = 'a.test';
+
+    private const HOST_B = 'b.test';
+
+    private Mandant $mandantA;
+
+    private Mandant $mandantB;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(RoleSeeder::class);
+
+        // `MandantContext::resolve()` caches host → mandant; a stale entry
+        // would silently answer with the wrong tenant.
+        Cache::flush();
+
+        $this->mandantA = Mandant::factory()->create([
+            'slug' => 'verband-a',
+            'name' => 'Verband A',
+            'is_primary' => true,
+        ]);
+        $this->mandantB = Mandant::factory()->create([
+            'slug' => 'verband-b',
+            'name' => 'Verband B',
+        ]);
+
+        MandantDomain::factory()->for($this->mandantA)->create(['hostname' => self::HOST_A]);
+        MandantDomain::factory()->for($this->mandantB)->create(['hostname' => self::HOST_B]);
+    }
+
+    protected function tearDown(): void
+    {
+        MandantContext::reset();
+        parent::tearDown();
+    }
+
+    /* ---------------------------------------------------------------------
+     | The attack: a valid mandant-A token replayed on mandant B.
+     -------------------------------------------------------------------- */
+
+    public function test_token_of_mandant_a_cannot_apply_in_mandant_b(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $accreditation = $this->accreditationOf($this->mandantB);
+        $token = $this->tokenFor($user);
+
+        // The token is a perfectly valid mandant-A session …
+        $this->withJwt($token)->getJson('http://'.self::HOST_A.'/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
+
+        // … and is refused on B, where the account holds no role.
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$accreditation->id.'/apply')
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        // No application leaked into the foreign mandant's approval queue.
+        $this->assertDatabaseCount('applications', 0);
+        $this->assertDatabaseMissing('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $user->id,
+        ]);
+    }
+
+    public function test_token_of_mandant_a_cannot_upload_media_into_mandant_b(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)
+            ->post('http://'.self::HOST_B.'/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait.jpg'),
+            ])
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        $this->assertDatabaseCount('user_media', 0);
+
+        // The filesystem is the actual invariant here: `UserMediaController`
+        // derives the path from `MandantContext::current()?->slug`, so the
+        // upload must not land in the FOREIGN mandant's storage namespace —
+        // and, for the same reason, not in the own one either.
+        $this->assertSame(
+            [],
+            Storage::disk('private')->allFiles('user-media/'.$this->mandantB->slug),
+            'Der Upload darf nicht im Storage-Namespace des fremden Mandanten landen.',
+        );
+        $this->assertSame(
+            [],
+            Storage::disk('private')->allFiles('user-media/'.$this->mandantA->slug),
+        );
+    }
+
+    public function test_token_of_mandant_a_cannot_update_the_profile_on_mandant_b(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/user/profile', ['company' => 'Fremder Verband'])
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        $this->assertNull($user->fresh()->company);
+    }
+
+    public function test_the_authenticated_read_routes_are_guarded_too(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertForbidden();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/applications')
+            ->assertForbidden();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/user/media')
+            ->assertForbidden();
+    }
+
+    /* ---------------------------------------------------------------------
+     | Positive controls — the guard must not over-block.
+     -------------------------------------------------------------------- */
+
+    public function test_member_of_the_current_mandant_applies_uploads_and_updates_the_profile(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $accreditation = $this->accreditationOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_A.'/api/accreditations/'.$accreditation->id.'/apply')
+            ->assertCreated();
+
+        $this->assertDatabaseHas('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $user->id,
+            'status' => 'requested',
+        ]);
+
+        $mediaId = $this->withJwt($token)
+            ->post('http://'.self::HOST_A.'/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait.png'),
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $path = UserMedia::findOrFail($mediaId)->path;
+        $this->assertStringStartsWith(
+            'user-media/verband-a/'.$user->id.'/portrait/',
+            $path,
+            'Der eigene Upload muss im Storage-Namespace des eigenen Mandanten landen.',
+        );
+        Storage::disk('private')->assertExists($path);
+
+        $this->withJwt($token)
+            ->putJson('http://'.self::HOST_A.'/api/user/profile', ['company' => 'Eigener Verband'])
+            ->assertOk();
+
+        $this->assertSame('Eigener Verband', $user->fresh()->company);
+    }
+
+    public function test_global_super_admin_may_act_in_a_foreign_mandant(): void
+    {
+        $admin = $this->superAdmin();
+        $accreditation = $this->accreditationOf($this->mandantB);
+        $token = $this->tokenFor($admin);
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $admin->id);
+
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$accreditation->id.'/apply')
+            ->assertCreated();
+
+        $this->withJwt($token)
+            ->post('http://'.self::HOST_B.'/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait.jpg'),
+            ])
+            ->assertCreated();
+
+        $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/user/profile', ['company' => 'Superadmin'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('applications', [
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_any_role_kind_in_the_mandant_counts_as_membership(): void
+    {
+        $user = $this->memberOf($this->mandantB, 'verifier');
+
+        $this->withJwt($this->tokenFor($user))
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
+    }
+
+    /* ---------------------------------------------------------------------
+     | Revocation — the reason this is a per-request check and not a claim.
+     -------------------------------------------------------------------- */
+
+    public function test_a_revoked_role_takes_effect_immediately_without_re_login(): void
+    {
+        // The account holds a role in BOTH mandants, so the outcome can only be
+        // about the revoked mandant — not about "the user has nothing left".
+        $user = $this->memberOf($this->mandantA);
+        $this->assign($user, $this->mandantB, 'user');
+
+        $accreditation = $this->accreditationOf($this->mandantB);
+        $token = $this->tokenFor($user);
+
+        $this->withJwt($token)->getJson('http://'.self::HOST_B.'/api/auth/me')->assertOk();
+
+        // The mandant revokes the role. The token is neither re-issued nor
+        // invalidated — it stays cryptographically valid for JWT_TTL.
+        RoleUser::query()
+            ->where('user_id', $user->id)
+            ->where('mandant_id', $this->mandantB->id)
+            ->delete();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/auth/me')
+            ->assertForbidden()
+            ->assertJsonPath('message', EnsureMandantMembership::DENIED_MESSAGE);
+
+        $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$accreditation->id.'/apply')
+            ->assertForbidden();
+
+        $this->withJwt($token)
+            ->post('http://'.self::HOST_B.'/api/user/media', [
+                'type' => 'portrait',
+                'file' => UploadedFile::fake()->image('portrait.jpg'),
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('applications', 0);
+        $this->assertDatabaseCount('user_media', 0);
+        $this->assertSame([], Storage::disk('private')->allFiles('user-media/'.$this->mandantB->slug));
+
+        // … and the revocation is SCOPED, not global: the very same token still
+        // works on the mandant the account belongs to.
+        $this->withJwt($token)->getJson('http://'.self::HOST_A.'/api/auth/me')->assertOk();
+    }
+
+    /* ---------------------------------------------------------------------
+     | No mandant context / no session — the guard stays inert.
+     -------------------------------------------------------------------- */
+
+    public function test_request_without_a_resolved_mandant_is_not_blocked(): void
+    {
+        // An account with NO role assignment at all (only its home mandant
+        // column) on a request that resolves no mandant at all: console/CLI and
+        // tests run without a host, and there is nothing to be a member of.
+        $user = User::factory()->forMandant($this->mandantA)->create();
+        $token = $this->tokenFor($user);
+
+        MandantContext::reset();
+
+        $this->withJwt($token)
+            ->putJson('http://no-mandant.invalid/api/user/profile', ['company' => 'Kein Mandant'])
+            ->assertOk();
+
+        $this->assertSame('Kein Mandant', $user->fresh()->company);
+        $this->assertFalse(MandantContext::hasCurrent());
+    }
+
+    public function test_public_routes_are_unaffected_by_a_foreign_cookie(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+        $this->accreditationOf($this->mandantB);
+
+        // The public accreditation list / portal / QR verification of the
+        // FOREIGN mandant are not `auth:api` routes: a cookie must neither be
+        // authenticated nor rejected there — and the guard must not even spend
+        // a query.
+        DB::enableQueryLog();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/accreditations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/portal/overview')
+            ->assertOk();
+
+        $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/verify/unknown-token')
+            ->assertNotFound();
+
+        $membershipQueries = $this->roleUserQueryCount();
+
+        DB::disableQueryLog();
+
+        $this->assertSame(0, $membershipQueries, 'Öffentliche Routen dürfen keine Mitgliedschafts-Query kosten.');
+    }
+
+    public function test_membership_costs_exactly_one_query_per_authenticated_request(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($user);
+
+        // `GET /api/user/media` is the cheapest authenticated route that does
+        // not load the role relation itself, so the only `role_user` query in
+        // the log is the membership check.
+        DB::enableQueryLog();
+
+        $this->withJwt($token)->getJson('http://'.self::HOST_A.'/api/user/media')->assertOk();
+
+        $membershipQueries = $this->roleUserQueryCount();
+
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $membershipQueries);
+    }
+
+    /**
+     * The placement is a deliberate part of the design, so it is pinned here
+     * instead of left implicit: the check must run AFTER authentication (it
+     * needs the resolved user) and AFTER every rate limiter (a rejected
+     * cross-mandant request stays inside the `throttle:apply` / `throttle:media`
+     * budget — the same order the login route uses: `throttle:login` first,
+     * `mayLogInOnCurrentMandant()` second), while still running BEFORE the
+     * controller action.
+     */
+    public function test_the_check_is_positioned_after_auth_and_after_the_rate_limiters(): void
+    {
+        $kernel = app(HttpKernel::class);
+
+        $property = new \ReflectionProperty($kernel, 'middlewarePriority');
+        $priority = $property->getValue($kernel);
+
+        $index = array_search(EnsureMandantMembership::class, $priority, true);
+
+        $this->assertIsInt($index, 'Die Middleware muss in der Priority-Liste stehen.');
+
+        $position = fn (string $middleware): int => (int) array_search($middleware, $priority, true);
+
+        $this->assertGreaterThan(
+            $position(AuthenticatesRequests::class),
+            $index,
+            'Die Mitgliedschaftsprüfung muss NACH der Authentifizierung laufen.',
+        );
+        $this->assertGreaterThan(
+            $position(ThrottleRequests::class),
+            $index,
+            'Die Mitgliedschaftsprüfung muss NACH den Rate-Limitern laufen.',
+        );
+        $this->assertGreaterThan(
+            $position(SubstituteBindings::class),
+            $index,
+            'Die Mitgliedschaftsprüfung muss NACH dem Route-Model-Binding laufen.',
+        );
+
+        // It really is the last middleware of the api group.
+        $group = $kernel->getMiddlewareGroups()['api'];
+
+        $this->assertContains(EnsureMandantMembership::class, $group);
+        $this->assertSame(EnsureMandantMembership::class, end($group));
+    }
+
+    public function test_model_helper_reflects_the_membership_invariant(): void
+    {
+        $user = $this->memberOf($this->mandantA);
+
+        $this->assertTrue($user->isMemberOfMandant($this->mandantA->id));
+        $this->assertFalse($user->isMemberOfMandant($this->mandantB->id));
+        $this->assertTrue($this->superAdmin()->isMemberOfMandant($this->mandantB->id));
+
+        // Without any mandant there is nothing to be a member of — and a
+        // missing resolved context must not blow up.
+        MandantContext::reset();
+
+        $this->assertFalse($user->isMemberOfMandant());
+    }
+
+    /* ---------------------------------------------------------------------
+     | Helpers
+     -------------------------------------------------------------------- */
+
+    private function memberOf(Mandant $mandant, string $roleSlug = 'user'): User
+    {
+        $user = User::factory()->forMandant($mandant)->create();
+
+        $this->assign($user, $mandant, $roleSlug);
+
+        return $user;
+    }
+
+    private function assign(User $user, Mandant $mandant, string $roleSlug): void
+    {
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', $roleSlug)->firstOrFail()->id,
+            'mandant_id' => $mandant->id,
+            'team_id' => null,
+        ]);
+    }
+
+    private function superAdmin(): User
+    {
+        $admin = User::factory()->create();
+
+        RoleUser::create([
+            'user_id' => $admin->id,
+            'role_id' => Role::query()->where('slug', 'super_admin')->firstOrFail()->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        return $admin;
+    }
+
+    private function accreditationOf(Mandant $mandant): Accreditation
+    {
+        $category = $mandant->categories()->create([
+            'name' => 'Presse',
+            'slug' => 'presse-'.$mandant->slug,
+        ]);
+
+        return $mandant->accreditations()->create([
+            'category_id' => $category->id,
+            'scope' => 'season',
+            'quota' => 5,
+        ]);
+    }
+
+    /**
+     * Mint a JWT the way the login flow does — with its OWN mandant as the
+     * current one, i.e. the token is issued in the legitimate context and only
+     * the replay onto the foreign host is illegitimate.
+     */
+    private function tokenFor(User $user): string
+    {
+        MandantContext::set($user->mandant);
+
+        $token = auth('api')->login($user);
+
+        // `login()` also SETS the user on the guard instance, and the test suite
+        // reuses one application for every request of a test method (a real
+        // request boots a fresh app, hence a fresh guard). Dropping the user
+        // again restores the production start state of a request: the guard is
+        // unresolved until `auth:api` runs — which is exactly what makes the
+        // public routes provably inert below.
+        auth('api')->forgetUser();
+
+        return $token;
+    }
+
+    private function withJwt(string $token): static
+    {
+        return $this->withCookie(config('jwt.cookie_key_name'), $token);
+    }
+
+    private function roleUserQueryCount(): int
+    {
+        return collect(DB::getQueryLog())
+            ->filter(fn (array $query): bool => str_contains((string) $query['query'], 'role_user'))
+            ->count();
+    }
+}

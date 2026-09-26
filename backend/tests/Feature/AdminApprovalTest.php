@@ -871,7 +871,7 @@ class AdminApprovalTest extends TestCase
     {
         $accreditation = $this->createAccreditation(['quota' => 20]);
         $sub = $this->createSub($accreditation, 'park', 5);
-        $user = User::factory()->create();
+        $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
@@ -883,7 +883,7 @@ class AdminApprovalTest extends TestCase
     {
         $inactiveAccreditation = $this->createAccreditation(['quota' => 20, 'active' => false]);
         $sub = $this->createSub($inactiveAccreditation, 'park', 5, ['active' => true]);
-        $user = User::factory()->create();
+        $user = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')

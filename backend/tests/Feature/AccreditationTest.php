@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\Accreditation;
 use App\Models\Application;
 use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
 use App\Support\MandantContext;
@@ -567,9 +569,24 @@ class AccreditationTest extends TestCase
 
     private static int $categorySeq = 0;
 
+    /**
+     * A user of the mandant that is current in these tests (A), including the
+     * role row a real account always carries — `EnsureMandantMembership`
+     * rejects an authenticated account without one, and such an account
+     * cannot even log in (`AuthController::mayLogInOnCurrentMandant()`).
+     */
     private function createUser(): User
     {
-        return User::factory()->create();
+        $user = User::factory()->forMandant($this->mandantA)->create();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', 'user')->firstOrFail()->id,
+            'mandant_id' => $this->mandantA->id,
+            'team_id' => null,
+        ]);
+
+        return $user;
     }
 
     private function createAccreditation(array $attributes): Accreditation

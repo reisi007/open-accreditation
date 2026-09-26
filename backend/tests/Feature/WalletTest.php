@@ -2,11 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Enums\UserRole;
 use App\Models\Application;
 use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\SubApplication;
 use App\Models\User;
 use App\Support\MandantContext;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use ZipArchive;
@@ -36,6 +40,8 @@ class WalletTest extends TestCase
     {
         parent::setUp();
 
+        $this->seed(RoleSeeder::class);
+
         $this->mandantA = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
         $this->mandantB = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
 
@@ -61,7 +67,7 @@ class WalletTest extends TestCase
 
     public function test_wallet_endpoints_require_authentication(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approvedApplication($this->mandantA, $user);
         $sub = $this->approvedSubApplication($this->mandantA, $user, 'park');
 
@@ -72,8 +78,8 @@ class WalletTest extends TestCase
 
     public function test_foreign_application_is_404(): void
     {
-        $owner = User::factory()->create();
-        $stranger = User::factory()->create();
+        $owner = $this->createUser();
+        $stranger = $this->createUser();
         $application = $this->approvedApplication($this->mandantA, $owner);
 
         $this->actingAsApi($stranger)
@@ -87,7 +93,7 @@ class WalletTest extends TestCase
 
     public function test_not_approved_application_is_422(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         foreach (['requested', 'denied', 'blacklisted'] as $status) {
             $application = $this->approvedApplication($this->mandantA, $user, [], ['status' => $status]);
@@ -105,7 +111,7 @@ class WalletTest extends TestCase
 
     public function test_application_of_foreign_mandant_is_404(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $foreign = $this->approvedApplication($this->mandantB, $user);
 
         $this->actingAsApi($user)
@@ -119,7 +125,7 @@ class WalletTest extends TestCase
 
     public function test_apple_wallet_downloads_a_pkpass_for_own_approved_application(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approvedApplication($this->mandantA, $user);
 
         $response = $this->actingAsApi($user)
@@ -140,7 +146,7 @@ class WalletTest extends TestCase
 
     public function test_apple_wallet_barcode_is_the_verify_url(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approvedApplication($this->mandantA, $user);
 
         $response = $this->actingAsApi($user)
@@ -165,7 +171,7 @@ class WalletTest extends TestCase
     {
         config()->set('wallet.google.issuer_id', '3388000000000000');
 
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $application = $this->approvedApplication($this->mandantA, $user);
 
         $response = $this->actingAsApi($user)
@@ -192,7 +198,7 @@ class WalletTest extends TestCase
 
     public function test_sub_wallet_downloads_a_pkpass_for_own_approved_sub(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         foreach (['park', 'seat'] as $type) {
             $sub = $this->approvedSubApplication($this->mandantA, $user, $type);
@@ -213,8 +219,8 @@ class WalletTest extends TestCase
 
     public function test_foreign_sub_application_is_404(): void
     {
-        $owner = User::factory()->create();
-        $stranger = User::factory()->create();
+        $owner = $this->createUser();
+        $stranger = $this->createUser();
         $sub = $this->approvedSubApplication($this->mandantA, $owner, 'park');
 
         $this->actingAsApi($stranger)
@@ -224,7 +230,7 @@ class WalletTest extends TestCase
 
     public function test_not_approved_sub_application_is_422(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $sub = $this->approvedSubApplication($this->mandantA, $user, 'park', ['status' => 'requested']);
 
         $this->actingAsApi($user)
@@ -235,7 +241,7 @@ class WalletTest extends TestCase
 
     public function test_sub_application_of_foreign_mandant_is_404(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
         $foreign = $this->approvedSubApplication($this->mandantB, $user, 'park');
 
         $this->actingAsApi($user)
@@ -246,6 +252,26 @@ class WalletTest extends TestCase
     /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    /**
+     * A member of mandant A — the mandant that is current in these tests. A
+     * real applicant account always carries the mandant-scoped role row
+     * (`AuthController::register`), and `EnsureMandantMembership` refuses an
+     * authenticated account without one, so every fixture user must be one.
+     */
+    private function createUser(): User
+    {
+        $user = User::factory()->forMandant($this->mandantA)->create();
+        $role = Role::query()->where('slug', UserRole::USER->value)->firstOrFail();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'mandant_id' => $this->mandantA->id,
+        ]);
+
+        return $user;
+    }
 
     private function approvedApplication(Mandant $mandant, User $user, array $accAttributes = [], array $appAttributes = []): Application
     {

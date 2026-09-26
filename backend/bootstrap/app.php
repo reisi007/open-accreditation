@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureMandantMembership;
 use App\Http\Middleware\EnsureSameOrigin;
 use App\Http\Middleware\MandantContextMiddleware;
 use App\Support\MandantContext;
@@ -9,6 +10,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Log;
 
 $app = Application::configure(basePath: dirname(__DIR__))
@@ -98,6 +100,33 @@ $app = Application::configure(basePath: dirname(__DIR__))
         // `Sec-Fetch-*`, which the generic branch rejects anyway. Skipped in
         // console/unit tests, like Laravel's own VerifyCsrfToken.
         $middleware->api(append: [EnsureSameOrigin::class]);
+        // #6-1: mandant membership per request. The JWT carries no mandant
+        // claim (`User::getJWTCustomClaims()` is empty) and the only mandant
+        // check in the auth flow ran at LOGIN time, so a token minted on
+        // `a.example` replayed with `Host: b.example` passed `auth:api` and
+        // reached the un-gated write routes of the `auth:api` group — apply
+        // created an application inside the foreign mandant, media uploads
+        // landed in the foreign mandant's storage namespace. This middleware
+        // re-checks, per request, that the authenticated account holds a role
+        // in the mandant the host resolved to (global `super_admin` excepted),
+        // and supplements — never replaces — the per-resource `forMandant()`
+        // scoping.
+        //
+        // Position: appended to the `api` group (so it is inherited by every
+        // api route) AND spliced into the middleware priority list right
+        // after `SubstituteBindings`, which is what actually makes it run as
+        // the last middleware before the controller: after `auth:api` (it
+        // needs the resolved user), after every route-specific rate limiter,
+        // before any mandant-scoped mutation. Inert for routes without
+        // `auth:api` (public portal, public accreditation list, QR `verify`,
+        // login/register/activate) and for requests without a resolved
+        // mandant (console/CLI, tests) — see the class docblock.
+        $middleware->api(append: [EnsureMandantMembership::class]);
+        $middleware->appendToPriorityList(
+            SubstituteBindings::class,
+            EnsureMandantMembership::class,
+        );
+
         // This is an API-only SPA backend: guests must never be redirected to
         // a `login` HTML route (which does not exist). Unauthenticated requests
         // render as 401 JSON for api/* (see shouldRenderJsonWhen below), or a

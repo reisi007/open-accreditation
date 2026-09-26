@@ -170,6 +170,53 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * Whether the user may act inside the given mandant: either they hold at
+     * least one role assignment scoped to it, or they are the GLOBAL
+     * `super_admin` (whose `role_user` rows carry `mandant_id = null` and are
+     * therefore valid everywhere).
+     *
+     * This is the single expression of the tenant-membership invariant. The
+     * JWT carries no mandant claim (`getJWTCustomClaims()` is empty), so a
+     * token minted on mandant A is technically valid on mandant B's domain;
+     * this predicate is what keeps such an account inside its tenant. It backs
+     * the per-request check in `EnsureMandantMembership` and is deliberately
+     * the same rule `AuthController::mayLogInOnCurrentMandant()` evaluates at
+     * login time — the login check is the early filter, this one the
+     * continuous one. (Change both together if the rule ever moves.)
+     *
+     * ONE query for both branches: a single `EXISTS` whose predicate is the
+     * disjunction "role in this mandant OR global super_admin". The
+     * super-admin case is a row comparison inside the DB, not a second
+     * round-trip, and the index scan is over the user's handful of role rows.
+     * Both branches are plain comparisons + one `EXISTS` subquery — identical
+     * SQL on Postgres and SQLite (§2 portability).
+     *
+     * `null` defaults to the current mandant; without a mandant there is
+     * nothing to be a member of, so the answer is false.
+     */
+    public function isMemberOfMandant(?int $mandantId = null): bool
+    {
+        $mandantId ??= MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return false;
+        }
+
+        // The first branch is the existing `forMandant()` scope — the same
+        // rows the rest of the model reads — grouped with the global
+        // `super_admin` rows so one `EXISTS` answers both.
+        return $this->roleUserAssignments()
+            ->where(function (Builder $query) use ($mandantId): void {
+                $query->forMandant($mandantId)
+                    ->orWhere(function (Builder $global): void {
+                        $global->whereNull('role_user.mandant_id')
+                            ->whereHas('role', fn (Builder $role): Builder => $role->where('roles.slug', UserRole::SUPER_ADMIN->value));
+                    });
+            })
+            ->exists();
+    }
+
+    /**
      * The (first assigned) role slug within a mandant, or null when the user
      * has no role there. `super_admin` is global and therefore never returned
      * for a mandant scope. Kept for compatibility — the union-aware

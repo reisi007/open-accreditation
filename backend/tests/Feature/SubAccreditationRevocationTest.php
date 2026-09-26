@@ -93,7 +93,7 @@ class SubAccreditationRevocationTest extends TestCase
         $park = $this->sub($accreditation, 'park', 5);
         $seat = $this->sub($accreditation, 'seat', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $parkRow = $this->approvedSubApplication($park, $application, $me);
         $seatRow = $this->approvedSubApplication($seat, $application, $me);
@@ -132,7 +132,7 @@ class SubAccreditationRevocationTest extends TestCase
         $seat = $this->sub($accreditation, 'seat', 5);
         $vip = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
 
         $approved = $this->approvedSubApplication($park, $application, $me);
@@ -209,7 +209,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = Application::create([
             'accreditation_id' => $accreditation->id,
             'user_id' => $me->id,
@@ -236,7 +236,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $this->approvedSubApplication($park, $application, $me);
 
@@ -282,7 +282,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $row = $this->approvedSubApplication($park, $application, $me);
 
@@ -309,7 +309,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $row = $this->approvedSubApplication($park, $application, $me);
 
@@ -331,7 +331,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $row = $this->approvedSubApplication($park, $application, $me);
 
@@ -350,7 +350,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
 
         $row = SubApplication::create([
@@ -372,7 +372,7 @@ class SubAccreditationRevocationTest extends TestCase
         $accreditation = $this->accreditation();
         $park = $this->sub($accreditation, 'park', 5);
 
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
         $row = $this->approvedSubApplication($park, $application, $me);
 
@@ -389,7 +389,7 @@ class SubAccreditationRevocationTest extends TestCase
     public function test_the_main_wallet_path_is_unaffected_by_the_sub_guard(): void
     {
         $accreditation = $this->accreditation();
-        $me = User::factory()->create();
+        $me = $this->createUser();
         $application = $this->approvedApplication($accreditation, $me);
 
         $this->actingAsApi($me)
@@ -406,7 +406,7 @@ class SubAccreditationRevocationTest extends TestCase
         $park = $this->sub($accreditation, 'park', 5);
 
         $owner = User::factory()->create();
-        $stranger = User::factory()->create();
+        $stranger = $this->createUser();
         $application = $this->approvedApplication($accreditation, $owner);
         $row = $this->approvedSubApplication($park, $application, $owner);
 
@@ -467,6 +467,25 @@ class SubAccreditationRevocationTest extends TestCase
             'status' => 'approved',
             'priority' => false,
         ]);
+    }
+
+    /**
+     * A member of the current mandant, with the role row a real account always
+     * carries — `EnsureMandantMembership` rejects an authenticated account
+     * without one, and such an account could not even log in.
+     */
+    private function createUser(): User
+    {
+        $user = User::factory()->forMandant($this->mandant)->create();
+        $role = Role::query()->where('slug', UserRole::USER->value)->firstOrFail();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'mandant_id' => $this->mandant->id,
+        ]);
+
+        return $user;
     }
 
     private function superAdmin(): User

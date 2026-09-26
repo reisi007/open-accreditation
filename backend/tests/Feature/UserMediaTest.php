@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Mandant;
+use App\Models\Role;
+use App\Models\RoleUser;
 use App\Models\User;
 use App\Models\UserMedia;
 use App\Support\MandantContext;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -22,6 +25,7 @@ class UserMediaTest extends TestCase
         parent::setUp();
 
         Storage::fake('private');
+        $this->seed(RoleSeeder::class);
         $this->mandant = Mandant::factory()->create(['slug' => 'verband']);
         MandantContext::set($this->mandant);
     }
@@ -43,7 +47,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_stores_portrait_on_private_disk(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $response = $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -66,7 +70,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_rejects_unknown_type(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -79,7 +83,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_rejects_oversized_file(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -94,7 +98,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_rejects_image_exceeding_dimension_limit(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -109,7 +113,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_accepts_images_up_to_the_dimension_limit(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -121,7 +125,7 @@ class UserMediaTest extends TestCase
 
     public function test_portrait_upload_replaces_the_previous_portrait(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $first = $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -145,7 +149,7 @@ class UserMediaTest extends TestCase
 
     public function test_attachment_allows_multiple_files(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         foreach (['a.jpg', 'b.jpg', 'c.jpg'] as $file) {
             $this->actingAsApi($user)
@@ -166,7 +170,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_rejects_11th_file_over_the_per_user_quota(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         for ($i = 0; $i < 10; $i++) {
             $this->actingAsApi($user)
@@ -191,7 +195,7 @@ class UserMediaTest extends TestCase
 
     public function test_upload_rejects_total_bytes_over_the_per_user_quota(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         // Seed 5 files at ~2 MiB each (10 MiB total). The fake file uses
         // size in KiB, so 2_097_152 bytes each via `size(2048)`.
@@ -219,7 +223,7 @@ class UserMediaTest extends TestCase
 
     public function test_replacing_a_singular_file_at_the_quota_limit_still_works(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         // Fill the quota with 1 portrait + 9 attachments (10 files). Replacing
         // the portrait must still succeed — the singular replacement removes
@@ -266,7 +270,7 @@ class UserMediaTest extends TestCase
 
     public function test_owner_can_deliver_media_inline(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $upload = $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -285,8 +289,8 @@ class UserMediaTest extends TestCase
 
     public function test_foreign_user_cannot_deliver_media(): void
     {
-        $owner = User::factory()->create();
-        $other = User::factory()->create();
+        $owner = $this->createUser();
+        $other = $this->createUser();
 
         $upload = $this->actingAsApi($owner)
             ->post('/api/user/media', [
@@ -303,7 +307,7 @@ class UserMediaTest extends TestCase
 
     public function test_owner_can_delete_media(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createUser();
 
         $upload = $this->actingAsApi($user)
             ->post('/api/user/media', [
@@ -323,8 +327,8 @@ class UserMediaTest extends TestCase
 
     public function test_foreign_user_cannot_delete_media(): void
     {
-        $owner = User::factory()->create();
-        $other = User::factory()->create();
+        $owner = $this->createUser();
+        $other = $this->createUser();
 
         $upload = $this->actingAsApi($owner)
             ->post('/api/user/media', [
@@ -344,8 +348,8 @@ class UserMediaTest extends TestCase
 
     public function test_index_lists_only_own_media(): void
     {
-        $owner = User::factory()->create();
-        $other = User::factory()->create();
+        $owner = $this->createUser();
+        $other = $this->createUser();
 
         $upload = $this->actingAsApi($owner)
             ->post('/api/user/media', [
@@ -366,5 +370,26 @@ class UserMediaTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $media->id)
             ->assertJsonPath('data.0.url', $media->url());
+    }
+
+    /**
+     * A user of THIS mandant, with the role row a real account always has
+     * (`AuthController::register` writes `role_user` scoped to the mandant).
+     * `EnsureMandantMembership` rejects an authenticated account without such
+     * a row — a state that cannot occur in production (such an account cannot
+     * even log in), so every fixture here must be a member.
+     */
+    private function createUser(): User
+    {
+        $user = User::factory()->forMandant($this->mandant)->create();
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', 'user')->firstOrFail()->id,
+            'mandant_id' => $this->mandant->id,
+            'team_id' => null,
+        ]);
+
+        return $user;
     }
 }
