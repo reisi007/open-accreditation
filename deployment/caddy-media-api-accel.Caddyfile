@@ -19,13 +19,22 @@
 #
 # WO EINBAUEN (pro Mandanten-Site-Block, VOR dem SPA-Fallback-`handle`)
 #        import media_api_accel <MEDIA_ROOT> <ACCEL_PREFIX> <UPSTREAM>
-#   Beispiel:
-#        import media_api_accel /srv/media/accreditation /__media accreditation_backend:9000
+#   Beispiel (Default: Caddy läuft auf dem HOST — Stand Go-Live-Plan):
+#        import media_api_accel /srv/media/accreditation /__media 127.0.0.1:9000
 #   - MEDIA_ROOT   identischer read-only Mount wie beim Backend.
 #   - ACCEL_PREFIX exakt der Wert von MEDIA_ACCEL_PREFIX im Backend (Default leer
 #                  = Accel AUS, dann liefert das Backend den Stream selbst und
 #                  dieser Header-Pfad wird nie ausgelöst).
-#   - UPSTREAM     PHP-FPM-Host:Port (fastcgi), z. B. accreditation_backend:9000.
+#   - UPSTREAM     PHP-FPM-Host:Port (fastcgi). `127.0.0.1:9000`, weil der
+#                  `backend`-Service in `deployment/docker-compose.yml` genau
+#                  diesen Port auf Loopback publiziert. Der Docker-Name
+#                  `accreditation_backend:9000` ist NUR im Docker-Netz
+#                  auflösbar — vom Host aus nicht; ein kopierter Site-Block
+#                  mit diesem Upstream liefert ein fehlschlagendes `/api*`.
+#                  (Nur wenn Caddy selbst als Container im selben Netz läuft,
+#                  gilt wieder der Dienstname; Alternative in
+#                  features/03-caddy-brand-files.md, § „Erreichbarkeit des
+#                  PHP-FPM-Upstreams".)
 #   Der Snippet ersetzt den bisherigen `/api*`-Proxy-Block NICHT — er IST der
 #   `/api*`-Block (handle /api* + fastcgi + Accel-Auswertung).
 #

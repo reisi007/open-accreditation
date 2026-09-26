@@ -18,10 +18,27 @@
 # ==========================================================================
 FROM ghcr.io/reisi007/accriditation-base:8.5
 
+# --- User (WP-5-b) ----------------------------------------------------------
+# `deployment/Dockerfile` endet jetzt mit `USER www-data` (non-root
+# PHP-FPM-Master im Prod-Image). Dieses Image erbt die Direktive — die
+# Installationsschritte unten (apt-get, npm -g, Playwright-Browser nach
+# /ms-playwright) brauchen aber root. Ohne dieses Reset bricht der E2E-Build mit
+# Permission-Denied ab, sobald das Base-Image neu gepusht wurde. Der E2E-Runner
+# bleibt damit wie bisher root — er ist ein Test-Container, kein Prod-Dienst.
+USER root
+
 # --- Build-Args (Workflow e2e-image.yml extrahiert Repo-Werte) -------------
-ARG PLAYWRIGHT_VERSION=1.62.1
+# WP-5-f: Defaults an den Lockfile-Stand angeglichen. Sie greifen nur, wenn das
+# Image ohne Build-Args gebaut wird (lokal); der CI-Workflow extrahiert beide
+# Werte frisch aus dem Repo und überschreibt sie.
+#   PLAYWRIGHT_VERSION = frontend/pnpm-lock.yaml → '@playwright/test@1.63.0'
+#   PNPM_VERSION       = frontend/package.json#packageManager = pnpm@11.23.0
+# Vorher standen hier 1.62.1 / 11.21.0 — der E2E-Container lief damit mit einem
+# Browser, der nicht zum Lockfile passte, bzw. mit einer pnpm-Major unter der
+# des Repo-Managers.
+ARG PLAYWRIGHT_VERSION=1.63.0
 ARG NODE_MAJOR=26
-ARG PNPM_VERSION=11.21.0
+ARG PNPM_VERSION=11.23.0
 
 # Playwright-Browser liegen global unter /ms-playwright
 # (Pfad-Konvention der offiziellen Playwright-Images).
@@ -45,14 +62,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Node.js — aktuelles v${NODE_MAJOR}-Binary direkt von nodejs.org
 # (distro-agnostisch; latest-v<major>.x-Verzeichnis auflösen, kein
-# nodesource-Repo nötig)
+# nodesource-Repo nötig).
+# WP-5-f: Das Tarball wird gegen die von nodejs.org mitgelieferte
+# SHASUMS256.txt VERIFIZIERT (sha256sum -c), bevor es entpackt wird — vorher
+# wurde ein ungeprüftes Binary aus der höchsten tar-Liste des Verzeichnis-
+# Index geladen (eine Kompromittierung von CDN/Index wäre damit stillschweigend
+# in den E2E-Runner eingebackt worden).
 RUN NODE_VERSION="$(curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/" \
         | grep -o 'node-v[0-9.]*-linux-x64\.tar\.xz' | head -n1 \
         | sed -E 's/^node-(v[0-9.]+)-linux-x64\.tar\.xz$/\1/')" \
     && [ -n "$NODE_VERSION" ] \
-    && curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
-    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
-    && rm -f /tmp/node.tar.xz \
+    && curl -fsSL -o /tmp/SHASUMS256.txt "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" \
+    && curl -fsSL -o "/tmp/node-${NODE_VERSION}-linux-x64.tar.xz" \
+        "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" \
+    && printf '%s  %s\n' \
+        "$(grep -F " node-${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt | cut -d' ' -f1)" \
+        "/tmp/node-${NODE_VERSION}-linux-x64.tar.xz" \
+        | sha256sum -c - \
+    && tar -xJf "/tmp/node-${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
+    && rm -f "/tmp/node-${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt \
     && node --version && npm --version
 
 # pnpm — exakt die Version aus frontend/package.json (packageManager)

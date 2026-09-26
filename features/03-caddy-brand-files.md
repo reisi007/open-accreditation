@@ -102,7 +102,9 @@ verband-a.example {
 	# API inkl. Accel-Auswertung (W11): loggt den `/api*`-Proxy und liefert
 	# DB-Media per X-Accel-Redirect aus MEDIA_ROOT. Args:
 	# MEDIA_ROOT, MEDIA_ACCEL_PREFIX, PHP-FPM-Upstream.
-	import media_api_accel /srv/media/accreditation /__media accreditation_backend:9000
+	# Upstream = 127.0.0.1:9000 (Host-Caddy, Default — siehe
+	# „Erreichbarkeit des PHP-FPM-Upstreams" unten).
+	import media_api_accel /srv/media/accreditation /__media 127.0.0.1:9000
 
 	# Root-Brand-Dateien: Domain → Root → 404 (KEIN SPA-Fallback),
 	# MUSS vor dem SPA-handle stehen.
@@ -180,6 +182,33 @@ laufen über `(media_api_accel)`:** Das Backend setzt die Cache-Klassen
 - Deployment-Mechanik wie in der Referenz: `sync.sh` (Config hochladen,
   `caddy reload`), Validierung vorab via `caddy validate` in Docker; der
   Caddy-Container braucht denselben read-only `MEDIA_ROOT`-Mount.
+- **Erreichbarkeit des PHP-FPM-Upstreams (SOLL, entschieden 2026-09-26 — R-D10/WP-5-b/WF-2-b):**
+  **Default ist Host-Caddy ⇒ der `backend`-Service publiziert 9000 auf
+  `127.0.0.1` und der Caddyfile-Upstream ist `127.0.0.1:9000`.** Der
+  `backend`-Service hängt am projektinternen, host-fremden Netz
+  `accriditation_internal`; Docker löst `backend` bzw. `accreditation_backend`
+  nur *innerhalb* dieses Netzes auf, ein auf dem Host laufender Caddy
+  dagegen nicht. Genau deshalb publiziert
+  `deployment/docker-compose.yml` `127.0.0.1:9000:9000` (Loopback, nicht
+  0.0.0.0 — FastCGI ist unauthentifiziert, jeder mit Netz-Zugriff könnte
+  sonst beliebiges PHP ausführen), und die Site-Blocks importieren mit
+  `import media_api_accel <MEDIA_ROOT> <ACCEL_PREFIX> 127.0.0.1:9000`. Ein
+  `/api*`-Upstream `accreditation_backend:9000` ist in dieser Topologie
+  **nicht auflösbar** und gehört nicht in einen kopierten Site-Block.
+  - **Alternative (dokumentierte Option, nicht aktiv):** Caddy als Container
+    im selben Netz — Netz in `docker-compose.yml` als `external: true` mit
+    festem `name:` deklarieren (`docker network create caddy_proxy`),
+    den Caddy-Container daran anhängen, `MEDIA_ROOT` read-only teilen; dann
+    ist wieder der Dienstname (`accreditation_backend:9000`) der Upstream.
+    **Trade-offs:** `external: true` schlägt fehl, wenn das Netz beim Start
+    noch nicht existiert (Start-Order-Abhängigkeit zu `docker network
+    create`), und der Netzname liegt außerhalb des Compose-Lifecycle.
+    Bei Host-Caddy ist der Loopback-Publish die einzige Variante ohne
+    externe Infrastruktur — deshalb der Default.
+  - **Zusätzlich zwingend** konsistent zu `features/auth/01-auth-and-roles.md`:
+    `trustProxies` muss gesetzt sein, sonst liefert der TLS-Terminierer
+    `$request->isSecure() === false` (alle generierten Links werden `http://`)
+    und alle Rate-Limiter keyen auf die Proxy-IP.
 
 ### Ist-Stand
 

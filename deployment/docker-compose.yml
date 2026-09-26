@@ -1,3 +1,124 @@
+# ==========================================================================
+# open-accreditation — Docker-Compose
+#
+# Aufbau (WP-5 / R-D8 / R-D10):
+#   db       Postgres, IMMER aktiv (Dev + Prod)
+#   mailpit  Mail-UI/SMTP, NUR im `mail`-Profil (NICHT im prod-Profil!)
+#   migrate  einmaliger Deploy-Schritt (Schema/Link/Seed/Cache), NUR im `prod`-Profil
+#   backend  PHP-FPM mit eingebackter App, NUR im `prod`-Profil
+#
+# --------------------------------------------------------------------------
+# LOKALE INFRA (db + mailpit) — mit `--env-file deployment/dev.env`:
+#
+#   docker compose --env-file deployment/dev.env \
+#                  -f deployment/docker-compose.yml \
+#                  --profile mail up -d
+#
+#   (genau das macht `bash scripts/e2e-up.sh` — der dokumentierte Einstieg)
+#
+# Warum `--env-file` und KEIN `-f`-Override (WF-2-a, empirisch geprüft mit
+# Docker Compose v5.3.1):
+#   1. Die Variablen-Expansion läuft beim Parsen der GANZEN Datei — vor der
+#      Profil-Auswahl UND vor dem Merge mit einer zweiten `-f`-Datei.
+#      Ein `${APP_KEY:?…}` im `prod`-Service wird deshalb auch von
+#      `docker compose up -d` (ohne `--profile prod`) ausgewertet, und eine
+#      Override-Datei kann es nicht auflösen: ihre eigene Expression greift
+#      erst, wenn die Basis-Datei schon geparst ist. Ein Override-File, das
+#      `db` wieder defaulted, könnte den Parse-Fehler der Basis-Datei also
+#      gar nicht beheben.
+#   2. `--env-file` speist dagegen genau diese Expansion. Verifiziert:
+#      (a) die Shell-Umgebung schlägt `--env-file`, (b) bei mehreren
+#      `--env-file` gewinnt das LETZTE, (c) ein explizites `--env-file
+#      unterdrückt das implizite `.env` im Projektverzeichnis.
+#      Deshalb reicht `--env-file deployment/dev.env` allein für den
+#      Dev-Start, und wer eigene Werte will, exportiert sie oder legt
+#      `deployment/.env` an (siehe Skript: es hängt ein vorhandenes
+#      `deployment/.env` als weiteres `--env-file` an).
+#   3. Diese Datei bleibt damit unverändert strikt (R-D8): der `db`-Service
+#      hat keinen Default und startet in Prod nie mit einem erratbaren
+#      Passwort. Die Dev-Werte stehen in `deployment/dev.env` — einer
+#      versionierten, ausdrücklich DEV-ONLY-Datei mit öffentlichen
+#      Platzhaltern, KEINE Geheimnisse.
+#
+# Vor WF-2-a verlangte schon der reine Dev-Start `DB_USERNAME`+`DB_PASSWORD`
+# +`APP_KEY`, obwohl `scripts/e2e-up.sh` keine davon exportierte: das Skript
+# scheiterte an der ersten Zeile ("required variable DB_PASSWORD is missing a
+# value"), und selbst mit exportierten Werten startete nur `db` — nie
+# Mailpit (daher `--profile mail` im Skript).
+#
+# PROD (Backend + Postgres) — NUR diese Datei, OHNE `--env-file`:
+#
+#   export APP_KEY="$(openssl rand -base64 32)"   # NIE im Repo
+#   export DB_USERNAME=…  DB_PASSWORD=…            # identisch zum `db`-Service
+#   docker compose -f deployment/docker-compose.yml --profile prod up -d --build
+#
+# Das ist der komplette Prod-Start. `up` zieht die Abhaengigkeiten von
+# `backend` hoch und startet in dieser Reihenfolge:
+#
+#   db (service_healthy)  ->  migrate (einmalig, Exit 0)  ->  backend
+#
+# `migrate` ist ein ONE-SHOT: kein `restart`, beendet sich nach
+# `migrate -> storage:link -> [db:seed] -> [config:cache|config:clear]`.
+# `backend` haengt an `migrate: condition: service_completed_successfully` und
+# startet deshalb GAR NICHT erst, wenn das Schema nicht aktualisiert werden
+# konnte — die App liefert nie Traffic gegen ein veraltetes Schema. Ein
+# `docker compose restart backend` fuehrt die Migrationen NICHT erneut aus
+# (der One-shot-Container laeuft dann einfach nicht mehr).
+#
+# Einmal-Seed (Standard ist AUS, `DatabaseSeeder` legt in `production` sonst
+# beim ersten `db:seed` den Super-Admin an):
+#
+#   RUN_SEEDER=true ADMIN_EMAIL=… ADMIN_PASSWORD=… \
+#       docker compose -f deployment/docker-compose.yml --profile prod up -d
+#
+# Cache-Warmup (Standard ist AUS, siehe `entrypoint.sh`):
+#
+#   RUN_CACHE_WARMUP=true docker compose … up -d     # = config:cache
+#
+# MANUEL als Escape-Hatch (Exit-Hatch, wenn z. B. ein Rollback noetig ist
+# oder der `migrate`-Container schon existiert):
+#
+#   docker compose -f deployment/docker-compose.yml --profile prod exec backend \
+#       php artisan migrate --force && php artisan db:seed --force
+#   docker compose -f deployment/docker-compose.yml --profile prod exec backend \
+#       php artisan storage:link
+#
+# Fehlen `APP_KEY`/`DB_USERNAME`/`DB_PASSWORD`, bricht der Compose-Befehl
+# per `${VAR:?…}` ab — auch `--profile prod config`. Wer `dev.env` mit in ein
+# Prod-Deployment zieht, bekommt den 32-Null-Byte-Platzhalter;
+# `AppServiceProvider::assertProductionAppKeyIsStrong()` verweigert in
+# `APP_ENV=production` genau diesen Key den Dienst (Log-Critical + Abbruch),
+# d. h. auch dieser Fehlpfad endet laut und nicht in einer still laufenden
+# Instanz mit forgerbaren Crypt-Payloads/QR-Tokens.
+#
+# --------------------------------------------------------------------------
+# CADDY-ERREICHBARKEIT (W7-Snippets, Stand Go-Live-Plan: Caddy läuft auf dem
+# HOST, `~/dev/caddyfile/Caddyfile`):
+#   Upstream für `(media_api_accel …)` =  fastcgi 127.0.0.1:9000
+#   (verbindlich; identisch formuliert in `features/03-caddy-brand-files.md`
+#    § „Erreichbarkeit des PHP-FPM-Upstreams" und im
+#    `deployment/caddy-media-api-accel.Caddyfile`).
+# Ein Upstream `accreditation_backend:9000` — der alte Docker-Name — ist aus
+# der Docker-Netzwerk-Sicht (Container-Name/Service-Alias) nur von einem
+# Container im selben Netz aus auflösbar, NICHT vom Host. Deshalb publiziert
+# der `backend`-Service 9000 auf 127.0.0.1 (nicht 0.0.0.0: FastCGI hat keine
+# Authentifizierung — jeder mit Netz-Zugriff könnte sonst beliebiges PHP
+# ausführen).
+#
+# Alternative (Caddy als Container im selben Netz) — dokumentierte Option,
+# NICHT aktiv, weil der Go-Live-Plan Host-Caddy vorsieht. Beides gleichzeitig
+# ist nicht nötig (`ports` und `expose` auf demselben Service sind unnötig;
+# `ports` deckt ab):
+#   # networks:
+#   #   accriditation_internal:
+#   #     external: true
+#   #     name: caddy_proxy            # `docker network create caddy_proxy`
+#   # # und im Caddy-Container: `import media_api_accel … accreditation_backend:9000`
+#   # Trade-off: `external: true` schlägt fehl, wenn das Netz nicht existiert
+#   # (Start-Order-Abhängigkeit zu `docker network create`), und der
+#   # Netzname liegt nicht mehr im Compose-Lifecycle. Bei Host-Caddy ist der
+#   # Loopback-Publish die einzige Variante ohne externe Infrastruktur.
+# ==========================================================================
 services:
   db:
     image: postgres:17-alpine
@@ -8,10 +129,15 @@ services:
       options:
         max-size: "10m"
     environment:
-      POSTGRES_DB: accriditation
-      POSTGRES_USER: accriditation
-      # E2E/dev DB uses a plain dev password (owner decision: no secure password needed for E2E).
-      POSTGRES_PASSWORD: accriditation
+      # Keine Default-Werte (R-D8): Prod-Credentials sind Pflicht. Für die
+      # lokale Arbeit liefert `deployment/dev.env` die Werte via
+      # `--env-file` (siehe Kopf) — NICHT über einen Default in dieser
+      # Datei, sonst hätte der `db`-Service wieder ein erratbares Passwort.
+      # Die Zugangsdaten des `db`- und des `backend`-Service sind dieselben
+      # Variablen — ein Auseinanderlaufen der Paare ist ausgeschlossen.
+      POSTGRES_DB: ${DB_DATABASE:-accriditation}
+      POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME is required (deployment/dev.env for local dev, the deploy env for prod)}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (deployment/dev.env for local dev, the deploy env for prod)}
     ports:
       # CC-R3: bind the Postgres port to localhost only, so the DB is reachable
       # from the local machine but NOT exposed on the broader host network.
@@ -19,7 +145,9 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U accriditation -d accriditation"]
+      # `$$` = erst der Container-Shell auflösen; so bleibt der Check
+      # konsistent zu POSTGRES_USER/POSTGRES_DB oben.
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: "10s"
       timeout: 5s
       retries: 10
@@ -32,57 +160,206 @@ services:
     # TODO: pin to an immutable digest (e.g. axllent/mailpit@sha256:…) for reproducible CI
     image: axllent/mailpit:latest
     container_name: accriditation_mailpit
+    # WP-5-d: eigenes `mail`-Profil, damit `--profile prod` Mailpit NICHT
+    # mitstartet. Profiles sind additiv — ein Service ohne `profiles` läuft
+    # bei JEDEM `up`, auch mit `--profile prod`. Die Mail-UI (8025) und die
+    # Message-API (1025) sind unauthentifiziert und ungefiltert; in Prod
+    # gehören sie weder ins Netz noch auf den Host. Für Prod-Mails wird der
+    # mandantenweise SMTP (`smtp_config`) benutzt, nicht Mailpit.
+    profiles: ["mail"]
     restart: unless-stopped
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      # WP-5-d: wie `db` auf Loopback binden. Ohne Host-IP publiziert Docker
+      # auf 0.0.0.0 — die Mail-UI war damit im gesamten Host-Netz erreichbar.
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
     networks:
       - accriditation_internal
 
-  # W1: backend (PHP-FPM). Deliberately behind the `prod` profile so the
-  # local/CI `docker compose up -d` keeps starting ONLY the infra services
-  # (db + mailpit); use `docker compose --profile prod up -d` to start it.
-  # MEDIA_ROOT is bind-mounted from the host at the exact same path the
-  # external Caddy serves media from, so both containers share one media tree
-  # (no Caddyfile lives in this repo — W7 owns the Caddy snippet).
+  # migrate — einmaliger Deploy-Schritt, ausgeführt BEI DEPLOY, nicht bei jedem
+  # FPM-Neustart. Genau deshalb ein eigener Service und nicht ein Schritt im
+  # `backend`-Start: der One-shot beendet sich nach dem Schema-Schritt, und
+  # `backend` startet erst danach (unten `service_completed_successfully`).
+  #
+  # Einmalig gebaut wird NICHT hier: `build:` steht bewusst nur beim `backend`
+  # (siehe dort). Beide Services zeigen auf DASSELBE `image:`, aber nur einer
+  # hat eine Build-Definition — damit führt `docker compose … build` genau
+  # EINEN Build aus. (Mit `build:` auf beiden Services baut Compose v5.3.1
+  # zweimal: empirisch geprüft, beide Läufe mit eigenen Image-IDs.)
+  migrate:
+    profiles: ["prod"]
+    # Nur `image:`, KEIN `build:` — siehe Kommentar oben und beim `backend`.
+    # `up -d --build` baut das Image beim `backend`; dieser Service benutzt es
+    # dann unveraendert mit.
+    image: accreditation_backend:local
+    container_name: accreditation_migrate
+    # KEIN `restart:` — ein One-shot, der bei Fehlschlag liegen bleibt und
+    # den `backend`-Start blockiert (das ist der Zweck).
+    working_dir: /var/www/html
+    # Modus `migrate` des Entry-Points; der MEDIA_ROOT-Guard (Exit 78) laeuft
+    # dabei genauso wie beim `backend`-Service.
+    command: ["/usr/local/bin/entrypoint.sh", "migrate"]
+    environment:
+      # Bewusst eine KOPIE des `backend`-Blocks unten, kein YAML-Anchor: so ist
+      # in `docker compose config` fuer JEDEN Service exakt sichtbar, welche
+      # Variablen er bekommt. Die Zugangsdaten MUESSEN mit `db` UND `backend`
+      # identisch bleiben (gleiche Variablen, `${VAR:?…}` ohne Default).
+      APP_KEY: ${APP_KEY:?APP_KEY is required for the prod profile (deployment/dev.env for local dev, the deploy env for prod)}
+      APP_ENV: ${APP_ENV:-production}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-accriditation}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required (deployment/dev.env for local dev, the deploy env for prod)}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (deployment/dev.env for local dev, the deploy env for prod)}
+      MEDIA_ROOT: /srv/media/accreditation
+      # Seeding ist per Default AUS. `DatabaseSeeder` legt in `production`
+      # den globalen Super-Admin an, sobald ADMIN_EMAIL *und* ADMIN_PASSWORD
+      # gesetzt sind — das darf niemals still bei jedem Deploy passieren.
+      # Aktiviert wird es ausschliesslich explizit per RUN_SEEDER=true.
+      # Leeres `:-` statt eines Defaults: leer => Seeder-Produktionsregel
+      # greift (Admin wird uebersprungen, mit Log-Warnung).
+      RUN_SEEDER: ${RUN_SEEDER:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Cache-Warmup per Default AUS (`config:cache` friert die Deploy-ENV als
+      # Schnappschuss ein; Folge fuer Aenderungen siehe `entrypoint.sh`).
+      RUN_CACHE_WARMUP: ${RUN_CACHE_WARMUP:-false}
+      # Harte Obergrenze des DB-Warte-Retries im Entry-Point. Explizit, damit
+      # der Schritt nicht haengen kann: 3 Versuche a 5 s.
+      DEPLOY_STEP_ATTEMPTS: ${DEPLOY_STEP_ATTEMPTS:-3}
+      DEPLOY_STEP_RETRY_SLEEP: ${DEPLOY_STEP_RETRY_SLEEP:-5}
+    volumes:
+      # Identischer MEDIA_ROOT-Mount wie `backend` — sonst waere der
+      # MEDIA_ROOT-Guard im `migrate`-Modus eine leere Huelse, und genau der
+      # Guard soll einen Deploy gegen ein kaputtes MEDIA_ROOT abbrechen.
+      - ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation:rw
+      # `bootstrap/cache` ist das EINZige Verzeichnis, in dem ein Deploy-
+      # Artefakt den One-shot-Container ueberleben muss (die
+      # `config.php`). Ohne dieses geteilte Volume waere eine
+      # Deploy-Zeit-Warmung fuer `backend` wirkungslos, weil das Dateisystem
+      # eines beendeten Containers verworfen wird. `docker compose down -v`
+      # raeumt es mit auf.
+      - app_cache:/var/www/html/bootstrap/cache
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - accriditation_internal
+
+  # backend (PHP-FPM). Bewusst hinter dem `prod`-Profil, damit der
+  # lokale/CI-`docker compose up -d` (mit `--env-file deployment/dev.env`,
+  # siehe Kopf) nur die Infra startet (`db`; Mailpit erst mit
+  # `--profile mail`); `--profile prod` startet das echte Backend.
+  #
+  # Das Image ist selbst-contained: App-Code + `vendor/` sind eingebackt
+  # (Dockerfile, `APP_SOURCE=1`), es gibt KEINEN Bind-Mount des Host-Checkouts
+  # mehr. Vorher shadowte `../backend:/var/www/html` den kompletten
+  # Image-Inhalt — die im Image gebaute `vendor/` war unsichtbar, der
+  # `chown` im Dockerfile wirkte nur auf den (weggemounteten) Image-Verzeichnis
+  # und ein frischer Clone (`vendor/` ist in `.gitignore`) konnte gar nicht
+  # booten. Konsequenz: Deploy = Image bauen, nicht Code nachziehen.
+  # MEDIA_ROOT ist bind-gemountet, damit Backend und Caddy denselben
+  # Media-Baum teilen (kein Caddyfile in diesem Repo — W7 besitzt das Snippet).
   backend:
     profiles: ["prod"]
+    # Einziger Service MIT Build-Definition — deshalb baut
+    # `docker compose … build` genau einmal, auch wenn `migrate` dasselbe
+    # Image anfordert.
+    image: accreditation_backend:local
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Kontext = Repo-Root, damit `backend/` im Image landen kann;
+      # `APP_SOURCE=1` schaltet die App-Rolle im Dockerfile ein.
+      # Achtung: ohne `.dockerignore` im Repo-Root geht der komplette
+      # Kontext (frontend/node_modules, .git) zum Builder — das Image ist
+      # trotzdem sauber, der Build aber langsam.
+      context: ..
+      dockerfile: deployment/Dockerfile
+      args:
+        APP_SOURCE: "1"
     container_name: accreditation_backend
     restart: unless-stopped
     working_dir: /var/www/html
     environment:
-      # W1-F4: the prod profile runs the real app (not only infra), so it needs
-      # an encryption key and an explicit DB target. The Compose `db` service is
-      # reachable by its service name (`db`) on the internal network — the
-      # `.env` default `127.0.0.1` would point at the backend container itself.
-      # Neither value is a committed secret: both are overridable at deploy time
-      # (`APP_KEY=base64:… docker compose --profile prod up -d`), the APP_KEY
-      # default is a clearly-marked insecure placeholder and the DB credentials
-      # mirror the plain dev values of the `db` service (CC-R2 owner decision).
-      APP_KEY: ${APP_KEY:-base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      # R-D8: KEIN Default. Der alte Default
+      # `base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=` war ein
+      # funktionierender 32-Byte-Key (32 Null-Bytes) — die App bootete
+      # damit still und alles `Crypt`-Verschlüsselte (JWT-Cookies,
+      # smtp_config) sowie jeder QR-Token war damit forgerbar.
+      # `${VAR:?}` bricht den Compose-Befehl ab, statt zu starten. Achtung:
+      # Das gilt für JEDEN Aufruf dieser Datei (Expansion vor der
+      # Profil-Auswahl) — der Dev-Pfad braucht deshalb zwingend
+      # `--env-file deployment/dev.env` (siehe Kopf dieses Kommentars).
+      APP_KEY: ${APP_KEY:?APP_KEY is required for the prod profile (deployment/dev.env for local dev, the deploy env for prod)}
+      # R-D10: explizit setzen. Ohne diesen Wert gewinnt ein
+      # mitgemountetes `backend/.env` mit `APP_ENV=local` — Folge:
+      # JWT-Cookie OHNE `Secure`-Flag und der Seeder legt den
+      # Default-Super-Admin an (der Prod-Guard greift nicht).
+      # Für Pre-Prod explizit `APP_ENV=staging …` exportieren.
+      APP_ENV: ${APP_ENV:-production}
       DB_CONNECTION: pgsql
       DB_HOST: db
       DB_PORT: 5432
-      DB_DATABASE: accriditation
-      DB_USERNAME: accriditation
-      DB_PASSWORD: accriditation
+      DB_DATABASE: ${DB_DATABASE:-accriditation}
+      # Keine Defaults (identische Variablen wie beim `db`-Service, s. o.):
+      # der Prod-Pfad bricht hiermit beim Parse ab, wenn die Zugangsdaten
+      # fehlen — auch bei `--profile prod config`. Für lokal: Werte aus
+      # `deployment/dev.env` via `--env-file` (siehe Kopf).
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required (deployment/dev.env for local dev, the deploy env for prod)}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (deployment/dev.env for local dev, the deploy env for prod)}
       MEDIA_ROOT: /srv/media/accreditation
+    ports:
+      # WP-5-b/R-D10: Caddy läuft auf dem HOST, Docker löst Container-Namen
+      # nur INNERHALB seines Netzes auf — `accreditation_backend:9000` (so
+      # stand es bis WF-2-b in features/03 dokumentiert) war vom Host aus
+      # unerreichbar. Der dokumentierte Upstream lautet damit
+      # `fastcgi 127.0.0.1:9000` (features/03 + Snippet-Header).
+      # Loopback statt 0.0.0.0: FastCGI ist unauthentifiziert.
+      - "127.0.0.1:9000:9000"
     volumes:
-      - ../backend:/var/www/html
-      # Shared with Caddy: host path -> identical path in both containers.
-      # Override MEDIA_ROOT_HOST when the host mount differs (default is the
-      # production path documented in backend/.env.example).
-      - ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation
+      # WP-5-e: `MEDIA_ROOT_HOST` MUSS auf dem Host existieren und dem
+      # Runtime-User (www-data, UID 33) gehören:
+      #   sudo mkdir -p /srv/media/accreditation
+      #   sudo chown -R 33:33 /srv/media/accreditation
+      # Fehlt der Pfad, legt Docker ihn als LEERES, root-eigenes
+      # Verzeichnis an: der Start schlägt dann mit Exit 78 + Klartext-Hinweis
+      # fehl (Guard in `deployment/entrypoint.sh`, beide Modi), statt still
+      # leere Uploads zu schreiben. Die Host-Seite wird rw gemountet
+      # (Default, `:rw`), weil das Backend dort schreibt; die Gegenseite
+      # (`:/srv/media/accreditation`) ist der im Backend gesetzte MEDIA_ROOT.
+      - ${MEDIA_ROOT_HOST:-/srv/media/accreditation}:/srv/media/accreditation:rw
+      # Geteilt mit `migrate` (siehe dort): traegt eine optionale
+      # `config:cache`-Datei vom Deploy in den FPM-Container. Ohne
+      # `RUN_CACHE_WARMUP` bleibt das Volume exakt beim Image-Inhalt.
+      - app_cache:/var/www/html/bootstrap/cache
     depends_on:
       db:
         condition: service_healthy
+      # DER Mechanismus, der "Migrationen in Compose" korrekt macht: ohne
+      # erfolgreichen Deploy-Schritt kein Traffic gegen ein frisches Schema.
+      # Schlaegt `migrate` fehl, startet `backend` gar nicht (Compose bricht
+      # den Start ab) — kein Health-Check-Race, kein 500er-Fenster.
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Prüft, dass der FPM-Master tatsächlich auf 9000 lauscht (also dass
+      # php-fpm mit der non-root-Konfiguration sauber bootet). Kein HTTP-Get:
+      # FPM spricht FastCGI, nicht HTTP. `php -r` statt `nc`, damit keine
+      # zusätzlichen Pakete ins Image müssen.
+      # Achtung: KEIN `$` im Test — Compose interpoliert auch in exec-Form-
+      # Arrays und warnt sonst "The \"e\" variable is not set" (deshalb die
+      # by-ref-Parameter von fsockopen() weggelassen; sie sind optional).
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: "15s"
+      timeout: 5s
+      retries: 5
+      # genug Zeit, damit ein frisch gebautes/gestartetes Image nicht als
+      # unhealthy in einen Neustart-Loop läuft
+      start_period: "40s"
     networks:
       - accriditation_internal
 
@@ -91,3 +368,6 @@ networks:
 
 volumes:
   db_data:
+  # Geteilter Cache zwischen `migrate` und `backend` (siehe die Kommentare an
+  # beiden Services). Wird von `docker compose down -v` mit entfernt.
+  app_cache:
