@@ -17,22 +17,27 @@ import base from './playwright.config.ts';
  *     only job is to DETECT flakiness. A gate that hides a first-attempt
  *     failure cannot detect anything.
  *
- * The two values that make it decisive, both `process.env.CI`-gated like the
- * rest of the repo's Playwright config:
+ * The two values that make it decisive — note that they are NOT both
+ * `process.env.CI`-gated:
  *
- *   retries: 0        Fail once ⇒ failed. With the base config's `retries: 2`
- *                      a test that fails on attempt 1 and passes on the retry
- *                      is reported as passed/flaky and the job stays green —
- *                      precisely the signal this profile must surface. Do NOT
- *                      reintroduce retries "to unblock the nightly": a red
+ *   retries: 0        Fail once ⇒ failed. UNCONDITIONAL (CI *and* local): a
+ *                      developer replicating the nightly locally must see the
+ *                      same first-attempt result the CI gate sees, or the local
+ *                      reproduction is worthless. With the base config's
+ *                      `retries: 2` a test that fails on attempt 1 and passes on
+ *                      the retry is reported as passed/flaky and the job stays
+ *                      green — precisely the signal this profile must surface.
+ *                      Do NOT reintroduce retries "to unblock the nightly": a red
  *                      nightly means "a test is flaky or genuinely broken" and
  *                      is answered by fixing (or explicitly quarantining) that
  *                      test, never by retrying it into green.
- *   maxFailures: 1    Stop at the FIRST failure. The base config's
- *                      `maxFailures: 10` lets a run continue through nine more
- *                      failures and then burn CI minutes proving the rest of
- *                      the suite is broken too. One red test is the whole
- *                      report.
+ *   maxFailures: 1    Stop at the FIRST failure — and this one IS
+ *   (CI) / 0 (local)  `process.env.CI`-gated, like the rest of the repo's
+ *                      Playwright config: CI must not burn minutes proving the
+ *                      rest of the suite is broken too, while a local full run
+ *                      should show the complete report. The base config's
+ *                      `maxFailures: 10` does neither well. One red test is the
+ *                      whole CI report.
  *
  * Everything else (testDir, testMatch, projects, baseURL, timeout,
  * forbidOnly, globalTeardown, reporter, `use`) is inherited from

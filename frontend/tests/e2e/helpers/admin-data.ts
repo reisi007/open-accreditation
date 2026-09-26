@@ -4,7 +4,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { MailpitHelper } from './mailpit';
 
-const FRONTEND_BASE_URL = 'http://localhost:5173';
+/**
+ * Single source of truth for the origin the E2E **API helpers** drive.
+ *
+ * The browser navigates via `use.baseURL` in `playwright.config.ts`, which reads
+ * the same `E2E_BASE_URL` with the same default. These two MUST agree: a helper
+ * that hardcoded `http://localhost:5173` while the browser ran against
+ * `E2E_BASE_URL=http://localhost:4173` would drive the browser against one stack
+ * and set up its fixtures against ANOTHER — the symptom is a suite that fails
+ * with "element not found" for reasons no assertion can explain.
+ *
+ * `playwright.config.ts` deliberately does NOT import this module (a Playwright
+ * config must not pull in test helpers), so the expression is mirrored there.
+ * Change one side, change the other.
+ */
+export const FRONTEND_BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 
 /**
  * Logs the bootstrap admin in via the API and returns a request context that
@@ -587,20 +601,29 @@ export async function allocateAccreditationApi(accreditationId = 0, mode = 'all'
 
 /**
  * Fixture key of the CURRENT Playwright worker, stamped into every portal
- * fixture's title and competition (`Portal-Test w3 <ts>` /
- * `E2E Wettbewerb w3 <ts>`).
+ * fixture's title and competition (`Portal-Test w3-4821 <ts>` /
+ * `E2E Wettbewerb w3-4821 <ts>`).
  *
  * Why the key is per WORKER and not per run: Playwright's two projects
  * (`Desktop Chrome`, `Mobile Chrome`) run the SAME test in the SAME run, and a
  * run does not expose a run id to the worker process. A worker, on the other
  * hand, runs exactly one test at a time, so a worker key is precisely the
  * granularity at which "may I delete this fixture?" is answerable without
- * coordination. `process.pid` is the fallback for contexts Playwright does not
- * give a worker index to (e.g. the teardown process).
+ * coordination.
+ *
+ * Why the PID is part of the key and not just the fallback: `TEST_WORKER_INDEX`
+ * restarts at 0 in every host process, so two CONCURRENT `playwright test` runs
+ * on the same machine (e.g. the screenshot suite next to an E2E run, or two
+ * shells) both mint `w0` — and then worker A's self-cleanup deletes worker B's
+ * live portal event mid-assertion. Appending the PID makes the key unique per
+ * (run, worker) pair. For contexts Playwright gives no worker index to (the
+ * global-teardown process) the PID alone is already the key.
  */
 const PORTAL_FIXTURE_KEY = (() => {
     const workerIndex = process.env.TEST_WORKER_INDEX;
-    return workerIndex === undefined || workerIndex === '' ? `p${process.pid}` : `w${workerIndex}`;
+    return workerIndex === undefined || workerIndex === ''
+        ? `p${process.pid}`
+        : `w${workerIndex}-p${process.pid}`;
 })();
 
 /**
@@ -732,6 +755,64 @@ export async function ensurePrimaryMandantActivePortalEvent() {
 }
 
 /**
+ * Removes an uploaded logo from the primary mandant and returns whether one was
+ * actually there.
+ *
+ * WHY this exists: `admin-mandant.spec.ts` uploads a logo to the primary mandant
+ * and removes it again inside the "self-service logo upload" test. Its `finally`
+ * only releases the MUTEX — it cannot un-upload the file. If anything between
+ * upload and remove fails (crashed worker, SIGKILL, `maxFailures` abort), the
+ * primary mandant keeps the logo, and every later run inherits it: the portal
+ * spec's "static fallback logo" assertion and the screenshot suite's documented
+ * `admin-media` empty state both silently turn into a filled state. Nothing else
+ * in the suite resets that row.
+ *
+ * Idempotent by construction: `logo_url` is `null` exactly when no file is
+ * referenced (`MandantResource`), so the common case is a single GET and no
+ * DELETE — no 404-driven noise on every teardown.
+ *
+ * Scope note: this restores the seeded LOGO state, which is the only media field
+ * the suite mutates (no E2E test uploads a mandant header). It is a
+ * seeded-state restore, not a name-matched artifact sweep, because the logo
+ * carries no E2E marker — and yes, it removes a logo a developer uploaded by
+ * hand. That is the intended semantics: the rest of this file's purge deletes
+ * E2E fixtures unconditionally too, and a persistent dev DB is not a place to
+ * keep manual fixtures that silently change what the suite asserts.
+ *
+ * @returns {Promise<boolean>} true when a logo was removed.
+ */
+export async function resetPrimaryMandantLogo() {
+    const api = await loginAdminApi();
+    try {
+        const mandantsBody = await (await api.get('/api/admin/mandants')).json();
+        const mandants = mandantsBody.data ?? [];
+        let primary = null;
+        for (const mandant of mandants) {
+            if (mandant.is_primary) {
+                primary = mandant;
+                break;
+            }
+        }
+        if (primary === null) {
+            primary = mandants[0] ?? null;
+        }
+        if (!primary) {
+            throw new Error('No mandant found for the logo reset');
+        }
+        if (primary.logo_url === null || primary.logo_url === undefined) {
+            return false;
+        }
+        const remove = await api.delete(`/api/admin/mandants/${primary.id}/logo`);
+        if (remove.status() !== 204) {
+            throw new Error(`Removing the primary mandant logo failed with status ${remove.status()}`);
+        }
+        return true;
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Best-effort global purge of every E2E artifact left in the dev database.
  * Intended to run from Playwright's `globalTeardown` so each full run starts
  * from a clean slate, but exported so it can also be invoked manually. Never
@@ -742,6 +823,20 @@ export async function ensurePrimaryMandantActivePortalEvent() {
  * still satisfying the strict `tsc` build (no implicit-`any` parameters).
  */
 export async function purgeAllE2EArtifacts() {
+    // Restore the primary mandant's seeded logo state FIRST, in its own
+    // try/catch: it is the one artifact whose leftover is invisible (no E2E
+    // name marker) and therefore the one a crash is most likely to strand —
+    // see `resetPrimaryMandantLogo()`. Isolated so a failure here cannot skip
+    // the rest of the purge.
+    try {
+        const removed = await resetPrimaryMandantLogo();
+        if (removed) {
+            console.log('[e2e-hygiene] removed a leftover primary mandant logo');
+        }
+    } catch (error) {
+        console.warn('[e2e-hygiene] resetPrimaryMandantLogo failed:', error);
+    }
+
     const api = await loginAdminApi();
     try {
         const mandantsBody = await (await api.get('/api/admin/mandants')).json();
@@ -861,6 +956,13 @@ export async function purgeAllE2EArtifacts() {
  * deadlock can never turn into a silently skipped assertion, and a lock left
  * behind by a killed process is stolen once it is older than the stale window.
  *
+ * Ownership (why the file CONTENT matters): an `O_EXCL` create alone is not
+ * mutual exclusion once stale-stealing is in play. A holder whose lock was
+ * stolen would happily `unlink` the NEW holder's file, destroying THEIR lock and
+ * letting a third process in. So every lock file carries an owner token and BOTH
+ * the release and the steal re-read the file and act only on a lock that still
+ * belongs to them. `release()` is a no-op when the file is gone or foreign.
+ *
  * Usage (the release must sit in a `finally`, as everywhere else here):
  *
  *   const release = await acquirePrimaryMandantLogoLock();
@@ -868,19 +970,82 @@ export async function purgeAllE2EArtifacts() {
  */
 const LOGO_LOCK_DIR = path.join(os.tmpdir(), 'open-accreditation-e2e');
 const LOGO_LOCK_FILE = path.join(LOGO_LOCK_DIR, 'primary-mandant-logo.lock');
-const LOGO_LOCK_TIMEOUT_MS = 60000;
-const LOGO_LOCK_STALE_MS = 300000;
 
 /**
- * Exclusive-create the lock file. Returns false when it is already held (the
- * normal contended case) and rethrows anything else.
+ * How long a waiter keeps polling before it gives up. Must stay ABOVE
+ * `LOGO_LOCK_STALE_MS`: a waiter that gives up before a dead holder's lock can
+ * go stale can never win the race it is waiting for — it would time out on a
+ * lock that was reclaimable three seconds after it stopped looking. Enforced
+ * below, not just documented.
+ */
+const LOGO_LOCK_TIMEOUT_MS = 60000;
+
+/**
+ * How old a lock must be before another process may reclaim it. Must stay
+ * BELOW `LOGO_LOCK_TIMEOUT_MS` (see there) and above the longest legitimate
+ * critical section (a logo upload + removal through the UI: a few seconds), so
+ * that a slow-but-alive holder is never robbed of its lock mid-test.
+ */
+const LOGO_LOCK_STALE_MS = 30000;
+
+if (!(LOGO_LOCK_STALE_MS < LOGO_LOCK_TIMEOUT_MS)) {
+    throw new Error(
+        `Logo lock invariant violated: LOGO_LOCK_STALE_MS (${LOGO_LOCK_STALE_MS}) must be < LOGO_LOCK_TIMEOUT_MS (${LOGO_LOCK_TIMEOUT_MS})`,
+    );
+}
+
+/**
+ * Owner token of THIS process, written into every lock file it creates. The pid
+ * alone is not enough as a global identity — PIDs are reused, and the same
+ * worker legitimately re-acquires the lock for every test it runs — so the
+ * timestamp+random suffix makes "is this file still MINE?" answerable even after
+ * a same-pid successor took over.
+ */
+const LOGO_LOCK_OWNER_TOKEN = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+/**
+ * Exclusive-create the lock file and stamp it with this process' owner token.
+ * Returns false when it is already held (the normal contended case) and
+ * rethrows anything else.
  */
 function tryCreateLogoLock() {
+    let fd;
     try {
-        fs.closeSync(fs.openSync(LOGO_LOCK_FILE, 'wx'));
-        return true;
+        fd = fs.openSync(LOGO_LOCK_FILE, 'wx');
     } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+            return false;
+        }
+        throw error;
+    }
+    try {
+        fs.writeSync(
+            fd,
+            `owner=${LOGO_LOCK_OWNER_TOKEN} pid=${process.pid} at=${new Date().toISOString()}\n`,
+        );
+    } finally {
+        fs.closeSync(fd);
+    }
+    return true;
+}
+
+/**
+ * True when the lock file still carries THIS process' owner token. A missing
+ * file (someone else already cleaned it up) reads as "not mine", which is what
+ * keeps `release()` idempotent.
+ *
+ * Zero parameters on purpose: this directory is linted with the PLAIN-JS parser
+ * (`eslint.config.js` gives `tests/e2e/**` no TS parser), so a parameter type
+ * annotation would be a parse error, and an un-annotated one is an implicit
+ * `any` under the strict `tsc -b` build. Every helper in this lock therefore
+ * reads the module-level `LOGO_LOCK_FILE` — the same reason
+ * `purgeAllE2EArtifacts` uses inline loops.
+ */
+function logoLockIsOurs() {
+    try {
+        return fs.readFileSync(LOGO_LOCK_FILE, 'utf8').includes(`owner=${LOGO_LOCK_OWNER_TOKEN}`);
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
             return false;
         }
         throw error;
@@ -888,10 +1053,28 @@ function tryCreateLogoLock() {
 }
 
 /**
- * Removes the lock file. Idempotent: a lock that is already gone (a stale-lock
- * steal removed it first) is not an error. Written with an explicit errno check
- * instead of `rmSync(…, { force: true })` because the E2E lint rule bans the
- * `force` property in this directory — it exists to stop Playwright's
+ * Age of the lock file in ms, or `null` when it no longer exists.
+ *
+ * `null` is the NORMAL contended outcome, not an error: the holder can release
+ * between our failed exclusive-create and this stat, and an unguarded
+ * `statSync` let that `ENOENT` escape as a crashed test.
+ */
+function logoLockAgeMs() {
+    try {
+        return Date.now() - fs.statSync(LOGO_LOCK_FILE).mtimeMs;
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Unlinks the lock file, idempotently: a lock that is already gone (a
+ * stale-lock steal removed it first) is not an error. Written with an explicit
+ * errno check instead of `rmSync(…, { force: true })` because the E2E lint rule
+ * bans the `force` property in this directory — it exists to stop Playwright's
  * `click({ force: true })`, and a blanket `eslint-disable` is not an option.
  */
 function removeLogoLock() {
@@ -905,24 +1088,113 @@ function removeLogoLock() {
 }
 
 /**
+ * Reclaims a lock whose holder died. Returns true when the caller may now try
+ * to create its own, false when nothing was (or could be) reclaimed.
+ *
+ * `rename` instead of `unlink` is what makes the claim atomic: between the
+ * staleness check and the removal the original holder may well have released
+ * and a third process may have created a fresh lock. Renaming it to a private
+ * name claims exactly ONE file — whichever one sits at that path at that
+ * instant — so the worst case is that this process steals a LIVE lock. The
+ * re-check on the RENAMED file catches precisely that: `rename` preserves mtime,
+ * so a claimed file that is no longer stale was created by a live process; it is
+ * put back (via `link`, which cannot clobber a re-created lock) and the caller
+ * keeps waiting. A claimed file that IS still stale was provably written by the
+ * dead process: it is unlinked, and the caller may create.
+ */
+function stealStaleLogoLock() {
+    const claimedPath = `${LOGO_LOCK_FILE}.stolen-${LOGO_LOCK_OWNER_TOKEN}`;
+    try {
+        fs.renameSync(LOGO_LOCK_FILE, claimedPath);
+    } catch (error) {
+        // The holder released in the meantime — nothing to steal.
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            return false;
+        }
+        throw error;
+    }
+
+    // The claimed copy carries the dead holder's mtime, so this is a decision
+    // about the SAME lock we judged stale — not a fresh look at a new one.
+    let claimedAgeMs = null;
+    try {
+        claimedAgeMs = Date.now() - fs.statSync(claimedPath).mtimeMs;
+    } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+            throw error;
+        }
+    }
+
+    if (claimedAgeMs !== null && claimedAgeMs <= LOGO_LOCK_STALE_MS) {
+        // We claimed a LIVE lock. Put it back so its owner stays excluded — but
+        // with `link`, NOT with `rename`: POSIX `rename` silently OVERWRITES an
+        // existing destination, so restoring by rename would clobber the lock of
+        // whoever re-created the path in the meantime, which is the exact hole
+        // this function exists to close. `link` is atomic (the restored file is
+        // never a partial read) and fails with EEXIST instead of overwriting.
+        try {
+            fs.linkSync(claimedPath, LOGO_LOCK_FILE);
+            fs.unlinkSync(claimedPath);
+        } catch {
+            // EEXIST — somebody re-created the path; their lock is authoritative
+            // and untouched, so this claim is simply dropped. Also the landing
+            // spot for a filesystem without hardlink support, where the claim is
+            // dropped as well: the previous owner's lock then leaks to the next
+            // stale-steal instead of being clobbered — the conservative failure.
+            try {
+                fs.unlinkSync(claimedPath);
+            } catch {
+                // Already gone — nothing left to clean up.
+            }
+        }
+        return false;
+    }
+
+    try {
+        fs.unlinkSync(claimedPath);
+    } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+            throw error;
+        }
+    }
+    return true;
+}
+
+/**
  * Waits for exclusive ownership of the primary mandant's logo state and returns
  * the release function. Throws instead of degrading if the lock cannot be taken
  * within `LOGO_LOCK_TIMEOUT_MS`.
+ *
+ * The returned release verifies the owner token before unlinking, so a holder
+ * whose lock was stolen in the meantime cannot delete its successor's lock.
+ * (Residual, and deliberately not over-engineered away: a steal can only happen
+ * after `LOGO_LOCK_STALE_MS`, so for that window to overlap the holder's own
+ * release its critical section would have to exceed the stale window — a
+ * ~30 s logo upload. There is no atomic compare-and-unlink in POSIX; the token
+ * check shrinks the window from "the whole hold" to "one syscall".)
  */
 export async function acquirePrimaryMandantLogoLock() {
     fs.mkdirSync(LOGO_LOCK_DIR, { recursive: true });
     const deadline = Date.now() + LOGO_LOCK_TIMEOUT_MS;
     for (;;) {
         if (tryCreateLogoLock()) {
-            fs.writeFileSync(LOGO_LOCK_FILE, `pid=${process.pid} at=${new Date().toISOString()}\n`);
-            return removeLogoLock;
+            return () => {
+                if (!logoLockIsOurs()) {
+                    // Gone, or stolen and re-taken by somebody else — unlinking
+                    // now would break THEIR mutual exclusion.
+                    return;
+                }
+                removeLogoLock();
+            };
         }
         // Held by someone else. A lock older than the stale window belongs to a
         // process that died mid-test, so it is reclaimed instead of wedging the
-        // whole suite.
-        if (Date.now() - fs.statSync(LOGO_LOCK_FILE).mtimeMs > LOGO_LOCK_STALE_MS) {
-            console.warn(`[e2e-hygiene] stealing stale logo lock ${LOGO_LOCK_FILE}`);
-            removeLogoLock();
+        // whole suite. `null` age = the holder released in the meantime → just
+        // retry the create.
+        const lockAgeMs = logoLockAgeMs();
+        if (lockAgeMs !== null && lockAgeMs > LOGO_LOCK_STALE_MS) {
+            console.warn(`[e2e-hygiene] stealing stale logo lock ${LOGO_LOCK_FILE} (age ${lockAgeMs}ms)`);
+            stealStaleLogoLock();
             continue;
         }
         if (Date.now() > deadline) {

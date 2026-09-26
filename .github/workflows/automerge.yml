@@ -44,28 +44,51 @@ jobs:
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           DEPENDENCY_GROUP: ${{ steps.metadata.outputs.dependency-group }}
+          PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
         with:
           script: |
             const updateType = process.env.UPDATE_TYPE ?? '';
             // output ist `dependency-group` (singular): ein PR hängt an maximal
             // EINER Dependabot-Gruppe (leer, wenn keine Gruppe aktiv ist)
             const dependencyGroup = process.env.DEPENDENCY_GROUP ?? '';
+            // `package-ecosystem` ist das Package-Manager-Ökosystem des PRs
+            // (composer | npm | docker | github-actions | …) — NICHT der
+            // Gruppenname. Genau dieser Unterschied war die Bug-Quelle: siehe
+            // `allowedEcosystem` unten.
+            const packageEcosystem = process.env.PACKAGE_ECOSYSTEM ?? '';
 
             // Minor/Patch-Gruppen sind per Konstruktion sicher (dependabot.yml
             // matcht dort nur update-types minor+patch) - auch wenn die
             // Update-Type-Erkennung bei gruppierten PRs leer bleibt.
             const safeGroup = dependencyGroup === 'minor-and-patch';
             const safeIndividual = ['version-update:semver-minor', 'version-update:semver-patch'].includes(updateType);
-            // Docker-Images haben keine zuverlässige semver-Klassifikation
-            // und werden bewusst NIE auto-gemergt
-            const notDocker = !dependencyGroup.includes('docker');
+            // Allowlist statt Denylist. Ein Gate auf `dependencyGroup` kann Docker
+            // hier NICHT fangen: die `docker`-Einträge in dependabot.yml haben
+            // bewusst KEINE `groups:`, also ist `dependency-group` bei genau den
+            // PRs leer, die das Gate ausschließen soll — `!group.includes('docker')`
+            // war konstant `true` (No-op). Verschärfend: Dependabot klassifiziert
+            // Docker-Tag-Bumps sehr wohl als `version-update:semver-patch`/
+            // `-minor`, `safeIndividual` ist dort also oft `true`, d. h. die
+            // broken `notDocker`-Zeile war die EINZIGE Sperre gegen das Auto-Merge
+            // eines Base-Image-Wechsels. Ein Ecosystem-Gate trifft die Property,
+            // die tatsächlich existiert, und lässt sich per Allowlist auch für
+            // künftige Ecosystems (ohne Code-Änderung) schließen.
+            // `github-actions` steht bewusst NICHT auf der Liste: dessen Updates
+            // laufen in der eigenen Gruppe `actions` und werden heute schon
+            // nicht gemergt — die Allowlist macht das explizit statt es dem
+            // `safeGroup`-Vergleich zu überlassen.
+            const allowedEcosystems = ['composer', 'npm'];
+            const allowedEcosystem = allowedEcosystems.includes(packageEcosystem);
+            if (!allowedEcosystem) {
+                core.info(`auto-merge skipped: package-ecosystem "${packageEcosystem}" is not on the allowlist (${allowedEcosystems.join(', ')})`);
+            }
 
             // WICHTIG: `return` statt core.setOutput('result', ...) - github-script
             // reserviert den Output-Namen "result" für den Script-Rückgabewert und
             // überschreibt ein manuell gesetztes Output "result" sonst mit "".
             // (Bewiesen im Debug-Lauf 2026-08-25; ohne Fix werden die Merge-Schritte
             // still geskippt, obwohl der Run "success" meldet.)
-            return (safeGroup || safeIndividual) && notDocker;
+            return (safeGroup || safeIndividual) && allowedEcosystem;
 
       # running-workflow-name verhindert, dass wait-on-check auf SICH SELBST
       # wartet (der AutomERGE-Run hängt am head-sha). allowed-conclusions

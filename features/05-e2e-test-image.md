@@ -158,6 +158,20 @@ Fehler-Budget:
 | **Smoke** | `frontend/playwright.config.ts` | `retries: 2`, `maxFailures: 10` | `push` / `pull_request` / `workflow_dispatch` — `--grep @smoke --workers=1` (kritischer Pfad, schnell) |
 | **Nightly** | `frontend/playwright.regression.config.ts` | `retries: 0`, `maxFailures: 1` | `schedule`-Cron — **volle** Suite, serial |
 
+Die Event-Auswahl hängt allein an `github.event_name` (`schedule` ⇒ volle Suite, sonst
+`@smoke`). Stand 2026-09-26 ist `pull_request` im `if:` des E2E-Jobs **tatsächlich**
+enthalten — vorher stand dort nur `push`/`schedule`/`workflow_dispatch`, d. h. ein PR
+bekam **nie** einen E2E-Check, obwohl AGENTS.md §7 den Push-/PR-Gate so beschreibt.
+Voraussetzung dafür ist ein **public** GHCR-Package für
+`ghcr.io/reisi007/accriditation-e2e` (der Job zieht das First-Party-Image; ein
+Fork-PR hat nur ein read-only `GITHUB_TOKEN`).
+
+Der `concurrency`-Block trennt den Nightly vom Event-Lauf: `github.ref` ist beim
+`schedule`-Event derselbe Default-Branch wie bei einem `push` darauf, und ohne
+eigenen Group-Namen würde ein Push den Nightly mitten im Lauf abbrechen.
+`cancel-in-progress: ${{ github.event_name != 'schedule' }}` ⇒ der Nightly wird nie
+abgebrochen, alle anderen Runs schon.
+
 **Warum das Nightly strikt bleiben MUSS:** Es ist der einzige Lauf, dessen Aufgabe das
 *Erkennen* von Flakiness ist. Mit `retries: 2` gilt ein Test, der im ersten Versuch scheitert
 und im Retry grün wird, als bestanden — der Job bleibt grün und die Flakiness ist unsichtbar.
@@ -166,11 +180,19 @@ Weiterlaufen, um neun weitere Fehler zu beweisen). Deshalb wird das Nightly **ni
 „grünkonfiguriert": ein roter Nightly wird behoben oder mit Datei/Testname + Ursache in
 `AGENTS.todo.md` begründet — sichtbar dokumentiert, nicht wegretried. Das Smoke-Profil
 bleibt demgegenüber bewusst verzeihend, weil geteilte GitHub-Runner echtes Timing-Rauschen
-erzeugen; **beide** Werte nicht vermischen.
+erzeugen; **beide** Werte nicht vermischen. `retries: 0` im Nightly-Profil ist dabei
+**unbedingt** (CI *und* lokal — eine lokale Reproduktion muss denselben
+Erstversuch-Befund zeigen, den das CI-Gate sieht); nur `maxFailures` ist `CI`-gated
+(`1` in CI, `0` lokal = unlimited, damit ein lokaler Volllauf den vollständigen
+Bericht zeigt).
 
-Beide Profile lesen `use.baseURL` aus `E2E_BASE_URL` (Default `http://localhost:5173`; beide
-Vite-Server pinnen Port 5173, `preview` zusätzlich mit `strictPort`). Der
-`vite preview`-Default-Port 4173 darf die Suite also nicht still treffen.
+Beide Profile lesen `use.baseURL` aus `E2E_BASE_URL` (Default `http://localhost:5173`) — und
+dieselbe Env-Var liest auch der API-Helper-Layer
+(`tests/e2e/helpers/admin-data.ts`, exportiert als `FRONTEND_BASE_URL`), sonst liefe der
+Browser gegen den einen Stack, während die Fixtures gegen einen anderen gesetzt würden. Beide
+Vite-Server pinnen Port 5173 mit `strictPort` (`server` **und** `preview`), damit keiner
+der beiden still auf 5174 bzw. 4173 ausweicht. Der `vite preview`-Default-Port 4173 darf
+die Suite also nicht still treffen.
 
 ## E2E-DB-Isolation: geteilte Zustands-Reserven (Stand 2026-09-26, WP-9-D4)
 
@@ -187,15 +209,28 @@ Dev-DB über mehrere Läufe hinweg. Daraus folgt der Isolations-Vertrag der Suit
   lässt Desktop- und Mobile-Projekt **dieselbe** Spec gleichzeitig laufen; ein mandantweites
   Cleanup löschte dem jeweils anderen Projekt das lebende Fixture (gemessen: 7 von 24 Slots
   rot, reproduzierbar).
-- **Worker-Key statt Run-Key.** Der Portal-Fixture-Key ist `TEST_WORKER_INDEX` (Fallback
-  `p<pid>`), weil ein Worker zu jedem Zeitpunkt genau *einen* Test ausführt — „darf ich das
-  löschen?" ist damit ohne Koordination beantwortbar. Ein Run hat keine ID im Worker-Prozess,
-  und beide Projekte teilen sich denselben Run.
+- **Worker-Key statt Run-Key.** Der Portal-Fixture-Key ist `w<TEST_WORKER_INDEX>-p<pid>`
+  (Fallback `p<pid>`), weil ein Worker zu jedem Zeitpunkt genau *einen* Test ausführt —
+  „darf ich das löschen?" ist damit ohne Koordination beantwortbar. Ein Run hat keine ID im
+  Worker-Prozess, und beide Projekte teilen sich denselben Run. Das PID-Suffix ist
+  zusätzlich nötig, weil `TEST_WORKER_INDEX` in jedem Host-Prozess wieder bei 0 beginnt:
+  zwei **gleichzeitig** laufende `playwright test`-Läufe auf derselben Maschine hätten
+  sonst beide `w0` und der eine löschte dem anderen das lebende Fixture.
 - **Geteilter Zustand wird serialisiert, nicht wegdefiniert.** Das Logo des primären
   Mandanten schreibt `admin-mandant.spec.ts` (Upload) und liest `portal.spec.ts`
   (Fallback `/logo.svg`). Beide nehmen denselben `acquirePrimaryMandantLogoLock()`
-  (exklusiv erzeugte Lock-Datei; Timeout **wirft**, Stale-Lock wird nach 5 min übernommen).
-  Keine Assertion wurde abgeschwächt.
+  (exklusiv erzeugte Lock-Datei mit **Owner-Token** im Inhalt; Timeout **wirft** nach
+  60 s; Stale-Lock wird nach **30 s** übernommen — das Stale-Fenster MUSS kleiner sein
+  als der Timeout, sonst kann ein Wartender nie lange genug warten). `release()` prüft den
+  Token vor dem `unlink`, damit ein Bestand, dessen Lock übernommen wurde, nicht den Lock
+  seines Nachfolgers löscht. Keine Assertion wurde abgeschwächt.
+- **Der Logo-Zustand wird auch wiederhergestellt, nicht nur gesperrt.** Sperren allein
+  genügt nicht: stürzt ein Lauf zwischen Upload und Entfernen ab, behält der primäre
+  Mandant das Logo und alle folgenden Läufe (inkl. der Screenshot-Captures) erben einen
+  gefüllten Zustand. `resetPrimaryMandantLogo()` stellt den Seed-Zustand im seriellen
+  `globalTeardown` (`purgeAllE2EArtifacts`) wieder her; die Screenshot-Suite hat **kein**
+  eigenes `globalTeardown` und stellt ihn deshalb selbst her — `seedMandantLogoFree` in
+  `tests/screenshots/helpers/seeds.ts`, an jede Route gehängt, die das Logo rendert.
 
 ## Rate-Limiter-State (P3e-B5)
 

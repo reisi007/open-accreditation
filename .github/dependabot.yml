@@ -42,7 +42,11 @@ updates:
   - package-ecosystem: docker
     # `deployment/Dockerfile` (prod, FROM php:8.5-fpm) und
     # `deployment/Dockerfile.e2e` (FROM accriditation-base:8.5). Ohne dieses
-    # Ecosystem war der `notDocker`-Zweig in automerge.yml toter Code.
+    # Ecosystem bot dependabot hier gar keine PRs an — und der Auto-Merge-Guard
+    # in automerge.yml ist eine Allowlist auf `package-ecosystem` (composer|npm),
+    # d. h. Docker-PRs laufen IMMER manuell durch. Bewusst OHNE `groups:`:
+    # ein Base-Image-Wechsel ist per Definition reviewpflichtig, eine
+    # Minor/Patch-Update-Gruppe würde genau das suggerieren.
     directory: "/deployment"
     schedule: {interval: "weekly"}
     open-pull-requests-limit: 5

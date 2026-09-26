@@ -38,6 +38,11 @@ export default defineConfig({
     server: {
         host: '0.0.0.0',
         port: 5173,
+        // Same reason as `preview` below: fail loudly instead of silently
+        // listening on 5174, which would leave Playwright (baseURL
+        // http://localhost:5173) talking to nothing. Both serving modes pin the
+        // port, so a dev→preview switch never moves the origin under the suite.
+        strictPort: true,
         proxy: apiProxy,
     },
     preview: {
@@ -45,8 +50,8 @@ export default defineConfig({
         // `baseURL: http://localhost:5173`, and keeping one origin means the
         // E2E gate (which serves the production bundle) needs no config change.
         port: 5173,
-        // Fail loudly instead of silently listening on 5174, which would leave
-        // Playwright talking to nothing.
+        // Fail loudly instead of silently listening on 4173 (vite's default),
+        // which would leave Playwright talking to nothing.
         strictPort: true,
         proxy: apiProxy,
     },

@@ -8,10 +8,12 @@ import {
     seedBadgeTemplate,
     seedBadgeTemplateSchemaV2,
     seedFreigabenFilled,
+    seedMandantLogoFree,
     seedMyAccreditationsFilled,
     seedPortalEvent,
     seedPrimaryMandant,
     seedUsersFilled,
+    seedWithoutMandantLogo,
 } from './helpers/seeds';
 
 /**
@@ -122,7 +124,7 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled', 'empty'],
             auth: 'guest',
             tenant: { empty: 'primary' },
-            seeds: { filled: seedPortalEvent },
+            seeds: { filled: seedWithoutMandantLogo(seedPortalEvent) },
             emptyMock: [
                 '**/api/portal/events*',
                 {
@@ -228,6 +230,10 @@ export const uiReviewConfig: UiReviewConfig = {
             path: '/admin/mandants',
             states: ['filled'],
             auth: 'admin',
+            // The list renders a logo cell per mandant; the primary mandant's
+            // cell shows the static fallback, which is only true while it has no
+            // uploaded logo (see `seedMandantLogoFree`).
+            seeds: { filled: seedMandantLogoFree },
             note: 'Global super-admin surface: the list shows EVERY mandant regardless of the current tenant, so a data-less fixture cannot render it empty — a populated "empty" capture would be expected behavior. Filled only.',
         },
         {
@@ -250,7 +256,7 @@ export const uiReviewConfig: UiReviewConfig = {
                     reason: 'The detail page id is dynamic and seeded at runtime — deep-link semantics (a user arrives here from the list row link).',
                 },
             ],
-            seeds: { filled: seedPrimaryMandant },
+            seeds: { filled: seedWithoutMandantLogo(seedPrimaryMandant) },
         },
         {
             name: 'admin-categories',
@@ -364,7 +370,14 @@ export const uiReviewConfig: UiReviewConfig = {
             states: ['filled'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Logo & Header' }],
-            note: 'Self-service media page reads the current mandant\'s portal overview (`/api/portal/overview`) — no seed needed. The primary mandant has no uploaded logo/header yet, so a separate "empty" state would render identically to "filled"; captured once.',
+            // The page reads the current mandant's portal overview
+            // (`/api/portal/overview`), so the logo state IS its data. The seed
+            // guarantees the documented logo baseline instead of assuming it —
+            // the E2E logo-upload test mutates exactly this row, and this suite
+            // has no teardown of its own (see `seedMandantLogoFree`). The header
+            // field needs no seed: no E2E test uploads one.
+            seeds: { filled: seedMandantLogoFree },
+            note: 'Self-service media page reads the current mandant\'s portal overview (`/api/portal/overview`) — no other data seed needed. `seedMandantLogoFree` makes the "no uploaded logo" baseline a GUARANTEED state (the E2E suite\'s logo-upload test mutates exactly this row), so a separate "empty" state would render identically to "filled"; captured once. The header is null because no E2E test ever uploads one.',
         },
     ],
 };

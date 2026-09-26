@@ -1,11 +1,11 @@
 name: CI
 
 # Push auf ALLE Branches + Pull Requests. Backend/Frontend laufen überall;
-# der E2E-Job läuft nur bei `push`/`schedule`/`workflow_dispatch` (keine
-# externen Secrets nötig, aber bewusst schlank gehalten — kein Meilisearch,
-# kein Stripe in diesem Projekt). `schedule` zieht die VOLLE E2E-Suite
-# (AGENTS.md §7: „`@regression` … vor Deployment") — auf `push`/`PR` läuft
-# nur `@smoke`.
+# der E2E-Job läuft bei `push`/`pull_request`/`schedule`/`workflow_dispatch`
+# (keine externen Secrets nötig, aber bewusst schlank gehalten — kein
+# Meilisearch, kein Stripe in diesem Projekt). `schedule` zieht die VOLLE
+# E2E-Suite (AGENTS.md §7: „`@regression` … vor Deployment") — auf
+# `push`/`pull_request` läuft nur `@smoke`.
 on:
   push:
   pull_request:
@@ -25,8 +25,16 @@ on:
           - dev
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Der Suffix trennt den Nightly von den Event-Runs: `github.ref` ist beim
+  # `schedule`-Event derselbe Default-Branch wie bei einem `push` darauf, und
+  # ohne eigenen Group-Namen würde ein Push mitten im Nightly-Lauf den Job
+  # cancelen (der Push hat `cancel-in-progress: true`) — genau der Lauf, der
+  # NICHT abgebrochen werden darf.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'schedule' && 'nightly' || 'event' }}
+  # Nightly wird nie abgebrochen (auch nicht von einem späteren Push auf main);
+  # alle anderen Runs bleiben wie gehabt cancel-in-progress, damit ein
+  # superseded Push nicht minutenlang CI-Minuten verbrennt.
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   backend:
@@ -103,9 +111,11 @@ jobs:
         run: pnpm test:run
 
   e2e:
-    # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst nur bei
-    # push/schedule/workflow_dispatch. Ein Job, zwei Suiten — die Auswahl
-    # hängt am Event (AGENTS.md §7):
+    # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst der
+    # `@smoke`-Pfad auch auf `pull_request` (AGENTS.md §7 nennt push UND PR als
+    # Smoke-Gate — der Job lief vorher nur bei push/schedule/workflow_dispatch,
+    # ein PR bekam also NIE einen E2E-Check). Ein Job, zwei Suiten — die
+    # Auswahl hängt am Event (AGENTS.md §7):
     #   * push / pull_request  → `@smoke` (Critical Path, schnell) über
     #     `playwright.config.ts`, retries: 2 / maxFailures: 10 (verzeihend:
     #     geteilter Runner, echtes Netzwerk-/Timing-Rauschen)
@@ -122,7 +132,12 @@ jobs:
     # bleibt rot. (Hinweis: eine Matrix wäre hier NICHT möglich — `matrix` ist
     # in einem Job-Level-`if` nicht verfügbar, das wird vor der Expansion
     # ausgewertet.)
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # ACHTUNG `pull_request`: der Job zieht das First-Party-Image aus GHCR
+    # (`container:` unten). Ein PR aus einem FORK bekommt nur ein read-only
+    # `GITHUB_TOKEN`; ist `ghcr.io/reisi007/accriditation-e2e` nicht public,
+    # schlägt dort der Image-Pull fehl. Voraussetzung für `pull_request` ist also
+    # ein public GHCR-Package (bzw. ein `if:`-Gate auf `github.event.pull_request.head.repo.full_name`).
     name: E2E (Playwright)
     runs-on: ubuntu-latest
     # Gesamter E2E-Job laeuft im Test-Image accriditation-e2e (accriditation-base

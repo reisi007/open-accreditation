@@ -5,6 +5,7 @@ import {
     loginAdminApi,
     registerAndActivateUser,
     registerAndApplyForAccreditation,
+    resetPrimaryMandantLogo,
 } from '../../e2e/helpers/admin-data';
 
 /**
@@ -52,6 +53,41 @@ export const seedAccreditation = cachedSeed('accreditation', () => ensurePrimary
 
 /** One active portal event + team (cached per worker). */
 export const seedPortalEvent = cachedSeed('portal-event', () => ensurePrimaryMandantActivePortalEvent());
+
+/**
+ * The primary mandant with NO uploaded logo — the state every route that RENDERS
+ * the logo (portal landing, admin mandant list/detail, "Logo & Header")
+ * documents as its baseline.
+ *
+ * Why a seed and not the E2E mutex (`acquirePrimaryMandantLogoLock`): a capture
+ * needs the state to be *right once*, not mutually exclusive — this suite never
+ * mutates the logo, and there is nothing to exclude. What it must not do is
+ * ASSUME the state: the E2E suite's "self-service logo upload" test can die
+ * between upload and removal, and `playwright.screenshots.config.ts` has no
+ * `globalTeardown`, so `purgeAllE2EArtifacts` (which now restores the logo)
+ * never runs here. A stranded logo would turn every one of those captures into
+ * a filled state nobody asked for. So the guarantee is established here, once
+ * per worker, and the route notes stay true.
+ */
+export const seedMandantLogoFree = cachedSeed('mandant-logo-free', async () => {
+    const removed = await resetPrimaryMandantLogo();
+    if (removed) {
+        console.log('[ui-review] removed a leftover primary mandant logo before capturing');
+    }
+    return {};
+});
+
+/**
+ * Composes the logo-free guarantee in front of another seed, so a route that
+ * needs both ("a portal event AND no mandant logo") keeps the other seed's
+ * `:param` values in its result.
+ */
+export function seedWithoutMandantLogo<S extends SeedFn>(base: S): S {
+    return (async () => {
+        await seedMandantLogoFree();
+        return base();
+    }) as unknown as S;
+}
 
 /** The primary mandant's id (cached per worker). */
 export const seedPrimaryMandant = cachedSeed('primary-mandant', () => seedPrimaryMandantId());

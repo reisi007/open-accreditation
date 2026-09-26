@@ -111,13 +111,26 @@ dort gibt es zwei strikt zu trennende Fehlerbilder:
    hat einen echten Bug (siehe `tests/Feature/TestDiskIsolationTest.php`, der
    genau das als Regressions-Guard festnagelt). `storage/app/**` wird
    **niemals** gelöscht: im Dev-Checkout steckt dort echtes Media.
-2. **Cross-Prozess-Race (weiterhin real).** Zwei gleichzeitig laufende
-   Vollausführungen im selben Checkout teilen dieselben Disk-Roots und
-   löschen sich gegenseitig die Dateien des jeweils anderen Tests. Das ist der
-   klassische 3-Flake-Fall. **Gegenmittel bleibt: die volle Suite läuft
-   gleichzeitig immer nur in EINEM Subagenten** — geteilte Disk-Roots, nicht
-   die DB sind der limitierende Faktor. Scoped-Runs (`--filter`) zweier
-   Subagenten mit disjunkten Klassen sind dagegen unkritisch (siehe oben).
+2. **Cross-Prozess-Race (Kollisionsseite geschlossen, 0f9cf57).** WP-11 hat
+   nur die *Aufräum*-Seite gelöst: Zwei gleichzeitig laufende
+   Vollausführungen im selben Checkout teilten dieselben Disk-Roots und
+   löschten sich gegenseitig die Dateien des jeweils anderen Tests (der
+   klassische 3-Flake-Fall — gemessen bis **243** Fehlschläge in einem
+   Agenten-Lauf). `0f9cf57` schließt die *Kollisions*-Seite: `Storage::fake()`
+   leitet den Root über `ParallelTesting::token()` ab, und unter plain
+   `php artisan test` ist dieser `false` — jeder Prozess rootete also auf
+   `storage/framework/testing/disks/<disk>`, das `fake()` bei JEDEM Aufruf
+   leert. `TestCase::isolateFakeDisksInThisProcess()` (erster Aufruf in
+   `setUp()`) baut jetzt über `ParallelTesting::resolveTokenUsing()` einen
+   **prozesseigenen** Token (`TEST_TOKEN`-Präfix + PID, prozessweise statisch
+   gecacht), plus Shutdown-Hook, der nur die eigenen Roots entfernt. Zwei
+   parallele Vollausführungen im selben Checkout stören sich damit nicht mehr.
+   **Gegenmittel bleibt trotzdem die Disziplin (siehe oben):** die volle Suite
+   läuft gleichzeitig immer nur in EINEM Subagenten. Das ist kein
+   geteilter-Disk-Problem mehr, sondern die übliche Floor-Regel für
+   reproduzierbare Läufe (ein `--filter`-Subagent während eines Volllaufs
+   konkurriert weiterhin um CPU/DB-Verbindungen). Scoped-Runs (`--filter`)
+   zweier Subagenten mit disjunkten Klassen sind unkritisch.
 
 ## Portabilitätsregel (CRITICAL)
 
