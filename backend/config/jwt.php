@@ -280,6 +280,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cross-site cookie (opt-in)
+    |--------------------------------------------------------------------------
+    |
+    | The SPA and the API are served from the SAME origin (relative
+    | `fetch('/api/…')` + Caddy routing `/api*` inside the per-mandant site
+    | block), so the JWT cookie ships with `SameSite=Lax` and never needs
+    | `SameSite=None`.
+    |
+    | Set this to `true` ONLY for a genuinely cross-site deployment (SPA hosted
+    | on a different origin than the API). `SameSite=None` REQUIRES `Secure` —
+    | Chrome >= 84 / Firefox >= 96 reject the cookie without it — so with this
+    | flag the auth cookie is always emitted `SameSite=None; Secure` (see
+    | `Controller::respondWithToken()`). The combination with the plain-HTTP
+    | `local` environment is refused with a `RuntimeException` instead of
+    | emitting a cookie no browser accepts. It also removes the SameSite half
+    | of the CSRF defence — pair it with an explicit `config/cors.php`
+    | allow-list. The auth cookie is emitted by
+    | `Controller::respondWithToken()`.
+    |
+    */
+
+    'cross_site_cookie' => env('JWT_CROSS_SITE_COOKIE', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Providers
     |--------------------------------------------------------------------------
     |

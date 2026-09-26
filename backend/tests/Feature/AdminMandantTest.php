@@ -405,6 +405,36 @@ class AdminMandantTest extends TestCase
         $this->assertNull(MandantContext::resolve('verband-b.de'));
     }
 
+    public function test_deleting_a_mandant_drops_the_cached_hostname_allow_list(): void
+    {
+        // WF-2-c: `destroy()` dropped the per-host mapping but not the
+        // hostname LIST that the `trustHosts` allow-list is built from. The
+        // list is cached for `mandants.cache_ttl` (3600 s), so a deleted
+        // mandant stayed allow-listed for up to an hour: the request passed
+        // the Host check and then 404'd in MandantContextMiddleware instead
+        // of being rejected as a foreign host. Same invalidation as
+        // `MandantDomainController` does on domain create/delete.
+        $this->mandantB->domains()->create(['hostname' => 'verband-b.de']);
+
+        // Prime the list (the TrustHosts middleware does this on every
+        // request, so it is warm by the time the controller runs).
+        $this->assertContains('verband-b.de', MandantContext::hostnames() ?? []);
+        $this->assertNotNull(
+            Cache::get(MandantContext::HOSTNAMES_CACHE_KEY),
+            'precondition: warm hostname-list cache',
+        );
+
+        $this->actingAsApi($this->superAdmin())
+            ->deleteJson('/api/admin/mandants/'.$this->mandantB->id)
+            ->assertStatus(204);
+
+        $this->assertNull(
+            Cache::get(MandantContext::HOSTNAMES_CACHE_KEY),
+            'the hostname list must be invalidated when a mandant is deleted',
+        );
+        $this->assertNotContains('verband-b.de', MandantContext::hostnames() ?? []);
+    }
+
     public function test_index_orders_mandants_by_name(): void
     {
         $this->actingAsApi($this->superAdmin())

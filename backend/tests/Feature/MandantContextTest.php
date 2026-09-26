@@ -174,12 +174,17 @@ class MandantContextTest extends TestCase
 
     public function test_allow_listed_unknown_host_still_returns_404_in_production(): void
     {
+        // WP-1-d: the dev wildcard `^(.+\.)?test$` is NOT shipped in production
+        // anymore, so `foo.test` is untrusted there (400 — see
+        // `TrustedHostsConfigTest::test_dev_wildcards_are_not_allow_listed_in_production`).
+        // The static part of the allow-list therefore has to be stated
+        // explicitly; the host still has no mandant, so
+        // MandantContextMiddleware's 404 remains the behaviour for
+        // allow-listed-but-unknown hosts.
+        config(['security.trusted_hosts' => 'foo.test']);
         app()->detectEnvironment(fn () => 'production');
         $this->setRunningInConsole(false);
 
-        // B3: `*.test` passes the trustHosts allow-list, but no mandant owns
-        // `foo.test` — the MandantContextMiddleware 404 for unknown hosts
-        // remains the behavior for allow-listed-but-unknown hosts.
         $this->get('http://foo.test/')->assertStatus(404);
     }
 

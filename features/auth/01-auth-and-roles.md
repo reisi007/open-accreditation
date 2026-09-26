@@ -46,6 +46,27 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      `secure` außer `local`, Cookie-TTL = JWT-TTL (`config/jwt.php` TTL),
      Pfad `/`. Token erreicht nie localStorage. Antwort liefert zusätzlich
      `expires_in` (Sekunden).
+   - **SameSite-Begründung (WP-1-a):** SPA und API teilen **eine** Origin —
+     die SPA ruft relativ auf (`fetch('/api/…')`,
+     `frontend/src/api/client.ts`), und Caddy routet `/api*` im **selben**
+     Mandanten-Site-Block zum Backend (`deployment/caddy-*.Caddyfile`).
+     `Lax` ist deshalb in **allen** Umgebungen ausreichend und der Default.
+     `SameSite=None` (nur zusammen mit `Secure` gültig, und es nimmt die
+     SameSite-Hälfte des CSRF-Schutzes) existiert nur als **explizites
+     Opt-in** `JWT_CROSS_SITE_COOKIE=true` (`config/jwt.php: cross_site_cookie`)
+     für eine wirklich cross-site Deployment; nie aus der Umgebung abgeleitet.
+   - **`SameSite=None` ohne `Secure` ist ein totes Cookie** (Chrome ≥ 84 /
+     Firefox ≥ 96 verwerfen es ⇒ Auth bricht lautlos). `Controller::
+     respondWithToken()` behandelt die beiden Attribute deshalb als gekoppelt:
+     Opt-in **aus** ⇒ `Lax` + `secure = ! local` (die Dev-Server laufen über
+     Plain-HTTP); Opt-in **an** ⇒ `None` + `Secure` — und die Kombination mit
+     `APP_ENV=local` (wo `None` und `Secure` sich ausschließen) wird **laut
+     verweigert**: `Log::critical` + `RuntimeException` ⇒ 500, **kein** Cookie.
+     Vorher wurde in `local` `SameSite=Lax` **ohne** `Secure` emittiert (in den
+     übrigen Umgebungen `SameSite=None` **mit** `Secure`).
+   - **Session-Cookie (WP-1-f):** `config/session.php: secure` =
+     `env('SESSION_SECURE_COOKIE', APP_ENV !== 'local')` — ohne Default war der
+     Wert `null`, der Session-Cookie also in **keiner** Umgebung `Secure`.
 4. **Logout** `POST /api/auth/logout`
    - JWT wird invalidiert (Blacklist, `jwt.blacklist_enabled = true`),
      Cookie wird via `cookie()->forget()` entfernt.
@@ -54,6 +75,142 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      Profilfelder + Rollen (slug/name/mandant_id/team_id aus Pivot) + Media.
      **Keine Secrets** (`password`, `activation_token` sind `$hidden`;
      Storage-Pfade nie serialisiert).
+
+## CSRF-Härtung (WP-1, 2026-09-26)
+
+### Origin-Guard (`EnsureSameOrigin`)
+
+`app/Http/Middleware/EnsureSameOrigin.php`, an der **`api`-Gruppe** registriert
+(`bootstrap/app.php`), greift **nur** bei `POST|PUT|PATCH|DELETE`:
+
+- `GET`/`HEAD` sind safe-by-Definition und tragen bei same-origin Requests kein
+  `Origin` → nie blockiert.
+- **Keine Route ist ausgenommen.** Insbesondere die Routen, die eine Session
+  *etablieren* (`api/auth/login`, `api/auth/register`), brauchen kein bestehendes
+  Cookie — `SameSite=Lax` schützt sie also **nicht**. Eine Ausnahme war dort eine
+  reine Schwächung: ein Cross-Site-Browser-Formular trägt immer `Origin` +
+  `Sec-Fetch-*` und wird vom generischen Branch ohnehin abgelehnt (vor der
+  Entfernung der Liste nachgewiesen: Login mit `Origin: https://evil.example` ⇒
+  **200**, Register ⇒ **201** — Signup-CSRF, die Uploads des Opfers landen im
+  Angreifer-Account). `api/auth/activate/{token}` ist ein `GET` und für diesen
+  Guard ohnehin inert.
+- Geprüft wird die **effektive** Methode (`$request->method()` respektiert den
+  von Symfony aktivierten `_method`-/`X-HTTP-Method-Override`-Override) — ein
+  Cross-Site-Formular mit `POST + _method=PUT` wird also **nicht** umgangen.
+- `Origin` fehlt, leer, ist `null` oder gehört nicht zum Origin des Requests →
+  **403** mit deutscher Meldung (`„Anfrage von fremder Herkunft abgelehnt."`);
+  die Ursache wird geloggt, nicht ausgeliefert.
+- Vergleich ist **Origin-strikt**: Schema + Host + Port müssen zum Request
+  passen. `http://tenant.example` (Plaintext, MITM-fähig) und ein abweichender
+  Port sind **nicht** dieselbe Origin. Einzige Ausnahme ist `local`, und zwar in
+  genau **zwei** Formen — der Vite-Dev-Server liefert die SPA auf `:5173` aus und
+  proxyt `/api` mit `changeOrigin: true`, der `Host`-Header trägt also das
+  Proxy-Target statt des Browser-Origins:
+  1. **gleicher Loopback-Host, abweichender Port** — `Origin:
+     http://localhost:5173` + `Host: localhost:8000`.
+  2. **Loopback-Alias, abweichender Host _und_ Port** — `Origin:
+     http://localhost:5173` + `Host: 127.0.0.1:8000`; CI setzt
+     `VITE_API_PROXY=http://127.0.0.1:8000`, und beide Namen bezeichnen
+     dieselbe Loopback-Schnittstelle. Diese Form fehlte zuvor und blockierte den
+     kompletten lokalen Stack mit 403 auf `POST /api/auth/login`.
+
+  Die Alias-Ausnahme ist bewusst so eng wie möglich: sie verlangt `local` **und**
+  einen Loopback-`Origin`-Host **und** einen Loopback-Request-Host. Ein
+  **Nicht-Loopback**-Origin bleibt damit auch in `local` abgelehnt
+  (`Origin: https://evil.example` + `Host: 127.0.0.1:8000` ⇒ **403**) — die
+  Regel ist ausdrücklich *kein* „in Dev ist jede Host-Abweichung erlaubt",
+  sonst wäre genau das Cross-Site-Loch wieder offen, das der Guard schließt. Die
+  Loopback-Allow-List ist fest (`localhost`, `127.0.0.0/8`, IPv6-Loopback in
+  jeder Schreibweise inkl. `::ffff:127.0.0.1`) und wird **nicht** per DNS
+  aufgelöst (DNS wäre vom Angreifer steuerbar).
+- **Dokumentierte Ausnahme bei fehlendem `Origin`:** ein Request **ohne**
+  `Origin` **und** **ohne** jeden `Sec-Fetch-*`-Header kann keine Browser-Seite
+  einer fremden Site sein (Browser senden `Sec-Fetch-Site` bei jedem Request und
+  `Origin` bei jedem Nicht-`GET`/`HEAD`), sondern ein First-Party-API-Client
+  (curl, Mobile-App, der Playwright-`APIRequestContext` der E2E-Suite) — der
+  kann die Cookie-Jar des Opfers ohnehin nicht benutzen. Wer auch das schließen
+  will: `REQUIRE_ORIGIN_HEADER=true`
+  (`config/security.php: require_origin_header`).
+- **Position in der Pipeline:** die Middleware hängt an der `api`-Gruppe und
+  läuft damit **nach** `auth:api` (Laravel sortiert `AuthenticatesRequests` per
+  Middleware-Priority nach vorn). Ein unauthentifizierter state-changing
+  Request wird daher mit 401 beantwortet, bevor der Guard läuft — harmlos,
+  weil ohne Session nichts ausnutzbar ist. Jede Route, die mit einem
+  Session-Cookie missbrauchbar wäre, ist `auth:api`-geschützt; für sie läuft der
+  Guard immer.
+- Wie Laravels eigenes `VerifyCsrfToken` ist der Guard in Console- und
+  Unit-Test-Kontext inaktiv.
+
+### Trusted Proxies (WP-1-c)
+
+`bootstrap/app.php` registriert die Trust-Liste in einem `$app->booting()`-
+Callback (`TrustProxies::at()` + `withHeaders()`); Auflösung in
+`app/Support/TrustedProxyConfig.php`, Quelle
+`config/security.php: trusted_proxies` / Env `TRUSTED_PROXIES`
+(comma-separierte IPs/CIDRs, `*` = Calling-IP; **Default = Loopback**,
+deckt die Compose-Topologie ab).
+
+- **Warum `booting` und nicht `trustProxies()`:** der `withMiddleware()`-
+  Callback läuft bei der **Auflösung** des HTTP-/Console-Kernels — also
+  **vor** `LoadEnvironmentVariables` und `LoadConfiguration`. Dort war
+  `config()` nicht mal gebunden (`bound('config') === false`) und ein
+  `Env::get()`-Fallback sah nur die Prozess-Umgebung, nie die `.env`. Ein in
+  `.env` gesetzter `TRUSTED_PROXIES`-Wert wurde damit **stillschweigend
+  ignoriert** (WF-1-a). `booting` läuft in `Application::boot()`, das der
+  `BootProviders`-Bootstrapper erst nach der Config ausführt — `.env` ist
+  damit maßgeblich. Gepinnt in `TrustedProxyEnvFileTest`.
+- Der Trust-all-Sentinel ist der **String** `'*'`, nicht die Ein-Element-Liste
+  `['*']`: die Middleware verzweigt auf `$proxies === '*'`; die Liste
+  würde als CIDR an Symfony gehen, wo `'*'` kein gültiger Bereich ist und damit **nichts**
+  trustet.
+
+- Ohne Trust ignorierte Symfony **jeden** `X-Forwarded-*`-Header: `$request->
+  isSecure()` war **dauerhaft** `false` (absolute URLs in Mails/PKPASS wurden
+  zu `http://`), und **jeder** auf `$request->ip()` keyende Rate-Limiter
+  (login/register/activate/public/verify/media/admin/resend/apply) kollabierte
+  alle Clients in **einen** Bucket — ein Angreifer hätte **alle** Mandanten
+  gemeinsam 429-t.
+- Vertrauenswürdige Header sind explizit gesetzt: `X-Forwarded-For`,
+  `-Host`, `-Port`, `-Proto`. **Nicht** der Framework-Default, der zusätzlich
+  `X-Forwarded-Prefix` und das `X-Forwarded-Aws-Elb`-Bundle mittrustet.
+
+### Host-Allow-List (WP-1-d)
+
+`trustHosts()` in `bootstrap/app.php`:
+
+- Dev-Wildcards `^(.+\.)?test$` / `^(.+\.)?localhost$` werden **nur außerhalb**
+  von `production` ausgeliefert. Loopback (`localhost`, `127.0.0.1`, `::1`)
+  bleibt **immer** in der Allow-List, unabhängig von `TRUSTED_HOSTS` und vom
+  Environment: ein Docker-`HEALTHCHECK`/LB-Probe trifft `GET /up` von
+  127.0.0.1, und eine Allow-List ohne Loopback antwortet 400 und markiert den
+  Container unhealthy (Restart-Loop). Ein Loopback-Host ist kein Tenant und
+  erreicht die Mandanten-Logik nie.
+- `TRUSTED_HOSTS` (`config/security.php: trusted_hosts`, comma-separierte
+  Regexe) **ersetzt nur die Dev-Wildcards** — der Operator benennt damit
+  explizit, welche statischen Nicht-Loopback-Hosts erlaubt sind. Die
+  Mandanten-Domains werden immer zusätzlich gemergt.
+- Der tote Eintrag `localhost:5173` ist entfernt (`getHost()` strippt den Port,
+  er konnte nie matchen).
+- Die `mandant_domains`-Liste ist **gecacht**
+  (`MandantContext::hostnames()`, Key `mandant.hosts_all`, TTL
+  `mandants.cache_ttl`) und wird bei Domain-Anlage/Löschung invalidiert
+  (`MandantDomainController` → `MandantContext::forgetHostnames()`). Vorher war
+  das ein `pluck()` **pro Request**.
+- Ein DB-Ausfall ist **laut**: `Log::error` + **500** in `production` (vorher
+  stiller Fallback auf eine Allow-List ganz ohne reale Domain ⇒ 400 für alle
+  Mandanten). Außerhalb `production` bleiben die Dev-Defaults (Console, Install,
+  Erstboot); mit warmem Cache läuft der Betrieb auch im DB-Ausfall weiter.
+
+### `APP_KEY`-Boot-Guard (WP-1-e)
+
+`AppServiceProvider::assertProductionAppKeyIsStrong()` läuft in `boot()`:
+`APP_ENV=production` + leerer Key **oder** bekannter Platzhalter (32 Null-Bytes
+mit/ohne `base64:`-Präfix, 32 × `A`) ⇒ `Log::critical` + `RuntimeException`,
+der Boot bricht ab. `deployment/docker-compose.yml` lieferte bisher
+`APP_KEY: ${APP_KEY:-base64:AAAA…}` — ein **funktionierender**, öffentlich
+bekannter Schlüssel: alle `Crypt`-Payloads und alle HMAC-signierten Tokens (QR)
+wären forgerbar, ohne jede Fehlermeldung. Spiegelt die
+`DatabaseSeeder`-Admin-Passwort-Policy.
 
 ## Rollen-Matrix
 
@@ -167,12 +324,19 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   `UserMediaService`-Quota: **max. 10 Dateien** (`MAX_MEDIA_FILES`) und
   **max. 10 MiB** (`MAX_MEDIA_BYTES`) pro User — singular-Ersatz zählt nicht
   doppelt; Verstoß → 422 mit deutscher Meldung.
-- **B3 (erledigt):** `trustHosts`-Allow-List aus `mandant_domains.hostname`
-  + lokale Defaults (`localhost`, `127.0.0.1`, `^\[::1\]$`, `^(.+\.)?test$`,
-  `^(.+\.)?localhost$`) in `bootstrap/app.php`. Fremde Hosts → **400** vor der
+- **B3 (erledigt, WP-1-d nachgezogen):** `trustHosts`-Allow-List aus
+  `mandant_domains.hostname` + lokale Defaults (`localhost`, `127.0.0.1`,
+  `^\[::1\]$`, und `^(.+\.)?test$` / `^(.+\.)?localhost$` **nur außerhalb
+  `production`**) in `bootstrap/app.php`. Fremde Hosts → **400** vor der
   Mandant-Auflösung; allow-listete, aber unbekannte Hosts weiterhin **404**
-  (MandantContextMiddleware). Callback defensiv (DB nicht verfügbar → nur
-  Defaults).
+  (MandantContextMiddleware). Details in „Host-Allow-List (WP-1-d)".
+- **B3-Ergänzung (WP-1-d):** Lookup **gecacht** (vorher `pluck()` pro Request),
+  Invalidation bei Domain-Anlage/Löschung, env-gatebar via `TRUSTED_HOSTS`, und
+  ein DB-Ausfall ist in `production` **laut** (500 + Log) statt still auf eine
+  Allow-List ohne reale Domain zu degradieren.
+- **CSRF (WP-1-a/b, 2026-09-26):** `SameSite=Lax` in allen Umgebungen
+  (Opt-in `JWT_CROSS_SITE_COOKIE=true` für echtes Cross-Site) + Origin-Guard
+  auf allen state-changing API-Routen. Details in „CSRF-Härtung".
 - **P1a-B1 (erledigt):** `MandantContext::resolve()` cached unbekannte Hosts
   **negativ** (Sentinel `MISSING`, TTL 60 s) — Host-Request-Floods auf
   Bogon-Domains treffen die `mandant_domains`-Tabelle nicht mehr;
@@ -196,6 +360,20 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   fällt damit faktisch auf per-IP zurück — bewusst nicht geändert, siehe
   Befund im Review.)
 
-Akzeptierte Rest-Risiken:
-- F6 (info): 403-Texte offenbaren bewusst die Kontoexistenz (akzeptiert).
-- F7 (info): Mandant-Check nur beim Login — Ressourcen-Scoping (P2).
+Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
+- **F6 (info, bleibt akzeptiert):** Die 403-Texte der Auth-Flows
+  („Das Konto ist noch nicht aktiviert.", „Dieser Account ist für dieses
+  Portal nicht registriert.") offenbaren bewusst die Kontoexistenz. Der
+  Origin-Guard (WP-1-b) ändert daran nichts — seine Meldung ist
+  absichtlich uniform und verrät keine Ursache.
+- **F7 (info, bleibt OFFEN — vom WP-1-Batch nicht geschlossen):** „Mandant-Check
+  nur beim Login". Der Login pflegt den Rollen-Scope des aktuellen Mandanten zu
+  prüfen; die einzelnen Ressourcen-Endpunkte leiten ihren Scope (in der Regel
+  über `MandantContext` bzw. Route-Model-Binding) **nicht** aus dem Token, und
+  ein JWT bleibt bis zum Ablauf mandant-gebunden, auch wenn die Domain
+  gewechselt wird. Konkrete Folge: meldet sich ein Nutzer auf Mandant A an und
+  surft danach auf der Domain von Mandant B, so greift der Login-Check nicht
+  mehr — der Zugriff wird stattdessen von der jeweils zuständigen
+  Ressourcen-Ebene entschieden. Das ist eine **Scope- und nicht mehr
+  Cookie/CSRF-Frage** und bleibt ein eigenes Arbeitspaket (Ressourcen-Scoping);
+  WP-1 schließt F7 **nicht**.

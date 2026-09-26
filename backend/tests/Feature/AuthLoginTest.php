@@ -46,10 +46,11 @@ class AuthLoginTest extends TestCase
         $this->assertTrue($cookie->isHttpOnly());
         $this->assertTrue($cookie->isSecure()); // testing env != local → secure cookie
 
-        // Cross-site: in a non-local (production) environment the SPA and API
-        // live on different origins, so the cookie must be SameSite=None
-        // (only valid together with Secure) — SameSite=Lax would drop it.
-        $this->assertSame('none', strtolower((string) $cookie->getSameSite()));
+        // Same-origin topology (SPA calls the API with relative paths, Caddy
+        // routes /api* inside the same site block) → `Lax` in EVERY
+        // environment. `SameSite=None` is only reachable via the explicit
+        // `JWT_CROSS_SITE_COOKIE=true` opt-in (see AuthCookieSecurityTest).
+        $this->assertSame('lax', strtolower((string) $cookie->getSameSite()));
     }
 
     public function test_login_is_case_insensitive_for_email(): void

@@ -110,6 +110,16 @@ class MandantController extends Controller
             MandantContext::forgetHost($domain->hostname);
         }
 
+        // The `trustHosts` allow-list holds the full hostname list under its
+        // own cache key (MANDANTS_CACHE_TTL = 3600 s by default). Deleting a
+        // mandant removes its domains, so the list is stale as well: without
+        // this drop the deleted mandant's hostname stays allow-listed for up
+        // to an hour — and MandantContextMiddleware then resolves it against
+        // nothing, i.e. a 404 that hides a deleted tenant instead of the 400
+        // an unknown host should get. Same invalidation as
+        // `MandantDomainController` on domain create/delete.
+        MandantContext::forgetHostnames();
+
         // The DB cascade (event_types, badge_images) removes the rows but never
         // the files. Purge every public-media file of the mandant synchronously
         // (original + `.webp` sibling) so deleting a mandant leaves no orphan

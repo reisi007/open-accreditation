@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Mandant;
 use App\Models\MandantDomain;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 /**
  * Resolves the current Mandant (Verband) from the request host and exposes it
@@ -29,6 +30,59 @@ class MandantContext
      * cache backend (mandant ids are always positive integers).
      */
     public const MISSING = 'missing';
+
+    /**
+     * Cache key of the full hostname list consumed by the `trustHosts`
+     * allow-list in `bootstrap/app.php`. The list changes only when a mandant
+     * domain is created or deleted, so it is cached with the same TTL as a
+     * single host resolution (a `pluck()` on every single request would be one
+     * pointless query per request). `forgetHostnames()` drops it on write.
+     */
+    public const HOSTNAMES_CACHE_KEY = 'mandant.hosts_all';
+
+    /**
+     * All hostnames routed to a mandant, lower-cased and sorted, or `null`
+     * when the database is unavailable (no table yet, console/install
+     * context) — the caller decides whether that is fatal.
+     *
+     * Never throws: a `null` return is the "could not determine" signal.
+     */
+    public static function hostnames(): ?array
+    {
+        $cached = Cache::get(self::HOSTNAMES_CACHE_KEY);
+
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        try {
+            $hostnames = MandantDomain::query()
+                ->orderBy('hostname')
+                ->pluck('hostname')
+                ->map(static fn (string $hostname): string => strtolower(trim($hostname)))
+                ->unique()
+                ->values()
+                ->all();
+        } catch (Throwable) {
+            // NB: the `Throwable` import is mandatory — inside a namespace a
+            // bare `catch (Throwable)` would resolve to `App\Support\Throwable`
+            // and silently never match.
+            return null;
+        }
+
+        Cache::put(self::HOSTNAMES_CACHE_KEY, $hostnames, (int) config('mandants.cache_ttl', 3600));
+
+        return $hostnames;
+    }
+
+    /**
+     * Drop the cached hostname list, e.g. after a mandant domain was created
+     * or deleted, so the next `trustHosts` evaluation re-reads the database.
+     */
+    public static function forgetHostnames(): void
+    {
+        Cache::forget(self::HOSTNAMES_CACHE_KEY);
+    }
 
     /**
      * Resolve the mandant owning the given host, via `mandant_domains.hostname`.

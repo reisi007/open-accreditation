@@ -167,9 +167,14 @@ return [
     | to the server if the browser has a HTTPS connection. This will keep
     | the cookie from being sent to you when it can't be done securely.
     |
+    | Default: secure in every environment except `local` — plain HTTP dev
+    | servers (`php artisan serve`, Vite) must not receive a `Secure` cookie.
+    | Set `SESSION_SECURE_COOKIE=true|false` explicitly to override (e.g.
+    | `false` behind a TLS-terminating proxy that the app cannot see yet).
+    |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV', 'production') !== 'local'),
 
     /*
     |--------------------------------------------------------------------------

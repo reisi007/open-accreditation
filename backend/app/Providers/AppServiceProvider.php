@@ -4,9 +4,11 @@ namespace App\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use PHPOpenSourceSaver\JWTAuth\Http\Parser\Cookies;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -23,6 +25,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        self::assertProductionAppKeyIsStrong();
+
         // F2: restrict the JWT token parser chain to the httpOnly `accr_jwt`
         // cookie ONLY. The package default chain is `[AuthHeaders, QueryString,
         // InputSource]` (AbstractServiceProvider::registerTokenParser) plus
@@ -126,5 +130,76 @@ class AppServiceProvider extends ServiceProvider
         // than the shared `admin` write budget.
         RateLimiter::for('resend', static fn (Request $request): Limit => Limit::perMinute(10)
             ->by('resend:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
+    }
+
+    /**
+     * R-D8 / WP-1-e: refuse to boot a production application with an empty or
+     * placeholder `APP_KEY`.
+     *
+     * `deployment/docker-compose.yml` shipped `APP_KEY: ${APP_KEY:-base64:AAAA…}`,
+     * a *working* key (32 zero bytes) that is public knowledge. Every
+     * `Crypt` payload — encrypted media paths, `encrypted:json` columns — and
+     * every HMAC-signed token (QR codes) would be forgeable, silently and
+     * without a single error message. The compose side removes the default
+     * (`${APP_KEY:?…}`); this is the application-side backstop that also
+     * covers every other deployment path (bare `APP_ENV=production`, a
+     * forgotten `php artisan key:generate`).
+     *
+     * Mirrors the `DatabaseSeeder` admin-password policy (skip/warn in
+     * non-production, hard refusal in production).
+     *
+     * @throws RuntimeException in `production` with an unusable key.
+     */
+    public static function assertProductionAppKeyIsStrong(): void
+    {
+        if (! app()->environment('production')) {
+            return;
+        }
+
+        $key = config('app.key');
+        $key = is_string($key) ? trim($key) : '';
+
+        if ($key !== '' && ! self::isPlaceholderKey($key)) {
+            return;
+        }
+
+        Log::critical('Refusing to boot: APP_KEY is empty or a known placeholder in production. Run `php artisan key:generate` and set APP_KEY in the deployment environment.', [
+            'app_env' => app()->environment(),
+            'key_configured' => $key !== '',
+        ]);
+
+        throw new RuntimeException(
+            'Refusing to boot in production: APP_KEY is empty or a known placeholder key. Generate one with `php artisan key:generate` and provide it via the APP_KEY environment variable.',
+        );
+    }
+
+    /**
+     * Whether the key is one of the well-known throwaway values: the 32-byte
+     * all-zero key (the compose default), its base64 form with or without the
+     * `base64:` prefix, the raw 32 zero bytes, or the 32-byte all-`A` key that
+     * is easy to produce by accident. Both base64 spellings are checked
+     * because an operator pasting `base64_encode(str_repeat("\0", 32))` without
+     * its prefix is a realistic mistake.
+     */
+    private static function isPlaceholderKey(string $key): bool
+    {
+        $zeros = str_repeat("\0", 32);
+        $repeated = str_repeat('A', 32);
+
+        $candidates = [$key, (string) base64_decode($key, true)];
+
+        if (str_starts_with($key, 'base64:')) {
+            $raw = substr($key, 7);
+            $candidates[] = $raw;
+            $candidates[] = (string) base64_decode($raw, true);
+        }
+
+        foreach ($candidates as $candidate) {
+            if (hash_equals($zeros, $candidate) || hash_equals($repeated, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

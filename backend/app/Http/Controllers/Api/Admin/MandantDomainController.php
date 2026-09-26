@@ -52,6 +52,10 @@ class MandantDomainController extends Controller
         // domain is resolvable immediately instead of returning the negative
         // cache entry for NEGATIVE_CACHE_TTL_SECONDS.
         MandantContext::forgetHost($domain->hostname);
+        // The `trustHosts` allow-list holds the full hostname list under its own
+        // cache key — a new tenant domain is not allow-listed until that cache
+        // is dropped, otherwise every request to it would 400.
+        MandantContext::forgetHostnames();
 
         return (new MandantDomainResource($domain))
             ->response()
@@ -63,6 +67,7 @@ class MandantDomainController extends Controller
         $domainModel = $mandant->domains()->findOrFail((int) $domain);
 
         MandantContext::forgetHost($domainModel->hostname);
+        MandantContext::forgetHostnames();
         $domainModel->delete();
 
         return response()->noContent();

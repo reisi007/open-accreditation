@@ -74,13 +74,28 @@ class TrustHostsTest extends TestCase
         $this->get('http://evil.example/')->assertStatus(400);
     }
 
-    public function test_wildcard_test_domain_passes_trust_hosts_but_404s_without_mandant(): void
+    public function test_wildcard_test_domain_is_not_allow_listed_in_production(): void
     {
+        // WP-1-d: the dev wildcards (`^(.+\.)?test$`, `^(.+\.)?localhost$`) are
+        // only shipped OUTSIDE production. In production `foo.test` is not on
+        // the allow-list at all, so Symfony rejects it with 400 before the
+        // mandant resolution is even attempted.
         app()->detectEnvironment(fn () => 'production');
         $this->setRunningInConsole(false);
 
-        // `foo.test` is allow-listed via `^(.+\.)?test$`, but no mandant owns
-        // it → the MandantContextMiddleware unknown-host 404 still applies.
+        $this->get('http://foo.test/')->assertStatus(400);
+    }
+
+    public function test_allow_listed_but_mandantless_host_404s_outside_production(): void
+    {
+        // Outside production `*.test` IS allow-listed, so an unowned host
+        // reaches MandantContextMiddleware and gets its 404 — the second layer
+        // behind the allow-list still works. `staging` (not `production`, so
+        // the dev wildcards ship) with a non-console request, so neither
+        // middleware takes its console/test escape hatch.
+        app()->detectEnvironment(fn () => 'staging');
+        $this->setRunningInConsole(false);
+
         $this->get('http://foo.test/')->assertStatus(404);
     }
 
@@ -90,6 +105,32 @@ class TrustHostsTest extends TestCase
         $this->setRunningInConsole(false);
 
         $this->get('http://127.0.0.1/up')->assertOk();
+    }
+
+    public function test_subdomains_of_the_app_url_host_are_not_implicitly_trusted_in_production(): void
+    {
+        // WF-2-c: `trustHosts()` was called with the default `$subdomains =
+        // true`, so the framework appended `^(.+\.)?<APP_URL host>$` to the
+        // allow-list in production as well — a wildcard nobody declared,
+        // exactly the class rules 1-3 above exclude. `app.url` is pinned so
+        // the assertion does not depend on the developer's local `.env`, and
+        // the host is deliberately NOT a mandant domain, so the only thing
+        // that could trust it is the APP_URL expansion.
+        config(['app.url' => 'https://app-url-host.example']);
+
+        app()->detectEnvironment(fn () => 'production');
+        $this->setRunningInConsole(false);
+
+        $hosts = app(TrustHosts::class)->hosts();
+
+        $this->assertNotContains('^(.+\.)?app\-url\-host\.example$', $hosts, 'no APP_URL subdomain wildcard');
+        $this->assertNotContains('app\-url\-host\.example', $hosts, 'the APP_URL host is not trusted implicitly either');
+
+        // A subdomain of the APP_URL host is a foreign host: Symfony rejects
+        // it with a 400, exactly like any other undeclared host. Before the
+        // fix the framework-appended wildcard answered 200 here (bounded:
+        // only `/up` escaped the MandantContext 404).
+        $this->get('http://sub.app-url-host.example/up')->assertStatus(400);
     }
 
     private function setRunningInConsole(bool $value): void
