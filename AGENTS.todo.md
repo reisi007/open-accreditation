@@ -392,6 +392,7 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 > **Bewiesen:** 7 der 13 neuen Tests scheitern auf dem Pre-Fix-Code; E2E 17/0 mit
 > und ohne Middleware-Register identisch.
 
+
 ### Offene Follow-ups
 
 - [ ] **WP-9-D5 (offen, Verhalten):** `CACHE_STORE=array` für den E2E-Backend war **nicht
@@ -400,17 +401,44 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
   Folgetests). Der Env-Floor in `AppServiceProvider.php:63` trägt damit faktisch die
   Tests, nicht nur Dev-Bequemlichkeit. `AuthThrottleTest` deckt das Throttling weiter ab.
   **Nachtrag (2026-09-26):** `scripts/e2e-up.sh` setzt `CACHE_STORE` **nicht** (kopiert
-  `.env.example` → `database`); CI seds `ARRAY` in `.env`. Ein lokaler wiederholter
+  `.env.example` → `database`); CI seds `ARRAY` in `.env`. Ein lokal wiederholter
   Vollsuite-Lauf kann darum 429 auf `throttle:media` (30/min, geteilter Admin) oder
   `throttle:login` (40/min) bekommen, das CI nicht treffen kann. Nicht editiert —
   bewusst als Operator-Hinweis dokumentiert.
-- [ ] **E2E `Date.now()`-Kollisionsrisiko (neu, 2026-09-26):** `a11y.spec.ts` +
+- [ ] **E2E `Date.now()`-Kollisionsrisiko (offen, 2026-09-26):** `a11y.spec.ts` +
   `badge-editor.spec.ts` lokalisieren ihre Zeile nach eindeutigem Namen in einer
   unpaginierten Liste; zwei weitere `admin-mandant.spec.ts`-Tests leiten ihren
   eindeutigen Slug aus einem nackten `Date.now()` ab. Same-ms-Kollisionen ⇒ `422`
   bzw. Shared-Row-Strict-Mode-Violation. In jedem Vollsuite-Lauf grün; die Kollisionen
-  traten nur unter `--repeat-each`-Amplification auf. Kandidat für einen Follow-up.
+  traten nur unter `--repeat-each`-Amplification auf.
 - [ ] **Nachtrag zu `AGENTS.md` §10 A3:** `MandantContext::forgetHostnames()` ist jetzt an
   allen drei hostname-schreibenden Pfaden vorhanden (Domain anlegen/ändern/löschen,
   Mandant löschen). Ein **Domain-Update**-Endpunkt existiert weiterhin nicht — falls einer
   dazukommt, gehört der Aufruf dazu.
+- [ ] **M2 (low, offen):** 404-vs-403 Existence-Oracle für Non-Members. `SubstituteBindings`
+  (Priority 9) läuft **vor** `EnsureMandantMembership` (10) ⇒ `ModelNotFoundException`
+  → 404 vor dem Membership-Check. Cross-Tenant-Replay eines validen JWT kann „existiert"
+  vs. „existiert nicht" unterscheiden. Impact: nur Existenz von sequenziellen Integer-IDs,
+  kein Attribute-Disclosure. Fix wäre: Middleware nach `SubstituteBindings` schieben
+  oder `resolveRouteBindingQuery` auf Mandanten-Scope umbauen.
+- [ ] **F2-Residual (low):** Badge-Export-Guard ist **narrower** als „domainlos ⇒ 422" —
+  feuert nur wenn Mandant keine Domain **und** der Fallback-Host einem anderen Mandant
+  gehört. Ein Mandant whose fallback host niemand routed (`APP_URL=http://localhost`)
+  resolvingiert korrekt auf sich selbst. Follow-up: `mandant_domains`-Row in
+  `BadgeTest::setUp()` wenn unconditional 422 gewünscht.
+- [ ] **M1-Residual (low):** Ein hard-killed Run (SIGKILL/CI-Timeout) strandet das Logo;
+  der **nächste** E2E-Lauf scheitert einmal an `portal.spec.ts` „no logo" bevor der
+  Teardown räumt. Bewusst kein Pre-Test-Reset (würde die Assertion self-fulfilling).
+- [ ] **L1-Residual (low):** L1 aktiviert `e2e` auf `pull_request` — Fork-PRs ziehen
+  `ghcr.io/reisi007/accriditation-e2e`. Wenn das Package **private** ist, brechen Fork-PRs.
+  Alternative: `head.repo.full_name`-Gate. Geprüft vor Merge.
+- [ ] **M2-Residual (low):** `auth.spec.ts`, `profile.spec.ts`, `admin-users.spec.ts`
+  hartkodieren noch `http://localhost:5173` (Zeilen 4/4/5). Nicht im Fix-Scope gewesen.
+  Fix: eine Zeile pro File — `FRONTEND_BASE_URL` aus `admin-data.ts` importieren.
+- [ ] **Screenshot-Suite base URL (low):** `playwright.screenshots.config.ts:27` +
+  `ui-screenshots.spec.ts:37` (`PRIMARY_ORIGIN`) hartkodiert. `E2E_BASE_URL` für einen
+  Screenshot-Lauf würde die Stacks splitten (Seeds folgen dem Env-Var, Browser nicht).
+- [ ] **W6 (info):** Unmounted `MEDIA_ROOT` ist von einem leeren ununterscheidbar —
+  jeder `delete()` meldet Erfolg. Operator-Hinweis (Mount-Check im Entrypoint).
+- [ ] **W7 (info):** Hand-gesetzte Per-Domain-Raster-Fallbacks würde der Reaper löschen
+  (`<domain>/logo.png` ist managed by definition). Entspricht dem dokumentierten Vertrag.
