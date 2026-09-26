@@ -3,6 +3,8 @@
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="vendor/autoload.php"
          colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
 >
     <testsuites>
         <testsuite name="Unit">
@@ -20,6 +22,35 @@
     <php>
         <ini name="memory_limit" value="256M"/>
         <env name="APP_ENV" value="testing"/>
+        <!--
+            Fester, TEST-ONLY App-Key (base64, 32 Byte). Bewusst KEIN Geheimnis:
+            der Wert ist hier versioniert und gilt ausschliesslich fuer die
+            Test-Suite (APP_ENV=testing). Ohne diesen Eintrag hing das
+            Encryption-Verhalten der Suite an der zufaellig vorhandenen
+            `backend/.env` (CI: `cp .env.example .env` + `key:generate`,
+            lokal: der Dev-Key) — d. h. eine `.env` mit leerem `APP_KEY`
+            (`.env.example` hat `APP_KEY=`) liess die Suite still anders
+            laufen bzw. mit "No application encryption key" abbrechen.
+
+            Caveat zu `force="true"` (verifiziert per Messung, nicht angenommen):
+            PHPUnit setzt den Wert in `$_ENV` und via putenv, aber Laravels
+            `env()` liest zuerst den `$_SERVER`-Adapter der Dotenv-Repository.
+            Ist die Variable in der PROZESS-Umgebung gesetzt — auch leer, z. B.
+            `JWT_SECRET= artisan test` — gewinnt dieser ambient-Wert und der
+            Pin wird ignoriert. Deshalb der Normalfall: nichts exportieren
+            (CI macht das nicht, `key:generate`/`jwt:secret` schreiben nur in
+            die `.env`) — dann gewinnt der Pin nachweislich gegen die `.env`.
+        -->
+        <env name="APP_KEY" value="base64:adai6IsTjr8/1YkoMWgByd2FIqwIfIbK09YPvuVWE60=" force="true"/>
+        <!--
+            Gleiche Restabhängigkeit für JWT_SECRET: `php artisan jwt:secret
+            (force)` schreibt nur in die `.env`, nicht in die Prozess-Umgebung.
+            Ohne diesen Wert hinge die JWT-Konfiguration an der `.env` des
+            Entwicklers (belegt: JwtParserCookieOnlyTest bricht mit "Key cannot
+            be empty" ab, sobald JWT_SECRET leer ist). Ebenfalls ein
+            TEST-ONLY-Wert ohne Wirkung ausserhalb von APP_ENV=testing.
+        -->
+        <env name="JWT_SECRET" value="3ruN6pbSoJb0UcOFYaGZsjIggU2JgfUNi34tcrAnI2o=" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

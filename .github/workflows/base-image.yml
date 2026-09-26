@@ -1,5 +1,24 @@
 name: Build and Push Base Image
 
+# Tag-Schema — WICHTIG (die alte Kommentar-Zeile ":8.5 pins the PHP minor for
+# reproducible, rollback-safe runs" war FALSCH):
+#
+#   :8.5-<run_number>  immutable. `github.run_number` waechst mit jedem Lauf
+#                      dieses Workflows, wird also nie ueberschrieben — auch
+#                      nicht vom taeglichen Cron, der denselben Commit erneut
+#                      gegen ein inzwischen aktualisiertes `php:8.5-fpm` baut.
+#   :<tag>@<digest>    immutable. Wird pro Lauf als Job-Output `image_ref` und
+#                      im Step-Summary publiziert. DAS ist der Referenz-Tag,
+#                      den ein Konsument pinnen soll.
+#   :8.5 / :latest     BEWEGLICH. Beide werden bei jedem Build ueberschrieben
+#                      (Push auf main, `workflow_dispatch` UND der nightly
+#                      Cron `0 1 * * *`) und sind damit genauso variabel wie
+#                      :latest. Sie sind Komfort-Referenzen fuer
+#                      Docker-Compose/`docker run`, KEINE Determinismus-Garant.
+#
+# Konsequenz fuer Konsumenten: Wer reproduzierbare Laeufe braucht, pinnt den
+# Digest. `deployment/Dockerfile.e2e` pinnt derzeit noch `accriditation-base:8.5`
+# und driftet damit mit jedem Base-Build (siehe features/05-e2e-test-image.md).
 on:
   push:
     branches: [ "main" ]
@@ -20,6 +39,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      # Immutable Referenz dieses Builds. Der Digest kommt von
+      # `docker/build-push-action`, der Step `publish` stellt daraus
+      # `<image>@<digest>` zusammen — damit Konsumenten (z. B.
+      # `deployment/Dockerfile.e2e`) einen echten Pin benutzen koennen statt
+      # eines Tags, der bei jedem Build ueberschrieben wird.
+      image_ref: ${{ steps.publish.outputs.image_ref }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
@@ -35,6 +61,7 @@ jobs:
         uses: docker/setup-buildx-action@v4  # major tag pin — SHA-pinning is a stronger, immutable option
 
       - name: Build and Push accriditation-base Image (amd64)
+        id: build
         uses: docker/build-push-action@v7  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           context: deployment
@@ -43,8 +70,36 @@ jobs:
           build-args: |
             PHP_VERSION=8.5
             DB_EXT=pgsql
-          # `:latest` is the mutable reference; `:8.5` pins the PHP minor for
-          # reproducible, rollback-safe runs.
+          # Tag-Schema (siehe Kommentar unten):
+          #   :8.5-<run_number>  immutable, monoton steigend, wird NIE
+          #                      ueberschrieben (run_number waechst mit jedem
+          #                      Workflow-Run — auch beim nightly Rebuild).
+          #   :8.5 / :latest     BEWEGLICHE Aliasse, die bei JEDEM Build
+          #                      neu gesetzt werden (Konfort-Referenzen fuer
+          #                      lokale Docker-Compose-Setups).
           tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base:8.5-${{ github.run_number }}
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base:8.5
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base:latest
+
+      - name: Publish immutable reference
+        id: publish
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-base
+          DIGEST: ${{ steps.build.outputs.digest }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "::error::build-push-action lieferte keinen Digest"; exit 1; }
+          image_ref="${IMAGE}@${DIGEST}"
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### accriditation-base"
+            echo
+            echo "| Referenz | Art |"
+            echo "| --- | --- |"
+            echo "| \`${IMAGE}:8.5-${{ github.run_number }}\` | immutable (Run-Nummer) |"
+            echo "| \`${image_ref}\` | immutable (Digest) |"
+            echo "| \`${IMAGE}:8.5\`, \`${IMAGE}:latest\` | **beweglich** — bei jedem Build neu gesetzt, auch durch den nightly Cron \`0 1 * * *\` |"
+          } >> "$GITHUB_STUMMARY"
+

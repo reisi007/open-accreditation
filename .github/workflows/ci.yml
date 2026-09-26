@@ -1,12 +1,28 @@
 name: CI
 
 # Push auf ALLE Branches + Pull Requests. Backend/Frontend laufen überall;
-# der E2E-Job läuft nur bei `push`/`workflow_dispatch` (keine externen Secrets
-# nötig, aber bewusst schlank gehalten — Smoke-Suite, kein Meilisearch,
-# kein Stripe in diesem Projekt).
+# der E2E-Job läuft nur bei `push`/`schedule`/`workflow_dispatch` (keine
+# externen Secrets nötig, aber bewusst schlank gehalten — kein Meilisearch,
+# kein Stripe in diesem Projekt). `schedule` zieht die VOLLE E2E-Suite
+# (AGENTS.md §7: „`@regression` … vor Deployment") — auf `push`/`PR` läuft
+# nur `@smoke`.
 on:
   push:
   pull_request:
+  # Nightly: die volle Suite (Smoke + @regression + @feature:*). Ohne diesen
+  # Cron lief in CI ausschließlich @smoke — der in AGENTS.md §7 geforderte
+  # Regression-Lauf war nirgends durchgesetzt.
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      e2e_server:
+        description: 'Welchen Frontend-Server soll der E2E-Job testen? (preview = Production-Bundle, dev = Dev-Server für schnelle Iterationsläufe)'
+        type: choice
+        default: preview
+        options:
+          - preview
+          - dev
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,11 +59,18 @@ jobs:
         run: composer install --no-interaction --prefer-dist --no-progress
       - name: Prepare environment
         run: cp .env.example .env
+      # Die beiden Key-Schritte sind für die Testsuite NICHT mehr die Quelle der
+      # Wahrheit: `backend/phpunit.xml` pinnt inzwischen einen festen
+      # TEST-ONLY-APP_KEY und JWT_SECRET, die Test-Suite ist also unabhängig von
+      # der `.env`. Die Schritte bleiben als Absicherung für alles, was die
+      # `.env` liest ( artisan config:clear im `composer test`-Script u. ä.).
       - name: Generate app key
         run: php artisan key:generate
       - name: Generate JWT secret
         run: php artisan jwt:secret --force
       - name: Run PHPUnit
+        # failOnRisky/failOnWarning stehen in phpunit.xml — ein risiger Test
+        # (z. B. ohne Assertion) oder eine PHPUnit-Warning machen den Job rot.
         run: php artisan test --no-ansi
       - name: Pint (code style)
         run: vendor/bin/pint --test
@@ -81,9 +104,20 @@ jobs:
 
   e2e:
     # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst nur bei
-    # push/workflow_dispatch. Smoke-Suite: SPA-Render + Sprachumschalter.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: E2E (Playwright Smoke)
+    # push/schedule/workflow_dispatch. Ein Job, zwei Suiten — die Auswahl
+    # hängt am Event (AGENTS.md §7):
+    #   * push / pull_request  → `@smoke` (Critical Path, schnell)
+    #   * schedule (Nightly)   → VOLLE Suite (alle Specs × beide Browser-
+    #     Projects, inkl. aller `@regression`- und `@feature:*`-Specs; lokal
+    #     gemessen: 80 Test-Slots, davon 36 zur Laufzeit übersprungen). Vorher
+    #     lief in CI ausschließlich `@smoke` — der in §7 geforderte
+    #     Regression-Lauf war nirgends durchgesetzt.
+    # Kein `continue-on-error` und kein `|| true` im Test-Step: ein roter Lauf
+    # bleibt rot. (Hinweis: eine Matrix wäre hier NICHT möglich — `matrix` ist
+    # in einem Job-Level-`if` nicht verfügbar, das wird vor der Expansion
+    # ausgewertet.)
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: E2E (Playwright)
     runs-on: ubuntu-latest
     # Gesamter E2E-Job laeuft im Test-Image accriditation-e2e (accriditation-base
     # + Node/pnpm/Composer + Playwright-Chromium vorinstalliert) -> kein Browser-
@@ -91,9 +125,12 @@ jobs:
     # Hintergrundprozesse im selben Container; die Daten-Dienste (postgres/
     # mailpit) sind per Service-Name erreichbar. Details: features/05-e2e-test-image.md.
     container:
-      # First-party image; the immutable `:<playwright-version>` tag is also
-      # pushed (see .github/workflows/e2e-image.yml) for reproducible,
-      # rollback-safe runs. `:latest` here is the documented CI reference.
+      # First-party image. `:latest` ist der MUTABLE CI-Referenz-Tag (nur so
+      # konsumiert ihn ci.yml); der Version-Tag `:<playwright-version>` wird
+      # zwar ebenfalls gepusht, ist aber KEIN Reproduzierbarkeits-Garant:
+      # der wöchentliche Rebuild in e2e-image.yml überschreibt ihn (gleiche
+      # playwright-Version, neu gebautes Base-Image). Wer Determinismus
+      # braucht, pinnt den Digest (Job-Output `digest` in e2e-image.yml).
       image: ghcr.io/reisi007/accriditation-e2e:latest
     env:
       ADMIN_EMAIL: admin@example.com
@@ -102,6 +139,9 @@ jobs:
       # Default waere localhost:8025). Container-Modus: Dienste sind nur per
       # Service-Name erreichbar, nicht via 127.0.0.1.
       MAILPIT_API_URL: http://mailpit:8025/api/v1
+      # Default = Production-Bundle via `pnpm preview`; `dev` nur für
+      # Iterationsläufe (workflow_dispatch-Input).
+      E2E_SERVER: ${{ github.event.inputs.e2e_server || 'preview' }}
     services:
       postgres:
         image: postgres:17-alpine
@@ -141,16 +181,26 @@ jobs:
           cp .env.example .env
           # Container-Modus: Dienste per Service-Name + interne Ports
           # (.env.example selbst bleibt fuer lokale Nutzung unveraendert).
+          # CACHE_STORE=array: der E2E-Job laeuft die volle Suite ueber EINE IP
+          # und damit ueber 40 Logins/Minute — das Login-Limit
+          # (AppServiceProvider: 40/min in local/testing) laeuft sonst in einen
+          # 429 und reisst sogar @smoke-Tests mit (gemessen: 6 Fehlschlaege,
+          # alle "Admin API login failed with status 429"). Mit `array` ist der
+          # RateLimiter pro Request zustandslos. Das Throttling-Verhalten selbst
+          # deckt backend/tests/Feature/AuthThrottleTest.php ab — im E2E-Job
+          # gibt es keinen Test, der ein 429 erwartet.
           sed -i.bak -E \
             -e 's|^DB_HOST=.*|DB_HOST=postgres|' \
             -e 's|^DB_PORT=.*|DB_PORT=5432|' \
             -e 's|^MAIL_HOST=.*|MAIL_HOST=mailpit|' \
             -e 's|^MAIL_PORT=.*|MAIL_PORT=1025|' \
+            -e 's|^CACHE_STORE=.*|CACHE_STORE=array|' \
             .env && rm -f .env.bak
           grep -q '^DB_HOST=postgres$' .env
           grep -q '^DB_PORT=5432$' .env
           grep -q '^MAIL_HOST=mailpit$' .env
           grep -q '^MAIL_PORT=1025$' .env
+          grep -q '^CACHE_STORE=array$' .env
       - name: Generate app key
         working-directory: backend
         run: php artisan key:generate
@@ -192,19 +242,51 @@ jobs:
         # nur die fehlende Browser-Version nach. `--with-deps` bewusst NICHT:
         # apt-System-Deps sind im Image gebacken.
         run: npx playwright install chromium
+      - name: Build frontend (production bundle)
+        working-directory: frontend
+        if: env.E2E_SERVER == 'preview'
+        # Der E2E-Gate testet das PRODUKTIONS-Bundle, nicht den Dev-Server.
+        # `frontend/AGENTS.md` (Lingui / no module-scope `t`) dokumentiert einen
+        # Blank-Page-Crash, der NUR im gebauten Bundle auftritt — der
+        # Dev-Server (native ESM) verdeckt ihn. Vorher lief nur `pnpm dev`.
+        # `prebuild` (tsc -b + check-i18n) läuft automatisch mit.
+        # VITE_API_PROXY wird hier bewusst NICHT gesetzt: es wird in
+        # vite.config.ts erst beim Start des Preview-Prozesses gelesen
+        # (Config-Lade-Zeitpunkt) und niemals in den Bundle geschrieben.
+        run: pnpm build
+      - name: Start frontend preview server (production bundle)
+        working-directory: frontend
+        if: env.E2E_SERVER == 'preview'
+        run: |
+          pnpm preview > /tmp/vite-preview.log 2>&1 &
+          timeout 60s bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 1; done'
+        env:
+          # Gelesen von vite.config.ts (`preview.proxy['/api'].target`) beim
+          # Start dieses Schritts — ohne das erreicht das Bundle den
+          # Laravel-Server nicht (relatives /api, kein absoluter API-Origin
+          # im Bundle).
+          VITE_API_PROXY: http://127.0.0.1:8000
       - name: Start frontend dev server
         working-directory: frontend
+        # Nur für workflow_dispatch mit `e2e_server=dev` (schnelle
+        # Iterationsläufe). Kein Gate — der Default ist `preview`.
+        if: env.E2E_SERVER == 'dev'
         run: |
           pnpm dev > /tmp/vite.log 2>&1 &
           timeout 60s bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 1; done'
         env:
           VITE_API_PROXY: http://127.0.0.1:8000
-      - name: Run E2E smoke tests
+      - name: Run E2E suite (${{ github.event_name == 'schedule' && 'volle Suite' || '@smoke' }})
         working-directory: frontend
         # Serial (--workers=1): Backend-Login-Limiter (RateLimiter::for('login'),
         # 10/min pro IP) → parallel workers teilen sich die CI-IP und erzeugen
         # 429 "Too Many Attempts"-Flakes (P2b-F9). Serial läuft grün.
-        run: pnpm exec playwright test --grep @smoke --workers=1
+        # `schedule` = volle Suite (kein `--grep`), sonst `@smoke`.
+        run: |
+          set -euo pipefail
+          args=(--workers=1)
+          if [ "${{ github.event_name }}" != 'schedule' ]; then args+=(--grep @smoke); fi
+          pnpm exec playwright test "${args[@]}"
         env:
           CI: '1'
       - name: Upload Playwright report

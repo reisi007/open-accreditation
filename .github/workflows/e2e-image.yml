@@ -32,6 +32,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      # Immutable Referenz dieses Builds (`<image>@<digest>`), damit Konsumenten
+      # nicht auf den beweglichen `:latest`-Tag pinnen müssen.
+      image_ref: ${{ steps.publish.outputs.image_ref }}
     steps:
       - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
 
@@ -58,6 +62,7 @@ jobs:
         uses: docker/setup-buildx-action@v4  # major tag pin — SHA-pinning is a stronger, immutable option
 
       - name: Build and Push accriditation-e2e Image (amd64)
+        id: build
         uses: docker/build-push-action@v7  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
           context: deployment
@@ -69,9 +74,46 @@ jobs:
             PNPM_VERSION=${{ steps.versions.outputs.pnpm_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # `:latest` is the mutable CI reference (consumed by ci.yml `e2e` job).
-          # The immutable counterpart below pins the exact @playwright/test
-          # version from the lockfile for reproducible, rollback-safe runs.
+          # Tag-Schema:
+          #   :latest                      BEWEGLICH — der CI-Referenz-Tag, den
+          #                                 ci.yml `e2e` konsumiert. Wird bei
+          #                                 JEDEM Build neu gesetzt.
+          #   :<playwright-version>        BEWEGLICH — NICHT immutable, obwohl
+          #                                 der alte Kommentar hier
+          #                                 "immutable ... for reproducible,
+          #                                 rollback-safe runs" behauptete: der
+          #                                 wöchentliche Cron baut dieselbe
+          #                                 Playwright-Version erneut gegen ein
+          #                                 inzwischen aktualisiertes
+          #                                 accriditation-base:8.5 und
+          #                                 überschreibt den Tag.
+          #   :<playwright-version>-<run>  immutable (Run-Nummer) + Digest
+          #                                 (Job-Output `image_ref`) — DAS ist
+          #                                 die Referenz, die man für
+          #                                 reproduzierbare Läufe pinnt.
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:${{ steps.versions.outputs.playwright_version }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e:${{ steps.versions.outputs.playwright_version }}-${{ github.run_number }}
+
+      - name: Publish immutable reference
+        id: publish
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/accriditation-e2e
+          PLAYWRIGHT_VERSION: ${{ steps.versions.outputs.playwright_version }}
+          RUN_NUMBER: ${{ github.run_number }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [ -n "$DIGEST" ] || { echo "::error::build-push-action lieferte keinen Digest"; exit 1; }
+          image_ref="${IMAGE}@${DIGEST}"
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### accriditation-e2e"
+            echo
+            echo "| Referenz | Art |"
+            echo "| --- | --- |"
+            echo "| \`${IMAGE}:${PLAYWRIGHT_VERSION}-${RUN_NUMBER}\` | immutable (Run-Nummer) |"
+            echo "| \`${image_ref}\` | immutable (Digest) |"
+            echo "| \`${IMAGE}:latest\`, \`${IMAGE}:${PLAYWRIGHT_VERSION}\` | **beweglich** — bei jedem Build neu gesetzt |"
+          } >> "$GITHUB_STEP_SUMMARY"

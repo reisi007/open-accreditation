@@ -34,12 +34,22 @@ jobs:
       - name: Determine whether to merge
         id: should-merge
         uses: actions/github-script@v9
+        # Script-Injection-Härtung: die Values laufen als `env:` (dort
+        # interpoliert GitHub in die *Umgebung*, nicht in den Quelltext) und
+        # werden im Script via `process.env` gelesen. Eine `${{ }}`-Einbettung
+        # in den `run:`-Body wäre das dokumentierte Injection-Muster — der Job
+        # hält `contents: write`. Das Actor-Gate (`github.actor ==
+        # 'dependabot[bot]'`) begrenzt das heute auf Dependabot-Metadaten,
+        # aber die Absicherung gehört nicht an eine Datenquelle.
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_GROUP: ${{ steps.metadata.outputs.dependency-group }}
         with:
           script: |
-            const updateType = '${{ steps.metadata.outputs.update-type }}';
+            const updateType = process.env.UPDATE_TYPE ?? '';
             // output ist `dependency-group` (singular): ein PR hängt an maximal
             // EINER Dependabot-Gruppe (leer, wenn keine Gruppe aktiv ist)
-            const dependencyGroup = '${{ steps.metadata.outputs.dependency-group }}';
+            const dependencyGroup = process.env.DEPENDENCY_GROUP ?? '';
 
             // Minor/Patch-Gruppen sind per Konstruktion sicher (dependabot.yml
             // matcht dort nur update-types minor+patch) - auch wenn die
