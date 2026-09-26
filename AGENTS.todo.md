@@ -357,54 +357,43 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 >
 > Commits: `47da372` auth · `f8e649c` QR-v2 · `10f1ecb`+`ac3ca70` media · `e577125`
 > allocation · `8d1b106` schema · `9a7bed3` deploy+migrations · `2e80656` dockerignore ·
-> `3d9d3d3` CI · `caf600b` frontend · `f1a2f08` test-isolation.
-> Stand: Backend **1315 grün** / Pint PASS 244 · Frontend lint+build+**252** Vitest ·
-> E2E-Smoke **17 passed**, Volle Suite **44 passed**.
+> `3d9d3d3` CI · `caf600b` frontend · `f1a2f08` test-isolation · `c0e821b`
+> E2E-Image-Provenienz · `5363645` Mandanten-Mitgliedschaft · `32c7185`
+> Nightly-Gate · `0f9cf57` prozess-eindeutiger Fake-Root.
+> **Abschlussstand (2026-09-26, alle drei CI-Jobs grün):** Backend **1348 passed
+> (6726 Assertions)** / Pint PASS 249 · Frontend lint+build sauber / **252** Vitest ·
+> E2E-Smoke **17 passed / 9 skipped / 0 failed** · Compose: `config` exit 0 mit
+> Vars, exit 1 mit `:?`-Meldung ohne `APP_KEY`/`DB_USERNAME`/`DB_PASSWORD`, alle
+> Ports auf `127.0.0.1`.
 
-### 🔴 Review-Finding #6 — JWT nicht mandanten-gebunden (Build-Agent-Eigenversäumnis)
-> Dieser Befund aus dem Review wurde in **keinem** der 11 Work-Pakete vergeben und
-> tauchte erst bei der Abschlussprüfung wieder auf. Nachträglich verifiziert:
-> `User::getJWTCustomClaims()` liefert `[]` (kein Mandanten-Claim);
-> `mayLogInOnCurrentMandant()` gilt **nur beim Login** (`AuthController.php:206`).
-> Ungegatet in `auth:api`: `POST /accreditations/{id}/apply` (`routes/api.php:104`, nur
-> `throttle:apply` — scoped die *Akkreditierung*, prüft nie die *Identität*),
-> `POST /user/media` (schreibt unter `MandantContext::current()->slug`, also in den
-> Storage-Namespace des fremden Mandanten), `PUT /user/profile`.
-> **Angriff:** User des Verbandes A spielt sein Cookie mit `Host: b.example` erneut ⇒
-> `apply()` legt einen Antrag **in Verband B** an, Uploads landen in B's Media-Namespace,
-> B's Admins sehen den fremden Antrag und können dessen Porträt/Presse-ID ziehen.
-> **Umsetzung läuft (#6-1):** Per-Request-Mitgliedschaftsprüfung als Middleware auf
-> `auth:api` statt JWT-Claim — **begründet:** ein Claim wäre unter Rollen-Entzug bis zu
-> `JWT_TTL` (60 min) weiterhin gültig, die Middleware wirkt **sofort** und schließt
-> damit einen Teil der bekannten Lücke, dass `updateRoles` ausgestellte JWTs nicht
-> invalidiert. Globaler `super_admin` bleibt überall erlaubt; die bestehende
-> `forMandant()`-Resource-Scoping-Logik wird **ergänzt, nicht ersetzt**.
+### 🔴 Review-Finding #6 — JWT nicht mandanten-gebunden (geschlossen)
+> Dieser Befund war in **keinem** der 11 Work-Pakete gelandet (Build-Agent-
+> Eigenversäumnis, erst an der Abschlussprüfung wiedergefunden) — verifiziert,
+> umgesetzt und **committet** (`5363645`).
+> **Lücke:** `User::getJWTCustomClaims()` lieferte `[]` (kein Mandanten-Claim) und
+> `mayLogInOnCurrentMandant()` galt nur beim Login ⇒ ungegatete `POST
+> /accreditations/{id}/apply` scoped die *Akkreditierung*, nie die *Identität*; ein
+> User des Verbandes A konnte sein Cookie mit `Host: b.example` erneut spielen ⇒
+> Antrag **in Verband B**, Uploads in B's Media-Namespace, fremder Antrag in B's
+> Freigabe-Liste.
+> **Geschlossen:** `EnsureMandantMembership` in der Priority-List direkt nach
+> `SubstituteBindings` ⇒ läuft als letzte Middleware vor dem Controller (nach
+> `auth:api` und allen Route-Limitern, vor jeder Mutation). Regel: unter
+> `auth:api` muss der User ≥1 `role_user`-Zeile für den aufgelösten Mandanten
+> haben, sonst 403; globaler `super_admin` bleibt überall erlaubt.
+> **Per-Request statt JWT-Claim** — begründet: ein Claim wäre unter Rollen-Entzug
+> bis `JWT_TTL` (60 min) gültig, die Middleware wirkt sofort und schließt damit
+> einen Teil der bekannten Lücke, dass `updateRoles` ausgestellte JWTs nicht
+> invalidiert. Kosten: **1** Query (0,057 ms, Index Scan `role_user_scope_unique`),
+> **0** auf allen öffentlichen Routen.
+> **64 Vorbestehende Tests** wurden auf echte Mitglieder umgestellt (User +
+> `role_user`-Zeile) — Fixture-Realismus, keine Abschwächung; der alte Zustand ist
+> in Produktion nicht erreichbar.
+> **Bewiesen:** 7 der 13 neuen Tests scheitern auf dem Pre-Fix-Code; E2E 17/0 mit
+> und ohne Middleware-Register identisch. Verbleibend offen: `#6-1-D1`.
 
 ### Offene Follow-ups
 
-- [ ] **WP-9-D1 (wird umgesetzt):** `deployment/Dockerfile.e2e:19` pinnt weiterhin das
-  **bewegliche** `accriditation-base:8.5` — die Deterministik-Lücke überlebt für den
-  eigentlichen Consumer. `base-image.yml` emittiert inzwischen `image_ref`
-  = `<image>@sha256:<digest>`. Chicken-and-egg: der Digest rotiert nightly, also **kein**
-  hartkodierter Digest im Repo. Entscheidung (a) Digest-Pass-through via `build-arg` mit
-  Fallback auf `:8.5` oder (b) ehrliche Dokumentation — wird im Paket entschieden.
-- [ ] **WP-9-D2 (wird umgesetzt):** `features/05-e2e-test-image.md` wiederholt die
-  falsche „immutable / rollback-safe"-Behauptung (identisch zu den zwei Workflows, die
-  WP-9 bereits korrigiert hat).
-- [ ] **WP-9-D3 (offen, Gate-Abschwächung) — Premisse nachgemessen:**
-  `frontend/playwright.config.ts:10-13` (alle `process.env.CI`-gegated):
-  `retries: 2`, `maxFailures: 10`, `workers: 4`, `timeout: 120000`,
-  `fullyParallel: true`. Also `baseURL: 'http://localhost:5173'` **hartkodiert**
-  (:18) — das ist derselbe Port-Fallstrick, den WP-9-a hier behoben hat
-  (`preview.port` defaultet auf 4173).
-  **Auswirkung:** ein Test, der einmal fehlschlägt und beim Retry grün ist, bleibt
-  **grün**; ein Test, der 10× in einem Lauf fehlschlägt, ebenfalls. Für einen
-  Gate, der Flakes **erkennen** soll, ist das kontraproduktiv.
-  **Richtige Form:** `retries`/`maxFailures` sind **Laufprofil**, kein
-  Monolith — eigener `playwright.regression.config.ts` für den Nightly
-  (strikt: `retries: 0`, `maxFailures: 1`), damit der Smoke-Gate seine Retains
-  für echte Flakes behält und der Nightly-Gate ausschlaggebend bleibt.
-  **Bewusst noch nicht angefasst**, solange #6-1 die Suite zur Verifikation fährt.
 - [ ] **WP-9-D4 (offen, Test-Isolation):** die sechs aus `@smoke` abgestuften Tests sind
   grün, **ein** voller Suite-Lauf ließ jedoch `a11y.spec.ts` + `badge-editor.spec.ts`
   gemeinsam scheitern — Auslöser ist **akkumulierter DB-Zustand** aus wiederholten
@@ -415,6 +404,16 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
   Login-Limiter, inkl. `@smoke`; ein Fehler war der globale Teardown ⇒ vergiftete
   Folgetests). Der Env-Floor in `AppServiceProvider.php:63` trägt damit faktisch die
   Tests, nicht nur Dev-Bequemlichkeit. `AuthThrottleTest` deckt das Throttling weiter ab.
+- [ ] **#6-1-D1 (neu, Frontend-Entscheidung):** `POST /api/auth/logout` und
+  `GET /api/auth/me` liegen in der `auth:api`-Gruppe ⇒ ein User, dem die Rolle
+  **soeben** entzogen wurde, bekommt dort **403** statt 204/200. Die SPA rendert
+  die deutsche Meldung als normalen `ApiError` (nur **401** löst den globalen
+  Logout-Handler aus), nichts crasht aber der Server-Cookie wird bei diesem Logout
+  **nicht** vom Server entfernt. Route wurde bewusst **nicht** ausgenommen.
+  **Entscheidung offen:** (a) bewusst so lassen ( der Cookie läuft ohnehin nach
+  `JWT_TTL` ab) oder (b) die beiden Routen ausnehmen — dann verlässt ein
+  entzogener User die Seite sauber, verliert aber den Sofort-Effekt für alle
+  anderen Routen. Frontend-Scope.
 - [ ] **WP-10-D1:** `MediaMigrateToDomainLayoutCommand` nutzt weiterhin `->get()`
   (dieselbe Befundklasse wie WP-10-a, aber nicht in dessen Dateiliste). Einmaliger
   Backfill, deshalb nachrangig.
