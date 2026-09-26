@@ -17,6 +17,13 @@ use RuntimeException;
  * Layout: `<host>/teams/<slug>/logo.<ext>` via `MediaPathService::teamFile`,
  * host-neutral `_tenants/<id>/teams/<slug>/logo.<ext>` for a mandant without a
  * domain (id keeps same-slug teams of different mandants apart, W2-F2 L3).
+ *
+ * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`. The logo
+ * only loses its `logo_path` reference when the file is verifiably gone from
+ * both disks; otherwise a `RuntimeException` (500) aborts and the column keeps
+ * its value. Cleanup of files the new upload already supersedes is the one
+ * exception — there the new file is written and the column is about to point at
+ * it, so a failure is logged and the leftover is left to `media:prune-orphans`.
  */
 class TeamMediaService
 {
@@ -38,6 +45,9 @@ class TeamMediaService
      * previous one removed afterwards. A write failure (`putFileAs()` returns
      * `false`) aborts with a `RuntimeException` before the previous file is
      * deleted or the path column is rewritten.
+     *
+     * From the successful write on, a failure to remove a superseded file is
+     * logged, not raised — see the class docblock.
      *
      * @throws ValidationException
      * @throws RuntimeException when the new file could not be written
@@ -63,18 +73,24 @@ class TeamMediaService
 
         $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
 
-        if ($previous !== null && ! in_array($previous, $keep, true)) {
-            $this->storage->delete($previous);
+        // W11: drop the previous path and stale extension variants
+        // (`logo.png` -> `logo.jpg`) — best effort, see the class docblock.
+        if ($previous !== null && ! in_array($previous, $keep, true) && ! $this->storage->delete($previous)) {
+            $this->logLeftover($previous);
         }
 
-        // W11: drop stale extension variants (`logo.png` -> `logo.jpg`).
-        $this->storage->deleteAlternateExtensions($path, $keep);
+        if (! $this->storage->deleteAlternateExtensions($path, $keep)) {
+            $this->logLeftover($path);
+        }
 
         $team->update(['logo_path' => $path]);
     }
 
     /**
      * Remove the logo file and reset `logo_path`.
+     *
+     * @throws RuntimeException when the file could not be removed — the column
+     *                          keeps its value (R-D7)
      */
     public function destroy(Team $team): void
     {
@@ -87,12 +103,20 @@ class TeamMediaService
      * Remove the logo file only (no column update) — used when the team row
      * itself is deleted and the column write would be pointless. The derived
      * `.webp` sibling is removed with it (W11).
+     *
+     * @throws RuntimeException when the file could not be removed
      */
     public function purge(Team $team): void
     {
-        if ($team->logo_path !== null) {
-            $this->storage->delete($team->logo_path);
-            $this->storage->deleteAlternateExtensions($team->logo_path);
+        if ($team->logo_path === null) {
+            return;
+        }
+
+        $removed = $this->storage->delete($team->logo_path);
+        $removed = $this->storage->deleteAlternateExtensions($team->logo_path) && $removed;
+
+        if (! $removed) {
+            throw $this->removalFailed($team);
         }
     }
 
@@ -136,9 +160,40 @@ class TeamMediaService
                 continue;
             }
 
+            // `put()` raises on a write failure, so the copy is either complete
+            // or the old file is still the only one there. A failed removal of
+            // the old path leaves an unreferenced duplicate — the column is
+            // rewritten to the new path regardless, so the logo stays
+            // reachable, and `media:prune-orphans` reaps the leftover.
             $this->storage->put($new, $this->storage->get($old));
-            $this->storage->delete($old);
+
+            if (! $this->storage->delete($old)) {
+                $this->logLeftover($old);
+            }
         }
+    }
+
+    private function logLeftover(string $path): void
+    {
+        Log::warning('A superseded media file could not be removed; it is unreferenced now and `media:prune-orphans` reaps it.', [
+            'path' => $path,
+        ]);
+    }
+
+    /**
+     * Log and build the exception for a file that must not lose its reference.
+     */
+    private function removalFailed(Team $team): RuntimeException
+    {
+        Log::error('Could not remove the team logo; `logo_path` was kept.', [
+            'path' => $team->logo_path,
+            'team_id' => $team->id,
+        ]);
+
+        return new RuntimeException(sprintf(
+            'Could not remove the team logo "%s"; the stored reference was kept.',
+            (string) $team->logo_path,
+        ));
     }
 
     /**

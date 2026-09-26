@@ -18,6 +18,13 @@ use RuntimeException;
  * `MediaPathService::eventTypeFile`, host-neutral
  * `_tenants/<id>/event-types/<slug>/logo.<ext>` for a mandant without a domain
  * (id keeps same-slug types of different mandants apart, W2-F2 L3).
+ *
+ * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`. The logo
+ * only loses its `logo_path` reference when the file is verifiably gone from
+ * both disks; otherwise a `RuntimeException` (500) aborts and the column keeps
+ * its value. Cleanup of files the new upload already supersedes is the one
+ * exception — there the new file is written and the column is about to point at
+ * it, so a failure is logged and the leftover is left to `media:prune-orphans`.
  */
 class EventTypeMediaService
 {
@@ -39,6 +46,9 @@ class EventTypeMediaService
      * previous one removed afterwards. A write failure (`putFileAs()` returns
      * `false`) aborts with a `RuntimeException` before the previous file is
      * deleted or the path column is rewritten.
+     *
+     * From the successful write on, a failure to remove a superseded file is
+     * logged, not raised — see the class docblock.
      *
      * @throws ValidationException
      * @throws RuntimeException when the new file could not be written
@@ -64,18 +74,24 @@ class EventTypeMediaService
 
         $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
 
-        if ($previous !== null && ! in_array($previous, $keep, true)) {
-            $this->storage->delete($previous);
+        // W11: drop the previous path and stale extension variants
+        // (`logo.png` -> `logo.jpg`) — best effort, see the class docblock.
+        if ($previous !== null && ! in_array($previous, $keep, true) && ! $this->storage->delete($previous)) {
+            $this->logLeftover($previous);
         }
 
-        // W11: drop stale extension variants (`logo.png` -> `logo.jpg`).
-        $this->storage->deleteAlternateExtensions($path, $keep);
+        if (! $this->storage->deleteAlternateExtensions($path, $keep)) {
+            $this->logLeftover($path);
+        }
 
         $eventType->update(['logo_path' => $path]);
     }
 
     /**
      * Remove the logo file and reset `logo_path`.
+     *
+     * @throws RuntimeException when the file could not be removed — the column
+     *                          keeps its value (R-D7)
      */
     public function destroy(EventType $eventType): void
     {
@@ -88,12 +104,20 @@ class EventTypeMediaService
      * Remove the logo file only (no column update) — used when the event-type
      * row itself is deleted and the column write would be pointless. The
      * derived `.webp` sibling is removed with it (W11).
+     *
+     * @throws RuntimeException when the file could not be removed
      */
     public function purge(EventType $eventType): void
     {
-        if ($eventType->logo_path !== null) {
-            $this->storage->delete($eventType->logo_path);
-            $this->storage->deleteAlternateExtensions($eventType->logo_path);
+        if ($eventType->logo_path === null) {
+            return;
+        }
+
+        $removed = $this->storage->delete($eventType->logo_path);
+        $removed = $this->storage->deleteAlternateExtensions($eventType->logo_path) && $removed;
+
+        if (! $removed) {
+            throw $this->removalFailed($eventType);
         }
     }
 
@@ -137,9 +161,40 @@ class EventTypeMediaService
                 continue;
             }
 
+            // `put()` raises on a write failure, so the copy is either complete
+            // or the old file is still the only one there. A failed removal of
+            // the old path leaves an unreferenced duplicate — the column is
+            // rewritten to the new path regardless, so the logo stays
+            // reachable, and `media:prune-orphans` reaps the leftover.
             $this->storage->put($new, $this->storage->get($old));
-            $this->storage->delete($old);
+
+            if (! $this->storage->delete($old)) {
+                $this->logLeftover($old);
+            }
         }
+    }
+
+    private function logLeftover(string $path): void
+    {
+        Log::warning('A superseded media file could not be removed; it is unreferenced now and `media:prune-orphans` reaps it.', [
+            'path' => $path,
+        ]);
+    }
+
+    /**
+     * Log and build the exception for a file that must not lose its reference.
+     */
+    private function removalFailed(EventType $eventType): RuntimeException
+    {
+        Log::error('Could not remove the event-type logo; `logo_path` was kept.', [
+            'path' => $eventType->logo_path,
+            'event_type_id' => $eventType->id,
+        ]);
+
+        return new RuntimeException(sprintf(
+            'Could not remove the event-type logo "%s"; the stored reference was kept.',
+            (string) $eventType->logo_path,
+        ));
     }
 
     /**

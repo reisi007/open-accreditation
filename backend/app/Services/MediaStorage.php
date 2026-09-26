@@ -28,6 +28,19 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * `Accept: image/webp`. Legacy/private and host-neutral (`_tenants/`) files —
  * which Caddy can never reach — keep streaming through PHP. See
  * `features/media-domain-layout.md` and `deployment/caddy-media-api-accel.Caddyfile`.
+ *
+ * **`throw => false` (both disks, `config/filesystems.php`):** every write and
+ * delete against these disks reports a failure as a `false` RETURN VALUE instead
+ * of raising. Two consequences, and the reason nothing in this class trusts a
+ * raw adapter return value:
+ *
+ * 1. A `false` from `put()`/`putFileAs()` is NOT "written" — callers must abort
+ *    before they delete the previous file or rewrite a stored path. `put()`
+ *    raises on `false` itself; `putFileAs()` hands the decision to the caller.
+ * 2. A `false` from `delete()` is NOT "deleted" — the file may still be on disk
+ *    and keeps being served. `delete()` therefore verifies its own post-
+ *    condition and returns `bool`; a caller may only drop the DB reference on
+ *    `true` (R-D7).
  */
 final class MediaStorage
 {
@@ -42,10 +55,10 @@ final class MediaStorage
     public const LEGACY_DISK = 'private';
 
     /**
-     * Extensions a public image can live under. Used to clean up stale
-     * sibling variants when an upload replaces a file with a different
-     * extension (W11) — e.g. `logo.png` -> `logo.webp` must not leave
-     * `logo.png` behind.
+     * Extensions a public image can live under. Single source of truth for
+     * every "which variant of this leaf may exist" question: it drives the
+     * stale-sibling cleanup in `deleteAlternateExtensions()` and the legacy
+     * brand cleanup in `MandantMediaService`.
      */
     public const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 
@@ -148,16 +161,43 @@ final class MediaStorage
     }
 
     /**
-     * Delete the file on both disks (idempotent).
+     * Delete the file on both disks and verify the outcome.
+     *
+     * The delete counts as successful when the path is no longer present on
+     * EITHER disk afterwards — the post-condition is checked instead of
+     * trusting the adapter, because both disks run with `throw => false`: a
+     * failed `unlink` (read-only MEDIA_ROOT, a permissions regression) is
+     * reported as a `false` return value, and a `true` from the adapter only
+     * means `unlink()` reported no error.
+     *
+     * Idempotent by contract: a path that is absent on both disks BEFORE the
+     * attempt is "nothing to delete" and returns `true`, so a repeated cleanup
+     * or a second `destroy()` never turns into a 500. That pre-check is also
+     * what distinguishes the two benign-looking cases from a real failure —
+     * `false` is returned ONLY when the file was present and is still there
+     * afterwards.
+     *
+     * Callers that drop a DB reference (path column, row) must keep it on
+     * `false` and raise instead: a file that could not be removed is still
+     * served by Caddy. "Success" is always relative to the disks as this
+     * process currently sees them — a completely unmounted volume is
+     * indistinguishable from an empty one.
      */
-    public function delete(string $path): void
+    public function delete(string $path): bool
     {
         if ($path === '') {
-            return;
+            return true;
+        }
+
+        // Nothing to delete: idempotent success, no disk write attempted.
+        if (! $this->exists($path)) {
+            return true;
         }
 
         Storage::disk(self::PUBLIC_DISK)->delete($path);
         Storage::disk(self::LEGACY_DISK)->delete($path);
+
+        return ! $this->exists($path);
     }
 
     /**
@@ -237,30 +277,41 @@ final class MediaStorage
      * directory, except the paths in `$keep`. Removes stale siblings after an
      * upload replaces a file with a different extension (W11).
      *
+     * Reports the aggregate outcome of the individual `delete()` calls, with
+     * the same meaning: `true` when no stale variant survived, `false` when at
+     * least one is still on disk. Every candidate is attempted even after a
+     * failure, so one stuck variant never hides the others. Kept paths are
+     * never touched and therefore never make this fail.
+     *
      * @param  list<string>  $keep
      */
-    public function deleteAlternateExtensions(string $path, array $keep = []): void
+    public function deleteAlternateExtensions(string $path, array $keep = []): bool
     {
         if ($path === '') {
-            return;
+            return true;
         }
 
         $directory = dirname($path);
         $filename = pathinfo($path, PATHINFO_FILENAME);
 
         if ($filename === '') {
-            return;
+            return true;
         }
 
         $prefix = $directory === '.' ? '' : $directory.'/';
+        $removed = true;
 
         foreach (self::IMAGE_EXTENSIONS as $extension) {
             $candidate = $prefix.$filename.'.'.$extension;
 
-            if (! in_array($candidate, $keep, true)) {
-                $this->delete($candidate);
+            if (in_array($candidate, $keep, true)) {
+                continue;
             }
+
+            $removed = $this->delete($candidate) && $removed;
         }
+
+        return $removed;
     }
 
     /**

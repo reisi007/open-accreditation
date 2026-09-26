@@ -25,6 +25,9 @@ use RuntimeException;
  * rows written before W6 keep working until the `media:migrate-to-domain-
  * layout` backfill moves them. Upload validation mirrors the brand media
  * exactly; the extension derives from the validated MIME type.
+ *
+ * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`; the row
+ * is only dropped on `true`, otherwise a `RuntimeException` (500) keeps it.
  */
 class BadgeImageService
 {
@@ -87,11 +90,30 @@ class BadgeImageService
      * referencing this id are intentionally NOT rewritten — they keep their
      * `image_id` and the renderer falls back to an empty box (documented
      * behavior, features/badge-template-editor.md).
+     *
+     * The row is only dropped when the file is verifiably gone from both disks
+     * (R-D7): a failed unlink raises a `RuntimeException` and the row — the
+     * file's only reference — survives, so a still-served badge image is never
+     * silently forgotten.
+     *
+     * @throws RuntimeException when the file could not be removed
      */
     public function destroy(BadgeImage $image): void
     {
-        $this->storage->delete($image->path);
-        $this->storage->deleteAlternateExtensions($image->path);
+        $removed = $this->storage->delete($image->path);
+        $removed = $this->storage->deleteAlternateExtensions($image->path) && $removed;
+
+        if (! $removed) {
+            Log::error('Could not remove a badge image file; the row was kept.', [
+                'path' => $image->path,
+                'badge_image_id' => $image->id,
+            ]);
+
+            throw new RuntimeException(sprintf(
+                'Could not remove the badge image file "%s"; the stored reference was kept.',
+                $image->path,
+            ));
+        }
 
         $image->delete();
     }

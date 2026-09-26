@@ -34,6 +34,13 @@ use Illuminate\Support\Facades\Storage;
  * `Schedule::command('media:prune-orphans --force')->weekly();`
  * (no scheduler infrastructure is created here).
  *
+ * Deletes go through `MediaStorage::delete()` and are verified: a file that
+ * survives the attempt (read-only volume, permissions regression) is reported
+ * as a warning and makes the command exit non-zero, so a scheduled run cannot
+ * look successful while orphans keep piling up (R-D7). Deletion also touches the
+ * legacy `private` disk for the same relative path, which is consistent with
+ * every other delete path.
+ *
  * Synchronous vs. weekly: entity/service deletes remove their files (original
  * + `.webp` sibling) immediately, and the mandant delete purges the brand,
  * event-type and badge files before the DB cascade drops the rows (a mandant
@@ -61,6 +68,7 @@ class MediaPruneOrphansCommand extends Command
 
         $referenced = $this->referencedPaths($storage);
         $orphans = [];
+        $failed = [];
 
         foreach (Storage::disk(MediaStorage::PUBLIC_DISK)->allFiles() as $file) {
             if (! $this->isManagedPath($file) || isset($referenced[$file])) {
@@ -85,7 +93,18 @@ class MediaPruneOrphansCommand extends Command
                 continue;
             }
 
-            Storage::disk(MediaStorage::PUBLIC_DISK)->delete($file);
+            // `MediaStorage::delete()` verifies its own outcome (both disks run
+            // with `throw => false`, so a failed unlink is a `false` return).
+            // An orphan is not referenced by any row, so nothing else in the
+            // app depends on it — but the operator must still learn that the
+            // file is still on disk, hence the non-zero exit code.
+            if (! $storage->delete($file)) {
+                $failed[] = $file;
+                $this->warn('could not delete orphan: '.$file);
+
+                continue;
+            }
+
             $this->line('deleted orphan: '.$file);
         }
 
@@ -93,6 +112,15 @@ class MediaPruneOrphansCommand extends Command
             $this->info(sprintf('%d orphaned file(s) found. Re-run with --force to delete.', count($orphans)));
 
             return self::SUCCESS;
+        }
+
+        if ($failed !== []) {
+            $this->error(sprintf(
+                '%d orphan(s) could not be deleted (read-only volume or a permissions regression?). Re-run once the media disk is writable.',
+                count($failed),
+            ));
+
+            return self::FAILURE;
         }
 
         $this->info(sprintf('Deleted %d orphaned media file(s).', count($orphans)));

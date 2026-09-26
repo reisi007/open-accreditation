@@ -37,6 +37,11 @@ use Illuminate\Console\Command;
  * Idempotent: a row whose stored path is no longer in the legacy layout is
  * skipped, and a candidate whose source file is missing is reported and
  * skipped. Re-runs therefore converge and never touch already-migrated media.
+ *
+ * A migration whose legacy source cannot be deleted afterwards (read-only
+ * volume, permissions regression — both disks run with `throw => false`) is
+ * reported as a warning and counted as migrated: the DB already points at the
+ * new file, the leftover is unreferenced, and a re-run would not retry it.
  */
 class MediaMigrateToDomainLayoutCommand extends Command
 {
@@ -78,10 +83,22 @@ class MediaMigrateToDomainLayoutCommand extends Command
 
             $storage->put($candidate['to'], $storage->get($candidate['from']));
             ($candidate['apply'])($candidate['to']);
-            $storage->delete($candidate['from']);
 
             $migrated++;
             $this->line(sprintf('migrated %s: %s -> %s', $candidate['label'], $candidate['from'], $candidate['to']));
+
+            // The DB now points at the new file, so a legacy source that
+            // survives the delete is an unreferenced leftover on the private
+            // disk (not served by Caddy). It is reported, not raised: aborting
+            // the loop here would strand every candidate after this one, and a
+            // re-run skips the row anyway (its path is no longer legacy).
+            if (! $storage->delete($candidate['from'])) {
+                $this->warn(sprintf(
+                    'migrated %s, but the legacy source could not be removed: %s — delete it manually.',
+                    $candidate['label'],
+                    $candidate['from'],
+                ));
+            }
         }
 
         if (! $force) {

@@ -28,6 +28,12 @@ use RuntimeException;
  * combined with `--prune-originals`, which still removes the redundant
  * original). SVG files are never converted (and never reach this command
  * through the upload whitelist).
+ *
+ * `--prune-originals` deletes through `MediaStorage::delete()`, which verifies
+ * its outcome: a raster original that survives the attempt (read-only volume,
+ * permissions regression — the disks run with `throw => false`) is reported as
+ * a warning and NOT counted as pruned, while the row keeps pointing at the
+ * WebP sibling.
  */
 class MediaConvertToWebpCommand extends Command
 {
@@ -108,7 +114,24 @@ class MediaConvertToWebpCommand extends Command
 
             if ($prune) {
                 $candidate['apply']($sibling);
-                $storage->delete($path);
+
+                // The row already points at the WebP sibling, so a raster
+                // original that survives the delete is an unreferenced
+                // leftover on the media disk (reaped by `media:prune-orphans`).
+                // It is reported as a warning, not raised — the conversion
+                // itself succeeded, and aborting the loop would skip every
+                // remaining candidate.
+                if (! $storage->delete($path)) {
+                    $this->warn(sprintf(
+                        'pruned %s: the row now points at %s, but the original could not be removed: %s',
+                        $candidate['label'],
+                        $sibling,
+                        $path,
+                    ));
+
+                    continue;
+                }
+
                 $pruned++;
                 $this->line(sprintf('pruned original %s: %s', $candidate['label'], $path));
             }

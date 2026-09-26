@@ -20,6 +20,14 @@ use RuntimeException;
  * stay readable and are cleaned up on replace/delete (both disks are probed),
  * so un-migrated data survives until the `media:migrate-to-domain-layout`
  * backfill moves it.
+ *
+ * **Delete contract (R-D7):** `MediaStorage::delete()` returns `bool`. A file
+ * is only dropped together with its DB reference — a failed unlink raises a
+ * `RuntimeException` (500) and the column keeps its value. Cleanup of files the
+ * NEW upload already supersedes is the one exception: there the new file is
+ * written and the column is about to point at it, so a failure is logged and
+ * the leftover is left to `media:prune-orphans` (raising would strand the new,
+ * unreferenced file and keep serving the old one).
  */
 class MandantMediaService
 {
@@ -32,8 +40,9 @@ class MandantMediaService
     /**
      * Known legacy extensions — a previous replacement may have left a file
      * with a different extension behind, so all variants are cleaned up.
+     * Aliases the single source of truth in `MediaStorage`.
      */
-    private const LEGACY_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
+    private const LEGACY_EXTENSIONS = MediaStorage::IMAGE_EXTENSIONS;
 
     public function __construct(
         private readonly MediaPathService $paths,
@@ -49,6 +58,9 @@ class MandantMediaService
      * (`putFileAs()` returns `false`) aborts with a `RuntimeException` before
      * anything is deleted or the path column is rewritten, so the stored path
      * can never point at a file that was never written.
+     *
+     * From the successful write on, a failure to remove a superseded file is
+     * logged, not raised — see the class docblock.
      *
      * @throws ValidationException
      * @throws RuntimeException when the new file could not be written
@@ -75,15 +87,7 @@ class MandantMediaService
 
         $keep = array_values(array_filter([$path, $sibling], static fn (?string $value): bool => $value !== null));
 
-        if ($previous !== null && ! in_array($previous, $keep, true)) {
-            $this->storage->delete($previous);
-        }
-
-        // W11: a replace may change the extension (`logo.png` -> `logo.jpg`).
-        // Drop every stale sibling variant except the files just written.
-        $this->storage->deleteAlternateExtensions($path, $keep);
-
-        $this->deleteLegacy($mandant, $kind);
+        $this->removeSuperseded($mandant, $previous, $path, $keep, $kind);
 
         $mandant->update([$this->columnFor($kind) => $path]);
     }
@@ -91,6 +95,10 @@ class MandantMediaService
     /**
      * Remove the stored file (new and legacy layout, plus its `.webp` sibling)
      * and reset the path column.
+     *
+     * @throws RuntimeException when the file could not be removed — the column
+     *                          keeps its value, so a still-served image never
+     *                          loses its only reference (R-D7)
      */
     public function destroy(Mandant $mandant, string $kind): void
     {
@@ -103,18 +111,33 @@ class MandantMediaService
      * Remove the stored file (new and legacy layout, plus its `.webp` sibling)
      * without touching the path column — used when the mandant row itself is
      * deleted and the column write would be pointless.
+     *
+     * The current file is mandatory and raises on failure (R-D7). Pre-W6
+     * legacy variants are no longer delivered once the reference is gone, so a
+     * leftover there is only logged.
+     *
+     * @throws RuntimeException when the current file could not be removed
      */
     public function purge(Mandant $mandant, string $kind): void
     {
         $path = $this->path($mandant, $kind);
 
         if ($path !== null) {
-            $this->storage->delete($path);
+            $removed = $this->storage->delete($path);
             // W11: the derived WebP sibling must not outlive its original.
-            $this->storage->deleteAlternateExtensions($path);
+            $removed = $this->storage->deleteAlternateExtensions($path) && $removed;
+
+            if (! $removed) {
+                throw $this->removalFailed($path, sprintf('mandant#%d %s', $mandant->id, $kind));
+            }
         }
 
-        $this->deleteLegacy($mandant, $kind);
+        if (! $this->deleteLegacy($mandant, $kind)) {
+            $this->logLeftover(
+                sprintf('mandants/%s/%s.<ext>', $mandant->slug, $kind),
+                sprintf('mandant#%d %s (pre-W6 legacy)', $mandant->id, $kind),
+            );
+        }
     }
 
     /**
@@ -174,12 +197,70 @@ class MandantMediaService
     /**
      * Delete every known legacy variant of one kind below the old
      * `mandants/{slug}/` prefix on both disks.
+     *
+     * @return bool `false` when at least one variant survived the attempt
      */
-    private function deleteLegacy(Mandant $mandant, string $kind): void
+    private function deleteLegacy(Mandant $mandant, string $kind): bool
     {
+        $removed = true;
+
         foreach (self::LEGACY_EXTENSIONS as $extension) {
-            $this->storage->delete(sprintf('mandants/%s/%s.%s', $mandant->slug, $kind, $extension));
+            $removed = $this->storage->delete(sprintf('mandants/%s/%s.%s', $mandant->slug, $kind, $extension)) && $removed;
         }
+
+        return $removed;
+    }
+
+    /**
+     * Remove the files the freshly written upload supersedes: the previous
+     * path (if it is not one of the just-written files), every stale extension
+     * variant (`logo.png` -> `logo.jpg`) and the pre-W6 legacy variants.
+     *
+     * All of it runs AFTER a successful write and BEFORE the path column is
+     * rewritten, so a failure here is logged instead of raised: aborting would
+     * leave the new file on disk without any reference while the old image
+     * stays referenced and keeps being served. Once the column is rewritten the
+     * leftovers are unreferenced orphans, which `media:prune-orphans` reaps.
+     *
+     * @param  list<string>  $keep  the files that were just written
+     */
+    private function removeSuperseded(Mandant $mandant, ?string $previous, string $path, array $keep, string $kind): void
+    {
+        if ($previous !== null && ! in_array($previous, $keep, true) && ! $this->storage->delete($previous)) {
+            $this->logLeftover($previous, sprintf('mandant#%d %s', $mandant->id, $kind));
+        }
+
+        if (! $this->storage->deleteAlternateExtensions($path, $keep)) {
+            $this->logLeftover($path, sprintf('mandant#%d %s (stale variant)', $mandant->id, $kind));
+        }
+
+        if (! $this->deleteLegacy($mandant, $kind)) {
+            $this->logLeftover(sprintf('mandants/%s/%s.<ext>', $mandant->slug, $kind), sprintf('mandant#%d %s (pre-W6 legacy)', $mandant->id, $kind));
+        }
+    }
+
+    private function logLeftover(string $path, string $context): void
+    {
+        Log::warning('A superseded media file could not be removed; it is unreferenced now and `media:prune-orphans` reaps it.', [
+            'path' => $path,
+            'context' => $context,
+        ]);
+    }
+
+    /**
+     * Log and build the exception for a file that must not lose its reference.
+     */
+    private function removalFailed(string $path, string $context): RuntimeException
+    {
+        Log::error('Could not remove a media file; the stored reference was kept.', [
+            'path' => $path,
+            'context' => $context,
+        ]);
+
+        return new RuntimeException(sprintf(
+            'Could not remove the media file "%s"; the stored reference was kept.',
+            $path,
+        ));
     }
 
     private function columnFor(string $kind): string

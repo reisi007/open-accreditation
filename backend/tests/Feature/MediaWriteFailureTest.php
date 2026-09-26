@@ -2,16 +2,20 @@
 
 namespace Tests\Feature;
 
+use App\Enums\MediaType;
 use App\Models\BadgeImage;
 use App\Models\EventType;
 use App\Models\Mandant;
 use App\Models\Team;
+use App\Models\User;
+use App\Models\UserMedia;
 use App\Services\BadgeImageService;
 use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
 use App\Services\MediaPathService;
 use App\Services\MediaStorage;
 use App\Services\TeamMediaService;
+use App\Services\UserMediaService;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,19 +27,19 @@ use RuntimeException;
 use Tests\TestCase;
 
 /**
- * W6-F1 / W6-F2 regression — a failed media write must never destroy the
- * previous file or point the DB at a file that does not exist.
+ * W6-F1 / W6-F2 / WP-4-a regression — a failed media write must never destroy
+ * the previous file or point the DB at a file that does not exist.
  *
- * The `media` disk is configured with `throw => false`, so a write failure
- * surfaces as a `false` return from `put()`/`putFileAs()`. Both the backfill
- * command (W6-F1) and every upload service (W6-F2) must treat that as fatal:
- * abort before applying the DB path / deleting the previous file / creating a
- * badge row.
+ * The `media` and `private` disks are configured with `throw => false`, so a
+ * write failure surfaces as a `false` return from `put()`/`putFileAs()`. Both
+ * the backfill command (W6-F1) and every upload service (W6-F2) must treat that
+ * as fatal: abort before applying the DB path / deleting the previous file /
+ * creating a badge row.
  *
- * A write failure is injected by swapping only the `media` disk with a mock
- * that fails `put`/`putFileAs`; the legacy `private` disk and the previous
- * media files stay on the real (faked) disks so the "old file survived"
- * assertions are meaningful.
+ * A write failure is injected by swapping only the affected disk (`media` for
+ * the public media services, `private` for the user media) with a mock that
+ * fails `put`/`putFileAs`; the other disk and the previous media files stay on
+ * the real (faked) disks so the "old file survived" assertions are meaningful.
  */
 class MediaWriteFailureTest extends TestCase
 {
@@ -69,6 +73,9 @@ class MediaWriteFailureTest extends TestCase
 
         Storage::fake(MediaStorage::LEGACY_DISK);
         Storage::fake(MediaPathService::DISK);
+
+        $this->realMedia = Storage::disk(MediaPathService::DISK);
+        $this->realPrivate = Storage::disk(MediaStorage::LEGACY_DISK);
 
         // A configured domain is what makes the service target the domain
         // layout (`verband-a.test/…`) instead of the host-neutral
@@ -234,8 +241,151 @@ class MediaWriteFailureTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | WP-4-a — user media (private disk): write-then-delete
+     | ------------------------------------------------------------------- */
+
+    public function test_user_media_store_failure_keeps_the_previous_portrait(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        $previous = $this->seedUserMedia($user, MediaType::PORTRAIT, 'portrait/alt.jpg', 2 * 1024 * 1024);
+
+        $this->mockFailingPrivateDisk();
+
+        $this->expectRuntimeExceptionFrom(
+            fn () => $service->store($user, MediaType::PORTRAIT, UploadedFile::fake()->image('neu.jpg'), 'verband-a'),
+        );
+
+        // The old file is still there, still referenced, and no row with an
+        // empty path was created (pre-fix: `path` was `(string) false` = '').
+        $this->realPrivate->assertExists($previous);
+        $this->assertSame(1, UserMedia::query()->count());
+        $this->assertSame(0, UserMedia::query()->where('path', '')->count());
+        $this->assertSame($previous, UserMedia::query()->firstOrFail()->path);
+        $this->assertSame([$previous], $this->realPrivate->allFiles());
+    }
+
+    public function test_user_media_store_failure_on_a_fresh_upload_creates_no_row(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        $this->mockFailingPrivateDisk();
+
+        $this->expectRuntimeExceptionFrom(
+            fn () => $service->store($user, MediaType::ATTACHMENT, UploadedFile::fake()->image('doc.jpg'), 'verband-a'),
+        );
+
+        $this->assertSame(0, UserMedia::query()->count());
+        $this->assertSame([], $this->realPrivate->allFiles());
+    }
+
+    public function test_user_media_successful_replacement_removes_the_predecessor_exactly_once(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        $previous = $this->seedUserMedia($user, MediaType::PORTRAIT, 'portrait/alt.jpg', 2 * 1024 * 1024);
+
+        $media = $service->store($user, MediaType::PORTRAIT, UploadedFile::fake()->image('neu.jpg'), 'verband-a');
+
+        // One row, one file: the predecessor is gone (not duplicated) and the
+        // new path is the one that is referenced.
+        $this->assertSame(1, UserMedia::query()->count());
+        $this->assertNotSame($previous, $media->path);
+        $this->assertSame([$media->path], $this->realPrivate->allFiles());
+        $this->realPrivate->assertMissing($previous);
+    }
+
+    public function test_user_media_replacement_keeps_the_quota_semantics_at_the_byte_limit(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        // 2 MiB portrait + 8 × 1 MiB attachments = 10 MiB, i.e. exactly the
+        // per-user byte quota. Replacing the portrait with a 1 MiB file must
+        // pass: the predecessor's bytes are subtracted, not added on top.
+        $this->seedUserMedia($user, MediaType::PORTRAIT, 'portrait/alt.jpg', 2 * 1024 * 1024);
+
+        for ($i = 0; $i < 8; $i++) {
+            $this->seedUserMedia($user, MediaType::ATTACHMENT, "attachment/{$i}.jpg", 1024 * 1024);
+        }
+
+        $service->store(
+            $user,
+            MediaType::PORTRAIT,
+            UploadedFile::fake()->image('klein.jpg')->size(1024),
+            'verband-a',
+        );
+
+        $this->assertSame(9, UserMedia::query()->count());
+        $this->assertSame(1, UserMedia::query()->where('type', 'portrait')->count());
+    }
+
+    public function test_user_media_replacement_at_the_file_count_limit_still_works(): void
+    {
+        $service = app(UserMediaService::class);
+        $user = User::factory()->create();
+
+        $this->seedUserMedia($user, MediaType::PORTRAIT, 'portrait/alt.jpg', 1024 * 1024);
+
+        for ($i = 0; $i < 9; $i++) {
+            $this->seedUserMedia($user, MediaType::ATTACHMENT, "attachment/{$i}.jpg", 1024);
+        }
+
+        $this->assertSame(10, UserMedia::query()->count());
+
+        $service->store($user, MediaType::PORTRAIT, UploadedFile::fake()->image('neu.jpg'), 'verband-a');
+
+        $this->assertSame(10, UserMedia::query()->count());
+        $this->assertSame(1, UserMedia::query()->where('type', 'portrait')->count());
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    /**
+     * Create a user-media row plus its real file on the `private` disk.
+     */
+    private function seedUserMedia(User $user, MediaType $type, string $leaf, int $size): string
+    {
+        $path = sprintf('user-media/verband-a/%d/%s', $user->id, $leaf);
+
+        $this->realPrivate->put($path, 'file-bytes');
+
+        return UserMedia::create([
+            'user_id' => $user->id,
+            'type' => $type->value,
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => $size,
+            'original_name' => basename($leaf),
+        ])->path;
+    }
+
+    /**
+     * Swap the `private` disk for a mock whose `putFileAs` fails — the exact
+     * shape of a disk-full / permissions / unmounted-volume failure under
+     * `throw => false`. `exists` still answers from the real disk, so the
+     * "previous file survived" assertions are honest, and `delete` must not be
+     * reached at all: the write has to fail before anything is removed.
+     */
+    private function mockFailingPrivateDisk(): void
+    {
+        $privateDisk = Mockery::mock(Filesystem::class);
+        $privateDisk->shouldReceive('putFileAs')
+            ->once()
+            ->andReturn(false);
+        $privateDisk->shouldReceive('exists')
+            ->andReturnUsing(fn (string $path): bool => $this->realPrivate->exists($path));
+        $privateDisk->shouldNotReceive('delete');
+
+        Storage::shouldReceive('disk')->andReturnUsing(
+            fn (string $name): Filesystem => $name === MediaStorage::LEGACY_DISK ? $privateDisk : $this->realMedia,
+        );
+    }
 
     /**
      * Swap the `media` disk for a mock whose `$method` fails. The legacy
@@ -266,13 +416,20 @@ class MediaWriteFailureTest extends TestCase
         );
     }
 
+    /**
+     * Assert the call aborted with the SERVICE's own RuntimeException (not with
+     * an incidental one from a mocked disk) and that it happened before any
+     * deletion or DB write. The shared message prefix is the marker: a
+     * `Mockery\Exception\NoMatchingExpectationException` is an `OutOfBounds`,
+     * i.e. an `RuntimeException` too, and would otherwise pass unnoticed.
+     */
     private function expectRuntimeExceptionFrom(callable $callback): void
     {
         try {
             $callback();
             $this->fail('A failed putFileAs() must abort with a RuntimeException.');
-        } catch (RuntimeException) {
-            // Expected: the service aborts before delete/update.
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('Could not store', $exception->getMessage());
         }
     }
 }

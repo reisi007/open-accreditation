@@ -129,8 +129,14 @@ Gemeinsame Basis:
   `_tenants`-Reservierung).
 - `MediaHostResolver` — erste Mandant-Domain als Primär-Host (`null` ohne Domain).
 - `MediaStorage` — Schreiben immer auf `media`; Lesen `media` → `private`;
-  Löschen auf beiden Disks (idempotent). Ein Schreibfehler (`false`) bricht laut
-  ab, **bevor** die DB umgeschrieben oder die Vorgängerdatei gelöscht wird.
+  Löschen auf beiden Disks, **Ergebnis geprüft** (`bool`, siehe
+  `features/media-domain-layout.md` „Schreib- und Lösch-Invariante"). Ein
+  Schreibfehler (`false`) bricht laut ab, **bevor** die DB umgeschrieben oder die
+  Vorgängerdatei gelöscht wird. Ein Fehlschlag beim Löschen bricht ebenso ab:
+  `destroy()`/`purge()` löschen die Pfad-Spalte nur, wenn die Datei danach
+  wirklich weg ist (sonst 500, Spalte bleibt). Das Aufräumen von Dateien, die
+  der **neue** Upload gerade ersetzt hat, ist best effort (Log-Warning) — der
+  neue Pfad steht zu dem Zeitpunkt bereits in der Spalte.
 - `ImageUploadRules` — gemeinsamer Upload-Kontrakt (MIME→Endung, Dimensionslimit).
 
 ## Legacy-Lesbarkeit

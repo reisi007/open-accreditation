@@ -20,6 +20,34 @@ deckt nur noch die deployment-bereitgestellten Root-Brand-Dateien ab.
 Grundsatz: **Öffentlich wird nur, was explizit freigegeben ist.** Personenbilder
 (Porträt, Presse-ID, Anhänge) verlassen die `private`-Disk nie.
 
+## Schreib- und Lösch-Invariante (WP-4, 2026-09-26)
+
+Beide Disks (`media`, `private`) laufen in `config/filesystems.php` mit
+`'throw' => false`. **Ein Fehlschlag ist damit ein Rückgabewert, keine
+Exception** — die Konsequenz gilt für *jeden* Schreib- und Löschpfad:
+
+| Schritt | Kontrakt |
+|---|---|
+| **Write** (`put`/`putFileAs`) | `false` heißt „nicht geschrieben“. **Vor** dem Löschen der Vorgängerdatei und **vor** dem Umschreiben eines DB-Pfads abbrechen (`RuntimeException` → 500). Es darf nie `UserMedia::create(['path' => (string) false])` o. Ä. entstehen — das persistiert einen Pfad `''`. |
+| **Delete** (`MediaStorage::delete()`) | Liefert `bool` und prüft seine **Nachbedingung** selbst: Erfolg = der Pfad ist danach auf **keiner** der beiden Disks mehr vorhanden. `false` nur, wenn die Datei **vorhanden war und danach noch da ist** (read-only `MEDIA_ROOT`, Rechte-Regression). Ein Pfad, der **vor** dem Versuch auf beiden Disks fehlt, ist „nichts zu löschen“ und `true` — ein wiederholter Cleanup darf nie 500 werden. `deleteAlternateExtensions()` aggregiert dieselbe Aussage über alle Alt-Endungen. |
+| **Referenz fällt weg?** | Eine DB-Referenz (`logo_path`/`header_path`/`badge_images.path`/`user_media`-Row) wird **ausschließlich bei `true`** entfernt. Sonst `RuntimeException` (500, `Log::error`) und die Referenz bleibt. Das gilt auch für den Entity-Delete-Kaskaden-Pfad (`MandantController::destroy` → `purge()`): der Mandant wird nicht gelöscht, solange seine Logo-Datei nicht wegbekommen werden kann. |
+| **Referenz wandert nur?** | Aufräumen von Dateien, die ein **neuer, bereits geschriebener und referenzierter** Upload ersetzt (Vorgänger-Pfad, Alt-Endungen, Legacy-Varianten, Slug-Move), ist **best effort**: Fehlschlag → `Log::warning`, Ablauf läuft weiter. Ein Abbruch würde die neue Datei ohne Referenz zurücklassen und das alte Bild weiter ausliefern. Der Rest ist eine Waise, die `media:prune-orphans` aufräumt. |
+| **Commands** | `media:prune-orphans --force`: nicht löschbare Waisen → Warnung **+ Exit-Code ≠ 0** (ein geplanter Lauf darf nicht erfolgreich aussehen, während Waisen liegen bleiben). `media:migrate-to-domain-layout` / `media:convert-to-webp --prune-originals`: nicht entfernbare Quelle/Original → Warnung, **kein** Abbruch (die DB zeigt bereits auf die neue Datei; ein Re-Run würde es ohnehin nicht wiederholen). |
+
+`UserMediaService` (Personenbilder, `private`-Disk) folgt derselben Reihenfolge:
+Quota-Prüfung → **Write** → Transaktion (Vorgänger-Row ersetzen + neue Row) →
+**unlink** der Vorgänger-Datei. Ein Write-Fehler lässt Foto *und* Row des
+Antragstellers unangetastet; ein fehlgeschlagener `create` rollt die
+Vorgänger-Row zurück und entfernt die frisch geschriebene Datei wieder (sonst
+ein Quota-verbrauchendes Phantom). `destroy()` droppt die Row nur, wenn die
+Datei wirklich weg ist.
+
+Grenze der Aussage: „Erfolg“ ist immer relativ zu den Disks, wie der Prozess
+sie gerade sieht — ein **komplett unmountetes** Volume ist von einem leeren
+nicht unterscheidbar (dann meldet `exists()` `false` und der Delete gilt als
+„nichts zu löschen“). Das ist die dokumentierte Restunsicherheit; die
+Nachbedingung schützt gegen den realen Fall „gemountet, aber nicht schreibbar“.
+
 ## Zielbild
 
 Alle öffentlich direkt von Caddy auslieferbaren Bilder liegen auf der Disk
@@ -264,8 +292,12 @@ Abgeleitete `.webp`-Dateien dürfen keine Waisen werden:
   Geschwister). Host-neutrale `_tenants/<id>/…`-Pfade sind normale Referenzen
   und werden erst nach dem Löschen des Mandanten zu Waisen. Nur das verwaltete
   Media-Layout wird betrachtet; deployment-bereitgestellte Root-Brand-Dateien
-  (`logo.svg`, Favicons, …) werden nie angefasst. Empfohlener Rhythmus:
-  **wöchentlich** über den Scheduler
+  (`logo.svg`, Favicons, …) werden nie angefasst. Das Löschen läuft über
+  `MediaStorage::delete()` und ist **geprüft**: eine Waise, die den Versuch
+  überlebt, erscheint als Warnung, wird **nicht** als gelöscht gezählt und der
+  Command endet mit **Exit-Code ≠ 0** (WP-4/R-D7) — ein geplanter Lauf darf
+  nicht erfolgreich aussehen, während Waisen liegen bleiben. Empfohlener
+  Rhythmus: **wöchentlich** über den Scheduler
   (`Schedule::command('media:prune-orphans --force')->weekly();`) — die
   Scheduler-Infrastruktur selbst wird hier nicht aufgebaut.
 
@@ -294,7 +326,7 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 |---|---|
 | `App\Services\MediaPathService` | Reiner Pfad-Vertrag: Host-Normalisierung, Pfad-Builder, Traversal-Abwehr (kein Disk-/DB-Zugriff) |
 | `App\Services\MediaHostResolver` | Erste Mandant-Domain als Primär-Host, `null` ohne Domain |
-| `App\Services\MediaStorage` | Disk-Adapter: Schreiben auf `media`, Lesen `media` → `private`, idempotentes Löschen beider Disks |
+| `App\Services\MediaStorage` | Disk-Adapter: Schreiben auf `media`, Lesen `media` → `private`, Löschen beider Disks mit **geprüftem** Ergebnis (`bool`, Nachbedingung statt Rückgabewert) |
 | `App\Services\ImageUploadRules` | Upload-Kontrakt: MIME-Whitelist → Endung, max. 2000×2000 px |
 | `App\Services\{Mandant,Team,EventType}MediaService` | Upload/Replace/Delete je Entität im Domain-/host-neutralen Layout |
 | `App\Services\BadgeImageService` | Badge-Upload unter ULID + Addressing-Zeile |
@@ -323,6 +355,13 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
   Flag und Snippet gegenläufig ausrollen.
 - **Derivat-Cache selbstreinigend:** kein `.webp` überlebt Original/Entität;
   `media:prune-orphans` hält die Disk konvergent.
+- **Write-then-delete:** kein Pfad löscht die Vorgängerdatei, bevor der Ersatz
+  wirklich geschrieben ist; ein Schreibfehler lässt den vorherigen Zustand
+  unverändert (inkl. DB-Zeile). Gilt für öffentliches Brand-/Team-/Event-Typ-/
+  Badge-Media **und** für `user-media/*`.
+- **Referenz nur bei verifiziertem Delete:** eine DB-Spalte/Row wird nie
+  gelöscht, solange die Datei den Löschversuch überlebt hat (R-D7). Ein bereits
+  fehlender Pfad ist ein Erfolg (idempotent), kein Fehler.
 - **Portabilität (§2):** reine PHP-/Query-Builder-Logik, keine PG-Funktionen.
 
 ## Tests
@@ -332,7 +371,14 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
 - `backend/tests/Feature/MediaMigrationTest.php` — Backfill dry-run/`--force`/
   Idempotenz.
 - `backend/tests/Feature/MediaWriteFailureTest.php` — Write-Failure bricht vor
-  DB-Update/Delete ab.
+  DB-Update/Delete ab; seit WP-4 auch für `user-media/*` (Write-Failure lässt
+  Porträt **und** Row stehen, keine Row mit `path = ''`), plus Quota-Semantik
+  der Singular-Ersetzung.
+- `backend/tests/Feature/MediaDeleteFailureTest.php` — `delete()`/`deleteAlternateExtensions()`
+  als `bool` (false bei überlebender Datei, true bei „nichts zu löschen“),
+  `destroy()`/`purge()` je Service (Mandant/Team/Event-Typ/Badge/User-Media)
+  behält die Referenz und wirft, Entity-Delete-Kaskade bricht mit 500 ab,
+  Commands melden nicht entfernte Dateien (Prune-Exit-Code ≠ 0).
 - `backend/tests/Feature/AdminTeamParticipationTest.php` +
   `AdminEventTypeTest.php` — Team-/Event-Typ-Logo Upload/Replace/Delete,
   Cross-Domain-Isolation.
