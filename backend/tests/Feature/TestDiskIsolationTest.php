@@ -28,6 +28,13 @@ use Tests\TestCase;
  * purging their roots in `tearDown()`. These tests are the guard. Both calls
  * were mutation-checked (delete one call, run this class, count the reds):
  *
+ * The *other* race on the same directory — two concurrent full runs sharing one
+ * fake root, which is what made three agents lose up to 243 tests each — is a
+ * separate defect with a separate guard, in `FakeDiskProcessIsolationTest`.
+ * WP-11 is about a run not depending on an EARLIER run; that one is about a run
+ * not depending on a CONCURRENT one. This class stays deliberately blind to it:
+ * its assertions are about emptiness and provenance, which hold either way.
+ *
  *  - `setUp()`'s `rootEveryDiskInTheTestTree()` removed → **THREE of the six**
  *    tests fail. The disk roots are the production ones, a write lands in
  *    `storage/app/**`, and `setUp()` no longer scrubs the leftovers either.
@@ -69,6 +76,36 @@ class TestDiskIsolationTest extends TestCase
                 $testingTree.DIRECTORY_SEPARATOR,
                 $root.DIRECTORY_SEPARATOR,
                 "disk [{$disk}] must be rooted in the throwaway test tree, got [{$root}]",
+            );
+        }
+    }
+
+    /**
+     * The four faked disks stay four DISTINCT roots.
+     *
+     * Not a cross-process concern, and not affected by the per-process token
+     * suffix — it guards the opposite failure: a token scheme that collapsed the
+     * disk name (`Storage::fake()` appends its token to the *disk* name, so a
+     * token ending in a separator or containing one would merge
+     * `…/disks/media` and `…/disks/public` into one directory). Two test classes
+     * writing "their" media would then delete each other's files inside a single
+     * process, which no amount of per-process isolation would prevent.
+     */
+    public function test_the_faked_roots_are_distinct_per_disk(): void
+    {
+        $roots = array_values($this->fakeDiskRoots());
+
+        $this->assertSame(
+            count($roots),
+            count(array_unique($roots)),
+            'the faked disks share a root, so one disk\'s fake() empties another\'s files: '.implode(', ', $roots),
+        );
+
+        foreach (self::FAKE_DISKS as $disk) {
+            $this->assertStringEndsWith(
+                DIRECTORY_SEPARATOR.$disk.'_test_'.TestCase::fakeDiskToken(),
+                $this->fakeDiskRoots()[$disk],
+                "disk [{$disk}] must keep its own name in the root, got [{$this->fakeDiskRoots()[$disk]}]",
             );
         }
     }
