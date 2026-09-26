@@ -106,12 +106,18 @@ jobs:
     # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst nur bei
     # push/schedule/workflow_dispatch. Ein Job, zwei Suiten — die Auswahl
     # hängt am Event (AGENTS.md §7):
-    #   * push / pull_request  → `@smoke` (Critical Path, schnell)
+    #   * push / pull_request  → `@smoke` (Critical Path, schnell) über
+    #     `playwright.config.ts`, retries: 2 / maxFailures: 10 (verzeihend:
+    #     geteilter Runner, echtes Netzwerk-/Timing-Rauschen)
     #   * schedule (Nightly)   → VOLLE Suite (alle Specs × beide Browser-
     #     Projects, inkl. aller `@regression`- und `@feature:*`-Specs; lokal
-    #     gemessen: 80 Test-Slots, davon 36 zur Laufzeit übersprungen). Vorher
-    #     lief in CI ausschließlich `@smoke` — der in §7 geforderte
+    #     gemessen: 80 Test-Slots, davon 36 zur Laufzeit übersprungen) über
+    #     `playwright.regression.config.ts`, retries: 0 / maxFailures: 1
+    #     (ausschlaggebend — der Flakiness-Detektor, siehe Run-Step).
+    #     Vorher lief in CI ausschließlich `@smoke` — der in §7 geforderte
     #     Regression-Lauf war nirgends durchgesetzt.
+    # Beide Profile teilen testDir/Projects/baseURL ⇒ identisches Testset, nur
+    # unterschiedlicher Fehler-Budget.
     # Kein `continue-on-error` und kein `|| true` im Test-Step: ein roter Lauf
     # bleibt rot. (Hinweis: eine Matrix wäre hier NICHT möglich — `matrix` ist
     # in einem Job-Level-`if` nicht verfügbar, das wird vor der Expansion
@@ -281,19 +287,31 @@ jobs:
           timeout 60s bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 1; done'
         env:
           VITE_API_PROXY: http://127.0.0.1:8000
-      - name: Run E2E suite (${{ github.event_name == 'schedule' && 'volle Suite' || '@smoke' }})
+      - name: Run E2E suite (${{ github.event_name == 'schedule' && 'volle Suite, ausschlaggebend' || '@smoke' }})
         working-directory: frontend
-        # Serial (--workers=1): Backend-Login-Limiter (RateLimiter::for('login'),
-        # 40/min pro IP laut AppServiceProvider — das ist der local/testing-
-        # Floor, in production gelten 15/min) → parallel workers teilen sich
-        # die CI-IP und erzeugen 429 Too-Many-Attempts-Flakes (P2b-F9).
-        # Serial läuft grün.
-        # `schedule` = volle Suite (kein `--grep`), sonst `@smoke`.
+        # Serial (--workers=1) in BEIDEN Profilen: Backend-Login-Limiter
+        # (RateLimiter::for('login'), 40/min pro IP laut AppServiceProvider —
+        # das ist der local/testing-Floor, in production gelten 15/min) →
+        # parallel workers teilen sich die CI-IP und erzeugen 429
+        # Too-Many-Attempts-Flakes (P2b-F9). Serial läuft grün.
+        #
+        # Zwei Laufprofile, EIN Testset (gleiche testDir/Projects/baseURL):
+        #   * `schedule` → VOLLE Suite über playwright.regression.config.ts
+        #     (retries: 0, maxFailures: 1). Dieser Lauf ist der
+        #     Flakiness-Detektor: **Rot heißt „ein Test ist flaky oder echt
+        #     kaputt"** — nicht „ignorieren". Er wird behoben (oder mit
+        #     Datei/Testname + Ursache in AGENTS.todo.md begründet), und
+        #     ausdrücklich NICHT mit Retries bzw. einem höheren maxFailures
+        #     wegkonfiguriert — genau das hat den Gate vorher blind gemacht.
+        #   * sonst (@smoke) → playwright.config.ts, retries: 2,
+        #     maxFailures: 10; der Smoke-Gate bleibt bewusst verzeihend.
         run: |
           set -euo pipefail
-          args=(--workers=1)
-          if [ "${{ github.event_name }}" != 'schedule' ]; then args+=(--grep @smoke); fi
-          pnpm exec playwright test "${args[@]}"
+          if [ "${{ github.event_name }}" = 'schedule' ]; then
+            pnpm exec playwright test -c playwright.regression.config.ts --workers=1
+          else
+            pnpm exec playwright test --workers=1 --grep @smoke
+          fi
         env:
           CI: '1'
       - name: Upload Playwright report

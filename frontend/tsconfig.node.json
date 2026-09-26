@@ -24,6 +24,7 @@
   "include": [
     "vite.config.ts",
     "playwright.config.ts",
+    "playwright.regression.config.ts",
     "playwright.screenshots.config.ts"
   ]
 }
