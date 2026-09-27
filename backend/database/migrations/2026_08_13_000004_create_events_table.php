@@ -13,6 +13,11 @@ return new class extends Migration
      * team-level when set. Events cascade-delete with their mandant and team.
      * Date columns are plain `date` (no time), deadlines are optional. The
      * `(mandant_id, active)` index serves the admin list / active filter.
+     *
+     * W12: the event's location is no longer free text — `venue_id` (nullable FK
+     * to the mandant-wide `venues` master data, `restrict` on delete) is added
+     * by `2026_09_27_000002_add_venue_id_to_teams_and_events_tables`, which also
+     * drops the former `venue` string.
      */
     public function up(): void
     {
@@ -29,7 +34,6 @@ return new class extends Migration
             $table->foreignId('team_id')->nullable()->index()->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->date('date')->nullable();
-            $table->string('venue')->nullable();
             $table->string('competition')->nullable();
             $table->date('deadline_start')->nullable();
             $table->date('deadline_end')->nullable();

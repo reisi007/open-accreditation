@@ -82,11 +82,13 @@ class AdminEventTest extends TestCase
 
     public function test_super_admin_can_create_event(): void
     {
+        $venue = $this->mandantA->venues()->create(['name' => 'Olympiastadion']);
+
         $response = $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/events', [
                 'title' => 'Finale',
                 'date' => '2026-09-01',
-                'venue' => 'Olympiastadion',
+                'venue_id' => $venue->id,
                 'competition' => 'Pokal',
                 'deadline_start' => '2026-08-01',
                 'deadline_end' => '2026-08-15',
@@ -95,7 +97,11 @@ class AdminEventTest extends TestCase
         $response->assertStatus(201)
             ->assertJsonPath('data.title', 'Finale')
             ->assertJsonPath('data.date', '2026-09-01')
-            ->assertJsonPath('data.venue', 'Olympiastadion')
+            // W12: the location is a reference into the venue master data; the
+            // free-text `venue` is gone.
+            ->assertJsonPath('data.venue_id', $venue->id)
+            ->assertJsonPath('data.venue.id', $venue->id)
+            ->assertJsonPath('data.venue.name', 'Olympiastadion')
             ->assertJsonPath('data.competition', 'Pokal')
             ->assertJsonPath('data.deadline_start', '2026-08-01')
             ->assertJsonPath('data.deadline_end', '2026-08-15')
@@ -107,7 +113,22 @@ class AdminEventTest extends TestCase
             'mandant_id' => $this->mandantA->id,
             'title' => 'Finale',
             'active' => true,
+            'venue_id' => $venue->id,
         ]);
+    }
+
+    public function test_cannot_create_event_for_foreign_mandant_venue(): void
+    {
+        $foreignVenue = $this->mandantB->venues()->create(['name' => 'Fremde Halle']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/events', [
+                'title' => 'Hack',
+                'venue_id' => $foreignVenue->id,
+            ])
+            ->assertStatus(404);
+
+        $this->assertDatabaseMissing('events', ['title' => 'Hack']);
     }
 
     public function test_event_title_rejects_invalid_utf8_with_422_not_500(): void
@@ -243,19 +264,26 @@ class AdminEventTest extends TestCase
     public function test_super_admin_can_update_event_partially(): void
     {
         $event = $this->mandantA->events()->create(['title' => 'Alt', 'active' => true]);
+        $venue = $this->mandantA->venues()->create(['name' => 'Stadion']);
 
         $this->actingAsApi($this->superAdmin())
             ->putJson('/api/admin/events/'.$event->id, [
                 'title' => 'Neu',
-                'venue' => 'Stadion',
+                'venue_id' => $venue->id,
                 'active' => false,
             ])
             ->assertOk()
             ->assertJsonPath('data.title', 'Neu')
-            ->assertJsonPath('data.venue', 'Stadion')
+            ->assertJsonPath('data.venue_id', $venue->id)
+            ->assertJsonPath('data.venue.name', 'Stadion')
             ->assertJsonPath('data.active', false);
 
-        $this->assertDatabaseHas('events', ['id' => $event->id, 'title' => 'Neu', 'active' => false]);
+        $this->assertDatabaseHas('events', [
+            'id' => $event->id,
+            'title' => 'Neu',
+            'active' => false,
+            'venue_id' => $venue->id,
+        ]);
     }
 
     public function test_team_admin_can_update_own_team_event(): void
@@ -483,30 +511,28 @@ class AdminEventTest extends TestCase
             ->assertJsonValidationErrors('title');
     }
 
-    public function test_event_venue_and_competition_reject_invalid_utf8_with_422_not_500(): void
+    public function test_event_competition_rejects_invalid_utf8_with_422_not_500(): void
     {
         // Form-encoded bytes survive into the validated payload and would
         // otherwise reach the JSON response encoder → HTTP 500.
-        foreach (['venue', 'competition'] as $field) {
-            $this->actingAsApi($this->superAdmin())
-                ->post('/api/admin/events', ['title' => 'UTF8 Spiel', $field => "\xFF"])
-                ->assertStatus(422, "expected 422 for {$field}")
-                ->assertJsonValidationErrors($field);
-        }
+        $this->actingAsApi($this->superAdmin())
+            ->post('/api/admin/events', ['title' => 'UTF8 Spiel', 'competition' => "\xFF"])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('competition');
 
         $this->assertDatabaseMissing('events', ['title' => 'UTF8 Spiel']);
     }
 
-    public function test_venue_and_competition_are_strings_max_255(): void
+    public function test_competition_is_a_string_max_255_and_venue_id_an_integer(): void
     {
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/events', [
                 'title' => 'X',
-                'venue' => ['nope'],
+                'venue_id' => ['nope'],
                 'competition' => ['nope'],
             ])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['venue', 'competition']);
+            ->assertJsonValidationErrors(['venue_id', 'competition']);
     }
 
     public function test_team_delete_cascades_team_categories_and_events(): void

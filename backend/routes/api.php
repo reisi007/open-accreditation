@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\MandantMediaController;
 use App\Http\Controllers\Api\Admin\SubAccreditationController as AdminSubAccreditationController;
 use App\Http\Controllers\Api\Admin\TeamController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\Admin\VenueController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\MandantMediaSelfServiceController;
@@ -154,6 +155,7 @@ Route::middleware('auth:api')->group(function (): void {
 |   - team logo write                     → `can:teams.media.manage` (W4-F1,
 |     hierarchical: mandant_admin whole mandant, team_admin own team)
 |   - categories                          → `can:categories.manage`
+|   - venues                              → `can:venues.manage` (W12)
 |   - events                              → `can:events.manage`
 |   - users / roles                       → `can:users.manage` (P2c)
 |
@@ -162,9 +164,16 @@ Route::middleware('auth:api')->group(function (): void {
 | teams) and team_admin (own teams only — enforced inside the controller).
 | `categories.manage`/`events.manage` are also held by mandant_admin
 | (whole mandant) and team_admin (own team only — enforced inside the
-| controllers via the role assignments). Response format: `{data: …}`
-| resources or `{message}` + status; deletes return 204. Logo/header delivery
-| is auth-gated like user media.
+| controllers via the role assignments). `venues.manage` (W12) is held by
+| mandant_admin and team_admin, exactly like `categories.manage`: a venue is
+| mandant-wide reference data (never team-owned), so the surface is
+| mandant-scoped — but the team_admin grant is required, not a privilege: the
+| venue combobox in the team AND the event form reads `GET /api/admin/venues`
+| and creates inline, and team_admin may edit both forms (`teams.manage`,
+| `events.manage`). Without the grant that picker 403s and the create
+| affordance dead-ends. Response format: `{data: …}` resources or `{message}` +
+| status; deletes return 204 (a referenced venue answers 409 with the
+| reference counts). Logo/header delivery is auth-gated like user media.
 |
 | P2a-RL: every mutating admin route (POST/PUT/DELETE) carries
 | `throttle:admin` (named limiter, 300/min per authenticated admin user, key
@@ -218,6 +227,25 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/categories', [CategoryController::class, 'store'])->middleware('throttle:admin')->name('categories.store');
         Route::put('/categories/{category}', [CategoryController::class, 'update'])->middleware('throttle:admin')->name('categories.update');
         Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->middleware('throttle:admin')->name('categories.destroy');
+    });
+
+    // W12: venues (Spielstätten) — mandant-wide master data referenced by BOTH
+    // teams (`venue_id`, the Verein's default location) and events
+    // (`venue_id`, an event that deviates from it). The rows are mandant-scoped
+    // (no team level exists), so the gate mirrors the categories surface and is
+    // held by super_admin, mandant_admin AND team_admin: the combobox in the
+    // team and the event form reads this index and creates inline, and both of
+    // those forms are already editable by a team_admin (`teams.manage` /
+    // `events.manage`) — denying the gate would 403 the picker and the inline
+    // create he is supposed to have there. A foreign venue id is a 404
+    // (mandant-scoped route binding + `assertMandantScope`).
+    // A referenced venue is DEACTIVATED, not deleted; DELETE answers 409 with
+    // the reference counts when a team or an event still points at the row.
+    Route::middleware('can:venues.manage')->group(function (): void {
+        Route::get('/venues', [VenueController::class, 'index'])->name('venues.index');
+        Route::post('/venues', [VenueController::class, 'store'])->middleware('throttle:admin')->name('venues.store');
+        Route::put('/venues/{venue}', [VenueController::class, 'update'])->middleware('throttle:admin')->name('venues.update');
+        Route::delete('/venues/{venue}', [VenueController::class, 'destroy'])->middleware('throttle:admin')->name('venues.destroy');
     });
 
     Route::middleware('can:events.manage')->group(function (): void {

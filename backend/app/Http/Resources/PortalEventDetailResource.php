@@ -13,6 +13,11 @@ use Illuminate\Http\Request;
  * effective venue/deadline and the event manager contact. Contact resolution:
  * team events → first team_admin of the team; mandant-level events → first
  * mandant_admin of the mandant; none found → null.
+ *
+ * W12: `venue_effective` is the resolved venue NAME — the event's own
+ * `venue_id`, else the `venue_id` of its team. Both are references into the
+ * mandant's venue master data; a deactivated venue still resolves to its name
+ * (deactivation stops new assignments, it does not erase history).
  */
 class PortalEventDetailResource extends PortalEventResource
 {
@@ -30,7 +35,7 @@ class PortalEventDetailResource extends PortalEventResource
     {
         return [
             ...parent::toArray($request),
-            'venue_effective' => $this->venue ?? $this->team?->home_venue ?? null,
+            'venue_effective' => $this->venue?->name ?? $this->team?->venue?->name,
             'deadline_effective' => ($this->deadline_end ?? $this->deadline_start)?->format('Y-m-d'),
             'contact' => $this->contact(),
         ];

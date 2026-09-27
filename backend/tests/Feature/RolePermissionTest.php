@@ -49,6 +49,7 @@ class RolePermissionTest extends TestCase
             'users.manage',
             'verification.verify',
             'mandant.media.manage',
+            'venues.manage',
         ];
 
         $mandantLevel = [
@@ -59,6 +60,7 @@ class RolePermissionTest extends TestCase
             'accreditations.view',
             'accreditations.manage',
             'mandant.media.manage',
+            'venues.manage',
         ];
 
         return [
@@ -93,7 +95,11 @@ class RolePermissionTest extends TestCase
             'team_admin within own mandant and team' => [
                 UserRole::TEAM_ADMIN->value,
                 7,
-                ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view'],
+                ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view', 'venues.manage'],
+                // W12: `venues.manage` sits next to `categories.manage` — a venue
+                // is mandant-wide reference data (no team level to scope to), but
+                // the team form and the event form, both editable by this role,
+                // need the venue picker + inline create it feeds.
                 ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage'],
                 'own',
             ],
@@ -108,7 +114,7 @@ class RolePermissionTest extends TestCase
                 UserRole::USER->value,
                 null,
                 ['accreditations.self'],
-                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify', 'mandant.media.manage'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'users.manage', 'verification.verify', 'mandant.media.manage', 'venues.manage'],
                 'own',
             ],
             'user on a foreign mandant' => [
@@ -122,7 +128,7 @@ class RolePermissionTest extends TestCase
                 UserRole::VERIFIER->value,
                 null,
                 ['verification.verify'],
-                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage', 'mandant.media.manage'],
+                ['mandants.manage', 'teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'users.manage', 'mandant.media.manage', 'venues.manage'],
                 'own',
             ],
             'verifier on a foreign mandant' => [
@@ -221,7 +227,7 @@ class RolePermissionTest extends TestCase
         [$mandant] = $this->createMandants();
         MandantContext::set($mandant);
 
-        foreach (['mandants.manage', 'teams.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage'] as $permission) {
+        foreach (['mandants.manage', 'teams.manage', 'events.manage', 'accreditations.view', 'accreditations.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage', 'venues.manage'] as $permission) {
             $this->assertFalse(Gate::allows($permission), "guest should be denied: {$permission}");
         }
     }

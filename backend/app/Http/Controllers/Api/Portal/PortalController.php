@@ -25,6 +25,12 @@ class PortalController extends Controller
 {
     /**
      * Public mandant + team overview of the current mandant.
+     *
+     * W12: `home_venue` is the RESOLVED name of the team's `venue_id` (mandant
+     * master data), not a free-text column. The key is kept so the public
+     * portal payload is unchanged; a deactivated venue still resolves to its
+     * name. The `venue` relation is eager-loaded to keep the loop a single
+     * extra query instead of one per team.
      */
     public function overview(): JsonResponse
     {
@@ -36,11 +42,13 @@ class PortalController extends Controller
             'data' => [
                 'mandant' => new MandantPublicResource($mandant),
                 'teams' => $teamsEnabled
-                    ? $mandant->teams
+                    ? $mandant->teams()
+                        ->with('venue')
+                        ->get()
                         ->map(fn (Team $team): array => [
                             'id' => $team->id,
                             'name' => $team->name,
-                            'home_venue' => $team->home_venue,
+                            'home_venue' => $team->venue?->name,
                         ])
                         ->values()
                         ->all()
@@ -73,7 +81,7 @@ class PortalController extends Controller
         $query = Event::query()
             ->forMandant($mandant->id)
             ->active()
-            ->with('team');
+            ->with(['team', 'venue']);
 
         if ($request->filled('team_id')) {
             $teamId = (int) $request->input('team_id');
@@ -112,7 +120,9 @@ class PortalController extends Controller
         $event = Event::query()
             ->forMandant($mandant->id)
             ->active()
-            ->with('team')
+            // W12: `venue` for `venue_effective`, `team.venue` for the fallback
+            // chain — both eager-loaded so the detail costs no lazy query.
+            ->with(['team.venue', 'venue'])
             ->findOrFail($event->id);
 
         return new PortalEventDetailResource($event, $mandant);

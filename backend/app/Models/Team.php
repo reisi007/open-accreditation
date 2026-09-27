@@ -10,7 +10,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['mandant_id', 'slug', 'name', 'home_venue', 'logo_path'])]
+/**
+ * A team (Verein) of a mandant. Its location is the nullable `venue_id` FK to
+ * the mandant-wide venue master data (W12) — the former free-text `home_venue`
+ * column is gone, so one venue row is shared by every team and event using it.
+ */
+#[Fillable(['mandant_id', 'slug', 'name', 'venue_id', 'logo_path'])]
 class Team extends Model
 {
     use HasFactory;
@@ -18,6 +23,16 @@ class Team extends Model
     public function mandant(): BelongsTo
     {
         return $this->belongsTo(Mandant::class);
+    }
+
+    /**
+     * The team's default venue (Heimstätte, W12). Nullable — a team without a
+     * venue simply has none. The relation is mandant-internal: the venue
+     * belongs to the same mandant as the team.
+     */
+    public function venue(): BelongsTo
+    {
+        return $this->belongsTo(Venue::class);
     }
 
     /**

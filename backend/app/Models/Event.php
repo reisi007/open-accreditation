@@ -17,13 +17,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * groups sharing a slot). `team_id` stays the "home team" shorthand; the full
  * field lives in `event_participants`.
  *
- * The home default venue chain is intentionally NOT rewired by W4:
- * `venue_effective = events.venue ?? teams.home_venue` (see
- * `PortalEventDetailResource`) keeps resolving through the bound `team`. A
- * dedicated Venue-CRUD (`events.venue_id`) follows later; participants only
- * carry the opposing/tournament sides.
+ * The event's location is the nullable `venue_id` FK to the mandant-wide venue
+ * master data (W12) — the former free-text `venue` string is gone. The home
+ * default chain still resolves through the bound `team`:
+ * `venue_effective = events.venue ?? teams.venue` (see
+ * `PortalEventDetailResource`). Participants only carry the opposing/
+ * tournament sides.
  */
-#[Fillable(['mandant_id', 'team_id', 'event_type_id', 'title', 'date', 'venue', 'competition', 'deadline_start', 'deadline_end', 'active'])]
+#[Fillable(['mandant_id', 'team_id', 'event_type_id', 'title', 'date', 'venue_id', 'competition', 'deadline_start', 'deadline_end', 'active'])]
 class Event extends Model
 {
     public function mandant(): BelongsTo
@@ -34,6 +35,16 @@ class Event extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(Team::class);
+    }
+
+    /**
+     * The event's own venue (W12), overriding the team's default. Null means
+     * "no location of its own" — the effective location then falls back to the
+     * team's `venue`.
+     */
+    public function venue(): BelongsTo
+    {
+        return $this->belongsTo(Venue::class);
     }
 
     /**

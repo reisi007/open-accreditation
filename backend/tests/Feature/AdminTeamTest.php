@@ -136,24 +136,58 @@ class AdminTeamTest extends TestCase
 
     public function test_can_create_team(): void
     {
+        $venue = $this->mandantA->venues()->create(['name' => 'Musterstadion']);
+
         $response = $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
                 'name' => 'FC Musterhausen',
                 'slug' => 'fc-musterhausen',
-                'home_venue' => 'Musterstadion',
+                'venue_id' => $venue->id,
             ]);
 
         $response->assertStatus(201)
             ->assertJsonPath('data.name', 'FC Musterhausen')
             ->assertJsonPath('data.slug', 'fc-musterhausen')
-            ->assertJsonPath('data.home_venue', 'Musterstadion')
+            // W12: the location is a reference into the venue master data; the
+            // free-text `home_venue` is gone.
+            ->assertJsonPath('data.venue_id', $venue->id)
+            ->assertJsonPath('data.venue.id', $venue->id)
+            ->assertJsonPath('data.venue.name', 'Musterstadion')
             ->assertJsonPath('data.mandant_id', $this->mandantA->id);
 
         $this->assertDatabaseHas('teams', [
             'mandant_id' => $this->mandantA->id,
             'slug' => 'fc-musterhausen',
             'name' => 'FC Musterhausen',
+            'venue_id' => $venue->id,
         ]);
+    }
+
+    public function test_a_team_can_be_created_without_a_venue(): void
+    {
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
+                'name' => 'FC Ortlos',
+                'slug' => 'fc-ortlos',
+            ])
+            ->assertStatus(201)
+            ->assertJsonPath('data.venue_id', null)
+            ->assertJsonPath('data.venue', null);
+    }
+
+    public function test_cannot_assign_a_foreign_mandant_venue_to_a_team(): void
+    {
+        $foreignVenue = $this->mandantB->venues()->create(['name' => 'Fremde Halle']);
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
+                'name' => 'FC Hack',
+                'slug' => 'fc-hack',
+                'venue_id' => $foreignVenue->id,
+            ])
+            ->assertStatus(404);
+
+        $this->assertDatabaseMissing('teams', ['slug' => 'fc-hack']);
     }
 
     public function test_team_name_rejects_invalid_utf8_with_422_not_500(): void
@@ -171,18 +205,16 @@ class AdminTeamTest extends TestCase
         $this->assertDatabaseMissing('teams', ['slug' => 'fc-invalid']);
     }
 
-    public function test_team_home_venue_rejects_invalid_utf8_with_422_not_500(): void
+    public function test_team_venue_id_must_be_an_integer(): void
     {
-        // Form-encoded bytes (`home_venue=\xFF`) survive into the validated
-        // payload and would otherwise reach the JSON response encoder → 500.
         $this->actingAsApi($this->superAdmin())
-            ->post('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
+            ->postJson('/api/admin/mandants/'.$this->mandantA->id.'/teams', [
                 'name' => 'FC UTF8',
                 'slug' => 'fc-utf8',
-                'home_venue' => "\xFF",
+                'venue_id' => ['nope'],
             ])
             ->assertStatus(422)
-            ->assertJsonValidationErrors('home_venue');
+            ->assertJsonValidationErrors('venue_id');
 
         $this->assertDatabaseMissing('teams', ['slug' => 'fc-utf8']);
     }
@@ -284,22 +316,45 @@ class AdminTeamTest extends TestCase
     public function test_can_update_team_partially(): void
     {
         $team = $this->mandantA->teams()->create(['name' => 'FC Alt', 'slug' => 'fc-alt']);
+        $venue = $this->mandantA->venues()->create(['name' => 'Neues Stadion']);
 
         $this->actingAsApi($this->superAdmin())
             ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id, [
                 'name' => 'FC Neu',
-                'home_venue' => 'Neues Stadion',
+                'venue_id' => $venue->id,
             ])
             ->assertOk()
             ->assertJsonPath('data.name', 'FC Neu')
-            ->assertJsonPath('data.home_venue', 'Neues Stadion')
+            ->assertJsonPath('data.venue_id', $venue->id)
+            ->assertJsonPath('data.venue.name', 'Neues Stadion')
             ->assertJsonPath('data.slug', 'fc-alt');
 
         $this->assertDatabaseHas('teams', [
             'id' => $team->id,
             'name' => 'FC Neu',
-            'home_venue' => 'Neues Stadion',
+            'venue_id' => $venue->id,
         ]);
+    }
+
+    public function test_a_team_venue_can_be_cleared_and_kept_on_a_partial_update(): void
+    {
+        $venue = $this->mandantA->venues()->create(['name' => 'Stadion']);
+        $team = $this->mandantA->teams()->create(['name' => 'FC Alt', 'slug' => 'fc-alt', 'venue_id' => $venue->id]);
+
+        // A partial update without `venue_id` leaves the reference alone.
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id, ['name' => 'FC Neu'])
+            ->assertOk()
+            ->assertJsonPath('data.venue_id', $venue->id);
+
+        // An explicit `null` clears it.
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/teams/'.$team->id, ['venue_id' => null])
+            ->assertOk()
+            ->assertJsonPath('data.venue_id', null)
+            ->assertJsonPath('data.venue', null);
+
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'venue_id' => null]);
     }
 
     public function test_can_delete_team(): void

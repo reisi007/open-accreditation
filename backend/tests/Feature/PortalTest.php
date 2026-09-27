@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\Venue;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,6 +44,10 @@ class PortalTest extends TestCase
 
     private Team $foreignTeam;
 
+    private Venue $venueA;
+
+    private Venue $venueB;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -64,8 +69,13 @@ class PortalTest extends TestCase
             'impressum_text' => 'Impressum B',
         ]);
 
-        $this->teamA = $this->mandantA->teams()->create(['name' => 'Team A', 'slug' => 'team-a', 'home_venue' => 'Heim A']);
-        $this->teamB = $this->mandantA->teams()->create(['name' => 'Team B', 'slug' => 'team-b', 'home_venue' => 'Heim B']);
+        // W12: the portal's `home_venue` / `venue` are the RESOLVED names of the
+        // mandant's venue master data, not free-text columns.
+        $this->venueA = $this->mandantA->venues()->create(['name' => 'Heim A']);
+        $this->venueB = $this->mandantA->venues()->create(['name' => 'Heim B']);
+
+        $this->teamA = $this->mandantA->teams()->create(['name' => 'Team A', 'slug' => 'team-a', 'venue_id' => $this->venueA->id]);
+        $this->teamB = $this->mandantA->teams()->create(['name' => 'Team B', 'slug' => 'team-b', 'venue_id' => $this->venueB->id]);
         $this->foreignTeam = $this->mandantB->teams()->create(['name' => 'Fremd', 'slug' => 'fremd']);
 
         MandantContext::set($this->mandantA);
@@ -181,7 +191,9 @@ class PortalTest extends TestCase
 
     public function test_events_lists_only_active_events_ordered_by_date_asc(): void
     {
-        $this->mandantA->events()->create(['title' => 'Spaet', 'date' => '2026-09-01', 'venue' => 'Stadion']);
+        $stadion = $this->mandantA->venues()->create(['name' => 'Stadion']);
+
+        $this->mandantA->events()->create(['title' => 'Spaet', 'date' => '2026-09-01', 'venue_id' => $stadion->id]);
         $this->mandantA->events()->create(['team_id' => $this->teamA->id, 'title' => 'Frueh', 'date' => '2026-08-01']);
         $this->mandantA->events()->create(['title' => 'Inaktiv', 'date' => '2026-07-01', 'active' => false]);
 
@@ -193,6 +205,9 @@ class PortalTest extends TestCase
             ->assertJsonPath('data.0.team_id', $this->teamA->id)
             ->assertJsonPath('data.0.team.id', $this->teamA->id)
             ->assertJsonPath('data.0.team.name', 'Team A')
+            // The event has no venue of its own → the calendar's `venue` is
+            // null (only the DETAIL resolves the team fallback).
+            ->assertJsonPath('data.0.venue', null)
             ->assertJsonPath('data.0.active', true)
             ->assertJsonPath('data.1.title', 'Spaet')
             ->assertJsonPath('data.1.date', '2026-09-01')
@@ -276,11 +291,13 @@ class PortalTest extends TestCase
         $contact = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id, 'leiter@example.com');
         $contact->update(['name' => 'Team Leiter']);
 
+        $neutral = $this->mandantA->venues()->create(['name' => 'Heimstadion']);
+
         $event = $this->mandantA->events()->create([
             'team_id' => $this->teamA->id,
             'title' => 'Derby',
             'date' => '2026-09-01',
-            'venue' => 'Heimstadion',
+            'venue_id' => $neutral->id,
             'competition' => 'Pokal',
             'deadline_start' => '2026-08-01',
             'deadline_end' => '2026-08-15',
@@ -294,7 +311,8 @@ class PortalTest extends TestCase
             ->assertJsonPath('data.team_id', $this->teamA->id)
             ->assertJsonPath('data.team.id', $this->teamA->id)
             ->assertJsonPath('data.team.name', 'Team A')
-            // Explicit venue wins over the team's home venue.
+            ->assertJsonPath('data.venue', 'Heimstadion')
+            // Explicit venue wins over the team's default venue.
             ->assertJsonPath('data.venue_effective', 'Heimstadion')
             // deadline_end is the countdown reference.
             ->assertJsonPath('data.deadline_effective', '2026-08-15')
@@ -302,7 +320,7 @@ class PortalTest extends TestCase
             ->assertJsonPath('data.contact.email', 'leiter@example.com');
     }
 
-    public function test_event_show_venue_falls_back_to_team_home_venue(): void
+    public function test_event_show_venue_falls_back_to_team_venue(): void
     {
         $event = $this->mandantA->events()->create([
             'team_id' => $this->teamA->id,
@@ -312,6 +330,23 @@ class PortalTest extends TestCase
         $this->getJson('/api/portal/events/'.$event->id)
             ->assertOk()
             ->assertJsonPath('data.venue', null)
+            ->assertJsonPath('data.venue_effective', 'Heim A');
+    }
+
+    public function test_event_show_renders_a_deactivated_venue_instead_of_blanking_it(): void
+    {
+        // W12: deactivation stops NEW assignments, it does not erase history —
+        // a deactivated venue's name still resolves for the events pointing at
+        // it (the FK is `restrict`, so the row cannot go away anyway).
+        $this->venueA->update(['is_active' => false]);
+
+        $event = $this->mandantA->events()->create([
+            'team_id' => $this->teamA->id,
+            'title' => 'Altes Spiel',
+        ]);
+
+        $this->getJson('/api/portal/events/'.$event->id)
+            ->assertOk()
             ->assertJsonPath('data.venue_effective', 'Heim A');
     }
 

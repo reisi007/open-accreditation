@@ -22,7 +22,9 @@ class TeamFactory extends Factory
             'mandant_id' => Mandant::factory(),
             'slug' => fake()->unique()->slug(2),
             'name' => fake()->company(),
-            'home_venue' => null,
+            // W12: the location is a reference into the mandant's venue master
+            // data, not free text. A factory team has no venue by default.
+            'venue_id' => null,
         ];
     }
 }

@@ -94,6 +94,15 @@ class Mandant extends Model
     }
 
     /**
+     * The mandant's venues (Spielstätten), mandant-wide master data (W12).
+     * Referenced by both teams and events.
+     */
+    public function venues(): HasMany
+    {
+        return $this->hasMany(Venue::class);
+    }
+
+    /**
      * The mandant's event types (W2), mandant-wide.
      */
     public function eventTypes(): HasMany

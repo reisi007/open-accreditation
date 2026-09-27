@@ -12,6 +12,11 @@ return new class extends Migration
      * P2a teams (Vereine): optional per mandant. Slug uniqueness is scoped to
      * the mandant — one Verband cannot contain duplicate team slugs, but two
      * Verbände may use the same slug. The team dies with its mandant (cascade).
+     *
+     * W12: the team's location is no longer free text — `venue_id` (nullable FK
+     * to the mandant-wide `venues` master data, `restrict` on delete) is added
+     * by `2026_09_27_000002_add_venue_id_to_teams_and_events_tables`, which also
+     * drops the former `home_venue` string.
      */
     public function up(): void
     {
@@ -23,7 +28,6 @@ return new class extends Migration
             $table->foreignId('mandant_id')->index()->constrained()->cascadeOnDelete();
             $table->string('slug');
             $table->string('name');
-            $table->string('home_venue')->nullable();
             $table->timestamps();
             $table->unique(['mandant_id', 'slug']);
         });

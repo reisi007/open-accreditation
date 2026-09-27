@@ -46,6 +46,22 @@ use App\Enums\UserRole;
 | team → 403). super_admin manages every team globally; user and verifier hold
 | no team media permission and are denied at the route gate.
 |
+| `venues.manage` (W12) is held by mandant_admin AND team_admin — the same
+| pair that holds `categories.manage`, and for the same reason. A venue
+| (Spielstätte) is mandant-wide master data referenced by BOTH `teams.venue_id`
+| and `events.venue_id`, so a row is never team-owned and the write is
+| mandant-scoped, NOT team-scoped. The team_admin grant is not a privilege on
+| other teams' data: it is the *picker* behind the forms he is already allowed
+| to edit. The venue combobox in the team form and in the event form reads
+| `GET /api/admin/venues` and offers an inline create ("Ort kann auch GUI
+| mäßig mit erstellt werden"); both writes that reference a venue —
+| `teams.manage` and `events.manage`, which team_admin holds — are therefore
+| dead ends without it: he could assign a venue but never create one, and the
+| combobox would render empty. This is precisely the reasoning that already
+| gave team_admin `categories.manage` for the category picker in the same
+| forms. `user` and `verifier` hold no venue permission and are denied at the
+| route gate; mandant isolation is unchanged (a foreign venue is 404).
+|
 */
 
 return [
@@ -63,6 +79,7 @@ return [
         'accreditations.manage',
         'mandant.media.manage',
         'teams.media.manage',
+        'venues.manage',
     ],
 
     UserRole::TEAM_ADMIN->value => [
@@ -73,6 +90,10 @@ return [
         'events.manage',
         'accreditations.manage',
         'accreditations.view',
+        // W12: the venue picker behind the team and event forms this role may
+        // already edit — mandant-scoped like `categories.manage`, granted so
+        // the inline create never 403s. See the header note.
+        'venues.manage',
     ],
 
     UserRole::USER->value => [

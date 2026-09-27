@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\TeamResource;
 use App\Models\Mandant;
 use App\Models\Team;
+use App\Models\Venue;
 use App\Rules\ValidUtf8;
 use App\Services\MediaStorage;
 use App\Services\TeamMediaService;
@@ -58,7 +59,7 @@ class TeamController extends Controller
             $query->whereIn('id', $teamIds);
         }
 
-        return TeamResource::collection($query->get());
+        return TeamResource::collection($query->with('venue')->get());
     }
 
     public function store(Request $request, Mandant $mandant): JsonResponse
@@ -66,10 +67,11 @@ class TeamController extends Controller
         $this->authorizeSuperAdmin($request);
         $this->assertTeamsEnabled($mandant);
         $validated = $request->validate($this->rules($mandant, forCreate: true));
+        $this->assertVenueOfMandant($validated, $mandant);
 
         $team = $mandant->teams()->create($validated);
 
-        return (new TeamResource($team))
+        return (new TeamResource($team->load('venue')))
             ->response()
             ->setStatusCode(201);
     }
@@ -80,6 +82,7 @@ class TeamController extends Controller
         $this->assertTeamsEnabled($mandant);
         $teamModel = $mandant->teams()->findOrFail((int) $team);
         $validated = $request->validate($this->rules($mandant, $teamModel));
+        $this->assertVenueOfMandant($validated, $mandant);
 
         $previousSlug = $teamModel->slug;
 
@@ -89,7 +92,7 @@ class TeamController extends Controller
         // path never points at a directory of the previous slug.
         $this->media->moveForSlugChange($teamModel->fresh(), $previousSlug);
 
-        return new TeamResource($teamModel->fresh());
+        return new TeamResource($teamModel->fresh('venue'));
     }
 
     public function destroy(Request $request, Mandant $mandant, string $team): Response
@@ -156,7 +159,7 @@ class TeamController extends Controller
 
         $this->media->store($team, $file);
 
-        return new TeamResource($team->fresh());
+        return new TeamResource($team->fresh('venue'));
     }
 
     /**
@@ -171,6 +174,30 @@ class TeamController extends Controller
         $this->media->destroy($team);
 
         return response()->noContent();
+    }
+
+    /**
+     * W12: a requested `venue_id` must reference a venue of the mandant the
+     * team is written in. A foreign/id-less id is answered with 404 (mirrors
+     * `assertEventTypeOfMandant` on the events side), so the team can never be
+     * linked to another tenant's venue. A payload without `venue_id` (partial
+     * update) leaves the stored reference untouched.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function assertVenueOfMandant(array $validated, Mandant $mandant): void
+    {
+        $venueId = $validated['venue_id'] ?? null;
+
+        if ($venueId === null) {
+            return;
+        }
+
+        abort_unless(
+            Venue::query()->forMandant($mandant->id)->whereKey($venueId)->exists(),
+            404,
+            'Venue does not belong to this mandant.',
+        );
     }
 
     /**
@@ -205,7 +232,11 @@ class TeamController extends Controller
                     ->where('mandant_id', $mandant->id)
                     ->ignore($team?->id),
             ],
-            'home_venue' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            // W12: the location is a FK to the mandant's venue master data, not
+            // free text. A foreign/id-less id is answered with 404 (mirrors the
+            // slug guard), so a team can never be linked to another tenant's
+            // venue.
+            'venue_id' => ['nullable', 'integer'],
         ];
     }
 

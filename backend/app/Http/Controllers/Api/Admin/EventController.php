@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EventResource;
 use App\Models\Event;
 use App\Models\EventType;
+use App\Models\Venue;
 use App\Rules\ValidUtf8;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,7 +34,7 @@ class EventController extends Controller
 
         $query = Event::query()
             ->forMandant($mandantId)
-            ->with('team');
+            ->with(['team', 'venue']);
 
         if ($teamIds !== []) {
             $query->whereIn('team_id', $teamIds);
@@ -65,13 +66,17 @@ class EventController extends Controller
             $this->assertEventTypeOfMandant($validated['event_type_id'], $mandantId);
         }
 
+        if (array_key_exists('venue_id', $validated)) {
+            $this->assertVenueOfMandant($validated['venue_id'], $mandantId);
+        }
+
         $event = Event::create([
             ...$validated,
             'mandant_id' => $mandantId,
             'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds),
         ]);
 
-        return (new EventResource($event->fresh('team')))
+        return (new EventResource($event->fresh(['team', 'venue'])))
             ->response()
             ->setStatusCode(201);
     }
@@ -89,12 +94,16 @@ class EventController extends Controller
             $this->assertEventTypeOfMandant($validated['event_type_id'], $mandantId);
         }
 
+        if (array_key_exists('venue_id', $validated)) {
+            $this->assertVenueOfMandant($validated['venue_id'], $mandantId);
+        }
+
         $event->update([
             ...$validated,
             'team_id' => $this->resolveTeamId($validated, $mandantId, $teamIds, $event),
         ]);
 
-        return new EventResource($event->fresh('team'));
+        return new EventResource($event->fresh(['team', 'venue']));
     }
 
     public function destroy(Request $request, Event $event): Response
@@ -121,7 +130,10 @@ class EventController extends Controller
             'team_id' => ['nullable', 'integer'],
             'event_type_id' => ['nullable', 'integer'],
             'date' => ['nullable', 'date'],
-            'venue' => ['nullable', 'string', 'max:255', new ValidUtf8],
+            // W12: the location is a FK to the mandant's venue master data, not
+            // free text. A foreign/id-less id is answered with 404 (see
+            // `assertVenueOfMandant`), mirroring the event-type guard.
+            'venue_id' => ['nullable', 'integer'],
             'competition' => ['nullable', 'string', 'max:255', new ValidUtf8],
             'deadline_start' => ['nullable', 'date'],
             'deadline_end' => ['nullable', 'date'],
@@ -178,6 +190,25 @@ class EventController extends Controller
             EventType::query()->forMandant($mandantId)->whereKey($eventTypeId)->exists(),
             404,
             'Event type does not belong to this mandant.',
+        );
+    }
+
+    /**
+     * W12: a requested `venue_id` must reference a venue of the current mandant.
+     * A foreign/id-less id is answered with 404 (mirrors the event-type guard),
+     * so a client can never link an event to another tenant's venue. A payload
+     * without `venue_id` (partial update) leaves the stored reference alone.
+     */
+    private function assertVenueOfMandant(mixed $venueId, int $mandantId): void
+    {
+        if ($venueId === null) {
+            return;
+        }
+
+        abort_unless(
+            Venue::query()->forMandant($mandantId)->whereKey($venueId)->exists(),
+            404,
+            'Venue does not belong to this mandant.',
         );
     }
 }
