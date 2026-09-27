@@ -127,6 +127,14 @@ class MandantContextMiddleware
         $hostname = parse_url('http://'.strtolower(trim($host)), PHP_URL_HOST)
             ?? strtolower(trim($host));
 
+        // IPv6 arrives BRACKETED and must be normalised before the comparison:
+        // `Request::getHost()` returns `'[::1]'` (its `isHostValid()` only
+        // accepts a *balanced* `[...]` literal), and `parse_url('http://[::1]')`
+        // keeps the brackets too — so the bare `'::1'` below never matched
+        // anything, and `php artisan serve --host='[::1]'` 404'd on every route
+        // in `local`. Same unwrapping as `EnsureSameOrigin::isLoopbackHost()`.
+        $hostname = trim($hostname, '[]');
+
         if (in_array($hostname, ['localhost', '127.0.0.1', '::1'], true)) {
             return true;
         }

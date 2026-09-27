@@ -266,13 +266,20 @@ class MandantHostHeaderResolutionTest extends TestCase
     /* ------------------------------------------------------------------ */
 
     /**
-     * `localhost` / `127.0.0.1` (with and without a port) have no
-     * `mandant_domains` row, so `resolve()` returns null and
-     * `MandantContextMiddleware` falls back to `MandantContext::default()` —
-     * the `is_primary` mandant — in `local`/`testing`. That is what keeps
-     * `php artisan serve`, the Vite dev server and the CI probes off the 404
-     * path. Asserted through `/api/auth/me`, so the fallback is measured at the
-     * surface the SPA reads, not only in the container.
+     * `localhost` / `127.0.0.1` / `::1` (with and without a port) and any
+     * `*.localhost` subdomain have no `mandant_domains` row, so `resolve()`
+     * returns null and `MandantContextMiddleware` falls back to
+     * `MandantContext::default()` — the `is_primary` mandant — in
+     * `local`/`testing`. That is what keeps `php artisan serve`, the Vite dev
+     * server and the CI probes off the 404 path. Asserted through
+     * `/api/auth/me`, so the fallback is measured at the surface the SPA reads,
+     * not only in the container.
+     *
+     * The IPv6 rows are the ones with a normalising step in front of them: the
+     * host arrives as `'[::1]'` and `isLoopback()` unwraps it. The shape
+     * precondition and the measured before/after live in
+     * `test_the_ipv6_loopback_host_arrives_bracketed_and_still_reaches_the_primary`
+     * below, so the table here stays the single home of the *claim*.
      */
     #[DataProvider('loopbackHosts')]
     public function test_a_loopback_host_falls_back_to_the_primary_mandant(string $url): void
@@ -299,6 +306,8 @@ class MandantHostHeaderResolutionTest extends TestCase
             'IPv4 loopback' => ['http://127.0.0.1'],
             'IPv4 loopback with port' => ['http://127.0.0.1:8000'],
             'localhost subdomain' => ['http://mandant-a.localhost'],
+            'IPv6 loopback' => ['http://[::1]'],
+            'IPv6 loopback with port' => ['http://[::1]:8000'],
         ];
     }
 
@@ -320,59 +329,103 @@ class MandantHostHeaderResolutionTest extends TestCase
      * The loopback fallback is a `local`/`testing` convenience ONLY — in
      * production a loopback Host is a foreign host and stays a 404
      * (`isLoopback($host) && app()->environment('local', 'testing')`).
+     *
+     * `::1` is listed explicitly: the IPv6 fix normalises the brackets inside
+     * `isLoopback()`, and the guard it sits behind is what keeps that from
+     * handing a **production** deployment a mandant on a loopback Host. If the
+     * environment check were ever widened, this case is what turns red.
      */
-    public function test_the_loopback_fallback_does_not_apply_in_production(): void
+    #[DataProvider('productionLoopbackUrls')]
+    public function test_the_loopback_fallback_does_not_apply_in_production(string $url): void
     {
         $this->pretendToBeAProductionRequest();
 
         $this->primaryWithDomain('haupt', 'haupt.test');
 
         $this->actingAsApi($this->superAdmin())
-            ->getJson('http://127.0.0.1/api/auth/me')
+            ->getJson($url.'/api/auth/me')
             ->assertNotFound();
+
+        $this->assertNull(MandantContext::current());
     }
 
     /**
-     * KNOWN DISCREPANCY — characterization test, current behaviour, NOT the
-     * documented intent. Reported, deliberately not fixed here.
-     *
-     * `MandantContextMiddleware::isLoopback()` lists `::1` among the loopback
-     * hostnames and its docblock claims "localhost / IPv4 / IPv6 loopback", but
-     * it derives the hostname via
-     * `parse_url('http://'.$host, PHP_URL_HOST)`, and PHP returns the IPv6
-     * literal **with its brackets** — `'[::1]'`. The comparison list holds the
-     * bare `'::1'`, so `in_array()` is `false`, `'[::1]'` does not end in
-     * `.localhost` either, and the `::1` entry is unreachable. `Request::getHost()`
-     * likewise yields `'[::1]'` (Symfony explicitly allows hosts starting with
-     * `[`).
-     *
-     * Consequence: an IPv6 loopback request gets NO primary-mandant fallback.
-     * In `local`/`testing` that degrades to "no mandant" (console escape hatch);
-     * in production it is a 404 — the very same outcome a foreign host gets,
-     * even though `bootstrap/app.php:63` allow-lists `^\[::1\]$` for container
-     * health probes. Those hit `/up`, which short-circuits before host
-     * resolution, so the exposure is limited; a real IPv6 loopback API request
-     * is not served.
-     *
-     * If the IPv6 fallback is ever fixed, this test is what must change with
-     * it (it should then assert the primary mandant like its siblings above).
+     * @return array<string, array{0: string}>
      */
-    public function test_the_ipv6_loopback_host_does_not_reach_the_primary_fallback(): void
+    public static function productionLoopbackUrls(): array
     {
+        return [
+            'IPv4 loopback' => ['http://127.0.0.1'],
+            'IPv6 loopback' => ['http://[::1]'],
+        ];
+    }
+
+    /**
+     * WHY the IPv6 case above is not the trivially-passing one: the loopback
+     * host reaches `isLoopback()` **bracketed**, at two independent layers,
+     * and both are pinned here.
+     *
+     *  - `Request::getHost()` (what `resolveHost()` returns) keeps the brackets:
+     *    `'[::1]'`. Symfony's `isHostValid()` accepts a Host only as a *balanced*
+     *    `[...]` literal, so a bracketed host is all that can ever arrive —
+     *    measured: `[::1` , `[]localhost[]` and `[::1]]` are all rejected with
+     *    `SuspiciousOperationException`.
+     *  - `parse_url('http://[::1]', PHP_URL_HOST)` keeps them as well and
+     *    returns `'[::1]'`; the bare form is PHP garbage, not `'::1'` (it
+     *    yields `':'`), which is why the pre-fix comparison list could never
+     *    match.
+     *
+     * Measured consequence of the old comparison list (before
+     * `trim($hostname, '[]')` was added to `isLoopback()`):
+     *  - `local`, real HTTP request with `Host: [::1]:8000` → **404 on every
+     *    route**, i.e. `php artisan serve --host='[::1]'` serves a dead app,
+     *    while `localhost` / `127.0.0.1` returned the primary mandant.
+     *  - `testing` (console escape hatch) → 200 but
+     *    `current_mandant_id === null`: the fallback silently does not apply.
+     *  - `production` → 404, unchanged — and correct, because there the fallback
+     *    is off for *every* loopback spelling; see
+     *    `test_the_loopback_fallback_does_not_apply_in_production`.
+     */
+    #[DataProvider('ipv6LoopbackUrls')]
+    public function test_the_ipv6_loopback_host_arrives_bracketed_and_still_reaches_the_primary(string $url): void
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
         $this->assertSame(
             '[::1]',
-            parse_url('http://[::1]', PHP_URL_HOST),
-            'precondition: PHP returns the IPv6 literal with brackets, which is why the bare `::1` entry in isLoopback() never matches',
+            $host,
+            'precondition: the IPv6 literal arrives bracketed, which is why isLoopback() has to unwrap it before comparing against the bare `::1`',
         );
 
-        $this->primaryWithDomain('haupt', 'haupt.test');
+        $this->assertSame(
+            '[::1]',
+            Request::create($url)->getHost(),
+            'precondition: `Request::getHost()` — the value `resolveHost()` returns — keeps the brackets too',
+        );
 
+        $this->mandantWithDomain('verband-a', 'verband-a.test');
+        $primary = $this->primaryWithDomain('haupt', 'haupt.test');
+
+        // Same assertions as every other `loopbackHosts` case, so the table
+        // above is the single home of the claim; this test only carries the
+        // reason the IPv6 rows are not self-evident.
         $this->actingAsApi($this->superAdmin())
-            ->getJson('http://[::1]/api/auth/me')
+            ->getJson($url.'/api/auth/me')
             ->assertOk()
-            ->assertJsonPath('data.current_mandant_id', null);
+            ->assertJsonPath('data.current_mandant_id', $primary->id);
 
-        $this->assertNull(MandantContext::current());
+        $this->assertTrue(MandantContext::current()?->is($primary));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function ipv6LoopbackUrls(): array
+    {
+        return [
+            'IPv6 loopback' => ['http://[::1]'],
+            'IPv6 loopback with port' => ['http://[::1]:8000'],
+        ];
     }
 
     /* ------------------------------------------------------------------ */
