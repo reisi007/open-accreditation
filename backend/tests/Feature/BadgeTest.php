@@ -404,14 +404,15 @@ class BadgeTest extends TestCase
      * F2-Residual: the guard is UNCONDITIONAL — a domain-less mandant cannot
      * export verifiable badges even when the `config('app.url')` fallback host
      * is routed to nobody (the local single-box shape, this fixture's
-     * `accreditation.test`). The former narrowing asked
-     * `MediaHostResolver::ownsFallbackHost()` as a second chance, so a
-     * domain-less mandant on an unowned host still minted badges that would
-     * 404 the moment that host got routed.
+     * `accreditation.test`). The former narrowing asked a fallback-host
+     * ownership predicate as a second chance, so a domain-less mandant on an
+     * unowned host still minted badges that would 404 the moment that host got
+     * routed.
      *
-     * FAILS WITH THE NARROWED GUARD: the fallback host is unowned here, so
-     * `! ownsFallbackHost()` was false and the export answered 200 (a template
-     * is not even needed — the guard is reached before `resolveTemplate()`).
+     * FAILS WITH THE NARROWED GUARD: the fallback host is unowned here, so the
+     * "does the mandant own it" test came out false and the export answered 200
+     * (a template is not even needed — the guard is reached before
+     * `resolveTemplate()`).
      */
     public function test_export_refuses_a_domainless_mandant_even_when_the_fallback_host_is_unowned(): void
     {

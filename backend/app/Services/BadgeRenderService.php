@@ -58,10 +58,10 @@ use Illuminate\Support\Facades\Storage;
  *
  * That host fallback is only sound while it routes BACK to this mandant: a v2
  * token is tenant-bound, so a URL on a foreign host 404s on every scan no matter
- * how valid the token is. `BadgeExportController` therefore refuses such an
- * export up front (F2, `MediaHostResolver::ownsFallbackHost()`); this class
- * keeps rendering unconditionally so a direct/service-level call still produces
- * a document instead of throwing.
+ * how valid the token is. `BadgeExportController` therefore refuses a domain-less
+ * mandant up front, unconditionally (F2); this class keeps rendering
+ * unconditionally so a direct/service-level call still produces a document
+ * instead of throwing.
  */
 final class BadgeRenderService
 {

@@ -411,6 +411,15 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
   eindeutigen Slug aus einem nackten `Date.now()` ab. Same-ms-Kollisionen ⇒ `422`
   bzw. Shared-Row-Strict-Mode-Violation. In jedem Vollsuite-Lauf grün; die Kollisionen
   traten nur unter `--repeat-each`-Amplification auf.
+- [ ] **Vitest-Timeout unter Vollsuite-Last (medium, 2026-09-27):** `UsersPage.test.tsx` >
+  „shows the result count and paginates the user list" lief unter Last aus dem 5000-ms-Budget
+  (5490 ms rot; **isoliert 563 ms**, im echten `pnpm test:run` bei fremder `php85`-Last
+  **3786 ms = 6,7×**). Kein Defekt im Test: Segment-Probe zeigt ~200 ms jsdom-Erstaufbau
+  (`getComputedStyle`-Cascade, `css: true`) + 8 name-gefilterte Rollen-Queries über 232 Knoten;
+  unter 24 Spinnern auf 18 Kernen inflationiert **jeder** Test des Files (14→56 ms, 563→2975 ms) —
+  also reine CPU-Sternheit, kein Timer-Wait (der 300-ms-Debounce feuert in diesem Test nie). Test
+  bewusst **nicht** gepatcht, Timeout **nicht** per-Ausnahme erhöht. Empfehlung: projektweit
+  `test.testTimeout: 10000` in `vitest.config.ts` (Datei außerhalb dieses Tasks).
 - [ ] **Nachtrag zu `AGENTS.md` §10 A3:** `MandantContext::forgetHostnames()` ist jetzt an
   allen drei hostname-schreibenden Pfaden vorhanden (Domain anlegen/ändern/löschen,
   Mandant löschen). Ein **Domain-Update**-Endpunkt existiert weiterhin nicht — falls einer
@@ -421,6 +430,13 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
   vs. „existiert nicht" unterscheiden. Impact: nur Existenz von sequenziellen Integer-IDs,
   kein Attribute-Disclosure. Fix wäre: Middleware nach `SubstituteBindings` schieben
   oder `resolveRouteBindingQuery` auf Mandanten-Scope umbauen.
+- [ ] **403/404-Split beim eigenen Mandant (low, bewusst):** `User` ist auf
+  `PUT /api/admin/users/{user}/roles` **ohne** Mandant-Scope gebunden — dieselbe
+  404-vs-403-Form wie M2, aber der Aufrufer ist Mitglied des **eigenen** Mandants
+  (nur `super_admin`-Routen; `Mandant`/`MandantDomain` ebenso ohne Scope). Die
+  Controller scopen selbst ⇒ **kein IDOR**, offengelegt werden nur sequenzielle
+  Integer-IDs. Bleibt bewusst so: den Split zu schließen hieße den Membership-Check
+  **vor** das Route-Binding zu ziehen — das dreht das dokumentierte 403 überall auf 404.
 - [ ] **F2-Residual (low):** Badge-Export-Guard ist **narrower** als „domainlos ⇒ 422" —
   feuert nur wenn Mandant keine Domain **und** der Fallback-Host einem anderen Mandant
   gehört. Ein Mandant whose fallback host niemand routed (`APP_URL=http://localhost`)
@@ -429,9 +445,9 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 - [ ] **M1-Residual (low):** Ein hard-killed Run (SIGKILL/CI-Timeout) strandet das Logo;
   der **nächste** E2E-Lauf scheitert einmal an `portal.spec.ts` „no logo" bevor der
   Teardown räumt. Bewusst kein Pre-Test-Reset (würde die Assertion self-fulfilling).
-- [ ] **L1-Residual (low):** L1 aktiviert `e2e` auf `pull_request` — Fork-PRs ziehen
-  `ghcr.io/reisi007/accriditation-e2e`. Wenn das Package **private** ist, brechen Fork-PRs.
-  Alternative: `head.repo.full_name`-Gate. Geprüft vor Merge.
+- [x] **L1-Residual (erledigt 2026-09-27):** `gh api /users/reisi007/packages/container/accriditation-e2e`
+  → `"visibility":"public"`, `version_count: 27`. Fork-PRs können das Image mit einem
+  read-only Token ziehen; ein `head.repo.full_name`-Gate ist **nicht** nötig.
 - [ ] **M2-Residual (low):** `auth.spec.ts`, `profile.spec.ts`, `admin-users.spec.ts`
   hartkodieren noch `http://localhost:5173` (Zeilen 4/4/5). Nicht im Fix-Scope gewesen.
   Fix: eine Zeile pro File — `FRONTEND_BASE_URL` aus `admin-data.ts` importieren.

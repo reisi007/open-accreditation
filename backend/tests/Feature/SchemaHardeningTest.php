@@ -7,6 +7,7 @@ use App\Models\Mandant;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
+use App\Models\UserMedia;
 use App\Services\MandantMailerService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
@@ -605,6 +606,127 @@ class SchemaHardeningTest extends TestCase
         $this->assertArrayHasKey('maintenance', $config);
 
         return (string) $config['maintenance']['driver'];
+    }
+
+    /* ---------------------------------------------------------------------
+     | user_media — the LIKE predicate must be LITERAL, not a pattern
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `user_media` carries NO `mandant_id` column, so its route binding scopes
+     * by the storage-path prefix `user-media/{slug}/…` — the predicate the M2
+     * hardening added so a foreign row resolves exactly like an unknown id and
+     * the 404-vs-403 existence oracle stays closed.
+     *
+     * The slug went into the pattern UNESCAPED, so a security predicate
+     * depended on an invariant enforced three files away: `MandantController`
+     * validates `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`, but `mandants.slug` is a plain
+     * unique `string` column — a console command, a factory state, a seeder or
+     * a loosened rule can hold anything. In SQL `LIKE`, `_` matches ANY single
+     * character, so a context mandant `verband_a` also matched the foreign
+     * prefix `user-media/verbandXa/…` and the binding handed out a foreign row.
+     *
+     * The mandants are therefore created directly (`Mandant::factory()`): the
+     * API correctly REJECTS an underscore slug, and this test needs precisely
+     * the row that validation would never produce.
+     *
+     * FAILS WITHOUT THE ESCAPE: the unescaped `_` matches the `X`, so
+     * `verbandXa`'s row resolves and the cross-tenant read succeeds.
+     */
+    public function test_an_underscore_in_the_mandant_slug_cannot_widen_the_user_media_binding(): void
+    {
+        $attacker = Mandant::factory()->create(['slug' => 'verband_a', 'name' => 'Verband_a']);
+        $victim = Mandant::factory()->create(['slug' => 'verbandXa', 'name' => 'VerbandXa']);
+
+        $own = $this->userMediaRow('user-media/verband_a/7/portrait/own.jpg');
+        $foreign = $this->userMediaRow('user-media/verbandXa/7/portrait/foreign.jpg');
+
+        MandantContext::set($attacker);
+
+        $this->assertNotNull(
+            (new UserMedia)->resolveRouteBinding((string) $own->id),
+            'precondition: the mandant\'s OWN row still resolves — the scope must not over-restrict',
+        );
+
+        $this->assertNull(
+            (new UserMedia)->resolveRouteBinding((string) $foreign->id),
+            'Ein `_` im Slug darf das Binding nicht auf einen fremden Mandanten ausweiten: die Zeile muss sich wie eine unbekannte id verhalten.',
+        );
+    }
+
+    /**
+     * The same defect, more severe: `%` matches an arbitrary RUN of characters,
+     * so a single `verband%` slug would have resolved EVERY mandant whose slug
+     * starts with `verband`. Pinned separately because the two metacharacters
+     * are independent escape branches.
+     */
+    public function test_a_percent_in_the_mandant_slug_cannot_widen_the_user_media_binding(): void
+    {
+        $attacker = Mandant::factory()->create(['slug' => 'verband%', 'name' => 'Verband Prozent']);
+        $victim = Mandant::factory()->create(['slug' => 'verband-alpha', 'name' => 'Verband Alpha']);
+
+        $own = $this->userMediaRow('user-media/verband%/7/portrait/own.jpg');
+        $foreign = $this->userMediaRow('user-media/verband-alpha/7/portrait/foreign.jpg');
+
+        MandantContext::set($attacker);
+
+        $this->assertNotNull(
+            (new UserMedia)->resolveRouteBinding((string) $own->id),
+            'precondition: the mandant\'s OWN row still resolves',
+        );
+
+        $this->assertNull(
+            (new UserMedia)->resolveRouteBinding((string) $foreign->id),
+            'Ein `%` im Slug darf das Binding nicht auf Mandanten mit gleichem Präfix ausweiten.',
+        );
+    }
+
+    /**
+     * The construct itself, so a future refactor back to
+     * `where(…, 'like', …)` (which binds the value verbatim, with no way to
+     * escape it) is caught even if the two slugs above still happened to pass.
+     *
+     * `ESCAPE '\'` is REQUIRED for SQLite — it has no default escape character,
+     * so an escaped-but-unannounced pattern reads `\_` as two literals and
+     * over-matches. Both engines accept the explicit clause, which is why it
+     * is the same construct `PortalController` and `LikeSearchTest` already
+     * pin (§2 portability rule). The slug stays a BOUND parameter: only the
+     * constant clause is raw, so no path fragment can reach the SQL string.
+     */
+    public function test_the_user_media_binding_emits_a_portable_escaped_like_pattern(): void
+    {
+        $mandant = Mandant::factory()->create(['slug' => 'verband_a', 'name' => 'Verband_a']);
+
+        MandantContext::set($mandant);
+
+        $query = (new UserMedia)->resolveRouteBindingQuery(UserMedia::query(), '1');
+
+        $this->assertStringContainsStringIgnoringCase(
+            "escape '\\'",
+            $query->toSql(),
+            'ohne explizites ESCAPE liest SQLite den Backslash nicht — der Slug wäre wieder ein Muster.',
+        );
+        $this->assertContains(
+            'user-media/verband\_a/%',
+            $query->getBindings(),
+            'der Slug muss escaped UND gebunden übergeben werden, nie in den SQL-String interpoliert.',
+        );
+    }
+
+    /**
+     * A media row stored verbatim — the only tenant marker of `user_media` is
+     * its path, so the fixture IS the attack surface.
+     */
+    private function userMediaRow(string $path): UserMedia
+    {
+        return UserMedia::create([
+            'user_id' => User::factory()->create()->id,
+            'type' => 'portrait',
+            'path' => $path,
+            'mime' => 'image/jpeg',
+            'size' => 123,
+            'original_name' => 'portrait.jpg',
+        ]);
     }
 
     /* ---------------------------------------------------------------------

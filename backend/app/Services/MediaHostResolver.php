@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Mandant;
-use App\Models\MandantDomain;
 
 /**
  * Central resolution of the host used as the media-layout directory prefix for
@@ -31,9 +30,12 @@ use App\Models\MandantDomain;
  * DIFFERENT mandant therefore 404s on every single scan — the token is fine, the
  * URL around it is not, and no backfill can repair that.
  *
- * `ownsFallbackHost()` is the predicate for exactly that question, and the one
- * place that answers it: the export path uses it to refuse an export it cannot
- * make verifiable instead of printing badges that are dead on arrival.
+ * `BadgeExportController` therefore refuses a domain-less mandant
+ * UNCONDITIONALLY (422) rather than asking whether the app.url host happens to
+ * route back to that mandant: an unowned host is only safe until someone routes
+ * it, and every badge printed until then dies at that moment. That is why this
+ * class exposes no ownership predicate any more — nothing in the render path
+ * needs one, and the decision now lives where the 422 is raised.
  */
 final class MediaHostResolver
 {
@@ -61,36 +63,5 @@ final class MediaHostResolver
         }
 
         return strtolower(trim($host));
-    }
-
-    /**
-     * Whether the app.url fallback host may stand in for this mandant, i.e.
-     * whether a URL built on it would resolve back to this mandant.
-     *
-     * Two cases, and the difference matters:
-     *
-     *  - The fallback host is routed to ANOTHER mandant (in production it is
-     *    the primary Verband's own host). Using it would put a tenant-bound
-     *    token of this mandant on a foreign host → 404 on every scan. False.
-     *  - The fallback host routes to NOBODY — the local single-box shape
-     *    (`APP_URL=http://localhost`, no tenant domain). This is the documented
-     *    fallback every media service shares, and `MandantContextMiddleware`
-     *    maps loopback hosts to the default mandant in dev, so it stays usable.
-     *    True.
-     *
-     * A mandant with a domain of its own never needs the fallback at all —
-     * callers check `hostFor()` first.
-     */
-    public function ownsFallbackHost(Mandant $mandant): bool
-    {
-        $host = $this->fallbackHost();
-
-        if ($host === null) {
-            return false;
-        }
-
-        $owner = MandantDomain::query()->where('hostname', $host)->value('mandant_id');
-
-        return $owner === null || (int) $owner === (int) $mandant->getKey();
     }
 }

@@ -496,8 +496,11 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   `BadgeTest::test_export_refuses_a_domainless_mandant_even_when_the_fallback_host_is_unowned`;
   `BadgeTest::setUp()` gibt `mandantA` jetzt eine echte `mandant_domains`-Zeile
   (`a.test`), damit die übrigen Export-Tests die realistische onboarded-Form
-  prüfen. `MediaHostResolver::ownsFallbackHost()` ist damit ohne Aufrufer
-  (`fallbackHost()` bleibt für `BadgeRenderService`).
+  prüfen. Die Verengung brauchte kein eigenes Prädikat: der frühere
+  `MediaHostResolver::ownsFallbackHost()` („gehört der Fallback-Host diesem
+  Mandanten?") hatte danach keinen Aufrufer mehr und wurde **entfernt** —
+  `MediaHostResolver` stellt nur noch `hostFor()` und `fallbackHost()` bereit,
+  Letzteres für `BadgeRenderService`.
 
 Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
 - **F6 (info, bleibt akzeptiert):** Die 403-Texte der Auth-Flows

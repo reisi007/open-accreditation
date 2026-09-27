@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\LikeSearch;
 use App\Support\MandantContext;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -41,11 +42,19 @@ class UserMedia extends Model
      * admin delivery route (applicants of the current mandant) still resolve:
      * they are stored below the current mandant's slug.
      *
-     * The slug is a validated `[a-z0-9-]+` identifier (`MandantController`), so
-     * it can never contain a `LIKE` wildcard (`%`/`_`); the plain `LIKE`
-     * predicate is portable across Postgres and SQLite (§2). Without a
-     * resolved mandant (seeders, console commands, tests) the binding stays
-     * unscoped, mirroring `Accreditation::resolveRouteBindingQuery()`.
+     * The slug is escaped as a LITERAL before it reaches the pattern and the
+     * clause carries an explicit `ESCAPE '\'`: `LIKE` treats `%`/`_` as
+     * wildcards, and `_` matches ANY single character, so an unescaped slug
+     * `verband_a` would also match the foreign path prefix
+     * `user-media/verbandXa/…`. The predicate must not depend on every writer
+     * that can produce a slug (`MandantController` validates, the factory and
+     * the seeder do not have to) staying disciplined — one slug with a `_` or
+     * a `%` re-opens the oracle this binding exists to close. `ESCAPE '\'` plus
+     * `LikeSearch::escape()` is the same portable construct `PortalController`
+     * and `LikeSearchTest` already pin on BOTH engines (§2; SQLite has no
+     * default escape character). Without a resolved mandant (seeders, console
+     * commands, tests) the binding stays unscoped, mirroring
+     * `Accreditation::resolveRouteBindingQuery()`.
      */
     public function resolveRouteBindingQuery($query, $value, $field = null)
     {
@@ -55,10 +64,11 @@ class UserMedia extends Model
             $slug = MandantContext::current()?->slug;
 
             if (is_string($slug) && $slug !== '') {
-                $query->where(
-                    $query->getQuery()->from.'.path',
-                    'like',
-                    'user-media/'.$slug.'/%',
+                // The table name is the model's own, not user input; the slug
+                // stays a bound parameter (only the constant clause is raw).
+                $query->whereRaw(
+                    $query->getQuery()->from.".path like ? escape '\\'",
+                    ['user-media/'.LikeSearch::escape($slug).'/%'],
                 );
             }
         }
