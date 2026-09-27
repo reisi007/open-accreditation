@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Exceptions\MediaRemovalFailedException;
+use App\Http\Controllers\Api\Admin\Concerns\ResolvesMandantRouteParameter;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\BadgeImage;
@@ -26,9 +27,17 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Super Admin CRUD for mandants (Verbände). Guarded by `can:mandants.manage`
  * (super_admin-only permission — no other role holds it in the matrix).
+ *
+ * The `{mandant}` route parameter is checked per call against the caller, not
+ * against the host, via `assertMandantRouteParameter()`: super_admin addresses
+ * any mandant from any host (this is the whole point of the surface), anyone
+ * else only the current one. See the trait for why this is a controller check
+ * and not a route-binding scope.
  */
 class MandantController extends Controller
 {
+    use ResolvesMandantRouteParameter;
+
     /**
      * Attempts per media purge in the delete cascade, see `purgeWithRetry()`.
      * Bounded: a file that is genuinely unremovable must surface as a 500
@@ -86,13 +95,17 @@ class MandantController extends Controller
             ->setStatusCode(201);
     }
 
-    public function show(Mandant $mandant): MandantResource
+    public function show(Request $request, Mandant $mandant): MandantResource
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         return new MandantResource($mandant);
     }
 
     public function update(Request $request, Mandant $mandant): MandantResource
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         $validated = $request->validate($this->rules($mandant));
 
         // F3: read the stored config BEFORE anything touches the model. On a row
@@ -130,8 +143,10 @@ class MandantController extends Controller
         return new MandantResource($mandant);
     }
 
-    public function destroy(Mandant $mandant): Response
+    public function destroy(Request $request, Mandant $mandant): Response
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         if ($mandant->is_primary) {
             return response()->json([
                 'message' => 'Der primäre Mandant kann nicht gelöscht werden.',

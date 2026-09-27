@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Api\Admin\Concerns\ResolvesMandantRouteParameter;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MandantResource;
 use App\Models\Mandant;
@@ -18,9 +19,18 @@ use Symfony\Component\HttpFoundation\Response;
  * layout and are streamed through these routes; legacy `private` files stay
  * readable until the W6 backfill moved them. W11 delivery runs through
  * `MediaStorage::accelResponse` (dual-mode, see `PortalMediaController`).
+ *
+ * The `{mandant}` route parameter is checked per call against the caller via
+ * `assertMandantRouteParameter()`: super_admin may read and replace any
+ * mandant's brand media from any host, nobody else. A mandant_admin has his own
+ * separate, host-derived surface for exactly this (`/api/mandant/logo|header`,
+ * `MandantMediaSelfServiceController`, gate `mandant.media.manage`) — he must
+ * not reach another mandant's logo through the super-admin route.
  */
 class MandantMediaController extends Controller
 {
+    use ResolvesMandantRouteParameter;
+
     private const KIND_LOGO = 'logo';
 
     private const KIND_HEADER = 'header';
@@ -50,18 +60,20 @@ class MandantMediaController extends Controller
         return $this->store($request, $mandant, self::KIND_HEADER);
     }
 
-    public function destroyLogo(Mandant $mandant): Response
+    public function destroyLogo(Request $request, Mandant $mandant): Response
     {
-        return $this->destroy($mandant, self::KIND_LOGO);
+        return $this->destroy($request, $mandant, self::KIND_LOGO);
     }
 
-    public function destroyHeader(Mandant $mandant): Response
+    public function destroyHeader(Request $request, Mandant $mandant): Response
     {
-        return $this->destroy($mandant, self::KIND_HEADER);
+        return $this->destroy($request, $mandant, self::KIND_HEADER);
     }
 
     private function store(Request $request, Mandant $mandant, string $kind): JsonResponse
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         $request->validate([
             'file' => ['required', 'image', 'mimes:jpeg,png,webp', 'max:2048'],
         ]);
@@ -74,8 +86,10 @@ class MandantMediaController extends Controller
         return (new MandantResource($mandant))->response();
     }
 
-    private function destroy(Mandant $mandant, string $kind): Response
+    private function destroy(Request $request, Mandant $mandant, string $kind): Response
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         $this->service->destroy($mandant, $kind);
 
         return response()->noContent();
@@ -83,6 +97,8 @@ class MandantMediaController extends Controller
 
     private function deliver(Request $request, Mandant $mandant, string $kind): Response|JsonResponse
     {
+        $this->assertMandantRouteParameter($request, $mandant);
+
         $path = $this->service->path($mandant, $kind);
 
         if ($path === null || ! $this->storage->exists($path)) {

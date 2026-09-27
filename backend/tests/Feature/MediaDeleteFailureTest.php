@@ -25,6 +25,7 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\QueryException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
@@ -718,7 +719,15 @@ class MediaDeleteFailureTest extends TestCase
         $this->unremovablePathsDisk(MediaStorage::PUBLIC_DISK, [$logoPath]);
 
         try {
-            app(MandantController::class)->destroy($this->mandant);
+            // Direct call, so the exception handler is bypassed — hence the
+            // explicit Request carrying the super_admin the `mandants.manage`
+            // route gate would have admitted. The action signature takes the
+            // Request (the `{mandant}` route parameter is checked against the
+            // caller, not the host), so a router-less call has to supply it.
+            $request = Request::create('/api/admin/mandants/'.$this->mandant->id, 'DELETE');
+            $request->setUserResolver(fn (): User => $this->superAdmin());
+
+            app(MandantController::class)->destroy($request, $this->mandant);
 
             $this->fail('Der Delete muss mit einer RemovalFailure abbrechen.');
         } catch (MediaRemovalFailedException $exception) {

@@ -3,7 +3,12 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Http\Controllers\Api\Admin\MandantController;
+use App\Http\Controllers\Api\Admin\MandantDomainController;
+use App\Http\Controllers\Api\Admin\MandantMediaController;
+use App\Http\Controllers\Api\Admin\TeamController;
 use App\Models\Mandant;
+use App\Models\MandantDomain;
 use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
@@ -11,10 +16,12 @@ use App\Services\MediaPathService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
 /**
@@ -975,6 +982,252 @@ class AdminMandantTest extends TestCase
             ->assertJsonPath('data.0.domains.0.hostname', 'a.de')
             ->assertJsonPath('data.0.teams_count', 1)
             ->assertJsonPath('data.1.teams_count', 0);
+    }
+
+    /* ---------------------------------------------------------------------
+     | The `{mandant}` route parameter — 403/404 unification
+     |
+     | `Mandant` is the one model that must NOT get a mandant-scoped
+     | `resolveRouteBindingQuery()`: such a binding would take away the
+     | super_admin's entire purpose. So the check lives in the controller
+     | (`ResolvesMandantRouteParameter`), where it can branch on the CALLER.
+     | The host is mandantA throughout (`setUp()`).
+     |
+     | What the code path actually looks like today, measured:
+     |
+     |   - `can:mandants.manage` is granted to NO role (only super_admin, via
+     |     the `*` matrix entry + `Gate::before`). A mandant_admin addressing a
+     |     foreign mandant on those 11 routes is therefore refused by the ROUTE
+     |     GATE with 403 before the controller ever runs — the guard behind it
+     |     is defence in depth, and only observable by bypassing the router.
+     |   - `can:teams.view` IS granted to mandant_admin/team_admin, so on
+     |     `teams index` the controller guard is the thing that refuses, and it
+     |     answers 404 (the mandant axis).
+     |
+     | Both halves below are a pair and must stay one: the guard test pins the
+     | 404, the super_admin test pins that the cross-host flow survives.
+     * ------------------------------------------------------------------- */
+
+    /**
+     * Every `{mandant}` action of the tenant-CRUD surface, as
+     * `[controller, action, http verb, params, extra args]` so the guard can be
+     * invoked directly (the router would answer 403 at the gate first).
+     */
+    public static function mandantRouteParameterActionsProvider(): array
+    {
+        return [
+            'mandants show' => [MandantController::class, 'show', 'GET', [], []],
+            'mandants update' => [MandantController::class, 'update', 'PUT', ['name' => 'X'], []],
+            'mandants destroy' => [MandantController::class, 'destroy', 'DELETE', [], []],
+            'domains index' => [MandantDomainController::class, 'index', 'GET', [], []],
+            'domains store' => [MandantDomainController::class, 'store', 'POST', ['hostname' => 'neu.test'], []],
+            'domains destroy' => [MandantDomainController::class, 'destroy', 'DELETE', [], ['1']],
+            'logo show' => [MandantMediaController::class, 'showLogo', 'GET', [], []],
+            'logo store' => [MandantMediaController::class, 'storeLogo', 'POST', [], []],
+            'logo destroy' => [MandantMediaController::class, 'destroyLogo', 'DELETE', [], []],
+            'header show' => [MandantMediaController::class, 'showHeader', 'GET', [], []],
+            'header store' => [MandantMediaController::class, 'storeHeader', 'POST', [], []],
+            'header destroy' => [MandantMediaController::class, 'destroyHeader', 'DELETE', [], []],
+            'teams index' => [TeamController::class, 'index', 'GET', [], []],
+        ];
+    }
+
+    /**
+     * The guard itself, with the router bypassed: a mandant_admin of mandantA
+     * addressing mandantB is 404 on EVERY `{mandant}` action, and nothing is
+     * written before the rejection.
+     *
+     * Calling the action directly is the only way to observe the guard on the
+     * `mandants.manage` routes — over HTTP the gate's 403 arrives first. That
+     * is exactly why the guard must exist as a second layer: it is what holds
+     * the moment `mandants.manage` is ever granted to a non-super-admin role
+     * (as `config/permissions.php` already does for `teams.manage`).
+     */
+    #[DataProvider('mandantRouteParameterActionsProvider')]
+    public function test_the_mandant_route_parameter_guard_is_404_for_a_non_super_admin(
+        string $controller,
+        string $action,
+        string $verb,
+        array $params,
+        array $extra,
+    ): void {
+        $mandantAdmin = $this->mandantAdmin($this->mandantA);
+        $request = $this->mandantRouteParameterRequest($verb, $params, $mandantAdmin);
+
+        $domainsBefore = MandantDomain::query()->count();
+
+        try {
+            app($controller)->{$action}($request, $this->mandantB, ...$extra);
+
+            $this->fail("expected a 404 from {$controller}::{$action} for a foreign mandant");
+        } catch (NotFoundHttpException $exception) {
+            // 404, not 403: the mandant axis is 404 across the whole codebase
+            // (`assertMandantScope()`, every `resolveRouteBindingQuery()` scope
+            // on the tenant models). 403 is reserved for the team/role axes
+            // (`assertOwnership()`, `authorizeSuperAdmin()`). Keeping the two
+            // axes on distinct codes is what makes them tellable apart.
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantB->id]);
+        $this->assertSame($domainsBefore, MandantDomain::query()->count(), 'no domain may be created for a foreign mandant');
+    }
+
+    /**
+     * Over HTTP the 11 `mandants.manage` routes refuse a mandant_admin with the
+     * gate's 403 and `teams index` with the guard's 404. Pinned as a SET
+     * because the split is deliberate: the gate answers "you lack the
+     * permission", the guard answers "that mandant is not reachable from here".
+     */
+    #[DataProvider('mandantScopedRoutesProvider')]
+    public function test_mandant_admin_addressing_a_foreign_mandant_is_refused(string $method, string $uri, ?array $data): void
+    {
+        $this->mandantB->teams()->create(['name' => 'Fremder Verein', 'slug' => 'fremder-verein']);
+
+        $domainsBefore = MandantDomain::query()->count();
+
+        $url = str_replace('{id}', (string) $this->mandantB->id, $uri);
+
+        $status = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->json($method, $url, $data ?? [])
+            ->getStatusCode();
+
+        $this->assertContains(
+            $status,
+            [403, 404],
+            "expected the request to be refused (403 at the gate, 404 at the guard) on {$method} {$url}",
+        );
+
+        // A refusal must happen BEFORE any side effect: a hostname decides
+        // which mandant a request resolves to, so a leaked write here is a live
+        // tenant-boundary break, not a cosmetic status code.
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantB->id]);
+        $this->assertSame($domainsBefore, MandantDomain::query()->count(), 'no domain may be created for a foreign mandant');
+    }
+
+    public static function mandantScopedRoutesProvider(): array
+    {
+        return [
+            'mandants show' => ['get', '/api/admin/mandants/{id}', null],
+            'mandants update' => ['put', '/api/admin/mandants/{id}', ['name' => 'Umbenannt']],
+            'mandants destroy' => ['delete', '/api/admin/mandants/{id}', null],
+            'domains index' => ['get', '/api/admin/mandants/{id}/domains', null],
+            'domains store' => ['post', '/api/admin/mandants/{id}/domains', ['hostname' => 'fremd.test']],
+            'logo show' => ['get', '/api/admin/mandants/{id}/logo', null],
+            'logo store' => ['post', '/api/admin/mandants/{id}/logo', null],
+            'logo destroy' => ['delete', '/api/admin/mandants/{id}/logo', null],
+            'header show' => ['get', '/api/admin/mandants/{id}/header', null],
+            'header store' => ['post', '/api/admin/mandants/{id}/header', null],
+            'header destroy' => ['delete', '/api/admin/mandants/{id}/header', null],
+            'teams index' => ['get', '/api/admin/mandants/{id}/teams', null],
+        ];
+    }
+
+    /**
+     * THE regression: super_admin must keep addressing any mandant from any
+     * host. Without this test the guard could be "hardened" by dropping its
+     * super_admin branch and the 404 test above would still pass — while the
+     * tenant-CRUD surface silently stopped working for the only role that is
+     * supposed to have it.
+     */
+    #[DataProvider('mandantScopedRoutesProvider')]
+    public function test_super_admin_may_address_any_mandant_from_any_host(string $method, string $uri, ?array $data): void
+    {
+        $this->mandantB->teams()->create(['name' => 'Fremder Verein', 'slug' => 'fremder-verein']);
+
+        $url = str_replace('{id}', (string) $this->mandantB->id, $uri);
+
+        // mandantA is the current context, mandantB is addressed. 404 is a
+        // legitimate answer for a few of these on their own merits (no brand
+        // media stored yet; the is_primary / has-teams delete guards), so the
+        // assertion is deliberately negative: 403 would mean the super_admin
+        // branch of the guard had been tightened away.
+        $status = $this->actingAsApi($this->superAdmin())
+            ->json($method, $url, $data ?? [])
+            ->getStatusCode();
+
+        $this->assertNotSame(403, $status, "super_admin must not be 403 on {$method} {$url}");
+
+        $this->assertDatabaseHas('mandants', ['id' => $this->mandantB->id]);
+    }
+
+    /**
+     * The headline flow, pinned on its own: `PUT /api/admin/mandants/{B}` with
+     * A as the request host must still write. This is the exact case a
+     * binding-scope "fix" would break, and the reason the guard branches on the
+     * caller instead of on the host.
+     */
+    public function test_super_admin_updates_a_foreign_mandant_from_another_hosts_context(): void
+    {
+        $this->assertSame($this->mandantA->id, MandantContext::currentId());
+
+        $this->actingAsApi($this->superAdmin())
+            ->putJson('/api/admin/mandants/'.$this->mandantB->id, ['name' => 'Verband B umbenannt'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Verband B umbenannt');
+
+        $this->assertDatabaseHas('mandants', [
+            'id' => $this->mandantB->id,
+            'name' => 'Verband B umbenannt',
+        ]);
+    }
+
+    /**
+     * The domains guard is the sharpest one: a hostname decides which mandant a
+     * request resolves to, so it must stay as narrow as the mandant CRUD.
+     */
+    public function test_super_admin_creates_a_domain_on_a_foreign_mandant_from_another_hosts_context(): void
+    {
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/mandants/'.$this->mandantB->id.'/domains', ['hostname' => 'verband-b-neu.test'])
+            ->assertStatus(201)
+            ->assertJsonPath('data.hostname', 'verband-b-neu.test');
+
+        $this->assertDatabaseHas('mandant_domains', [
+            'mandant_id' => $this->mandantB->id,
+            'hostname' => 'verband-b-neu.test',
+        ]);
+    }
+
+    /**
+     * A mandant_admin manages his OWN mandant's brand media through the
+     * separate host-derived surface (`/api/mandant/logo`, P8b). The super-admin
+     * route must not become a back door to a foreign mandant's logo (that is
+     * what the guard tests above pin); this asserts the legitimate path still
+     * works in the same breath, so the fix cannot be "just close the route".
+     */
+    public function test_mandant_admin_keeps_his_own_brand_media_through_the_self_service_surface(): void
+    {
+        $mandantAdmin = $this->mandantAdmin($this->mandantA);
+
+        $this->actingAsApi($mandantAdmin)
+            ->post('/api/mandant/logo', ['file' => UploadedFile::fake()->image('logo.png', 200, 200)])
+            ->assertStatus(201);
+
+        $this->actingAsApi($mandantAdmin)
+            ->get('/api/mandant/logo')
+            ->assertOk();
+    }
+
+    /**
+     * A request built for a direct (router-less) controller call, carrying the
+     * given user. `MandantMediaController` validates a `file` input before it
+     * would touch the mandant, so one is attached unconditionally — the guard
+     * under test runs before that validation anyway.
+     */
+    private function mandantRouteParameterRequest(string $verb, array $params, User $as): Request
+    {
+        $request = Request::create(
+            '/api/admin/mandants/'.$this->mandantB->id.'/logo',
+            $verb,
+            $params,
+            [],
+            ['file' => UploadedFile::fake()->image('logo.png', 200, 200)],
+        );
+
+        $request->setUserResolver(fn (): User => $as);
+
+        return $request;
     }
 
     /* ---------------------------------------------------------------------

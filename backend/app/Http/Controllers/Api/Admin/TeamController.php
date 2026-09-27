@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
+use App\Http\Controllers\Api\Admin\Concerns\ResolvesMandantRouteParameter;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\TeamResource;
 use App\Models\Mandant;
@@ -40,6 +41,7 @@ use Symfony\Component\HttpFoundation\Response;
 class TeamController extends Controller
 {
     use ResolvesAdminTeamScope;
+    use ResolvesMandantRouteParameter;
 
     public function __construct(
         private readonly TeamMediaService $media,
@@ -48,7 +50,12 @@ class TeamController extends Controller
 
     public function index(Request $request, Mandant $mandant): AnonymousResourceCollection
     {
-        $this->authorizeView($request, $mandant);
+        // Read access beyond super_admin (P2b-F1: the `teams.view` route gate
+        // already passed). A non-super-admin may only read the teams of *his
+        // own* mandant — the URL mandant must equal the current
+        // MandantContext, else 404. super_admin addresses any mandant from any
+        // host (cross-mandant leak guard + super_admin carve-out).
+        $this->assertMandantRouteParameter($request, $mandant);
 
         $query = $mandant->teams()->orderBy('name');
 
@@ -269,23 +276,6 @@ class TeamController extends Controller
             403,
             'You may only manage the logo of your own team.',
         );
-    }
-
-    /**
-     * Read access beyond super_admin (P2b-F1: `teams.view` route gate already
-     * passed). Non-super admins may only read the teams of *their own* mandant
-     * — the URL mandant must equal the current MandantContext, else 404
-     * (cross-mandant leak guard).
-     */
-    private function authorizeView(Request $request, Mandant $mandant): void
-    {
-        $user = $request->user();
-
-        if ($user?->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $mandant->id === MandantContext::currentId(), 404, 'Team does not belong to the current mandant.');
     }
 
     /**
