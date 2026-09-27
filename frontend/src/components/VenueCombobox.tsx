@@ -23,6 +23,16 @@ interface VenueComboboxProps {
     error?: string | null;
     disabled?: boolean;
     /**
+     * Called with `true` while a venue create or reactivation is in flight, and
+     * `false` once it settled, so the owning form can refuse a submit.
+     *
+     * Why the form needs this: the field only learns the new id when the request
+     * answers, and it shows the typed NAME long before that. A save inside that
+     * window would persist an empty reference (team form) or the previously
+     * defaulted one (event form) behind a field that already looks committed.
+     */
+    onBusyChange?: (busy: boolean) => void;
+    /**
      * Optional stable `id` for the input. Defaults to a `useId()` value. The
      * `<label htmlFor>` is rendered from it, so an E2E locator is
      * `getByLabel(...)` — never a CSS class.
@@ -86,6 +96,22 @@ function firstSelectableIndex(options: VenueOption[]): number | null {
  * Inactive venues stay visible (greyed, `aria-disabled`) with a reactivate
  * button: deactivation is the reversible way to retire a referenced venue, so
  * a retired name must never silently disappear and become re-creatable.
+ *
+ * Row structure (and why it is not the obvious one): the `option` role has
+ * PRESENTATIONAL CHILDREN — every descendant is treated as plain text of the
+ * option. An action button inside the option would therefore (a) be folded
+ * into the option's accessible name ("Stadion Ost inaktiv Reaktivieren")
+ * instead of staying a button, and (b) be unreachable: the row is
+ * `aria-disabled`, and an `aria-disabled` subtree is not activatable (Playwright
+ * refuses the click outright, so the E2E could not drive it at all). So each
+ * `<li>` is `role="presentation"` and carries the LAYOUT only, the `option` is
+ * the name `<span>`, and the badge + the button are that span's SIBLINGS.
+ * `presentation` (not `none` — the two are exact synonyms per ARIA 1.2, and the
+ * spec asks authors to use `presentation` alone) drops the `<li>`'s own
+ * `listitem` semantics while leaving every descendant role intact; see the
+ * ARIA spec's own `<ul role="tree"><li role="presentation"><a role="treeitem">`
+ * example. Measured in Chromium: with `presentation` the listbox's exposed
+ * children are exactly `option` + `button`; without it the option role is lost.
  */
 export function VenueCombobox({
     label,
@@ -94,6 +120,7 @@ export function VenueCombobox({
     valueLabel,
     error,
     disabled = false,
+    onBusyChange,
     inputId,
 }: VenueComboboxProps) {
     const { i18n } = useLingui();
@@ -106,7 +133,12 @@ export function VenueCombobox({
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [storedActiveIndex, setStoredActiveIndex] = useState<number | null>(null);
-    const [creating, setCreating] = useState(false);
+    /**
+     * A venue create or reactivation is in flight. `pendingId` says WHICH row is
+     * reactivating; this says that the field's value is not trustworthy yet, so
+     * it drives `aria-busy` and the submit lock of the owning form.
+     */
+    const [busy, setBusy] = useState(false);
     const [pendingId, setPendingId] = useState<number | null>(null);
     const [localError, setLocalError] = useState<string | null>(null);
     /**
@@ -165,6 +197,17 @@ export function VenueCombobox({
         setRaceNotice(null);
     };
 
+    /**
+     * One flag for every in-flight venue mutation, mirrored to the parent so it
+     * can lock its submit. Driven from the mutation handlers and never from an
+     * effect: it is the consequence of a user action, not state derived during
+     * render.
+     */
+    const setPending = (pending: boolean) => {
+        setBusy(pending);
+        onBusyChange?.(pending);
+    };
+
     const selectVenue = (venue: Venue) => {
         setDraft(venue.name);
         onChange(String(venue.id));
@@ -182,16 +225,17 @@ export function VenueCombobox({
      * venue appears as a normal option the admin can simply click.
      */
     const handleCreate = async (name: string) => {
-        setCreating(true);
+        setPending(true);
         setLocalError(null);
         setRaceNotice(null);
         try {
             const created = await createVenue({ name });
+            // The selection is committed HERE, not after the refetch: the id
+            // exists, and the refetch only refreshes the shared list. Awaiting
+            // it first left the field showing the name while the form still held
+            // `''`, so a save in that window dropped the venue.
+            selectVenue(created);
             await mutate();
-            setDraft(created.name);
-            onChange(String(created.id));
-            setOpen(false);
-            setStoredActiveIndex(null);
         } catch (err) {
             const message = err instanceof ApiError ? err.message : i18n._(t`Spielort konnte nicht angelegt werden.`);
             setLocalError(message);
@@ -211,27 +255,28 @@ export function VenueCombobox({
                 setRaceNotice(message);
             }
         } finally {
-            setCreating(false);
+            setPending(false);
         }
     };
 
     const handleReactivate = async (venue: Venue) => {
         setPendingId(venue.id);
+        setPending(true);
         setLocalError(null);
         setRaceNotice(null);
         try {
             const reactivated = await updateVenue(venue.id, { is_active: true });
+            // Same ordering rule as the create: the id is known, so it is
+            // committed before the list refresh.
+            selectVenue(reactivated);
             await mutate();
-            setDraft(reactivated.name);
-            onChange(String(reactivated.id));
-            setOpen(false);
-            setStoredActiveIndex(null);
         } catch (err) {
             setLocalError(
                 err instanceof ApiError ? err.message : i18n._(t`Spielort konnte nicht reaktiviert werden.`),
             );
         } finally {
             setPendingId(null);
+            setPending(false);
         }
     };
 
@@ -309,7 +354,7 @@ export function VenueCombobox({
                     aria-autocomplete="list"
                     aria-activedescendant={activeOptionId}
                     aria-describedby={showError ? errorId : undefined}
-                    aria-busy={creating}
+                    aria-busy={busy}
                     disabled={disabled}
                     value={display}
                     onChange={(event) => {
@@ -385,18 +430,23 @@ export function VenueCombobox({
                                 return (
                                     <li
                                         key="create"
-                                        id={optionId}
-                                        role="option"
-                                        aria-selected={false}
+                                        role="presentation"
                                         className={optionClasses(index === activeIndex, true)}
                                         onClick={() => void handleCreate(name)}
                                     >
-                                        {creating ? (
+                                        {busy && pendingId === null ? (
                                             <span className="loading loading-spinner loading-xs"></span>
                                         ) : (
                                             <span className="iconify mdi--plus text-lg"></span>
                                         )}
-                                        <span className="flex-1 truncate">{i18n._(t`${name} neu anlegen`)}</span>
+                                        <span
+                                            id={optionId}
+                                            role="option"
+                                            aria-selected={false}
+                                            className="flex-1 truncate"
+                                        >
+                                            {i18n._(t`${name} neu anlegen`)}
+                                        </span>
                                     </li>
                                 );
                             }
@@ -406,10 +456,7 @@ export function VenueCombobox({
                             return (
                                 <li
                                     key={venue.id}
-                                    id={optionId}
-                                    role="option"
-                                    aria-selected={String(venue.id) === value}
-                                    aria-disabled={venue.is_active ? undefined : true}
+                                    role="presentation"
                                     className={optionClasses(index === activeIndex, venue.is_active)}
                                     onClick={() => {
                                         if (venue.is_active) {
@@ -417,7 +464,15 @@ export function VenueCombobox({
                                         }
                                     }}
                                 >
-                                    <span className="flex-1 truncate">{venue.name}</span>
+                                    <span
+                                        id={optionId}
+                                        role="option"
+                                        aria-selected={String(venue.id) === value}
+                                        aria-disabled={venue.is_active ? undefined : true}
+                                        className="flex-1 truncate"
+                                    >
+                                        {venue.name}
+                                    </span>
                                     {venue.is_active ? null : (
                                         <>
                                             <span className="badge badge-ghost badge-sm">{i18n._(t`inaktiv`)}</span>

@@ -1,10 +1,11 @@
 import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate as globalMutate } from 'swr';
 import { ApiError, createEvent, deleteEvent, listEvents, updateEvent } from '../../api/client';
 import type { Event } from '../../api/types';
 import { useAdminTeams } from '../../logic/useAdminTeams';
+import { VENUES_KEY } from '../../logic/useVenues';
 import { Modal } from '../../components/Modal';
 import { EventForm } from './EventForm';
 import { buildEventPayload, type EventFormValues } from './eventFormUtils';
@@ -75,6 +76,10 @@ export function EventsPage() {
                 await createEvent(buildEventPayload(values));
             }
             await mutate();
+            // The venue list carries a DERIVED `events_count`, and the venue page
+            // offers "Löschen" only for unreferenced rows — so a create/update
+            // that points at a venue has to refresh it.
+            await globalMutate(VENUES_KEY);
             closeForm();
         } catch (err) {
             setFormError(err instanceof ApiError ? err.message : i18n._(t`Event konnte nicht gespeichert werden.`));
@@ -87,6 +92,8 @@ export function EventsPage() {
         try {
             await deleteEvent(event.id);
             await mutate();
+            // Same reason as the save: the venue's `events_count` just changed.
+            await globalMutate(VENUES_KEY);
         } catch (err) {
             setListError(err instanceof ApiError ? err.message : i18n._(t`Event konnte nicht gelöscht werden.`));
         }

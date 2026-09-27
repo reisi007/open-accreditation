@@ -132,7 +132,10 @@ test.describe('Admin: Spielorte (W12)', () => {
         await expect(venueRow.getByText('Inaktiv', { exact: true })).toBeVisible();
 
         await page.getByRole('complementary').getByRole('link', { name: 'Events' }).click();
-        await page.getByRole('main').getByRole('button', { name: 'Neu' }).click();
+        // `.first()` for the same reason as the venues page above: with an EMPTY
+        // event list the page renders a second "Neu" in its empty state, which
+        // would make this locator a strict-mode violation.
+        await page.getByRole('main').getByRole('button', { name: 'Neu' }).first().click();
         await page.getByRole('main').getByLabel('Team', { exact: true }).selectOption({ label: teamName });
         const eventVenueField = page.getByRole('main').getByRole('combobox', { name: 'Spielort' });
         await eventVenueField.click();

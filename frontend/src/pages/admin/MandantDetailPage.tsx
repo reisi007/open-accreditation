@@ -22,6 +22,7 @@ import {
 } from '../../api/client';
 import type { Mandant, MandantDomain, Team } from '../../api/types';
 import { MediaField } from '../../components/MediaField';
+import { VENUES_KEY } from '../../logic/useVenues';
 import { MandantForm } from './MandantForm';
 import { buildMandantPayload, type MandantFormValues } from './mandantFormUtils';
 import { TeamForm } from './TeamForm';
@@ -151,6 +152,10 @@ export function MandantDetailPage() {
             setEditingTeam(null);
             setShowTeamForm(false);
             await mutateTeams();
+            // The venue list carries a DERIVED `teams_count`, and the venue page
+            // offers "Löschen" only for unreferenced rows. Without this the count
+            // stays stale, so a just-referenced venue still looks deletable.
+            await globalMutate(VENUES_KEY);
         } catch (err) {
             setTeamFormError(
                 err instanceof ApiError
@@ -169,6 +174,8 @@ export function MandantDetailPage() {
                 setShowTeamForm(false);
             }
             await mutateTeams();
+            // Same reason as the save: the venue's `teams_count` just changed.
+            await globalMutate(VENUES_KEY);
         } catch (err) {
             setTeamFormError(
                 err instanceof ApiError

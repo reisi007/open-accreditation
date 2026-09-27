@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useEffect, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import type { Event } from '../../api/types';
 import { VenueCombobox } from '../../components/VenueCombobox';
@@ -20,6 +20,13 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
     const { i18n } = useLingui();
     const { teams, currentTeamIds } = useAdminTeams();
     const eventSchema = createEventSchema();
+    /**
+     * An inline venue create/reactivation only commits its new id when the
+     * request answers, and the field shows the name well before that. Saving in
+     * that window would keep the team's default venue instead of the one the
+     * admin just picked, so the save waits for the mutation to settle.
+     */
+    const [venueBusy, setVenueBusy] = useState(false);
 
     const {
         register,
@@ -120,6 +127,7 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
                             onChange={field.onChange}
                             valueLabel={initial?.venue?.name ?? null}
                             disabled={isSubmitting}
+                            onBusyChange={setVenueBusy}
                         />
                     )}
                 />
@@ -168,7 +176,7 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting || venueBusy}>
                     {isSubmitting ? <span className="loading loading-spinner loading-xs"></span> : null}
                     {submitLabel}
                 </button>

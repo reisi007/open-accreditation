@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
+import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import type { Team } from '../../api/types';
 import { VenueCombobox } from '../../components/VenueCombobox';
@@ -17,6 +18,13 @@ interface TeamFormProps {
 export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel }: TeamFormProps) {
     const { i18n } = useLingui();
     const teamSchema = createTeamSchema();
+    /**
+     * An inline venue create only learns its new id when the request answers,
+     * while the field already shows the venue's name. Saving inside that window
+     * would post `venue_id: null` for a venue the admin just created, so the
+     * save stays locked until the combobox reports the mutation as settled.
+     */
+    const [venueBusy, setVenueBusy] = useState(false);
 
     const {
         register,
@@ -86,13 +94,14 @@ export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel
                             onChange={field.onChange}
                             valueLabel={initial?.venue?.name ?? null}
                             disabled={isSubmitting}
+                            onBusyChange={setVenueBusy}
                         />
                     )}
                 />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting || venueBusy}>
                     {isSubmitting ? <span className="loading loading-spinner loading-xs"></span> : null}
                     {submitLabel}
                 </button>

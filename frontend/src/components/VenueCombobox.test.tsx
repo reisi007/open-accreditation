@@ -49,10 +49,12 @@ function ControlledCombobox({
     initial = '',
     valueLabel,
     onChangeSpy,
+    onBusyChangeSpy,
 }: {
     initial?: string;
     valueLabel?: string | null;
     onChangeSpy?: (value: string) => void;
+    onBusyChangeSpy?: (busy: boolean) => void;
 }) {
     const [value, setValue] = useState(initial);
     return (
@@ -65,13 +67,19 @@ function ControlledCombobox({
                     setValue(next);
                     onChangeSpy?.(next);
                 }}
+                onBusyChange={onBusyChangeSpy}
             />
         </SWRConfig>
     );
 }
 
 function renderCombobox(
-    props: { initial?: string; valueLabel?: string | null; onChangeSpy?: (value: string) => void } = {},
+    props: {
+        initial?: string;
+        valueLabel?: string | null;
+        onChangeSpy?: (value: string) => void;
+        onBusyChangeSpy?: (busy: boolean) => void;
+    } = {},
 ) {
     return renderWithProviders(<ControlledCombobox {...props} />);
 }
@@ -355,6 +363,103 @@ describe('VenueCombobox — inline create', () => {
     });
 });
 
+describe('VenueCombobox — commit order (the selection must not wait for the list refetch)', () => {
+    it('commits the created id while the refetch is still in flight', async () => {
+        // The regression: `onChange` used to run only AFTER `await mutate()`, so
+        // for a whole round trip the field showed the new venue's name while the
+        // form still held `''` — and a save in that window dropped the venue.
+        setVenues([]);
+        // 1st call = the initial list load, 2nd = the refetch after the create.
+        let releaseRefetch: (venues: Venue[]) => void = () => {};
+        listVenuesMock
+            .mockImplementationOnce(async () => [])
+            .mockImplementationOnce(
+                () =>
+                    new Promise<Venue[]>((resolve) => {
+                        releaseRefetch = resolve;
+                    }),
+            );
+        createVenueMock.mockImplementation(async (payload: { name: string }) => makeVenue({ id: 9, name: payload.name }));
+        const user = userEvent.setup();
+        const onChangeSpy = vi.fn<(value: string) => void>();
+        renderCombobox({ onChangeSpy });
+
+        await user.type(combobox(), 'Arena West');
+        await user.click(screen.getByRole('option', { name: 'Arena West neu anlegen' }));
+
+        // The POST answered, the refetch has NOT: the id is already committed.
+        await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('9'));
+        releaseRefetch([makeVenue({ id: 9, name: 'Arena West' })]);
+    });
+
+    it('commits the reactivated id while the refetch is still in flight', async () => {
+        setVenues([makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })]);
+        let releaseRefetch: (venues: Venue[]) => void = () => {};
+        listVenuesMock
+            .mockImplementationOnce(async () => [makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })])
+            .mockImplementationOnce(
+                () =>
+                    new Promise<Venue[]>((resolve) => {
+                        releaseRefetch = resolve;
+                    }),
+            );
+        updateVenueMock.mockImplementation(async (id: number) => makeVenue({ id, name: 'Stadion Ost' }));
+        const user = userEvent.setup();
+        const onChangeSpy = vi.fn<(value: string) => void>();
+        renderCombobox({ onChangeSpy });
+
+        await user.type(combobox(), 'Stadion Ost');
+        await user.click(screen.getByRole('button', { name: 'Stadion Ost reaktivieren' }));
+
+        await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('2'));
+        releaseRefetch([makeVenue({ id: 2, name: 'Stadion Ost' })]);
+    });
+});
+
+describe('VenueCombobox — busy reporting for the owning form', () => {
+    it('reports busy for the whole create, including the list refetch, then clears it', async () => {
+        setVenues([]);
+        let releaseCreate: (venue: Venue) => void = () => {};
+        createVenueMock.mockImplementation(
+            () =>
+                new Promise<Venue>((resolve) => {
+                    releaseCreate = resolve;
+                }),
+        );
+        const user = userEvent.setup();
+        const onBusyChangeSpy = vi.fn<(busy: boolean) => void>();
+        renderCombobox({ onBusyChangeSpy });
+
+        await user.type(combobox(), 'Arena West');
+        await user.click(screen.getByRole('option', { name: 'Arena West neu anlegen' }));
+
+        // The form must know the field is not trustworthy yet — otherwise it can
+        // be saved with the old (or an empty) value.
+        expect(onBusyChangeSpy).toHaveBeenLastCalledWith(true);
+        expect(combobox()).toHaveAttribute('aria-busy', 'true');
+
+        releaseCreate(makeVenue({ id: 9, name: 'Arena West' }));
+
+        await waitFor(() => expect(onBusyChangeSpy).toHaveBeenLastCalledWith(false));
+        await waitFor(() => expect(combobox()).toHaveAttribute('aria-busy', 'false'));
+    });
+
+    it('reports busy for a reactivation and clears it even when the request fails', async () => {
+        setVenues([makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })]);
+        updateVenueMock.mockRejectedValue(new Error('boom'));
+        const user = userEvent.setup();
+        const onBusyChangeSpy = vi.fn<(busy: boolean) => void>();
+        renderCombobox({ onBusyChangeSpy });
+
+        await user.type(combobox(), 'Stadion Ost');
+        await user.click(screen.getByRole('button', { name: 'Stadion Ost reaktivieren' }));
+
+        expect(onBusyChangeSpy).toHaveBeenCalledWith(true);
+        // A failed mutation must unlock the form again, or the save is stuck.
+        await waitFor(() => expect(onBusyChangeSpy).toHaveBeenLastCalledWith(false));
+    });
+});
+
 describe('VenueCombobox — duplicate (422) on the create race', () => {
     it('surfaces the German 422 as a field error, refetches, and lets the admin pick the winner', async () => {
         // The mandant had no venue by the time the list was read, so the
@@ -480,9 +585,15 @@ describe('VenueCombobox — inactive venues', () => {
 
         // Re-creation is impossible by design: the name is taken.
         expect(screen.queryByRole('option', { name: /neu anlegen/ })).not.toBeInTheDocument();
-        const row = screen.getByRole('option', { name: /Stadion Ost/ });
-        expect(row).toHaveAttribute('aria-disabled', 'true');
-        expect(row.className).toContain('text-base-content/50');
+        // The option is the NAME element only — an exact name here is what keeps
+        // the row's badge and action out of the option's own accessible name.
+        const option = screen.getByRole('option', { name: 'Stadion Ost' });
+        expect(option).toHaveAttribute('aria-disabled', 'true');
+        // Greying and the badge belong to the presentational row wrapper, which
+        // is the element that is not an option.
+        const row = option.closest('li');
+        expect(row).not.toBeNull();
+        expect(row?.className).toContain('text-base-content/50');
         expect(row).toHaveTextContent('inaktiv');
         // The reactivate button is the only action an inactive row offers.
         expect(screen.getByRole('button', { name: 'Stadion Ost reaktivieren' })).toBeEnabled();
@@ -537,6 +648,123 @@ describe('VenueCombobox — inactive venues', () => {
         // stay reachable — it is the only actionable thing in the dropdown.
         expect(combobox()).toHaveAttribute('aria-expanded', 'true');
         expect(screen.getByRole('option', { name: /Stadion Ost/ })).toBeInTheDocument();
+    });
+});
+
+/**
+ * The row structure is a CONTRACT, not an implementation detail: `option` has
+ * presentational children, so anything inside an option is flattened to text
+ * and — because the inactive row is `aria-disabled` — not activatable at all.
+ * These tests exist so the button can never silently move back inside the
+ * option, which is what made the E2E click impossible in the first place.
+ */
+describe('VenueCombobox — listbox ARIA structure (the reactivate action must stay operable)', () => {
+    it('keeps the reactivate button out of the aria-disabled subtree', async () => {
+        setVenues([makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.type(combobox(), 'Stadion Ost');
+
+        const option = screen.getByRole('option', { name: 'Stadion Ost' });
+        const button = screen.getByRole('button', { name: 'Stadion Ost reaktivieren' });
+        // `option` has presentational children: a button inside it would be
+        // announced as part of the option instead of as an operable control.
+        expect(option).not.toContainElement(button);
+        // The real blocker: Playwright refuses any action inside an
+        // `aria-disabled` subtree, so the E2E could not click this button.
+        expect(option.closest('[aria-disabled="true"]')).toBe(option);
+        expect(button.closest('[aria-disabled="true"]')).toBeNull();
+        // The role itself survives, i.e. it is a button and not flattened text.
+        expect(button.tagName).toBe('BUTTON');
+    });
+
+    it('names an option after the venue alone, so the row action cannot leak into the name', async () => {
+        setVenues([makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.type(combobox(), 'Stadion Ost');
+
+        // Exact, not a regex: with the badge and the button inside the option
+        // this name was "Stadion Ost inaktiv Stadion Ost reaktivieren".
+        expect(screen.getByRole('option', { name: 'Stadion Ost' })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: /Reaktivieren/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: /inaktiv/ })).not.toBeInTheDocument();
+    });
+
+    it('does not also select the row when the reactivate button is clicked', async () => {
+        setVenues([makeVenue({ id: 2, name: 'Stadion Ost', is_active: false })]);
+        updateVenueMock.mockImplementation(async (id: number) => {
+            const reactivated = makeVenue({ id, name: 'Stadion Ost' });
+            setVenues([reactivated]);
+            return reactivated;
+        });
+        const user = userEvent.setup();
+        const onChangeSpy = vi.fn<(value: string) => void>();
+        renderCombobox({ onChangeSpy });
+
+        await user.type(combobox(), 'Stadion Ost');
+        await user.click(screen.getByRole('button', { name: 'Stadion Ost reaktivieren' }));
+
+        // The click bubbles to the row, which is selectable for active venues
+        // only — so exactly ONE selection happens, and it is the reactivation's.
+        await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('2'));
+        expect(onChangeSpy).toHaveBeenCalledTimes(1);
+        expect(combobox()).toHaveValue('Stadion Ost');
+    });
+
+    it('marks only inactive options aria-disabled', async () => {
+        setVenues([
+            makeVenue({ id: 1, name: 'Arena West' }),
+            makeVenue({ id: 2, name: 'Stadion Ost', is_active: false }),
+        ]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.click(combobox());
+
+        expect(screen.getByRole('option', { name: 'Arena West' })).not.toHaveAttribute('aria-disabled');
+        expect(screen.getByRole('option', { name: 'Stadion Ost' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('points aria-activedescendant at the option element, not at the row wrapper', async () => {
+        setVenues([makeVenue({ id: 1, name: 'Stadion Nord' })]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.click(combobox());
+
+        const activeId = combobox().getAttribute('aria-activedescendant');
+        expect(activeId).not.toBeNull();
+        const active = document.getElementById(activeId as string);
+        // The reference has to resolve to the OPTION — that is the element the
+        // listbox owns, so a wrapper with `role="presentation"` would break it.
+        expect(active).toHaveAttribute('role', 'option');
+        expect(active).toHaveTextContent('Stadion Nord');
+        expect(active?.closest('li')).toHaveAttribute('role', 'presentation');
+    });
+
+    it('wraps every row in a presentational li and puts role=option on the name alone', async () => {
+        // Both branches, so the create offer cannot drift back into the other
+        // structure: an active venue row AND the inline-create row.
+        setVenues([makeVenue({ id: 1, name: 'Arena West' })]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        // "Arena" matches the active venue AND — not being an existing name —
+        // still offers the create row, so both branches are present at once.
+        await user.type(combobox(), 'Arena');
+
+        const options = within(listbox()).getAllByRole('option');
+        expect(options.map((option) => option.textContent)).toEqual(['Arena West', 'Arena neu anlegen']);
+        for (const option of options) {
+            // The option holds the name and nothing else.
+            expect(option.children).toHaveLength(0);
+            // Its row wrapper is presentational: the listbox owns the option,
+            // not a listitem.
+            expect(option.closest('li')).toHaveAttribute('role', 'presentation');
+        }
     });
 });
 
