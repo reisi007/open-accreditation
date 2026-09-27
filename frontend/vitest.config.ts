@@ -7,6 +7,10 @@ import { linguiTransformerBabelPreset } from '@lingui/vite-plugin';
 export default defineConfig({
   plugins: [react(), lingui(), babel({ presets: [linguiTransformerBabelPreset()] })],
   test: {
+    // Load reserve, NOT a per-test exception: under CPU oversubscription every test in a
+    // file inflates 3-5x (measured 14→56 ms on 24 spinners/18 cores) while the heaviest
+    // test costs 563 ms isolated = 6-12% of the old 5000 ms default.
+    testTimeout: 10000,
     environment: 'jsdom',
     globals: false,
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
