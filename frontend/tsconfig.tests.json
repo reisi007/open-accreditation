@@ -7,6 +7,10 @@
     ],
     "module": "ESNext",
     "skipLibCheck": true,
+    /* The i18n guard is plain ESM (.mjs) so `node scripts/check-i18n.mjs` needs no
+       build step. `allowJs` lets its TypeScript test import it type-checked
+       (inferred from the JSDoc) instead of through an `any` or a `.d.ts` stub. */
+    "allowJs": true,
     "types": [
       "node",
       "vitest/globals",
@@ -28,6 +32,7 @@
   },
   "include": [
     "tests",
+    "scripts/**/*.test.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/test-setup.tsx",

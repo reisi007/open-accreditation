@@ -27,7 +27,10 @@ export default defineConfig({
     testTimeout: 15000,
     environment: 'jsdom',
     globals: false,
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // `scripts/**` as well as `src/**`: the i18n guard's classification logic
+    // lives in scripts/po-catalog.mjs (plain ESM, so the guard itself needs no
+    // build step) and is covered by a test next to it.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.ts'],
     setupFiles: ['src/test-setup.tsx'],
     css: true,
     coverage: {

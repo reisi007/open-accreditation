@@ -62,11 +62,11 @@ msgstr "{fieldCount, plural, one {# field} other {# fields}}"
 
 #: src/components/VenueCombobox.tsx
 msgid "{name} neu anlegen"
-msgstr ""
+msgstr "Create {name}"
 
 #: src/components/VenueCombobox.tsx
 msgid "{name} reaktivieren"
-msgstr ""
+msgstr "Reactivate {name}"
 
 #: src/pages/admin/VenuesPage.tsx
 msgid "{teamsCount, plural, one {# Team} other {# Teams}}"
