@@ -737,6 +737,158 @@ class MandantMembershipTest extends TestCase
         $this->assertSame($unknown->getStatusCode(), $existing->getStatusCode());
     }
 
+    /**
+     * `users` was the SECOND bound model without a scoped
+     * `resolveRouteBindingQuery()` (after `UserMedia`), so the same split
+     * existed on `PUT /api/admin/users/{user}/roles`: a global `find` let a
+     * foreign row through to the membership check (403) while an unknown id
+     * failed to bind (404).
+     *
+     * The attacker is a `mandant_admin` of A — an account that legitimately
+     * reaches this very endpoint on its OWN host, so the 403 below can only
+     * come from the membership check and never from a missing permission.
+     *
+     * FAILS WITHOUT THE FIX: foreign user → 403 (binding succeeds, membership
+     * denies), unknown id → 404.
+     */
+    public function test_a_foreign_user_is_indistinguishable_from_an_unknown_id_for_a_non_member(): void
+    {
+        $attacker = $this->memberOf($this->mandantA, 'mandant_admin');
+        $token = $this->tokenFor($attacker);
+
+        // A user that EXISTS, but holds a role only in mandant A and is
+        // therefore foreign on B.
+        $foreign = $this->memberOf($this->mandantA, 'user');
+
+        $existing = $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/admin/users/'.$foreign->id.'/roles', [
+                'roles' => [['role' => 'verifier']],
+            ]);
+
+        $unknown = $this->withJwt($token)
+            ->putJson('http://'.self::HOST_B.'/api/admin/users/'.($foreign->id + 100000).'/roles', [
+                'roles' => [['role' => 'verifier']],
+            ]);
+
+        $this->assertSame(404, $existing->getStatusCode());
+        $this->assertSame(
+            $unknown->getStatusCode(),
+            $existing->getStatusCode(),
+            'Ein Non-Member darf an der Antwort nicht erkennen, ob die User-ID irgendwo existiert.',
+        );
+
+        // … and nothing was written on either path.
+        $this->assertSame(
+            0,
+            RoleUser::query()
+                ->where('user_id', $foreign->id)
+                ->where('role_id', Role::query()->where('slug', 'verifier')->value('id'))
+                ->count(),
+        );
+    }
+
+    /**
+     * The scope must not over-restrict. `users` is the one model with a
+     * legitimate MULTI-mandant shape: `role_user.mandant_id` is nullable, one
+     * account may hold roles in several mandants at once, and the global
+     * `super_admin` row has BOTH `mandant_id` and `team_id` null. A naive
+     * `where('users.mandant_id', $currentId)` would therefore have 404'd the
+     * very targets `PUT /api/admin/users/{user}/roles` exists for.
+     *
+     * Pinned at the binding itself (not through a route, whose 403/404 mix
+     * would blur the signal), as the falsifiable statement it is:
+     *
+     *   `resolveRouteBinding()` resolves a user ⟺ `isMemberOfMandant()` says yes.
+     *
+     * The four shapes: member of the current mandant; a member of the current
+     * mandant whose HOME mandant (`users.mandant_id`) is a different one; the
+     * global `super_admin`; and — as the negative control — a user of a foreign
+     * mandant only.
+     */
+    public function test_the_scoped_user_binding_resolves_exactly_the_members_of_the_current_mandant(): void
+    {
+        $member = $this->memberOf($this->mandantA, 'user');
+        $superAdmin = $this->superAdmin();
+
+        // Holds a role in A AND in B, but its home mandant is B: on A's host it
+        // must still resolve — the scope reads `role_user`, not `users`.
+        $multiMandant = $this->memberOf($this->mandantB, 'user');
+        $this->assign($multiMandant, $this->mandantA, 'verifier');
+
+        $foreign = $this->memberOf($this->mandantB, 'user');
+
+        MandantContext::set($this->mandantA);
+
+        foreach ([$member, $multiMandant, $superAdmin] as $expected) {
+            $this->assertTrue(
+                (new User)->resolveRouteBinding($expected->id)?->is($expected),
+                sprintf('User #%d ist Mitglied von A und muss binden.', $expected->id),
+            );
+        }
+
+        $this->assertNull(
+            (new User)->resolveRouteBinding($foreign->id),
+            'Ein User ohne Rolle im aktuellen Mandant darf nicht binden.',
+        );
+
+        // The relation that decides it is the membership predicate, not a
+        // narrowed subset of it.
+        $this->assertTrue($member->isMemberOfMandant($this->mandantA->id));
+        $this->assertTrue($multiMandant->isMemberOfMandant($this->mandantA->id));
+        $this->assertTrue($superAdmin->isMemberOfMandant($this->mandantA->id));
+        $this->assertFalse($foreign->isMemberOfMandant($this->mandantA->id));
+
+        // … and it flips with the current mandant: on B the same multi-mandant
+        // account still binds, the pure A member does not.
+        MandantContext::set($this->mandantB);
+
+        $this->assertNotNull((new User)->resolveRouteBinding($multiMandant->id));
+        $this->assertNotNull((new User)->resolveRouteBinding($superAdmin->id));
+        $this->assertNull((new User)->resolveRouteBinding($member->id));
+    }
+
+    /**
+     * The real workflow the scope must not break: a `mandant_admin` of A
+     * replaces the role set of a user of A and gets 200. `AdminUserTest` covers
+     * the endpoint's semantics; what is new here is that the target survives
+     * route-model binding on a request whose host really resolves mandant A.
+     */
+    public function test_a_mandant_admin_can_still_manage_the_roles_of_a_member(): void
+    {
+        $actor = $this->memberOf($this->mandantA, 'mandant_admin');
+        $target = $this->memberOf($this->mandantA, 'user');
+
+        $this->withJwt($this->tokenFor($actor))
+            ->putJson('http://'.self::HOST_A.'/api/admin/users/'.$target->id.'/roles', [
+                'roles' => [['role' => 'verifier']],
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('role_user', [
+            'user_id' => $target->id,
+            'mandant_id' => $this->mandantA->id,
+            'team_id' => null,
+        ]);
+    }
+
+    /**
+     * The scope is INERT without a resolved mandant (seeders, console commands,
+     * tests that never set a context), exactly like every other scoped binding —
+     * otherwise a CLI command could no longer load a user by id.
+     */
+    public function test_the_scoped_user_binding_is_inert_without_a_current_mandant(): void
+    {
+        $foreign = $this->memberOf($this->mandantB, 'user');
+
+        MandantContext::reset();
+
+        $this->assertFalse(MandantContext::hasCurrent());
+        $this->assertNotNull(
+            (new User)->resolveRouteBinding($foreign->id),
+            'ohne MandantContext bleibt das Binding ungefiltert.',
+        );
+    }
+
     /* ---------------------------------------------------------------------
      | Helpers
      -------------------------------------------------------------------- */

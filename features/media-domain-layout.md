@@ -64,6 +64,33 @@ nicht unterscheidbar (dann meldet `exists()` `false` und der Delete gilt als
 „nichts zu löschen“). Das ist die dokumentierte Restunsicherheit; die
 Nachbedingung schützt gegen den realen Fall „gemountet, aber nicht schreibbar“.
 
+**W6 — der blinde Fleck ist am Boot geschlossen (`deployment/entrypoint.sh`).**
+Genau dieses „unmounted ist nicht von empty unterscheidbar“ war eine reine
+Betriebs-Notiz: am laufenden System sieht der W6-Fall wie ein gesundes
+Deployment aus (jeder Upload antwortet 201), die Dateien liegen aber in der
+writable layer des Containers — weg mit dem nächsten
+`docker compose up -d --build`, bzw. zurück nach einem Remount, wo sie niemand
+mehr referenziert. Der Entrypoint prüft das deshalb **vor** dem Start, in
+**beiden** Modi (`serve` und `migrate`), und zwar gegen die **Mount-Tabelle**,
+nicht gegen „ist das Verzeichnis leer“:
+
+| Befund am Boot | Signal | Reaktion |
+|---|---|---|
+| `MEDIA_ROOT` fehlt / nicht schreibbar | `[ ! -d ] \|\| [ ! -w ]` | **Exit 78** (unveränderter Alt-Guard; Docker legt einen fehlenden Bind-Quellpfad als leeres root-eigenes Verzeichnis an) |
+| `MEDIA_ROOT` liegt in **keinem** Mount (weder selbst noch über einen Vorfahren, ohne `/`) | Vergleich mit `/proc/self/mountinfo` (Feld 5), Fallback `/proc/mounts` / `/etc/mtab` (Feld 2) | **Warnung** (Default) — bzw. **Exit 78**, wenn `MEDIA_ROOT_REQUIRE_MOUNT=true` |
+| `MEDIA_ROOT` ist gemountet, aber **leer** | derselbe Vergleich **positiv** | **Kein Fehler.** Log-Zeile „legitimer Erst-Boot“. Ein frisches Deployment darf hier nie abbrechen — das ist der Grund, warum die Leere nicht das Kriterium ist |
+| Keine Mount-Tabelle lesbar (kein `/proc`, exotische Runtime) | alle drei Tabellen unlesbar | **Warnung, Start läuft** — „nicht feststellbar“ ist kein Befund und bricht nie ab (auch nicht mit `MEDIA_ROOT_REQUIRE_MOUNT`) |
+| `MEDIA_ROOT` nicht absolut | Pfad-Form | **Warnung**, Start läuft |
+| `MEDIA_ROOT` gar nicht gesetzt | — | Guard inert (das Image setzt keines) |
+
+Warum der Mount-Vergleich und nicht „leer“: „leer“ ist der **normale**
+Erst-Boot-Zustand und damit als Abbruchkriterium unbrauchbar; „kein Mount“ ist
+per Definition container-lokal und überlebt kein Redeploy. `/` ist bewusst
+**kein** gültiger Treffer — der Overlay-Root ist in jedem Container ein
+Mount-Point, sonst beantwortet die Prüfung konstant „abgedeckt“ und wäre blind.
+Ein abschließender `/` an `MEDIA_ROOT` wird normalisiert, weil der
+Vorfahren-Weg sonst über den echten Mount-Point hinwegspringen würde.
+
 ## Zielbild
 
 Alle öffentlich direkt von Caddy auslieferbaren Bilder liegen auf der Disk
@@ -171,6 +198,51 @@ try_files /{http.request.host}{path} {path} =404
 **Kein SPA-Fallback für Media:** Brand-/Media-Pfade werden **nicht** über
 `index.html`/das React-Dist nachgeliefert. Eine fehlende Datei ist ein echtes
 404 — die Media-Pfade sind aus dem SPA-Fallback herausgenommen.
+
+### Deployment-Overrides: nur `root/…` und nur `.svg` (W7)
+
+Das ist der Vertrag, an dem ein Operator in der Praxis anstößt, und deshalb
+hier explizit:
+
+| Deployment-Datei | Wer verwaltet sie | Vom Reaper betroffen? |
+|---|---|---|
+| `<MEDIA_ROOT>/logo.svg`, `favicon.*`, `site.webmanifest`, `browserconfig.xml`, … | **Deployment** (Root-Brand-Satz, `features/03`) | **Nein** — sie tragen kein `<domain>/`-Präfix und sind damit nie „verwaltetes Layout“; `media:prune-orphans` sieht sie nicht einmal im Dry-Run-Report |
+| `<MEDIA_ROOT>/<domain>/logo.svg`, `<domain>/header.svg` | **Deployment** (Mandant-Override, SVG) | **Nein** — `MANAGED_BRAND_LEAF` kennt ausschließlich `png\|jpg\|jpeg\|webp`; eine `.svg` fällt durch `isManagedPath()` durch und bleibt unangetastet |
+| `<MEDIA_ROOT>/<domain>/logo.png` (oder `.jpg`/`.jpeg`/`.webp`) | **die Anwendung** (DB, `mandants.logo_path`) | **Ja, sobald keine DB-Zeile darauf zeigt** — siehe unten |
+
+**Die Falle:** `<domain>/logo.png` gilt für `MediaPruneOrphansCommand` als
+verwalteter Brand-Leaf „by definition“. Legt ein Operator dort **von Hand** ein
+Raster-Logo ab (kein `mandants.logo_path` zeigt darauf), ist es eine Waise und
+wird beim nächsten geplanten `media:prune-orphans --force` **gelöscht** — der
+Mandant fällt danach still auf das Root-`logo.svg` zurück. Das ist kein Bug,
+sondern der dokumentierte Vertrag: **nur die SVG-Fallbacks sind
+deployment-bereitgestellt**, und `deployment/caddy-media-overrides.Caddyfile`
+enthält folgerichtig ausschließlich root-level/`.svg`-Overrides.
+
+**Was stattdessen zu tun ist:**
+
+1. **Override als `.svg` ablegen** — `<MEDIA_ROOT>/<domain>/logo.svg` bzw.
+   `header.svg`. Dann ist es per Definition Deployment-Dateibaum und der Reaper
+   fasst es nie an. (Raster nach SVG konvertieren, nicht umgekehrt: die
+   Raster-Endungen sind genau die verwalteten.)
+2. **Oder außerhalb des verwalteten Roots legen** — der Reaper enumeriert
+   ausschließlich Pfade, deren **erstes** Segment ein kanonischer
+   `<domain>`-Root oder `_tenants/<positive id>` ist (WP-10-b, „Nur echte Roots
+   werden angefasst"). Ein Override in einem anderen Verzeichnis auf dem
+   Media-Root wird weder gelöscht noch im Report genannt.
+3. **Oder über die Oberfläche pflegen** — `POST /api/admin/mandants/{id}/logo`
+   bzw. `PUT` darüber; dann steht der Pfad in `mandants.logo_path`, der Reaper
+   sieht eine **referenzierte** Datei und lässt sie in Ruhe.
+
+**Nicht** tun: einen Hand-Override mit einer Endung ablegen, die weder `.svg`
+noch in `MANAGED_BRAND_LEAF` ist (`avif`, `gif`, `<domain>/logo.ico` …). Solche
+Dateien sind ebenfalls „unmanaged“ und werden nie vom Reaper eingesammelt —
+sie rutschen aber genauso wenig in die Pflege-Route hinein und veralten still.
+Ebenso kontraproduktiv: die verwalteten Raster-Endungen *durch* `.svg` ersetzen
+und damit einen Pfad zu erzeugen, den weder `MandantMediaService` noch der
+Reaper kennt. Das ist der bewusst gewählte Fail-closed-Preis: im schlimmsten
+Fall bleibt eine Waise, die von Hand zu löschen ist; ein unbekannter Root zu
+zerstören wäre der teurere Fehler.
 
 ## Alias-Domains
 
@@ -407,6 +479,13 @@ Admin mit Mandanten-/Team-Scope). Diese Pfade tauchen **nicht** im
   `user-media/…` und nicht-kanonische Hosts bleiben unangetastet — auch nicht im
   Dry-Run-Report. Personenbilder sind **nie** Reaper-Scope, auch nicht mit
   `--include-legacy`.
+- **Nur `.svg` ist deployment-bereitgestellt (W7):** Ein von Hand abgelegtes
+  `<domain>/logo.png` (`.jpg`/`.jpeg`/`.webp`) ist **verwaltetes Layout** und
+  damit eine Waise, sobald keine DB-Zeile darauf zeigt — `media:prune-orphans
+  --force` löscht es und der Mandant fällt auf das Root-`logo.svg` zurück.
+  Deployment-Overrides gehören als **`.svg`** unter den `<domain>`-Root (oder
+  außerhalb des verwalteten Roots). Vollständige Begründung und die drei
+  zulässigen Wege: „Deployment-Overrides: nur `root/…` und nur `.svg`“ oben.
 - **Batch-Commands streamen (WP-10-a):** `media:prune-orphans`,
   `media:convert-to-webp` und `reminders:send` lesen in `chunkById`-Batches und
   enumerieren Disks lazy; ein Lauf darf nicht die Installation bzw. den kompletten

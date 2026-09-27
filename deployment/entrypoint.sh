@@ -14,7 +14,9 @@
 # deshalb wurde der Guard aus dem früheren Dockerfile-`CMD` hierher verschoben:
 # der `migrate`-Service überschreibt das `CMD` und hätte den Guard sonst
 # umgangen (eine Migration gegen ein kaputtes Deployment wäre dann genau der
-# Moment, in dem man es am wenigsten bemerkt).
+# Moment, in dem man es am wenigsten bemerkt). Dort steht auch der
+# Mount-Check (W6), der ein nicht gemountetes Volume am Boot erkennt — der
+# Fall, den „existiert und ist schreibbar" NICHT abdeckt.
 #
 # POSIX `sh` (Debian → dash): keine Bash-Syntax, keine Arrays.
 # ==========================================================================
@@ -46,6 +48,168 @@ if [ -n "${MEDIA_ROOT:-}" ] && { [ ! -d "$MEDIA_ROOT" ] || [ ! -w "$MEDIA_ROOT" 
 	echo "       Docker legt einen fehlenden Bind-Quellpfad als LEERES root-eigenes Verzeichnis an -> Uploads/PDFs schlagen dann still fehl." >&2
 	echo "       Fix auf dem Host:  sudo mkdir -p '$MEDIA_ROOT' && sudo chown -R $(id -u):$(id -g) '$MEDIA_ROOT'" >&2
 	exit 78
+fi
+
+# --------------------------------------------------------------------------
+# MEDIA_ROOT-Mount-Guard (Exit 78 = EX_CONFIG) — für BEIDE Modi, W6.
+# --------------------------------------------------------------------------
+# Warum EXTRA zu "existiert + schreibbar" oben: beides ist auch dann
+# erfüllt, wenn das Volume gar nicht gemountet ist — und ein nicht
+# gemountetes Volume ist von einem LEEREN per Definition nicht
+# unterscheidbar. Genau das ist die dokumentierte Restunsicherheit von
+# `MediaStorage::delete()`: der `! exists($path)`-Vorcheck meldet einen Pfad
+# auf einem nicht sichtbaren Volume als "nichts zu löschen", also als ERFOLG.
+# Der W6-Fall sieht am laufenden System damit aus wie ein gesundes
+# Deployment (jeder Upload antwortet 201), und die Dateien liegen in der
+# writable layer des Containers: weg mit dem naechsten
+# `docker compose up -d --build`, bzw. zurueck nach einem Remount, wo sie
+# niemand mehr referenziert. Genau dieser blinde Fleck wird hier am Boot
+# geschlossen.
+#
+# Das Signal ist der VERGLEICH MIT DER MOUNT-TABELLE, nicht "ist das
+# Verzeichnis leer": ein GEMOUNTETES, leeres MEDIA_ROOT ist ein vollkommen
+# legitimer Erst-Boot (frisches Deployment, noch kein Upload) und darf
+# niemals abbrechen — genau deshalb wird die Leere hier nicht geprueft.
+# Umgekehrt ist ein MEDIA_ROOT, das weder selbst noch ueber einen seiner
+# Vorfahren ein Mount-Point ist, per Definition container-lokal; der
+# komplette Media-Baum ueberlebt dann kein Redeploy. Das ist der Fall, der
+# hier abbricht.
+#
+# `/` ist bewusst KEIN gueltiger Treffer: der Overlay-Root ist in jedem
+# Container ein Mount-Point, sonst beantwortet die Pruefung konstant
+# "abgedeckt" und waere blind.
+#
+# `MEDIA_ROOT_REQUIRE_MOUNT=false` (oder `0`/`no`/`off`) nimmt den Abbruch
+# fuer den bewussten Wegwerf-Fall zurueck (Dev-`docker run` ohne `-v`, CI-
+# Smoke-Container) — die Warnung bleibt. Ohne gesetztes `MEDIA_ROOT` greift
+# der Guard nicht: das gebaute Image setzt keines, ein Container ganz ohne
+# Volume ist damit per Default unauffaellig, und genau die ausgelieferte
+# Konfiguration (`deployment/docker-compose.yml`, `${MEDIA_ROOT_HOST}:/srv/
+# media/accreditation`) deckt den Abbruch ab.
+
+# Mount-Point-Pruefung: steht $2 in Spalte $1 der Tabelle $3?
+mount_table_has_point() {
+	mt_field=$1
+	mt_table=$2
+	mt_point=$3
+
+	# `while … done < datei` laeuft in der aktuellen Shell (anders als eine
+	# Pipe) — nur so kann die Schleife den Treffer per `return` melden, ohne
+	# eine Subshell zu brauchen.
+	while IFS= read -r mt_line; do
+		# `cut` verlangt exakt ein Leerzeichen als Trenner: /proc-Zeilen
+		# sind es auch. Pfade mit Leerzeichen sind hier nicht unterstuetzt —
+		# ein MEDIA_ROOT mit Blank kann den Guard nicht ausloesen (er
+		# verhaelt sich dann wie "nicht feststellbar"), nie aber faelsch
+		# abbrechen.
+		mt_entry=$(printf '%s\n' "$mt_line" | cut -d ' ' -f "$mt_field")
+
+		if [ "$mt_entry" = "$mt_point" ]; then
+			return 0
+		fi
+	done < "$mt_table"
+
+	return 1
+}
+
+# Der Mount-Point, der $1 abdeckt ( $1 selbst oder ein Vorfahre, ohne `/` ),
+# auf stdout. Rueckgaben: 0 = abgedeckt (Mount-Point auf stdout), 1 = KEIN
+# Mount (Tabelle lesbar, aber nichts deckt $1 ab), 2 = nicht feststellbar
+# (keine Mount-Tabelle lesbar). Die Trennung 1 vs. 2 ist Pflicht: "nicht
+# feststellbar" darf NIE abbrechen, "feststellbar und ohne Mount" ist der
+# Befund, der abbrechen darf.
+covering_mount_point() {
+	cm_point=$1
+	cm_table=''
+	cm_field=0
+
+	# /proc/self/mountinfo (Feld 5 = Mount-Point) zuerst; /proc/mounts und
+	# /etc/mtab (Feld 2) als Fallback fuer Laufzeiten ohne mountinfo.
+	for cm_candidate in /proc/self/mountinfo /proc/mounts /etc/mtab; do
+		if [ -r "$cm_candidate" ]; then
+			cm_table=$cm_candidate
+
+			case "$cm_candidate" in
+			/proc/self/mountinfo) cm_field=5 ;;
+			*) cm_field=2 ;;
+			esac
+
+			break
+		fi
+	done
+
+	if [ -z "$cm_table" ] || [ "$cm_field" -eq 0 ]; then
+		# Kein Befund, nur ein Loch: der Aufrufer warnt und laesst den Start
+		# durch. Lieber ein blinder Durchstart als ein Blindabbruch.
+		return 2
+	fi
+
+	cm_dir=$cm_point
+
+	# Trailing Slashes normalisieren: sonst vergleicht der erste Durchlauf
+	# `/srv/media/accreditation/` mit dem Mount-Point `/srv/media/accreditation`
+	# und der Weg ueber `dirname` SPRINGT ueber den echten Mount-Point hinweg —
+	# ein korrektes Deployment wuerde dann faelschlich als container-lokal
+	# gemeldet.
+	while [ "$cm_dir" != "/" ] && [ "${cm_dir%/}" != "$cm_dir" ]; do
+		cm_dir=${cm_dir%/}
+	done
+
+	while [ "$cm_dir" != "/" ] && [ -n "$cm_dir" ]; do
+		if mount_table_has_point "$cm_field" "$cm_table" "$cm_dir"; then
+			printf '%s\n' "$cm_dir"
+
+			return 0
+		fi
+
+		cm_dir=$(dirname "$cm_dir")
+	done
+
+	return 1
+}
+
+if [ -n "${MEDIA_ROOT:-}" ]; then
+	# Ohne absoluten Pfad ist gegen die Mount-Tabelle nichts vergleichbar
+	# (Bind-Mount-Ziele sind immer absolut) — das ist ein "nicht feststellbar",
+	# kein Fehlerbefund. Bewusst als `if` und nicht als `case`: ein `case` mit
+	# einem `/*)`- UND einem `*)-` Arm ist syntaktisch gueltig, der erste
+	# passende Arm gewinnt — und `*` haette den absoluten Zweig stillschweigend
+	# verschluckt (genau dieser Fehler stand kurz in diesem Skript).
+	if [ "${MEDIA_ROOT#/}" = "$MEDIA_ROOT" ]; then
+		warn "MEDIA_ROOT='$MEDIA_ROOT' ist kein absoluter Pfad -> Mount-Check nicht anwendbar; der Media-Baum ist womöglich container-lokal."
+	else
+		media_cover=$(covering_mount_point "$MEDIA_ROOT") && media_state=0 || media_state=$?
+
+		if [ "$media_state" -eq 0 ]; then
+			if [ -z "$(ls -A "$MEDIA_ROOT" 2>/dev/null)" ]; then
+				# Ausdruecklich KEIN Fehler: ein gemountetes, leeres
+				# MEDIA_ROOT ist der normale Erst-Boot. Nur der Zustand wird
+				# benannt, damit ein leerer Media-Baum im Log erklaert ist
+				# statt vermutet zu werden.
+				log "MEDIA_ROOT='$MEDIA_ROOT' ist gemountet (Mount-Point '$media_cover'), aber leer — legitimer Erst-Boot, kein Fehler."
+			else
+				log "MEDIA_ROOT='$MEDIA_ROOT' ist gemountet (Mount-Point '$media_cover'), $(ls -A "$MEDIA_ROOT" 2>/dev/null | wc -l) Eintraege."
+			fi
+		elif [ "$media_state" -eq 2 ]; then
+			# Weder Befund noch Abbruch: die Mount-Tabelle ist nicht lesbar
+			# (kein /proc, exotische Runtime). Der Start laeuft weiter, das
+			# Fehlen der Pruefung wird aber sichtbar gemacht — auch mit
+			# gesetztem MEDIA_ROOT_REQUIRE_MOUNT, denn das Umgekehrte waere
+			# ein Abbruch OHNE Befund.
+			warn "MEDIA_ROOT='$MEDIA_ROOT': keine Mount-Tabelle lesbar (/proc/self/mountinfo, /proc/mounts, /etc/mtab) -> der Mount-Check konnte nicht laufen. Start laeuft weiter."
+		elif is_enabled "${MEDIA_ROOT_REQUIRE_MOUNT:-}"; then
+			fail "MEDIA_ROOT='$MEDIA_ROOT' liegt in KEINEM Mount (weder selbst noch ueber einen Vorfahren, ohne '/'): der komplette Media-Baum waere container-lokal und waere mit dem naechsten 'docker compose up -d --build' weg. MEDIA_ROOT_REQUIRE_MOUNT ist gesetzt, also Abbruch (Exit 78)."
+			echo "       Fix auf dem Host:  Volume-Mount in der Compose-Datei pruefen (${MEDIA_ROOT_HOST:-<MEDIA_ROOT_HOST>}:$MEDIA_ROOT) und den Host-Pfad anlegen:" >&2
+			echo "                          sudo mkdir -p '${MEDIA_ROOT_HOST:-$MEDIA_ROOT}' && sudo chown -R $(id -u):$(id -g) '${MEDIA_ROOT_HOST:-$MEDIA_ROOT}'" >&2
+			echo "       Absicht ohne Volume (Wegwerf-Container)?  MEDIA_ROOT_REQUIRE_MOUNT=false setzen." >&2
+			exit 78
+		else
+			warn "MEDIA_ROOT='$MEDIA_ROOT' liegt in KEINEM Mount (weder selbst noch ueber einen Vorfahren, ohne '/'): Uploads/PDFs landen in der Container-writable layer und sind beim naechsten Redeploy weg — bzw. kommen nach einem Remount zurueck, auf die nichts mehr zeigt (das 'unmounted vs. empty'-Problem aus MediaStorage::delete())."
+			echo "       Fix auf dem Host:  Volume-Mount in der Compose-Datei pruefen (${MEDIA_ROOT_HOST:-<MEDIA_ROOT_HOST>}:$MEDIA_ROOT) und den Host-Pfad anlegen:" >&2
+			echo "                          sudo mkdir -p '${MEDIA_ROOT_HOST:-$MEDIA_ROOT}' && sudo chown -R $(id -u):$(id -g) '${MEDIA_ROOT_HOST:-$MEDIA_ROOT}'" >&2
+			echo "       Hart abbrechen statt warnen:  MEDIA_ROOT_REQUIRE_MOUNT=true" >&2
+		fi
+	fi
 fi
 
 # Der Deploy-Schritt. Jedes Kommando ist explizit `|| return 1`, damit `set -e`

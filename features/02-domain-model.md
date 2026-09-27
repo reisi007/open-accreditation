@@ -421,6 +421,71 @@ laufen erneut) oder manueller Status-Reset.
 `features/accreditation/01-allocation-engine.md` (Abschnitt
 "Bulk-Reanimations-Limitation").
 
+## Host-Auflösung, `trustHosts` und die Hostname-Cache-Pflicht (dauerhaft)
+
+**Regel (VERBINDLICH, nicht session-gebunden):** **Jeder** Pfad, der eine
+Hostname-Zeile schreibt — `mandant_domains` anlegen, **umbenennen**, löschen,
+einen Mandanten samt seiner Domains löschen, ein `slug`/`hostname` per
+Migration, Seeder, Import, CLI-Command oder späterer Service umschreiben — muss
+**im selben Request/Aufruf** `MandantContext::forgetHostnames()` aufrufen. Kein
+„macht derjenige, der es braucht": Die Pflicht hängt an der **Schreiboperation**,
+nicht am Leser.
+
+**Warum (A3, `AGENTS.md` §10):** Die Allow-List der `trustHosts`-Middleware ist
+eine `pluck()`-Liste aller Hostnamen, gecacht unter
+`MandantContext::HOSTNAMES_CACHE_KEY` mit `MANDANTS_CACHE_TTL` (Default **3600 s**).
+Ein Write-Pfad, der den Cache nicht droppt, lässt einen **verwaisten** Host
+bis zum TTL allow-listed. Das ist **kein** Datenzugriff — der Host löst danach
+über `MandantContext` auf und liefert 404, weil es den Mandanten nicht (mehr)
+gibt —, aber es ist unnötige Angriffsfläche in der Form von
+Subdomain-Takeover-Szenarien (der Host ist im Allow-List, die DNS-Zone nicht
+mehr bei uns) und ein 400, den ein echter Host verdienen würde, aber erst nach
+einer Stunde bekommt. Umgekehrt gilt dasselbe für den **Positiv**-Fall: ein neu
+angelegter Host ist bis zum TTL **nicht** allow-listed und jeder Request darauf
+antwortet 400 — der Fehler, den ein Operator nach einem frischen Domain-Anlegen
+zuerst sieht.
+
+**Zwei Caches, zwei Pflichten.** `MandantContext` hält sie getrennt, und beide
+gehören zu einem Domain-Write:
+
+| Cache | Key | Invalidierung |
+|---|---|---|
+| Host→Mandant-Mapping (positiv **und** `MISSING`-Sentinel) | `mandant.domain.<host>` | `MandantContext::forgetHost($hostname)` — **beide** Hostnamen, wenn umbenannt wird (alt **und** neu) |
+| `trustHosts`-Hostname-Liste | `mandant.hosts_all` | `MandantContext::forgetHostnames()` |
+
+Ein Umbenennen ist damit der teuerste Fall: **mindestens drei** Aufrufe
+(2 × `forgetHost` für alt und neu, 1 × `forgetHostnames`) plus **ein weiterer
+`forgetHost` je Alias**, den derselbe Mandant noch führt — der
+`MISSING`-Sentinel eines Alias, der später wieder angelegt wird, muss ebenso
+weg, sonst ist auch dieser Host bis zum TTL falsch aufgelöst.
+
+**Stand der Abdeckung (verifiziert 2026-09-27, `grep` über `routes/` und `app/`):**
+
+- `MandantDomainController::store()` → `forgetHost()` + `forgetHostnames()`
+- `MandantDomainController::destroy()` → `forgetHost()` + `forgetHostnames()`
+- `MandantController::destroy()` → `forgetHost()` je Domain + `forgetHostnames()`
+
+**Ein Domain-Update-Endpoint existiert noch nicht** (es gibt nur
+`api.admin.mandants.domains.index|store|destroy`; `MandantDomainController` hat
+genau drei Methoden, und `MandantController::rules()` validiert kein
+Domain-Feld). Deshalb ist die Pflicht hier als **dauerhafte SOLL-Verpflichtung**
+festgehalten und nicht als Board-Punkt: Wer `PUT
+/api/admin/mandants/{mandant}/domains/{domain}` ergänzt, muss die Invalidierung
+**mit** dem Endpunkt liefern — plus einen Regressionstest, der den warmen Cache
+vor dem Write befüllt und danach die sofortige Auflösbarkeit/Abwesenheit prüft
+(nicht die DB, den Cache). `features/` ist der dauerhafte Ort (§4 `AGENTS.md`),
+`AGENTS.todo.md` wäre dafür der falsche.
+
+**Bekannte Lücke (siehe Bericht, nicht stillschweigend gefixt):**
+`DatabaseSeeder` legt Hostnamen per `firstOrCreate()` an
+(`localhost`, `accreditation.test`, `www.accreditation.test`,
+`bundesliga.test`, `www.bundesliga.test`) **ohne** `forgetHostnames()`. Im
+Prod ist Seeding per Default aus (`RUN_SEEDER`) und läuft als One-Shot-Prozess
+mit kaltem Cache, deshalb ist es unkritisch; lokal kann ein Re-Seed neben einem
+laufenden Server mit warmem Cache dagegen einen neuen Host bis zum TTL
+aussperren. `backend/database/**` war für dieses Ticket nicht freigegeben — die
+Lücke gehört in den nächsten Seed-/Cache-Task.
+
 ## `is_team_override` Semantik (P2b-F5)
 
 `CategoryResource` exponiert einen abgeleiteten Boolean **`is_team_override`** —

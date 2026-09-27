@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
@@ -184,6 +185,11 @@ class User extends Authenticatable implements JWTSubject
      * login time — the login check is the early filter, this one the
      * continuous one. (Change both together if the rule ever moves.)
      *
+     * The same predicate is the scope of `resolveRouteBindingQuery()` — the
+     * identity check (may this account act here at all?) and the resource check
+     * (is THIS target one of my users?) are deliberately the ONE rule, factored
+     * into `constrainToMandantMembership()` so they cannot drift apart.
+     *
      * ONE query for both branches: a single `EXISTS` whose predicate is the
      * disjunction "role in this mandant OR global super_admin". The
      * super-admin case is a row comparison inside the DB, not a second
@@ -204,24 +210,89 @@ class User extends Authenticatable implements JWTSubject
 
         // The first branch is the existing `forMandant()` scope — the same
         // rows the rest of the model reads — grouped with the global
-        // `super_admin` rows so one `EXISTS` answers both.
-        return $this->roleUserAssignments()
-            ->where(function (Builder $query) use ($mandantId): void {
-                $query->forMandant($mandantId)
-                    ->orWhere(function (Builder $global): void {
-                        // `mandant_id IS NULL AND team_id IS NULL` — exactly the
-                        // predicate `isSuperAdmin()` evaluates (`forMandant(null)`
-                        // + `forTeam(null)`). Without the `team_id` half the two
-                        // disagreed about the same row: a `super_admin` pivot
-                        // that (wrongly) carried a team id counted as a global
-                        // super admin HERE, while `isSuperAdmin()` — the method
-                        // every permission check consults — said no.
-                        $global->whereNull('role_user.mandant_id')
-                            ->whereNull('role_user.team_id')
-                            ->whereHas('role', fn (Builder $role): Builder => $role->where('roles.slug', UserRole::SUPER_ADMIN->value));
-                    });
-            })
-            ->exists();
+        // `super_admin` rows so one `EXISTS` answers both. The predicate itself
+        // lives in `constrainToMandantMembership()`, which the route binding
+        // uses too (see there).
+        return $this->constrainToMandantMembership($this->roleUserAssignments(), $mandantId)->exists();
+    }
+
+    /**
+     * The membership predicate as a query constraint, on a `role_user` query.
+     *
+     * ONE definition, two callers: the per-request gate
+     * (`isMemberOfMandant()`, the identity check) and the route binding
+     * (`resolveRouteBindingQuery()`, the resource check). They must not be able
+     * to drift — a row that counts as "belongs to this mandant" for one and not
+     * for the other would either 404 a legitimate target or let a foreign id
+     * resolve, which is exactly the class of bug this file's binding exists to
+     * close.
+     *
+     * @param  Builder|Relation  $assignments  a `role_user` query of the user in question
+     */
+    private function constrainToMandantMembership(Builder|Relation $assignments, int $mandantId): Builder|Relation
+    {
+        return $assignments->where(function (Builder $query) use ($mandantId): void {
+            $query->forMandant($mandantId)
+                ->orWhere(function (Builder $global): void {
+                    // `mandant_id IS NULL AND team_id IS NULL` — exactly the
+                    // predicate `isSuperAdmin()` evaluates (`forMandant(null)`
+                    // + `forTeam(null)`). Without the `team_id` half the two
+                    // disagreed about the same row: a `super_admin` pivot
+                    // that (wrongly) carried a team id counted as a global
+                    // super admin HERE, while `isSuperAdmin()` — the method
+                    // every permission check consults — said no.
+                    $global->whereNull('role_user.mandant_id')
+                        ->whereNull('role_user.team_id')
+                        ->whereHas('role', fn (Builder $role): Builder => $role->where('roles.slug', UserRole::SUPER_ADMIN->value));
+                });
+        });
+    }
+
+    /**
+     * Route-model-binding safety net: an account is only resolved when it is a
+     * member of the current mandant (host-derived), i.e. exactly when
+     * `isMemberOfMandant()` would say yes. `SubstituteBindings` runs BEFORE
+     * `EnsureMandantMembership`, so an unscoped binding answers 404 for an
+     * unknown id and lets a FOREIGN row through to the membership check,
+     * which answers 403 — the two are distinguishable, and a replayed cookie
+     * could mine sequential user ids of other tenants that way (M2). Every other
+     * bound model is mandant-scoped in its own `resolveRouteBindingQuery()`.
+     *
+     * `users` has no `mandant_id`-based ownership for this purpose: the
+     * "owning" (`home`) mandant column only anchors the per-mandant email
+     * uniqueness and the host-scoped login lookup, while AUTHORIZATION and
+     * membership flow exclusively through the mandant-scoped `role_user`
+     * assignments (union semantics — one account legitimately holds roles in
+     * SEVERAL mandants). A `where('users.mandant_id', $currentId)` would
+     * therefore break the roles endpoint for exactly the admins who use it: a
+     * user who is a member of the current mandant B but whose home mandant is
+     * A would stop resolving on B. So the scope is the membership predicate
+     * itself — a correlated `EXISTS` over the user's own `role_user` rows
+     * ("any role in this mandant OR the global `super_admin`"), which is the
+     * same expression the per-request gate evaluates, so a target that resolves
+     * is a target whose roles the controller may legitimately replace.
+     *
+     * Plain comparisons + nested `EXISTS` — identical SQL on Postgres and
+     * SQLite (§2 portability). Without a resolved mandant (seeders, console
+     * commands, tests) the binding stays unscoped, mirroring
+     * `Accreditation::resolveRouteBindingQuery()`.
+     */
+    public function resolveRouteBindingQuery($query, $value, $field = null)
+    {
+        $query = parent::resolveRouteBindingQuery($query, $value, $field);
+
+        $mandantId = MandantContext::currentId();
+
+        if ($mandantId === null) {
+            return $query;
+        }
+
+        $query->whereHas(
+            'roleUserAssignments',
+            fn (Builder $assignments): Builder => $this->constrainToMandantMembership($assignments, $mandantId),
+        );
+
+        return $query;
     }
 
     /**

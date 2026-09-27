@@ -83,7 +83,13 @@ class AdminUserTest extends TestCase
             $this->actingAsApi($actor)->getJson('/api/admin/users')
                 ->assertStatus(403, "expected 403 for {$role->value} on users index");
 
-            $target = User::factory()->create();
+            // The target MUST be a member of the current mandant: the roles
+            // endpoint resolves `{user}` through the mandant-scoped binding
+            // (`User::resolveRouteBindingQuery()`), so a user with no role here
+            // answers 404 before the `can:users.manage` gate is ever consulted.
+            // With a resolvable target the 403 below can only come from the
+            // gate — which is what this test is about.
+            $target = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id);
             $this->actingAsApi($actor)
                 ->putJson('/api/admin/users/'.$target->id.'/roles', ['roles' => [['role' => 'user']]])
                 ->assertStatus(403, "expected 403 for {$role->value} on roles update");

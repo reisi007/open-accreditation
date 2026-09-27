@@ -39,6 +39,22 @@ use Illuminate\Support\Facades\Storage;
  * stay untouched too: they carry no `<domain>/` prefix at all, even though no DB
  * row references them.
  *
+ * **Deployment-provided fallbacks: `root/**` and `<domain>/*.svg` ONLY (W7).**
+ * The SVG exclusions are load-bearing and easy to misread, so the rule they
+ * encode is spelled out here. A *raster* brand leaf — `<domain>/logo.png`,
+ * `header.jpg|webp` — is MANAGED by definition (`MANAGED_BRAND_LEAF`): a
+ * hand-placed, operator-provided per-domain raster override is therefore an
+ * ORPHAN and gets reaped by a planned `media:prune-orphans --force`, after
+ * which the tenant silently falls back to the root `logo.svg`. That is the
+ * documented contract, not a bug: only the *SVG* fallbacks are
+ * deployment-provided, which is why `deployment/caddy-media-overrides.Caddyfile`
+ * enumerates root-level `.svg` files and nothing per-domain-raster. If you
+ * need a per-domain override, put it there as `<domain>/logo.svg` (an `.svg`
+ * leaf fails `isManagedPath()` and is never touched, not even in the dry-run
+ * report) or outside the managed root, or upload it through the API so a DB
+ * column references it. Full statement in `features/media-domain-layout.md`,
+ * "Deployment-Overrides: nur `root/…` und nur `.svg`".
+ *
  * **Recency guard (`--min-age`, default 300 s).** The walk compares the disk
  * against the reference set, and the two are not one instant: an upload writes
  * the file FIRST and stores the path SECOND, so a file a request is about to
@@ -117,6 +133,12 @@ class MediaPruneOrphansCommand extends Command
     /**
      * Raster brand leaf names written by the media services. SVG is excluded:
      * root/domain fallback SVGs are deployment-provided, not DB-managed.
+     *
+     * The consequence for operators is spelled out in the class docblock
+     * ("Deployment-provided fallbacks … ONLY (W7)"): a hand-placed per-domain
+     * `logo.png` IS managed and therefore WILL be reaped. Do not "fix" the
+     * exclusion by adding raster extensions here — that would delete
+     * deployment files.
      */
     private const MANAGED_BRAND_LEAF = '/^(?:logo|header)\.(?:png|jpg|jpeg|webp)$/';
 
