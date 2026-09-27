@@ -10,7 +10,7 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 
 | Datei | Thema |
 |---|---|
-| `01-multi-tenancy.md` | Mandanten (Verbände), Host-Resolution über `mandant_domains`, MandantContext-Middleware, Team-Hierarchie |
+| `01-multi-tenancy.md` | Mandanten (Verbände), Host-Resolution über `mandant_domains`, MandantContext-Middleware, Team-Hierarchie, Multi-Domain-Admin-UX (host-skaliert vs. URL-skaliert) + **Domainwechsel-Dropdown für `super_admin`** (SOLL, D21) |
 | `02-domain-model.md` | Entity-Übersicht: P1-Tabellen (mandants, users, roles, user_media) + P2/P3-Ausblick |
 | `03-caddy-brand-files.md` | Brand-/Logo-Datei-Satz, Caddy `(media_overrides)` pro Mandant (Domain → Root → 404, Cache-/ETag-Semantik) — synchron zum Media-Layout |
 | `04-media-self-service.md` | **Media Self-Service (P8b/W2/W4):** Mandant-Logo/Header, Team-Logo (`teams.media.manage`-Hierarchie) und Event-Typ-Logo, Service-Extraktion, Legacy-Lesbarkeit |
