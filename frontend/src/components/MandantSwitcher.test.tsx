@@ -1,20 +1,30 @@
 /**
  * @vitest-environment jsdom
- * @vitest-environment-options {"url": "https://hauptseite.test:8443/admin/mandants?tab=domains"}
+ * @vitest-environment-options {"url": "https://www.hauptseite.test:8443/admin/mandants?tab=domains"}
  */
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { i18n } from '@lingui/core';
+import { MemoryRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MandantListPage } from '../pages/admin/MandantListPage';
 import { renderWithProviders } from '../test-setup';
 import { MandantSwitcher } from './MandantSwitcher';
 
 const ME_URL = '/api/auth/me';
 const MANDANTS_URL = '/api/admin/mandants';
 
-/** The current origin, spelled out so the tests assert the contract, not the fixture. */
-const ORIGIN_HOSTNAME = 'hauptseite.test';
+/**
+ * The current origin, spelled out so the tests assert the contract, not the
+ * fixture. It is `www.hauptseite.test` — the mandant's SECOND domain, on
+ * purpose: the identity in the trigger comes from `current_mandant_id`, so a
+ * fixture whose origin IS the first domain would pass even if the name were
+ * derived from the host.
+ */
+const ORIGIN_HOSTNAME = 'www.hauptseite.test';
 const CURRENT_MANDANT_ID = 40;
 
 const SUPER_ADMIN = {
@@ -40,6 +50,12 @@ const MANDANT_ADMIN = {
  *
  * `Bundesliga`'s domains are deliberately stored out of order, so a test that
  * expects the lower id to win measures the sort (E3) instead of the array order.
+ *
+ * `Hauptseite` is the current mandant AND owns the origin host — as its SECOND
+ * domain. A host-derived identity would have to pick the mandant by matching the
+ * origin against a domain, and matching it against the FIRST domain (what the
+ * switcher navigates to) finds nothing here, so the trigger-label assertions
+ * below measure the real source: `current_mandant_id` from `/me`.
  */
 function mandantPayload() {
     return [
@@ -127,6 +143,45 @@ function rowOf(element: HTMLElement): HTMLLIElement {
     return row;
 }
 
+/** The element daisyUI's menu rules style: the direct child of the `<li>`. */
+function rowTarget(row: HTMLLIElement): Element {
+    const target = row.firstElementChild;
+    if (target === null) {
+        throw new Error('panel row has no element child');
+    }
+    return target;
+}
+
+/**
+ * daisyUI's OWN selector for "this menu row carries the hover affordance", read
+ * from the shipped stylesheet rather than retyped here — a transcription would
+ * keep asserting a rule that daisyUI may have changed.
+ *
+ * jsdom cannot resolve the COMPUTED style of these rules: it fails to parse
+ * daisyUI's stylesheet at all (measured, not assumed — `Could not parse CSS
+ * stylesheet`, the injected sheet contributes zero rules), so no unit test in
+ * this repo can assert `cursor: pointer` here. What jsdom CAN do is answer the
+ * question the stylesheet asks: while an element is hovered, does the hover rule
+ * match it? nwsapi evaluates that selector faithfully, `:hover` state included.
+ * The resulting appearance (cursor, background, box-shadow unchanged between
+ * rest and hover) was measured in Chromium against the built CSS; this test
+ * pins the precondition of that appearance in both directions, so a future
+ * change — ours or daisyUI's — cannot silently take the affordance away from
+ * the rows that keep it or give it back to the rows that must not have it.
+ */
+function daisyUiMenuHoverSelector(): string {
+    const require = createRequire(import.meta.url);
+    const css = readFileSync(require.resolve('daisyui/components/menu.css'), 'utf8');
+    // The unprefixed rule (the responsive variants are `.sm\:menu`, `.md\:menu`, …).
+    const selector = [...css.matchAll(/([^{}]*?):hover(?=[^{}]*\{)/g)]
+        .map((match) => `${match[1].trim()}:hover`)
+        .find((candidate) => candidate.startsWith('.menu ') && !candidate.includes('\\:'));
+    if (selector === undefined) {
+        throw new Error('daisyUIs menu.css contains no .menu …:hover rule any more');
+    }
+    return selector;
+}
+
 afterEach(() => {
     vi.unstubAllGlobals();
     i18n.activate('de');
@@ -149,8 +204,14 @@ describe('MandantSwitcher — visibility (E1)', () => {
         renderSwitcher();
 
         const button = await screen.findByRole('button', { name: /^Verband: / });
-        // The host is DISPLAY; the identity comes from `current_mandant_id`, so
-        // the name survives a host that is not the mandant's first domain.
+        // The host is DISPLAY, the identity comes from `current_mandant_id`. The
+        // fixture makes that observable: the origin is the mandant's SECOND
+        // domain, so a name derived from the host — or looked up by matching the
+        // origin against the FIRST domain, the one the switcher navigates to —
+        // would not be "Hauptseite" here. Nor may the name be dropped for a host
+        // that is not the first one (the host-only fallback would be the bare
+        // `www.hauptseite.test`).
+        expect(window.location.hostname).toBe(ORIGIN_HOSTNAME);
         expect(button).toHaveAttribute('aria-label', `Verband: Hauptseite (${ORIGIN_HOSTNAME})`);
         expect(button).toHaveTextContent(`Hauptseite · ${ORIGIN_HOSTNAME}`);
         expect(button).toHaveAttribute('aria-expanded', 'false');
@@ -205,12 +266,43 @@ describe('MandantSwitcher — the rows (E3, E4, E5, E8)', () => {
         expect(within(open).queryByRole('listbox')).not.toBeInTheDocument();
         expect(within(open).queryByRole('option')).not.toBeInTheDocument();
 
-        // Every OTHER non-navigable row says so explicitly, which is also what
-        // keeps daisyUI from painting a hover state on a row that cannot be
-        // clicked. A reachable row carries no `aria-current` at all: a link to
-        // another origin is not a "current item" of anything.
+        // Every OTHER non-navigable row says so explicitly — `aria-current="false"`
+        // is the honest "this is not where you are" and keeps daisyUI's ACTIVE
+        // styling off the row. It is NOT what keeps the hover rule off (that is
+        // measured in the next test). A reachable row carries no `aria-current` at
+        // all: a link to another origin is not a "current item" of anything.
         expect(rowOf(within(open).getByText('Alt Verband')).querySelector('[aria-current="false"]')).not.toBeNull();
         expect(within(rowOf(within(open).getByText('Bundesliga'))).getByRole('link')).not.toHaveAttribute('aria-current');
+    });
+
+    it('carries the hover affordance ONLY on the rows that can actually be clicked', async () => {
+        stubFetch(SUPER_ADMIN);
+        const user = userEvent.setup();
+        renderSwitcher();
+
+        await user.click(await trigger());
+        const open = await openPanel();
+        const hoverTarget = daisyUiMenuHoverSelector();
+
+        // Direction one: the reachable row IS a target of daisyUI's hover rule, so
+        // the affordance (pointer cursor, tinted background) survives where it
+        // belongs. This is also what keeps the test from passing vacuously: a
+        // broken extraction would make every assertion below trivially true.
+        const reachable = within(rowOf(within(open).getByText('Bundesliga'))).getByRole('link');
+        await user.hover(reachable);
+        expect(reachable.matches(hoverTarget)).toBe(true);
+
+        // Direction two: no row that cannot be navigated to may be one. All three
+        // kinds, because each is dead for a different reason — no domain (E4),
+        // inactive (E5) and the current mandant — and each is a direct `li` child,
+        // which is what the rule targets. `aria-current="false"` does not exclude
+        // a row from it (measured in Chromium: `cursor: auto → pointer`), which is
+        // why the exclusion is asserted on the element, not on an attribute.
+        for (const name of ['Pokal International', 'Alt Verband', 'Hauptseite']) {
+            const target = rowTarget(rowOf(within(open).getByText(name)));
+            await user.hover(target);
+            expect(target.matches(hoverTarget), `${name} must not look clickable`).toBe(false);
+        }
     });
 
     it('closes the panel when the current row is clicked, without navigating', async () => {
@@ -354,5 +446,40 @@ describe('MandantSwitcher — a failed list', () => {
         // lying about the one thing it exists to answer.
         expect(within(open).getByText('The mandants could not be loaded.')).toBeInTheDocument();
         expect(within(open).queryAllByRole('link')).toHaveLength(0);
+    });
+});
+
+/**
+ * The invariant `useMandants`' own test cannot see: that test proves two
+ * consumers of ONE key share a request, which says nothing about whether the two
+ * SURFACES use that key at all. Re-introducing a literal in `MandantListPage`
+ * would leave the hook's test green and split the cache in two — the page would
+ * show one set of associations and the header's switcher another, and a switcher
+ * navigating from a stale list sends the admin to a domain that is not the
+ * mandant he picked. So the two components are mounted together and the request
+ * count is the assertion.
+ */
+describe('MandantListPage + MandantSwitcher — one mandant cache entry', () => {
+    it('answers both surfaces from a single GET /api/admin/mandants', async () => {
+        const fetchMock = stubFetch(SUPER_ADMIN);
+        const user = userEvent.setup();
+        renderWithProviders(
+            <MemoryRouter>
+                <SWRConfig value={{ provider: () => new Map() }}>
+                    <MandantListPage />
+                    <MandantSwitcher />
+                </SWRConfig>
+            </MemoryRouter>,
+        );
+
+        // The page has the list …
+        await screen.findByRole('link', { name: 'Bundesliga' });
+
+        // … so opening the switcher on this very page costs no second request, and
+        // the switcher renders the same mandants the page already shows.
+        await user.click(await trigger());
+        const open = await openPanel();
+        expect(within(open).getByText('Bundesliga')).toBeInTheDocument();
+        expect(fetchMock.mock.calls.filter(([url]) => url === MANDANTS_URL)).toHaveLength(1);
     });
 });

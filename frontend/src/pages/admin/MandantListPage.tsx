@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { listMandants } from '../../api/client';
 import type { Mandant } from '../../api/types';
+import { MANDANTS_KEY } from '../../logic/useMandants';
 
 const PAGE_SIZE = 20;
 
@@ -27,7 +28,17 @@ function MobileScrollHint() {
 
 export function MandantListPage() {
     const { i18n } = useLingui();
-    const { data: mandants, error, isLoading } = useSWR<Mandant[]>('/api/admin/mandants', () => listMandants());
+    /*
+      The SHARED key, not a literal of this page's own: the header's
+      `MandantSwitcher` reads the same cache entry, so the list and the switcher
+      can never disagree about the set of associations — a switcher that
+      navigates from a stale list sends the admin to a domain that is not the
+      mandant he picked. One constant exists so that both surfaces are forced
+      through one definition; a second literal here would be invisible to
+      `useMandants`' own test, which only proves that two consumers of ONE key
+      share a request.
+    */
+    const { data: mandants, error, isLoading } = useSWR<Mandant[]>(MANDANTS_KEY, () => listMandants());
     const [page, setPage] = useState(1);
 
     const totalCount = mandants?.length ?? 0;

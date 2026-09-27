@@ -288,7 +288,16 @@ export function MandantSwitcher() {
                       answer a switcher must never give wrongly.
                     */}
                     {error ? (
-                        <li>
+                        /*
+                          A row of the same `.menu`, and daisyUI's hover rule
+                          reaches it: measured without the marker it takes
+                          `cursor: auto → pointer` and a background of
+                          `base-content` at 10% — a promise of a click on a line
+                          that only reports a failure. The loading row above needs
+                          no marker: its spinner carries `.loading`, which sets
+                          `pointer-events: none`, so it is never hovered at all.
+                        */
+                        <li className="disabled">
                             <span className="text-sm text-error">{i18n._(t`Mandanten konnten nicht geladen werden.`)}</span>
                         </li>
                     ) : null}
@@ -297,12 +306,32 @@ export function MandantSwitcher() {
                         const { hostnames, name } = row;
                         const hasNoDomain = hostnames.length === 0;
                         /*
+                          A row that cannot be navigated to must not LOOK
+                          navigable — the reasoning and the measured numbers are
+                          at the markup below. The current mandant is the one
+                          non-navigable row that stays unmarked: its click closes
+                          the panel, so it is not a dead end, and `[aria-current]`
+                          already keeps daisyUI's hover rule off it.
+                        */
+                        const deadEnd = row.href === null && !row.isCurrent;
+                        /*
                           The secondary line inherits the row's colour instead of
                           carrying one, because the CURRENT row's colour comes from
                           `menu-active` (near-white on neutral) and a hard-coded
-                          muted grey would be dark-on-dark there. `/70` is the
-                          codebase's muted step (≈5:1 on `base-100`); `/60`
-                          measures ≈4:1 here and would fail WCAG AA for normal text.
+                          muted grey would be dark-on-dark there.
+
+                          `/70` is not a WCAG rescue on white: measured against the
+                          built `accr-light` theme, `/60` composites
+                          `oklab(0.2 0 0 / 0.6)` to rgb(115,115,115) on `base-100`
+                          = 4.74:1, which PASSES AA for normal text (4.5:1). What
+                          decides it is the state a REACHABLE row spends time in:
+                          daisyUI's hover background is
+                          `color-mix(in oklab, var(--color-base-content) 10%, transparent)`
+                          = rgb(231,231,231) on white, and the muted `text-xs`
+                          hostname line on that background measures 3.83:1 with
+                          `/60` (fails AA) against 5.49:1 with `/70` = rgb(91,91,91).
+                          `/70` is also the codebase's muted step, so the same
+                          information reads the same everywhere.
                         */
                         const marker = (
                             <>
@@ -333,19 +362,31 @@ export function MandantSwitcher() {
                         );
 
                         return (
-                            <li key={row.id}>
+                            <li key={row.id} className={deadEnd ? 'disabled' : undefined}>
                                 {row.href === null ? (
                                     /*
-                                      `aria-current` is the honest marker and it
-                                      also does the styling work: daisyUI styles
-                                      `[aria-current]` as the active row and
-                                      EXCLUDES it from the hover rule, so a row
-                                      that cannot be clicked never promises a
-                                      click. The current mandant is a span with no
-                                      `href` — its click only closes the panel,
-                                      and closing is reachable from the keyboard
-                                      anyway (Escape / Tab / the trigger), so it
-                                      must not become a focus stop of its own.
+                                      `aria-current` is the honest marker ("you are
+                                      here", and it keeps daisyUI's active styling off
+                                      the other rows). It does NOT keep the hover rule
+                                      off a row: the rule is gated by
+                                      `li:not(.menu-title,.disabled) > …:not(…[aria-current]:not([aria-current=false],[aria-current=""])):hover`,
+                                      and `aria-current="false"` fails that inner
+                                      `:not`, so a NON-navigable row was measured in
+                                      Chromium taking `cursor: auto → pointer` and a
+                                      background of `base-content` at 10% on hover —
+                                      a promise of a click it cannot honour. The
+                                      `disabled` marker on the `<li>` above is the
+                                      exclusion that same selector offers — and no
+                                      other rule of the built CSS mentions
+                                      `.disabled` at all, so the row keeps its
+                                      padding, radius and colour and only loses
+                                      the affordance. The current mandant needs no
+                                      marker: `[aria-current]` already excludes it,
+                                      and it is not disabled — clicking it closes
+                                      the panel. That close is reachable from the
+                                      keyboard anyway (Escape / Tab / the trigger),
+                                      so the row must not become a focus stop of its
+                                      own.
                                     */
                                     <span
                                         aria-current={row.isCurrent ? 'true' : 'false'}
