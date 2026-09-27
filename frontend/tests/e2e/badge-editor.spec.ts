@@ -7,9 +7,12 @@ import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
  * fields, the properties panel edits mm coordinates / source unions, and a
  * saved schema-v2 layout roundtrips through the server-authoritative API.
  *
- * FE4 polish coverage: corner-resize handles (w/h roundtrip), keyboard
- * nudging (1 mm / Shift = 5 mm), alignment guide lines while dragging and the
- * auto-fit sample text (FE3-F1 — text never overflows its box vertically).
+ * Editor model „Raster + konfigurierbare Labels" (2026-09-27): the canvas is a
+ * read-only preview over a 5 mm grid; every geometry value is typed into the
+ * properties panel. The FE3/FE4 pointer specs (mouse drag, corner-resize
+ * handles, arrow-key nudge, magnetic guides) were REMOVED from the app — the
+ * tests below assert their absence and the panel-driven replacement instead
+ * of the old interaction.
  *
  * The badge-images backend slice (upload/delivery API) is implemented — the
  * upload flow test exercises the real `POST /api/admin/badge-images` endpoint
@@ -149,7 +152,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 
-    test('drags a field onto the grid and persists the snapped position', {
+    test('places a field on the 5 mm grid from the panel and persists the position', {
         tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {
         await page.goto('/admin/badge-templates');
@@ -166,44 +169,48 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        const templateName = `E2E Editor Drag ${uniqueSuffix()}`;
+        const templateName = `E2E Editor Grid ${uniqueSuffix()}`;
         await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
-        // The default name row starts at the origin (x=0, y=0, w=40 mm).
+        // The visible raster is the editor's orientation aid: its cell must
+        // measure the agreed 5 mm against the real A6 sheet (105 × 148 mm).
+        // Scoped through the `group` landmark — the card itself is a plain div.
+        // Chromium re-serialises inline styles to 6 significant digits, so the
+        // comparison runs at 3 decimals — far tighter than the next plausible
+        // grid step (10 mm would read 9.5238 % / 6.7568 %).
+        const raster = canvas.locator('.badge-canvas-container > div[aria-hidden="true"]');
+        const rasterStyle = await raster.getAttribute('style');
+        const cell = /([\d.]+)% ([\d.]+)%/.exec(rasterStyle ?? '');
+        if (!cell) throw new Error('raster background-size not found');
+        expect(parseFloat(cell[1])).toBeCloseTo((5 / 105) * 100, 3);
+        expect(parseFloat(cell[2])).toBeCloseTo((5 / 148) * 100, 3);
+
+        // Position comes from the properties panel (the default name row starts
+        // at the origin), NOT from a pointer gesture.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        await dialog.getByLabel('X (mm)').fill('25');
+        await dialog.getByLabel('Y (mm)').fill('40');
+
+        // WYSIWYG in mm: the box really sits 25/105 of the card width from the
+        // left and 40/148 of its height from the top.
+        const card = await canvas.locator('.badge-canvas-container').boundingBox();
         const box = await nameBox.boundingBox();
-        if (!box) throw new Error('name box not rendered on the canvas');
-
-        // Pointer drag (mouse): px delta scaled by the rendered box width
-        // (40 mm) → mm, so the expectation is resolution-independent.
-        const pxPerMm = box.width / 40;
-        const deltaX = 150;
-        const deltaY = 90;
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(box.x + box.width / 2 + deltaX, box.y + box.height / 2 + deltaY, { steps: 8 });
-        await page.mouse.up();
-
-        // The panel mirrors the dragged position, snapped onto the 5 mm grid:
-        // raw x ≈ 150/pxPerMm → nearest multiple of 5, clamped to ≤ 65.
-        const expectedX = Math.min(Math.round(deltaX / pxPerMm / 5) * 5, 105 - 40);
-        const expectedY = Math.min(Math.round(deltaY / pxPerMm / 5) * 5, 148 - 8);
-        expect(expectedX).toBeGreaterThan(0);
-        expect(expectedY).toBeGreaterThan(0);
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue(String(expectedX));
-        await expect(dialog.getByLabel('Y (mm)')).toHaveValue(String(expectedY));
+        if (!card || !box) throw new Error('canvas or name box not rendered');
+        expect(((box.x - card.x) / card.width) * 105).toBeCloseTo(25, 0);
+        expect(((box.y - card.y) / card.height) * 148).toBeCloseTo(40, 0);
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
-        // Roundtrip: the dragged position survives save + reopen.
+        // Roundtrip: the panel-authored position survives save + reopen.
         await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
         await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
         const editCanvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
         await editCanvas.getByRole('button', { name: 'Feld Name' }).click();
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue(String(expectedX));
-        await expect(dialog.getByLabel('Y (mm)')).toHaveValue(String(expectedY));
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('25');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('40');
     });
 
     test('warns about overlapping fields without blocking the save', {
@@ -305,7 +312,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Skalierung')).toHaveValue('contain');
     });
 
-    test('resizes a field with the corner handle and persists w/h across reopen', {
+    test('resizes a field from the panel and persists w/h across reopen', {
         tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {
         await page.goto('/admin/badge-templates');
@@ -325,51 +332,43 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const templateName = `E2E Editor Resize ${uniqueSuffix()}`;
         await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
-        // Default name row: x=0, y=0, 40×8 mm. Selecting it shows the four
-        // corner resize handles.
+        // Default name row: x=0, y=0, 40×8 mm. Selecting it must NOT reveal
+        // corner handles any more — the removed resize affordance is gone for
+        // good, not merely restyled.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
         await nameBox.click();
-        const seHandle = nameBox.locator('[data-resize-handle="se"]');
-        await expect(seHandle).toBeVisible();
+        await expect(nameBox).toHaveAttribute('aria-pressed', 'true');
+        await expect(nameBox.locator('[data-resize-handle]')).toHaveCount(0);
 
-        const box = await nameBox.boundingBox();
-        const handle = await seHandle.boundingBox();
-        if (!box || !handle) throw new Error('name box or se handle not rendered on the canvas');
-        const pxPerMm = box.width / 40; // rendered box width corresponds to w = 40 mm
-
-        // Corner drag: grows the box; the SE corner keeps x/y untouched.
-        const deltaX = 45;
-        const deltaY = 25;
-        await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(handle.x + handle.width / 2 + deltaX, handle.y + handle.height / 2 + deltaY, { steps: 8 });
-        await page.mouse.up();
-
-        const expectedW = Math.min(Math.round((40 + deltaX / pxPerMm) / 5) * 5, 105);
-        const expectedH = Math.min(Math.round((8 + deltaY / pxPerMm) / 5) * 5, 148);
-        expect(expectedW).toBeGreaterThan(40);
-        expect(expectedH).toBeGreaterThan(8);
-        await expect(dialog.getByLabel('Breite (mm)')).toHaveValue(String(expectedW));
-        await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue(String(expectedH));
+        // Size is authored numerically; x/y stay untouched by a resize.
+        await dialog.getByLabel('Breite (mm)').fill('70');
+        await dialog.getByLabel('Höhe (mm)').fill('20');
         await expect(dialog.getByLabel('X (mm)')).toHaveValue('0');
         await expect(dialog.getByLabel('Y (mm)')).toHaveValue('0');
+
+        // WYSIWYG in mm: 70 of 105 mm card width, 20 of 148 mm card height.
+        const card = await canvas.locator('.badge-canvas-container').boundingBox();
+        const box = await nameBox.boundingBox();
+        if (!card || !box) throw new Error('canvas or name box not rendered');
+        expect((box.width / card.width) * 105).toBeCloseTo(70, 0);
+        expect((box.height / card.height) * 148).toBeCloseTo(20, 0);
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
-        // Roundtrip: the resized geometry survives save + reopen.
+        // Roundtrip: the panel-authored geometry survives save + reopen.
         await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
         await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
         await dialog
             .getByRole('group', { name: 'Ausweis-Vorschau' })
             .getByRole('button', { name: 'Feld Name' })
             .click();
-        await expect(dialog.getByLabel('Breite (mm)')).toHaveValue(String(expectedW));
-        await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue(String(expectedH));
+        await expect(dialog.getByLabel('Breite (mm)')).toHaveValue('70');
+        await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue('20');
     });
 
-    test('nudges the selected field with arrow keys (1 mm, Shift = 5 mm)', {
+    test('never moves a field by pointer drag or arrow keys — the panel is the only writer', {
         tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {
         await page.goto('/admin/badge-templates');
@@ -386,40 +385,54 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        const templateName = `E2E Editor Nudge ${uniqueSuffix()}`;
-        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
+        await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor NoDrag ${uniqueSuffix()}`);
 
-        // Deterministic base position via the panel, then focus the box again.
+        // Deterministic base position via the panel, then focus the box.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
         await nameBox.click();
-        await dialog.getByLabel('X (mm)').fill('10');
-        await dialog.getByLabel('Y (mm)').fill('10');
+        await dialog.getByLabel('X (mm)').fill('30');
+        await dialog.getByLabel('Y (mm)').fill('50');
+        const before = await nameBox.boundingBox();
+        const card = await canvas.locator('.badge-canvas-container').boundingBox();
+        if (!before || !card) throw new Error('canvas or name box not rendered on the canvas');
+
+        // 1) A full press → sweep → release across the box, then a sweep over
+        //    the whole card to the far corner. The removed
+        //    handleDragStart/Move/End trio consumed exactly this gesture.
+        //    (The release lands on the card background, which legitimately
+        //    clears the selection — so re-select before reading the panel.)
+        const startX = before.x + before.width / 2;
+        const startY = before.y + before.height / 2;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        await page.mouse.move(startX + 30, startY + 12, { steps: 6 });
+        await page.mouse.move(card.x + card.width - 8, card.y + card.height - 8, { steps: 10 });
+        await page.mouse.move(card.x + 8, card.y + 8, { steps: 10 });
+        await page.mouse.up();
+
+        // The box did not move by a single pixel.
+        const afterDrag = await nameBox.boundingBox();
+        if (!afterDrag) throw new Error('name box disappeared from the canvas');
+        expect(afterDrag.x).toBeCloseTo(before.x, 1);
+        expect(afterDrag.y).toBeCloseTo(before.y, 1);
+
+        // 2) The removed keyboard nudge: 1 mm per arrow key, Shift = one grid step.
         await nameBox.click();
-
+        await nameBox.focus();
         await page.keyboard.press('ArrowRight');
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue('11');
-        await page.keyboard.press('Shift+ArrowDown');
-        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('15');
-        await page.keyboard.press('ArrowUp');
-        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
-        await page.keyboard.press('ArrowLeft');
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
+        await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('Shift+ArrowLeft');
 
-        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
-        await expect(templateRow).toBeVisible();
-
-        await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
-        await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
-        await dialog
-            .getByRole('group', { name: 'Ausweis-Vorschau' })
-            .getByRole('button', { name: 'Feld Name' })
-            .click();
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
-        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
+        const afterNudge = await nameBox.boundingBox();
+        if (!afterNudge) throw new Error('name box disappeared from the canvas');
+        expect(afterNudge.x).toBeCloseTo(before.x, 1);
+        expect(afterNudge.y).toBeCloseTo(before.y, 1);
+        // … and the panel still holds exactly the authored values.
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('30');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('50');
     });
 
-    test('shows alignment guides while a dragged edge is flush with another field', {
+    test('advertises the raster + properties panel instead of drag instructions', {
         tag: ['@feature:badge-editor'],
     }, async ({ page }) => {
         await page.goto('/admin/badge-templates');
@@ -436,33 +449,28 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor Guides ${uniqueSuffix()}`);
+        await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor NoGuide ${uniqueSuffix()}`);
 
-        await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
-        await dialog.getByLabel('Quelle').selectOption('brand');
-        // Park the image far from every alignment target first.
-        await dialog.getByLabel('X (mm)').fill('60');
-        await dialog.getByLabel('Y (mm)').fill('60');
+        // The hint must point at the panel, and the superseded drag wording
+        // must be gone from the document.
+        await expect(
+            dialog.getByText('Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein.'),
+        ).toBeVisible();
+        await expect(dialog.getByText(/Ziehen verschiebt das Feld/)).toHaveCount(0);
 
-        const card = await canvas.boundingBox();
-        const imageBox = await canvas.getByRole('button', { name: 'Feld Bild' }).boundingBox();
-        if (!card || !imageBox) throw new Error('canvas or image box not rendered');
-        const pxPerMmX = card.width / 105;
+        // No magnetic alignment guides, at rest or while the pointer sweeps.
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        await expect(canvas.locator('[data-badge-guide]')).toHaveCount(0);
 
-        // Drag left so the image's LEFT edge lands flush with the name row's
-        // RIGHT edge (x = 40 mm): grid snap brings it onto 40, the guide line
-        // appears while the pointer is still held down …
-        const startX = imageBox.x + imageBox.width / 2;
-        const startY = imageBox.y + imageBox.height / 2;
-        await page.mouse.move(startX, startY);
+        const box = await nameBox.boundingBox();
+        if (!box) throw new Error('name box not rendered on the canvas');
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.down();
-        await page.mouse.move(startX - 19.6 * pxPerMmX, startY, { steps: 8 });
-        await expect(canvas.locator('[data-badge-guide="vertical"]').first()).toBeVisible();
-
-        // … and disappears on release.
+        await page.mouse.move(box.x - 60, box.y + 40, { steps: 8 });
+        await expect(canvas.locator('[data-badge-guide]')).toHaveCount(0);
         await page.mouse.up();
         await expect(canvas.locator('[data-badge-guide]')).toHaveCount(0);
-        await expect(dialog.getByLabel('X (mm)')).toHaveValue('40');
     });
 
     test('auto-fits the sample text into small boxes (FE3-F1 regression)', {

@@ -1,51 +1,28 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
-    type AlignmentGuides,
+    badgeCanvasFontSizeCss,
     badgeFieldLabel,
     CANVAS_GRID_STEP_MM,
-    clampToBounds,
-    computeAlignmentSnap,
-    computeDragPosition,
-    computeDragResize,
-    computeNudgePosition,
-    findAlignedGuides,
-    badgeCanvasFontSizeCss,
     isBoxEntry,
-    MIN_BOX_H_MM,
-    MIN_BOX_W_MM,
-    MIN_TEXT_H_MM,
-    MIN_TEXT_W_MM,
-    NO_ALIGNMENT_GUIDES,
-    nudgeDirectionFromKey,
     type BadgeRowValues,
-    type MmRect,
-    type NudgeDirection,
-    type ResizeCorner,
 } from './badgeTemplateFormUtils';
 
 /**
- * Interactive A6 canvas of the badge template editor (FE3 drag + FE4 polish,
- * features/badge-template-editor.md): every layout row renders as a box
- * positioned in percent of the REAL A6 sheet (105 × 148 mm), so preview and
- * print share one coordinate system (WYSIWYG in mm).
+ * A6 canvas of the badge template editor, decision „Raster + konfigurierbare
+ * Labels" (2026-09-27, features/badge-template-editor.md): every layout row
+ * renders as a box positioned in percent of the REAL A6 sheet (105 × 148 mm),
+ * so preview and print share one coordinate system (WYSIWYG in mm). The
+ * 5 mm editor raster is drawn as a background overlay; the geometry itself is
+ * authored numerically in `BadgePropertiesPanel`, so the canvas is a read-only
+ * preview that only carries selection.
  *
- * Interactions (all writing straight into react-hook-form — single source of
- * truth):
- * - MOVE via pointer drag: delta px → mm against the live card size, snapped
- *   onto the editor grid, MAGNETICALLY aligned onto neighbour edges/centres +
- *   card centre (guide lines show while the alignment holds), hard-clamped.
- * - RESIZE via four corner handles (selected box only): opposite edges stay
- *   fixed, grabbed edges follow snapped+clamped per-type minimum sizes.
- *   Resizing shows guides but does not displace magnetically (the fixed edges
- *   must not move).
- * - NUDGE via arrow keys: 1 mm per press, Shift = one grid step (5 mm).
- *
- * Clicking a box selects it, clicking the card background clears selection.
+ * Deliberately NOT here (superseded with the drag interaction): pointer-drag
+ * move, corner resize handles, arrow-key nudge and the magnetic alignment
+ * guides. Clicking a box selects it, clicking the card background or pressing
+ * Escape clears the selection.
  */
 interface BadgeCanvasProps {
     rows: BadgeRowValues[];
@@ -53,58 +30,9 @@ interface BadgeCanvasProps {
     /** Row indices overlapping another row (soft warning marker, non-blocking). */
     overlapIndices: ReadonlySet<number>;
     onSelect: (index: number | null) => void;
-    /** Live move update — receives the snapped/aligned/clamped mm position. */
-    onMove: (index: number, x: number, y: number) => void;
-    /** Live corner-resize update — receives the full snapped/clamped rectangle. */
-    onResize: (index: number, rect: MmRect) => void;
-}
-
-/** Bookkeeping of an active pointer drag (px start point + mm origin). */
-interface DragState {
-    index: number;
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    originX: number;
-    originY: number;
-}
-
-/** Bookkeeping of an active corner resize (px start point + mm origin rect). */
-interface ResizeState {
-    index: number;
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    corner: ResizeCorner;
-    origin: MmRect;
 }
 
 const finiteOrZero = (value: number): number => (Number.isFinite(value) ? value : 0);
-
-/** Per-type minimum sizes mirrored from the zod schema/server rules. */
-function minSizeFor(field: BadgeRowValues['field']): { w: number; h: number } {
-    return isBoxEntry(field)
-        ? { w: MIN_BOX_W_MM, h: MIN_BOX_H_MM }
-        : { w: MIN_TEXT_W_MM, h: MIN_TEXT_H_MM };
-}
-
-/** All other rows with fully finite geometry — the alignment reference set. */
-function alignmentOthers(rows: BadgeRowValues[], index: number): MmRect[] {
-    return rows
-        .filter((_, rowIndex) => rowIndex !== index)
-        .filter((row) => [row.x, row.y, row.w, row.h].every(Number.isFinite))
-        .map((row) => ({ x: row.x, y: row.y, w: row.w, h: row.h }));
-}
-
-const RESIZE_CORNERS: readonly ResizeCorner[] = ['nw', 'ne', 'sw', 'se'];
-
-/** Static per-corner placement classes (Tailwind JIT policy: no concatenation). */
-const RESIZE_HANDLE_CLASS: Record<ResizeCorner, string> = {
-    nw: 'top-0.5 left-0.5 cursor-nwse-resize',
-    ne: 'top-0.5 right-0.5 cursor-nesw-resize',
-    sw: 'bottom-0.5 left-0.5 cursor-nesw-resize',
-    se: 'bottom-0.5 right-0.5 cursor-nwse-resize',
-};
 
 /** Deterministic sample content per data field (rough print approximation). */
 const SAMPLE_TEXT: Record<BadgeRowValues['field'], string> = {
@@ -165,13 +93,6 @@ function CanvasBox({
     overlapWarning,
     label,
     onSelect,
-    onDragStart,
-    onDragMove,
-    onDragEnd,
-    onResizeStart,
-    onResizeMove,
-    onResizeEnd,
-    onKeyDown,
 }: {
     row: BadgeRowValues;
     index: number;
@@ -180,18 +101,12 @@ function CanvasBox({
     overlapWarning: string;
     label: string;
     onSelect: (index: number | null) => void;
-    onDragStart: (event: ReactPointerEvent<HTMLButtonElement>, index: number) => void;
-    onDragMove: (event: ReactPointerEvent<HTMLButtonElement>, index: number) => void;
-    onDragEnd: (event: ReactPointerEvent<HTMLButtonElement>, index: number) => void;
-    onResizeStart: (event: ReactPointerEvent<HTMLSpanElement>, index: number, corner: ResizeCorner) => void;
-    onResizeMove: (event: ReactPointerEvent<HTMLSpanElement>, index: number) => void;
-    onResizeEnd: (event: ReactPointerEvent<HTMLSpanElement>, index: number) => void;
-    onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => void;
 }) {
     // Tailwind-Only-Policy exception: position/size/font values are runtime
-    // numbers typed by the author (mm / pt) projected onto the card — Tailwind
-    // JIT cannot emit classes for arbitrary dynamic values, so they must be
-    // inline styles (same exception as the previous read-only preview).
+    // numbers authored in mm/pt by the properties panel and projected onto the
+    // card — Tailwind JIT cannot emit classes for arbitrary dynamic values, so
+    // they must be inline styles. This is the only place the editor turns form
+    // values into pixels; the raster below does the same for the grid step.
     const x = finiteOrZero(row.x);
     const y = finiteOrZero(row.y);
     const h = finiteOrZero(row.h);
@@ -232,17 +147,12 @@ function CanvasBox({
             aria-label={label}
             aria-pressed={selected}
             title={overlaps ? overlapWarning : undefined}
-            className={`badge-canvas-box absolute flex cursor-grab touch-none select-none items-center overflow-hidden border border-dashed p-0.5 transition-colors ${stateClass}`}
+            className={`badge-canvas-box absolute flex cursor-pointer items-center overflow-hidden border border-dashed p-0.5 transition-colors ${stateClass}`}
             style={style}
             onClick={(event) => {
                 event.stopPropagation();
                 onSelect(index);
             }}
-            onPointerDown={(event) => onDragStart(event, index)}
-            onPointerMove={(event) => onDragMove(event, index)}
-            onPointerUp={(event) => onDragEnd(event, index)}
-            onPointerCancel={(event) => onDragEnd(event, index)}
-            onKeyDown={(event) => onKeyDown(event, index)}
         >
             <span
                 className={`block w-full leading-tight ${isBoxEntry(row.field) ? 'h-full' : ''}`}
@@ -250,159 +160,12 @@ function CanvasBox({
             >
                 <SampleContent field={row.field} />
             </span>
-            {selected
-                ? RESIZE_CORNERS.map((corner) => (
-                      // Decorative mouse-only affordances: resizing stays
-                      // keyboard-accessible through the W/H panel inputs, so
-                      // the handles are intentionally aria-hidden spans (no
-                      // interactive element may nest inside a <button>).
-                      <span
-                          key={corner}
-                          aria-hidden="true"
-                          data-resize-handle={corner}
-                          className={`absolute z-20 h-2 w-2 rounded-full border border-base-100 bg-primary touch-none ${RESIZE_HANDLE_CLASS[corner]}`}
-                          onPointerDown={(event) => onResizeStart(event, index, corner)}
-                          onPointerMove={(event) => onResizeMove(event, index)}
-                          onPointerUp={(event) => onResizeEnd(event, index)}
-                          onPointerCancel={(event) => onResizeEnd(event, index)}
-                      ></span>
-                  ))
-                : null}
         </button>
     );
 }
 
-export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onMove, onResize }: BadgeCanvasProps) {
+export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect }: BadgeCanvasProps) {
     const { i18n } = useLingui();
-    const cardRef = useRef<HTMLDivElement | null>(null);
-    const dragRef = useRef<DragState | null>(null);
-    const resizeRef = useRef<ResizeState | null>(null);
-    const [guides, setGuides] = useState<AlignmentGuides>(NO_ALIGNMENT_GUIDES);
-
-    const handleDragStart = (event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
-        onSelect(index);
-        const row = rows[index];
-        if (!event.isPrimary || !row || !cardRef.current) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = {
-            index,
-            pointerId: event.pointerId,
-            startClientX: event.clientX,
-            startClientY: event.clientY,
-            originX: finiteOrZero(row.x),
-            originY: finiteOrZero(row.y),
-        };
-    };
-
-    const handleDragMove = (event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
-        const drag = dragRef.current;
-        const card = cardRef.current;
-        if (!drag || !card || drag.index !== index || drag.pointerId !== event.pointerId) return;
-
-        const rect = card.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
-
-        const row = rows[index];
-        const size = { w: finiteOrZero(row.w), h: finiteOrZero(row.h) };
-        // px → mm against the LIVE rendered card size, grid-snapped …
-        const moved = computeDragPosition(
-            { x: drag.originX, y: drag.originY },
-            {
-                x: ((event.clientX - drag.startClientX) / rect.width) * A6_WIDTH_MM,
-                y: ((event.clientY - drag.startClientY) / rect.height) * A6_HEIGHT_MM,
-            },
-            size,
-        );
-        // … then magnetically aligned (FE4) onto neighbour edges/centres/card
-        // centre within the threshold, bounds winning again after correction.
-        const others = alignmentOthers(rows, index);
-        const snap = computeAlignmentSnap({ x: moved.x, y: moved.y, w: size.w, h: size.h }, others);
-        const finalRect = clampToBounds({ x: moved.x + snap.offsetX, y: moved.y + snap.offsetY, w: size.w, h: size.h });
-        onMove(index, finalRect.x, finalRect.y);
-        setGuides(findAlignedGuides(finalRect, others));
-    };
-
-    const handleDragEnd = (_event: ReactPointerEvent<HTMLButtonElement>, index: number) => {
-        if (dragRef.current?.index !== index) return;
-        dragRef.current = null;
-        setGuides(NO_ALIGNMENT_GUIDES);
-        // Pointer capture releases implicitly on pointerup/cancel; the last
-        // written position stays — it is already aligned, snapped and clamped.
-    };
-
-    const handleResizeStart = (event: ReactPointerEvent<HTMLSpanElement>, index: number, corner: ResizeCorner) => {
-        onSelect(index);
-        const row = rows[index];
-        if (!event.isPrimary || !row || !cardRef.current) return;
-        // Keep the underlying box button from starting a MOVE drag.
-        event.stopPropagation();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        resizeRef.current = {
-            index,
-            pointerId: event.pointerId,
-            startClientX: event.clientX,
-            startClientY: event.clientY,
-            corner,
-            origin: {
-                x: finiteOrZero(row.x),
-                y: finiteOrZero(row.y),
-                w: finiteOrZero(row.w),
-                h: finiteOrZero(row.h),
-            },
-        };
-    };
-
-    const handleResizeMove = (event: ReactPointerEvent<HTMLSpanElement>, index: number) => {
-        const active = resizeRef.current;
-        const card = cardRef.current;
-        if (!active || !card || active.index !== index || active.pointerId !== event.pointerId) return;
-
-        const rect = card.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
-
-        const mins = minSizeFor(rows[index].field);
-        const resized = computeDragResize(
-            active.origin,
-            active.corner,
-            {
-                x: ((event.clientX - active.startClientX) / rect.width) * A6_WIDTH_MM,
-                y: ((event.clientY - active.startClientY) / rect.height) * A6_HEIGHT_MM,
-            },
-            mins.w,
-            mins.h,
-        );
-        // Deliberate asymmetry to moving: resize shows guides but never
-        // displaces magnetically — the edges opposite the corner are fixed.
-        onResize(index, resized);
-        setGuides(findAlignedGuides(resized, alignmentOthers(rows, index)));
-    };
-
-    const handleResizeEnd = (event: ReactPointerEvent<HTMLSpanElement>, index: number) => {
-        if (resizeRef.current?.index !== index || resizeRef.current.pointerId !== event.pointerId) return;
-        resizeRef.current = null;
-        setGuides(NO_ALIGNMENT_GUIDES);
-    };
-
-    const handleNudge = (direction: NudgeDirection, index: number, coarse: boolean, row: BadgeRowValues) => {
-        const next = computeNudgePosition(
-            { x: finiteOrZero(row.x), y: finiteOrZero(row.y) },
-            direction,
-            coarse ? CANVAS_GRID_STEP_MM : 1,
-            { w: finiteOrZero(row.w), h: finiteOrZero(row.h) },
-        );
-        onMove(index, next.x, next.y);
-    };
-
-    const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-        const direction = nudgeDirectionFromKey(event.key);
-        if (!direction) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (selectedIndex !== index) {
-            onSelect(index);
-        }
-        handleNudge(direction, index, event.shiftKey, rows[index]);
-    };
 
     const overlapWarning = i18n._(t`Felder überschneiden sich.`);
 
@@ -418,7 +181,7 @@ export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onM
                 }
             }}
         >
-            <div ref={cardRef} className="badge-canvas-container relative h-full w-full select-none overflow-hidden rounded">
+            <div className="badge-canvas-container relative h-full w-full select-none overflow-hidden rounded">
                 {/* Editor grid raster (aria-hidden decoration; inline-style
                     exception: raster geometry derives from the mm constants). */}
                 <div
@@ -430,26 +193,6 @@ export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onM
                         backgroundSize: `${(CANVAS_GRID_STEP_MM / A6_WIDTH_MM) * 100}% ${(CANVAS_GRID_STEP_MM / A6_HEIGHT_MM) * 100}%`,
                     }}
                 ></div>
-                {/* Alignment guide lines (FE4, decoration shown while an edge/
-                    centre is flush with another field or the card centre). */}
-                {guides.vertical.map((xMm) => (
-                    <div
-                        key={`v-${xMm}`}
-                        aria-hidden="true"
-                        data-badge-guide="vertical"
-                        className="pointer-events-none absolute inset-y-0 z-30 w-px bg-primary"
-                        style={{ left: `${(xMm / A6_WIDTH_MM) * 100}%` }}
-                    ></div>
-                ))}
-                {guides.horizontal.map((yMm) => (
-                    <div
-                        key={`h-${yMm}`}
-                        aria-hidden="true"
-                        data-badge-guide="horizontal"
-                        className="pointer-events-none absolute inset-x-0 z-30 h-px bg-primary"
-                        style={{ top: `${(yMm / A6_HEIGHT_MM) * 100}%` }}
-                    ></div>
-                ))}
                 {rows.map((row, index) => (
                     // key=index ok: no reordering, static list (insertion order only;
                     // rows are added at the end or removed by filter — never reordered).
@@ -462,13 +205,6 @@ export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onM
                         overlapWarning={overlapWarning}
                         label={`${i18n._(t`Feld`)} ${badgeFieldLabel(row.field, i18n)}`}
                         onSelect={onSelect}
-                        onDragStart={handleDragStart}
-                        onDragMove={handleDragMove}
-                        onDragEnd={handleDragEnd}
-                        onResizeStart={handleResizeStart}
-                        onResizeMove={handleResizeMove}
-                        onResizeEnd={handleResizeEnd}
-                        onKeyDown={handleKeyDown}
                     />
                 ))}
             </div>

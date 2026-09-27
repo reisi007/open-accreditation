@@ -17,7 +17,6 @@ import {
     isSpecialEntry,
     type BadgeEntryKey,
     type BadgeTemplateFormValues,
-    type MmRect,
 } from './badgeTemplateFormUtils';
 
 interface BadgeTemplateFormProps {
@@ -29,12 +28,13 @@ interface BadgeTemplateFormProps {
 }
 
 /**
- * Badge template editor (schema v2 — FE3 drag & drop, features/badge-template-
- * editor.md): element palette + mm-scaled A6 canvas with draggable boxes +
- * a properties panel. Drag writes the grid-snapped/clamped position back via
- * `setValue` (single source of truth in react-hook-form), overlapping boxes
- * raise a soft warning that does not block saving. Validation mirrors the
- * server-authoritative schema v2 rules.
+ * Badge template editor (schema v2, decision „Raster + konfigurierbare Labels"
+ * vom 2026-09-27, features/badge-template-editor.md): element palette + a
+ * mm-scaled A6 canvas showing a 5 mm raster + a properties panel. The canvas
+ * is a read-only preview that only carries selection — the geometry is
+ * authored numerically in the panel, which writes the single source of truth in
+ * react-hook-form. Overlapping boxes raise a soft warning that does not block
+ * saving. Validation mirrors the server-authoritative schema v2 rules.
  */
 export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit, onCancel }: BadgeTemplateFormProps) {
     const { i18n } = useLingui();
@@ -73,26 +73,6 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
             { shouldValidate: true },
         );
         setSelectedIndex(null);
-    };
-
-    /**
-     * Live drag feedback (FE3): every pointer move writes the snapped/aligned
-     * position into the SAME form state the panel inputs are registered on —
-     * canvas box, panel numbers and the saved layout stay one source of truth.
-     * No per-move validation: dragging is hard-clamped into the A6 bounds, the
-     * resolver runs at submit time anyway.
-     */
-    const handleMoveField = (index: number, x: number, y: number) => {
-        setValue(`fields.${index}.x`, x);
-        setValue(`fields.${index}.y`, y);
-    };
-
-    /** Live corner-resize feedback (FE4): writes the full rectangle back. */
-    const handleResizeField = (index: number, rect: MmRect) => {
-        setValue(`fields.${index}.x`, rect.x);
-        setValue(`fields.${index}.y`, rect.y);
-        setValue(`fields.${index}.w`, rect.w);
-        setValue(`fields.${index}.h`, rect.h);
     };
 
     return (
@@ -160,8 +140,6 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                             selectedIndex={selectedIndex}
                             overlapIndices={overlapIndices}
                             onSelect={setSelectedIndex}
-                            onMove={handleMoveField}
-                            onResize={handleResizeField}
                         />
                     </div>
                     <p className="text-center text-xs text-base-content/60">
@@ -169,7 +147,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                     </p>
                     <p className="text-center text-xs text-base-content/60">
                         {i18n._(
-                            t`Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm).`,
+                            t`Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein.`,
                         )}
                     </p>
 

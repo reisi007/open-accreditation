@@ -1,10 +1,10 @@
 # Badge-Template-Editor — Raster + konfigurierbare Labels (P4)
 
-**Status: SOLL-Spezifikation — KORRIGIERT am 2026-09-27.** Der Anlass-Absatz
-unten war bis eben falsch; alle daraus abgeleiteten Drag-&-Drop-Abschnitte sind
-als **SUPERSEDED** markiert. Der Editor selbst ist in **FE1–FE4 implementiert**
-(`a17332b`, `eb88cbc`, `8634e40`, `68f52d7`); Ist-Stand siehe die Tabelle
-unten, alles Übrige ist Entwurf.
+**Status: SOLL-Spezifikation — KORRIGIERT am 2026-09-27, Rückbau abgeschlossen
+am 2026-09-27.** Der Editor ist in **FE1–FE4 implementiert** (`a17332b`,
+`eb88cbc`, `8634e40`, `68f52d7`); die Entscheidung „Raster + konfigurierbare
+Labels" war bereits weitgehend der Ist-Stand und ist es nach dem Rückbau der
+Zieh-Interaktion vollständig (siehe „Rückbau der Zieh-Interaktion").
 
 ## Korrektur vom 2026-09-27
 
@@ -23,13 +23,13 @@ weder eine Entscheidung noch eine belegbare Absicht gab. Der Satz bleibt hier
 nur als Zitat stehen, damit der Fehler nachvollziehbar ist — er ist **keine
 gültige Entscheidung**.
 
-**Korrektur einer verbreiteten Fehlannahme:** Aus dem Umstand, dass
+**Korrigierte Fehlannahme (zwei Fehler in einer Kette):** Aus dem Umstand, dass
 `frontend/package.json` **keine** Drag-&-Drop-Bibliothek enthält, folgt
 **nicht**, dass Drag & Drop nie umgesetzt wurde. FE3 (`8634e40`) hat es mit
 **nativen Pointer Events** umgesetzt (`setPointerCapture` + `onPointerDown/
-Move/Up` in `BadgeCanvas.tsx`) — dafür wird keine Bibliothek gebraucht. DnD
-ist also implementiert, steht aber im Widerspruch zur korrigierten
-Entscheidung. Belege in „Folge für die Umsetzung".
+Move/Up` in `BadgeCanvas.tsx`) — dafür wird keine Bibliothek gebraucht. Die
+„Raster + konfigurierbare Labels"-Entscheidung widerrief dieses Ziehen
+(„Der Editor bietet **kein** Drag & Drop"); der Rückbau ist abgeschlossen.
 
 ### Geltungsbereich dieser Korrektur
 
@@ -59,7 +59,7 @@ Details im Abschnitt „Elementtyp `image`".
 | Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
 | Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
 | API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
-| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` mit **sichtbarem 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das entspricht bereits „Raster + konfigurierbare Labels". **Zusätzlich und im Widerspruch zur Entscheidung vom 2026-09-27:** Maus-Drag zum Verschieben, Eckgriffe zum Skalieren, Pfeiltasten-Nudge, magnetische Ausrichtungs-Guides (alle nativ per Pointer Events, FE3/FE4). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
+| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **schreibgeschützte Vorschau mit Auswahl** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die Geometrie entsteht ausschließlich aus den Panel-Zahleneingaben, der Canvas selbst ändert nichts (Maus-Drag, Eckgriffe, Pfeiltasten-Nudge und magnetische Guides wurden am 2026-09-27 zurückgebaut). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
 
 ## Zielbild
 
@@ -406,12 +406,17 @@ Interaktiver Canvas ersetzt die Feld-Tabelle; Auswahl + Eigenschaften-Panel;
 Snap 1 mm; Anlage/Löschung von Feldern; Projektion auf echte A6-Basis.
 
 **Test-Forderung:**
-- Vitest Unit: Snap-/Clamp-Mathematik, Drag→FormValues-Mapping (inkl.
-  NaN-defensive wie im Ist-Preview).
+- Vitest Unit (Stand 2026-09-27, nach dem Rückbau): zod-Spiegel +
+  Payload-Mapping, `findFreePosition`/`boxesOverlap` (Warnungen),
+  `badgeCanvasFontSizeCss` (Auto-Fit), Rasterkonstante `CANVAS_GRID_STEP_MM`.
+  **Nicht mehr:** Snap-/Clamp-/Drag-Mathematik — sie ist mit der Interaktion
+  entfallen.
 - Playwright E2E, getaggt `{ tag: ['@feature:badge-editor'] }`
-  (+ mind. ein weiterer Tag lt. Tag-Policy): Editor öffnen, Feld ziehen,
-  speichern, erneut öffnen → Position persistiert; Ungültiges (ausßerhalb der
-  Fläche) wird abgewiesen. `@smoke` bleibt unberührt.
+  (+ mind. ein weiterer Tag lt. Tag-Policy): Editor öffnen, Position/Größe
+  **über das Panel** setzen, WYSIWYG in mm prüfen, speichern, erneut öffnen →
+  persistiert; Ungültiges (außerhalb der Fläche) wird abgewiesen. Ergänzend die
+  **Abwesenheitsnageln** auf die entfernte Interaktion (keine Eckgriffe, keine
+  Guides, Drag/Arrow verändern nichts). `@smoke` bleibt unberührt.
 
 ### ~~Etappe 3 — Polish~~ — SUPERSEDED (2026-09-27)
 
@@ -465,86 +470,81 @@ ist im **FE2/FE3-Zyklus** umgesetzt:
 - Playwright getaggt `{ tag: ['@feature:badge-editor'] }` (+ mind. ein
   weiterer Tag lt. Tag-Policy): Bild platzieren, Quelle wählen, speichern,
   erneut öffnen → persistiert; Upload-Flow Ende-zu-Ende; ungültige/fehlende
-  Quelle blockiert Speichern (FE2); Bildelement rastert beim Ziehen (FE3).
+  Quelle blockiert Speichern (FE2). Das Bildelement wird wie die anderen
+  Elemente **über X/Y/W/H im Panel** platziert (kein Ziehen).
 
-## Folge für die Umsetzung (offene Arbeit, Stand 2026-09-27)
+## Rückbau der Zieh-Interaktion (umgesetzt 2026-09-27)
 
-**Kernbefund vorab:** Das ist **kein Neubau**. „Raster + konfigurierbare Labels"
-beschreibt bereits weitgehend den Ist-Stand — der Nachweis ist, dass die dafür
-nötigen Teile schon existieren und die nicht nötigen ebenfalls. Konkret
-verifiziert:
+**Kernbefund:** Das war **kein Neubau**, sondern ein Rückbau.
+„Raster + konfigurierbare Labels" beschreibt den Stand, den der Editor nach
+diesem Schritt hat:
 
-| Baustein der neuen Entscheidung | Ist-Stand | Quelle |
+| Baustein der Entscheidung | Zustand | Quelle |
 |---|---|---|
-| Raster | **vorhanden**: sichtbares 5-mm-Overlay (`backgroundImage`, `backgroundSize` aus `CANVAS_GRID_STEP_MM`), plus `snapToGrid()` | `BadgeCanvas.tsx` (~Z. 428-430), `badgeTemplateFormUtils.ts:59,74` |
-| Konfigurierbare Labels | **vorhanden**: Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle, Fit | `BadgePropertiesPanel.tsx` |
-| Auswahl | **vorhanden**: Klick-Auswahl mit Rahmen | `BadgeCanvas.tsx` |
-| **Maus-Drag zum Verschieben** | **vorhanden, widerspricht der Entscheidung** | `handleDragStart/Move/End` (Pointer Events + `setPointerCapture`), `BadgeCanvas.tsx:282-331` |
-| **Eckgriffe zum Skalieren** | **vorhanden, widerspricht der Entscheidung** | `handleResizeStart`, `computeDragResize` |
-| **Pfeiltasten-Nudge** | **vorhanden, widerspricht der Entscheidung** | `computeNudgePosition` (`1 mm`, Shift = `5 mm`) |
-| **Magnetische Ausrichtungs-Guides** | **vorhanden, widerspricht der Entscheidung** (setzt freies Ziehen voraus) | `computeAlignmentSnap`, `findAlignedGuides` |
+| Raster | vorhanden: sichtbares 5-mm-Overlay (`backgroundImage`/`backgroundSize` aus `CANVAS_GRID_STEP_MM`) | `BadgeCanvas.tsx`, `badgeTemplateFormUtils.ts` (`CANVAS_GRID_STEP_MM`) |
+| Konfigurierbare Labels | vorhanden: Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle, Fit | `BadgePropertiesPanel.tsx` |
+| Auswahl | vorhanden: Klick-Auswahl mit Rahmen, Klick auf den Kartenhintergrund oder `Escape` hebt sie auf | `BadgeCanvas.tsx` |
+| Maus-Drag zum Verschieben | **entfernt** (war `handleDragStart/Move/End`, Pointer Events + `setPointerCapture`, px→mm gegen `getBoundingClientRect()`) | — |
+| Eckgriffe zum Skalieren | **entfernt** (war `handleResizeStart/Move/End` + `DragState`/`ResizeState` + `computeDragResize`) | — |
+| Pfeiltasten-Nudge | **entfernt** (war `handleKeyDown`/`handleNudge` + `computeNudgePosition`, 1 mm bzw. Shift = 5 mm) | — |
+| Magnetische Ausrichtungs-Guides | **entfernt** (war `computeAlignmentSnap`/`findAlignedGuides` + `[data-badge-guide]`) | — |
 
-**Keine DnD-Bibliothek in `frontend/package.json` — und das ist kein Mangel.**
-Die Zieh-Interaktion ist nativ per Pointer Events implementiert; eine
-Bibliothek wurde nie gebraucht. Die Abwesenheit sagt **nichts** über den
-Umsetzungsstand aus (die verbreitete gegenteilige Annahme ist falsch).
+**Keine DnD-Bibliothek in `frontend/package.json` — und das war nie ein Mangel.**
+Die Zieh-Interaktion war nativ per Pointer Events implementiert; eine Bibliothek
+wurde nie gebraucht. Ihre Abwesenheit sagte nichts über den Umsetzungsstand aus
+(die verbreitete gegenteilige Annahme ist falsch) — und sie ist jetzt auch nicht
+mehr nötig.
 
-**Offene Arbeit (nicht erledigt, hier bewusst nicht entworfen):**
+**Bewusste Konsequenzen des Rückbaus** (nicht zu „reparieren"):
 
-1. `BadgeCanvas.tsx`: `handleDragStart`/`handleDragMove`/`handleDragEnd`,
-   `handleResizeStart` samt `DragState`/`ResizeState` und der
-   px→mm-Projektion gegen `getBoundingClientRect()` entfernen oder durch den
-   noch nicht festgelegten Raster-Mechanismus ersetzen.
-2. `badgeTemplateFormUtils.ts`: `computeDragPosition`, `computeDragResize`,
-   `computeNudgePosition`, `computeAlignmentSnap`, `findAlignedGuides` werden
-   danach tot — die zugehörigen **Vitest-Tests müssen mit entfernt oder
-   umgeschrieben** werden (AGENTS.md §3: keine toten Tests stehen lassen).
-3. `frontend/tests/e2e/badge-editor.spec.ts`: die Tests *„drags a field onto
-   the grid…"*, *„resizes a field with the corner handle…"*, *„nudges the
-   selected field with arrow keys…"* und *„shows alignment guides…"* testen
-   genau das superseded Verhalten und sind neu zu fassen. Die Tests zu
-   Koordinaten-Eingabe, Bounds-Ablehnung, Überlappungs-/Duplikatwarnung und
-   Bild-Upload bleiben gültig.
-4. Der Hinweistext im Formular
-   („Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten
-   bewegen es um 1 mm (Umschalt = 5 mm)") in `BadgeTemplateForm.tsx` sowie die
-   begleitenden Übersetzungen in `messages.po` sind zu entfernen/anzupassen.
-5. `BadgePropertiesPanel.tsx` und das Raster-Overlay bleiben unangetastet, sofern
-   das neue Design sie vorsieht — das ist offen (s. u.).
+- `BadgeCanvas` hat nur noch `rows`/`selectedIndex`/`overlapIndices`/`onSelect` —
+  die Props `onMove`/`onResize` sind mit ihren Schreibern in `BadgeTemplateForm`
+  (`handleMoveField`/`handleResizeField`) entfallen. Die Geometrie hat damit
+  **einen** Schreiber: die Panel-Eingaben.
+- Die Hilfsfunktionen `snapToGrid` und `clampToBounds` waren nur von den
+  Drag-Pfaden erreichbar und sind mit ihnen **weg** — sie zurückzuholen, weil sie
+  nützlich aussehen, wäre toter Code. `CANVAS_GRID_STEP_MM` bleibt (Raster-Overlay
+  + `findFreePosition`-Scan).
+- Der Hinweistext unter der Vorschau zeigt jetzt auf das Panel
+  („Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im
+  Eigenschaften-Panel ein.").
+- **Die `BadgePropertiesPanel` und das Raster-Overlay blieben unangetastet** — sie
+  waren die Ersetzung, nicht der Gegenstand des Rückbaus.
 
-## Offene Fragen (bewusst nicht entschieden — NICHT als gültige Spec lesen)
+**Testfolge (AGENTS.md §3):** Die vier E2E-Tests, die das superseded Verhalten
+prüften (*„drags a field onto the grid…"*, *„resizes a field with the corner
+handle…"*, *„nudges the selected field with arrow keys…"*, *„shows alignment
+guides…"*), prüfen jetzt das, was die Entscheidung verlangt: Platzierung/Größe
+aus dem Panel mit WYSIWYG-Nachweis in mm und Roundtrip, plus **Abwesenheits-
+nageln** (`[data-resize-handle]`, `[data-badge-guide]` je 0; Drag-Sweep und
+Pfeiltasten ändern weder Geometrie noch Panel-Werte). `BadgeCanvas.test.tsx` und
+`BadgeTemplateForm.test.tsx` pinnen dieselbe Abwesenheit auf Vitest-Ebene. Die
+Vitest-Tests der entfernten Hilfsfunktionen wurden mit ihnen entfernt.
 
-Diese Fragen sind **nicht** beantwortet. Dieses Dokument trifft dazu **keine**
-Aussage; sie sind erst nach einer erneuten Entscheidung zu klären:
+## Am 2026-09-27 getroffene Entscheidungen (schließen die offenen Fragen)
 
-1. **Was bedeutet „Raster" genau?** Ist-Stand ist ein 5-mm-Overlay plus
-   Snapping beim Ziehen. Offen ist, ob das neue Modell ein sichtbares Raster
-   mit Zell-Auswahl (Klick auf eine Zelle setzt das Label) meint, ein
-   Raster nur zur visuellen Orientierung, oder ein vorgegebenes Layout-Schema
-   (z. B. Spalten/Zeilen). Ebenso offen: die Rasterweite (5 mm? 10 mm?
-   Halbierung?) und ob Positionen weiterhin frei wählbar oder an Rasterzellen
-   gebunden sein sollen.
-2. **Was genau sind „konfigurierbare Labels"?** Die Zahleneingaben X/Y/W/H
-   existieren bereits. Offen ist, ob sie kanonisch bleiben, ob Zellen- statt
-   mm-Eingaben gewünscht sind, und welche weiteren Label-Eigenschaften
-   hinzukommen (Ausrichtung, Schriftgröße, Zeilenumbruch, Verankerung?).
-3. **Bleibt das persistierte Schema `x/y/w/h` in mm?** Belegbar ist nur: Der
-   Renderpfad (`BadgeRenderService`) und die Validierung konsumieren freie
-   mm-Werte und sind vom Editor-Interaktionsmodell unabhängig — freie
-   mm-Positionen werden also weiter gebraucht. **Nicht** belegt und deshalb
-   offen: ob der *Editor* künftig Raster-Zellkoordinaten (`row`/`col`/`span`)
-   schreibt, die serverseitig in mm umgerechnet werden. Dieses Dokument
-   behauptet **nicht**, dass das Schema gültig bleibt — diese Annahme ist
-   unbelegt und bleibt offen.
-4. **Bleibt die Vorschau interaktiv?** Unklar, ob die A6-Vorschau als
-   reine, nicht direkt manipulierbare Vorschau mit Auswahl weiterbesteht oder
-   ob die Platzierung vollständig in Listen-/Formularbedienung wandert.
-5. **Wie wird `image` platziert?** Nach Entfall des Ziehens stellt sich die
-   Frage, ob Bilder wie alle anderen Elemente rastergebunden gesetzt werden.
-6. **Verhältnis zum `badge`-Rendering/Export:** Unverändert gilt der
-   PDF-Render-Kontrakt (WYSIWYG in mm). Offen ist, ob sich das
-   Vorschau-Verhalten bei zellenbasierter Platzierung noch als
-   „Preview = Druck" behaupten lässt.
+Diese vier Punkte sind entschieden und damit **gültige Spec**:
+
+1. **„Raster" = sichtbares 5-mm-Overlay als Orientierungshilfe.** Keine
+   Zell-Auswahl („Klick auf eine Zelle setzt das Label") und kein
+   Layout-Schema (Spalten/Zeilen). **Die Rasterweite bleibt 5 mm**
+   (`CANVAS_GRID_STEP_MM`) — sie existierte bereits sichtbar, und eine Änderung
+   wäre eine zweite, nicht geforderte Entscheidung gewesen.
+2. **„Konfigurierbare Labels" = die vorhandenen Panel-Zahleneingaben X/Y/W/H in
+   mm, kanonisch.** Sie sind der einzige Schreiber der Geometrie. Ergänzend
+   bereits vorhanden und gültig: Schriftgröße, Ausrichtung, Bildquelle, Fit.
+3. **Das persistierte Schema `x/y/w/h` in mm bleibt unverändert.** Der Renderpfad
+   (`BadgeRenderService`) und die serverseitige Validierung konsumieren freie
+   mm-Werte; der Editor schreibt dieselben. **Kein** Raster-Zellkoordinaten-
+   Schema (`row`/`col`/`span`) — das ist nicht entschieden worden und wird
+   nicht eingeführt.
+4. **Die A6-Vorschau bleibt bestehen, ist aber nicht mehr direkt manipulierbar:**
+   read-only Vorschau über dem Raster, die nur die Auswahl trägt. Die Platzierung
+   wandert **nicht** vollständig in Listen-/Formularbedienung. Daraus folgt für
+   `image` (Punkt 5 der alten Liste): Bilder werden wie alle anderen Elemente
+   **über X/Y/W/H im Panel** platziert, nicht rastergebunden. Der
+   PDF-Render-Kontrakt „Preview = Druck" (WYSIWYG in mm) gilt unverändert
+   weiter, weil Vorschau und Panel dieselben mm-Werte projizieren.
 
 ## Invarianten (nicht regredieren)
 

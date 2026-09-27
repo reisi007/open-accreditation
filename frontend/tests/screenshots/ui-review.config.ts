@@ -362,7 +362,7 @@ export const uiReviewConfig: UiReviewConfig = {
                 { kind: 'click', scope: 'main', role: 'button', name: 'Feld Name' },
             ],
             seeds: { filled: seedBadgeTemplateSchemaV2 },
-            note: 'Badge template EDITOR (FE4 polish): one canvas field SELECTED — four corner resize handles visible, properties panel populated, interaction hints (drag/resize/arrow-key nudge) below the preview. Desktop-only like the sibling editor routes; same shared schema-v2 seed so "Bearbeiten" opens a complete layout and the "Feld Name" click always finds that box.',
+            note: 'Badge template EDITOR („Raster + konfigurierbare Labels"): one canvas field SELECTED on the 5 mm raster, properties panel populated with the mm X/Y/W/H inputs, the raster hint below the preview. Desktop-only like the sibling editor routes; same shared schema-v2 seed so "Bearbeiten" opens a complete layout and the "Feld Name" click always finds that box.',
         },
         {
             name: 'admin-media',

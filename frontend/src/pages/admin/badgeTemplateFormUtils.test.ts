@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
-    ALIGNMENT_SNAP_THRESHOLD_MM,
     BADGE_FIT_CHAR_WIDTH_EM,
     BADGE_FIT_LINE_HEIGHT_FACTOR,
     badgeCanvasFontSizeCss,
@@ -14,22 +13,13 @@ import {
     boxesOverlap,
     buildBadgeTemplatePayload,
     CANVAS_GRID_STEP_MM,
-    clampToBounds,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
-    computeAlignmentSnap,
-    computeDragPosition,
-    computeDragResize,
-    computeNudgePosition,
-    findAlignedGuides,
     findDuplicateDataFieldIndices,
     findFreePosition,
     findOverlappingIndices,
-    nudgeDirectionFromKey,
-    snapToGrid,
     type BadgeRowValues,
     type BadgeTemplateFormValues,
-    type MmRect,
 } from './badgeTemplateFormUtils';
 
 const validTextRow: BadgeRowValues = {
@@ -365,264 +355,21 @@ describe('findFreePosition', () => {
     });
 });
 
-describe('snapToGrid', () => {
-    it('rounds to the nearest grid multiple', () => {
-        expect(snapToGrid(12)).toBe(10);
-        expect(snapToGrid(13)).toBe(15);
-        expect(snapToGrid(0)).toBe(0);
-        expect(snapToGrid(-3)).toBe(-5);
+/**
+ * The editor raster stays at 5 mm (decision „Raster + konfigurierbare Labels",
+ * 2026-09-27). After the drag interaction was removed the constant no longer
+ * has a snap helper behind it — it drives the visible grid overlay
+ * (`BadgeCanvas`) and the {@link findFreePosition} scan, so pin both users.
+ */
+describe('CANVAS_GRID_STEP_MM', () => {
+    it('is the agreed 5 mm editor raster', () => {
+        expect(CANVAS_GRID_STEP_MM).toBe(5);
     });
 
-    it('keeps already snapped values stable', () => {
-        for (let value = 0; value <= 105; value += CANVAS_GRID_STEP_MM) {
-            expect(snapToGrid(value)).toBe(value);
-        }
-    });
-
-    it('honours a custom step', () => {
-        expect(snapToGrid(7, 10)).toBe(10);
-        expect(snapToGrid(4, 10)).toBe(0);
-    });
-
-    it('snaps non-finite values and invalid steps to 0 (NaN defense)', () => {
-        expect(snapToGrid(Number.NaN)).toBe(0);
-        expect(snapToGrid(Number.POSITIVE_INFINITY)).toBe(0);
-        expect(snapToGrid(12, Number.NaN)).toBe(0);
-        expect(snapToGrid(12, 0)).toBe(0);
-        expect(snapToGrid(12, -5)).toBe(0);
-    });
-});
-
-describe('clampToBounds', () => {
-    it('accepts a rectangle inside the A6 card unchanged', () => {
-        expect(clampToBounds({ x: 10, y: 20, w: 40, h: 8 })).toEqual({ x: 10, y: 20, w: 40, h: 8 });
-    });
-
-    it('pulls a rectangle beyond the right/bottom edge back into the bounds', () => {
-        // x + w = 110 > 105 → x = 65; y + h = 150 > 148 → y = 130.
-        expect(clampToBounds({ x: 70, y: 140, w: 40, h: 10 })).toEqual({
-            x: A6_WIDTH_MM - 40,
-            y: A6_HEIGHT_MM - 10,
-            w: 40,
-            h: 10,
-        });
-    });
-
-    it('clamps negative coordinates to the top/left edge', () => {
-        const clamped = clampToBounds({ x: -7, y: -1, w: 30, h: 20 });
-        expect(clamped.x).toBe(0);
-        expect(clamped.y).toBe(0);
-    });
-
-    it('anchors an oversized rectangle at the origin (size is flagged by validation)', () => {
-        expect(clampToBounds({ x: 50, y: 50, w: A6_WIDTH_MM + 10, h: A6_HEIGHT_MM + 10 })).toEqual({
-            x: 0,
-            y: 0,
-            w: A6_WIDTH_MM + 10,
-            h: A6_HEIGHT_MM + 10,
-        });
-    });
-
-    it('treats non-finite coordinates as 0 (NaN defense)', () => {
-        expect(clampToBounds({ x: Number.NaN, y: Number.NaN, w: 40, h: 8 })).toEqual({ x: 0, y: 0, w: 40, h: 8 });
-    });
-});
-
-describe('computeDragPosition', () => {
-    it('adds the pointer delta, snaps onto the grid and stays in bounds', () => {
-        // 23.4 mm → snap 25; -1 mm → snap 0.
-        expect(computeDragPosition({ x: 3, y: 2 }, { x: 20.4, y: -1 }, { w: 40, h: 8 })).toEqual({ x: 25, y: 0 });
-    });
-
-    it('hard-clamps a drag past the right/bottom edge (bounds win over snapping)', () => {
-        const position = computeDragPosition({ x: 60, y: 135 }, { x: 100, y: 100 }, { w: 40, h: 8 });
-        expect(position.x).toBe(A6_WIDTH_MM - 40);
-        expect(position.y).toBe(A6_HEIGHT_MM - 8);
-    });
-
-    it('never leaves the grid when starting from a snapped origin', () => {
-        const position = computeDragPosition({ x: 15, y: 45 }, { x: 13, y: -27 }, { w: 30, h: 20 });
+    it('places new elements on a multiple of the raster step', () => {
+        const position = findFreePosition([{ x: 0, y: 0, w: 105, h: 40 }], 40, 8);
         expect(position.x % CANVAS_GRID_STEP_MM).toBe(0);
         expect(position.y % CANVAS_GRID_STEP_MM).toBe(0);
-    });
-});
-
-describe('computeDragResize', () => {
-    const origin: MmRect = { x: 10, y: 10, w: 40, h: 20 };
-
-    it('grows w/h from the south-east corner (snapped onto the grid)', () => {
-        // right 50 + 13.4 → snap 65 → w = 55; bottom 30 − 2.8 → snap 25 → h = 15.
-        expect(computeDragResize(origin, 'se', { x: 13.4, y: -2.8 }, 5, 3)).toEqual({
-            x: 10,
-            y: 10,
-            w: 55,
-            h: 15,
-        });
-    });
-
-    it('moves the left/top edges from the north-west corner and keeps the fixed edges', () => {
-        // left 10 + 6.2 → snap 15; top 10 − 3.1 → snap 5.
-        expect(computeDragResize(origin, 'nw', { x: 6.2, y: -3.1 }, 5, 3)).toEqual({
-            x: 15,
-            y: 5,
-            w: 35,
-            h: 25,
-        });
-    });
-
-    it('keeps the left/bottom edges fixed from the north-east corner', () => {
-        // right 50 − 12.9 = 37.1 → snap 35; top 10 − 7.4 = 2.6 → snap 5.
-        const resized = computeDragResize(origin, 'ne', { x: -12.9, y: -7.4 }, 5, 3);
-        expect(resized).toEqual({ x: 10, y: 5, w: 25, h: 25 });
-    });
-
-    it('keeps the right/top edges fixed from the south-west corner', () => {
-        // left 10 − 3 = 7 → snap 5; bottom 30 + 9 = 39 → snap 40.
-        const resized = computeDragResize(origin, 'sw', { x: -3, y: 9 }, 5, 3);
-        expect(resized).toEqual({ x: 5, y: 10, w: 45, h: 30 });
-    });
-
-    it('hard-clamps a resize past the card edges (bounds win over snapping)', () => {
-        // Text minimum 5 × 3 mm; box already in the bottom-right corner.
-        const cornerBox: MmRect = { x: 95, y: 145, w: 5, h: 3 };
-        const resized = computeDragResize(cornerBox, 'se', { x: 20, y: 20 }, 5, 3);
-        expect(resized).toEqual({ x: 95, y: 145, w: A6_WIDTH_MM - 95, h: A6_HEIGHT_MM - 145 });
-    });
-
-    it('never shrinks below the per-type minimum sizes', () => {
-        const smallText: MmRect = { x: 0, y: 0, w: 8, h: 8 };
-        const shrunk = computeDragResize(smallText, 'se', { x: -10, y: -10 }, 5, 3);
-        expect(shrunk.w).toBe(5);
-        expect(shrunk.h).toBe(3);
-    });
-
-    it('keeps the minimum when the north-west corner is dragged far outside', () => {
-        const resized = computeDragResize(origin, 'nw', { x: -30, y: -30 }, 10, 10);
-        expect(resized.x).toBe(0);
-        expect(resized.y).toBe(0);
-        expect(resized.w).toBe(50); // fixed right edge (50) minus clamped left
-        expect(resized.h).toBe(30);
-    });
-
-    it('treats non-finite origins as 0 (NaN defense)', () => {
-        const resized = computeDragResize({ x: Number.NaN, y: 10, w: 40, h: 20 }, 'nw', { x: -5, y: -5 }, 5, 3);
-        expect(resized.x).toBe(0);
-        expect(resized.y).toBe(5);
-    });
-
-    it('keeps snapped origins on the grid', () => {
-        const resized = computeDragResize(origin, 'se', { x: 21.3, y: 13.7 }, 5, 3);
-        expect(resized.w % CANVAS_GRID_STEP_MM).toBe(0);
-        expect(resized.h % CANVAS_GRID_STEP_MM).toBe(0);
-    });
-});
-
-describe('computeAlignmentSnap / findAlignedGuides', () => {
-    it('snaps an edge flush onto a neighbouring edge within the threshold', () => {
-        const moving: MmRect = { x: 41, y: 0, w: 20, h: 10 };
-        const others: MmRect[] = [{ x: 0, y: 0, w: 40, h: 8 }];
-        // Moving left edge (41) is 1 mm from the neighbour's right edge (40).
-        expect(computeAlignmentSnap(moving, others)).toEqual({ offsetX: -1, offsetY: 0 });
-    });
-
-    it('prefers the closest match when several targets are in range', () => {
-        const moving: MmRect = { x: 38.6, y: 0, w: 20, h: 10 };
-        const others: MmRect[] = [
-            { x: 0, y: 0, w: 40, h: 8 }, // right edge 40 → distance 1.4
-            { x: 36, y: 20, w: 10, h: 8 }, // left edge 36 → distance 2.6 (out of range)
-            { x: 37, y: 40, w: 10, h: 8 }, // right edge 47, centre 42 …
-        ];
-        const snap = computeAlignmentSnap(moving, others);
-        expect(snap.offsetX).toBeCloseTo(1.4, 6); // → left edge exactly 40
-    });
-
-    it('attracts the rect centre to another centre and an edge to the card centre', () => {
-        // Centre of the moving rect (52.6) is 0.1 mm from the card centre (52.5).
-        const snap = computeAlignmentSnap({ x: 42.6, y: 72.5, w: 20, h: 20 }, []);
-        expect(snap.offsetX).toBeCloseTo(-0.1, 6);
-        // Top edge (72.5) is pulled up onto the horizontal card centre (74).
-        expect(snap.offsetY).toBeCloseTo(1.5, 6);
-    });
-
-    it('returns zero offsets beyond the threshold or without others', () => {
-        const far: MmRect = { x: 60, y: 60, w: 20, h: 10 };
-        expect(computeAlignmentSnap(far, [])).toEqual({ offsetX: 0, offsetY: 0 });
-        expect(computeAlignmentSnap(far, [{ x: 0, y: 0, w: 20, h: 10 }]).offsetX).toBe(0);
-        expect(ALIGNMENT_SNAP_THRESHOLD_MM).toBe(2);
-    });
-
-    it('is NaN-safe for in-progress edits', () => {
-        expect(computeAlignmentSnap({ x: Number.NaN, y: 0, w: 20, h: 10 }, [])).toEqual({
-            offsetX: 0,
-            offsetY: 0,
-        });
-        expect(findAlignedGuides({ x: 0, y: 0, w: Number.NaN, h: 10 }, []).vertical).toEqual([]);
-    });
-
-    it('lists exactly flush edges as guide lines (deduplicated, sorted)', () => {
-        const moving: MmRect = { x: 40, y: 0, w: 20, h: 8 };
-        const others: MmRect[] = [
-            { x: 0, y: 0, w: 40, h: 8 }, // right edge 40 == moving left; top edges shared
-            { x: 40, y: 60, w: 20, h: 8 }, // left/centre/end 40/50/60 all flush → deduped
-        ];
-        const guides = findAlignedGuides(moving, others);
-        expect(guides.vertical).toEqual([40, 50, 60]);
-        expect(guides.horizontal).toEqual([0, 4, 8]);
-    });
-
-    it('includes the card centre as a vertical/horizontal guide target', () => {
-        const guides = findAlignedGuides(
-            { x: 42.5, y: 64, w: 20, h: 20 },
-            [],
-        );
-        expect(guides.vertical).toEqual([A6_WIDTH_MM / 2]);
-        expect(guides.horizontal).toEqual([A6_HEIGHT_MM / 2]);
-    });
-
-    it('returns no guides for near-but-not-flush geometry (guides never lie)', () => {
-        const guides = findAlignedGuides({ x: 40.5, y: 0, w: 20, h: 8 }, [{ x: 0, y: 0, w: 40, h: 8 }]);
-        expect(guides.vertical).toEqual([]);
-    });
-});
-
-describe('computeNudgePosition / nudgeDirectionFromKey', () => {
-    it('maps only the arrow keys to nudge directions', () => {
-        expect(nudgeDirectionFromKey('ArrowLeft')).toBe('left');
-        expect(nudgeDirectionFromKey('ArrowRight')).toBe('right');
-        expect(nudgeDirectionFromKey('ArrowUp')).toBe('up');
-        expect(nudgeDirectionFromKey('ArrowDown')).toBe('down');
-        expect(nudgeDirectionFromKey('a')).toBe(null);
-        expect(nudgeDirectionFromKey('Escape')).toBe(null);
-    });
-
-    it('moves by exactly one step in each direction', () => {
-        const current = { x: 20, y: 30 };
-        expect(computeNudgePosition(current, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 19, y: 30 });
-        expect(computeNudgePosition(current, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 21, y: 30 });
-        expect(computeNudgePosition(current, 'up', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 29 });
-        expect(computeNudgePosition(current, 'down', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 31 });
-    });
-
-    it('supports the coarse Shift step (grid size) via the step parameter', () => {
-        expect(computeNudgePosition({ x: 20, y: 30 }, 'down', CANVAS_GRID_STEP_MM, { w: 40, h: 8 })).toEqual({
-            x: 20,
-            y: 35,
-        });
-    });
-
-    it('stops at the card edges without leaving the bounds', () => {
-        expect(computeNudgePosition({ x: 0, y: 0 }, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 0, y: 0 });
-        expect(computeNudgePosition({ x: A6_WIDTH_MM - 40, y: 0 }, 'right', 5, { w: 40, h: 8 })).toEqual({
-            x: A6_WIDTH_MM - 40,
-            y: 0,
-        });
-        expect(computeNudgePosition({ x: 50, y: A6_HEIGHT_MM - 8 }, 'down', 1, { w: 40, h: 8 }).y).toBe(
-            A6_HEIGHT_MM - 8,
-        );
-    });
-
-    it('is NaN-safe for in-progress edits', () => {
-        expect(computeNudgePosition({ x: Number.NaN, y: 10 }, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 1, y: 10 });
     });
 });
 

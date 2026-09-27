@@ -495,6 +495,10 @@ msgid "Das Feld ragt über den unteren Rand hinaus."
 msgstr "The field extends beyond the bottom edge."
 
 #: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
+msgstr "The grid is 5 mm. Set the position and size of the selected field in the properties panel."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Datenfeld ist mehrfach vorhanden."
 msgstr "A data field exists more than once."
 
@@ -1937,8 +1941,8 @@ msgid "Zentriert"
 msgstr "Centered"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm)."
-msgstr "Dragging moves the field, its corners resize it, arrow keys move it by 1 mm (Shift = 5 mm)."
+#~ msgid "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm)."
+#~ msgstr "Dragging moves the field, its corners resize it, arrow keys move it by 1 mm (Shift = 5 mm)."
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
