@@ -318,8 +318,11 @@ export function MandantDetailPage() {
                                     <div>
                                         <span className="font-medium">{team.name}</span>
                                         <span className="ml-2 text-sm text-base-content/70">({team.slug})</span>
-                                        {team.home_venue ? (
-                                            <span className="ml-2 text-sm text-base-content/70">{team.home_venue}</span>
+                                        {team.venue ? (
+                                            <span className="ml-2 text-sm text-base-content/70">
+                                                <span className="iconify mdi--map-marker-outline text-base"></span>
+                                                {team.venue.name}
+                                            </span>
                                         ) : null}
                                     </div>
                                     <div className="flex gap-2">

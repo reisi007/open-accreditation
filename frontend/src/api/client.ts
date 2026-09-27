@@ -25,6 +25,7 @@ import type {
     Team,
     User,
     UserRoleAssignment,
+    Venue,
     VerifyResult,
 } from './types';
 
@@ -172,7 +173,12 @@ export const removeDomain = (mandantId: number, domainId: number): Promise<void>
 export interface TeamPayload {
     name: string;
     slug: string;
-    home_venue?: string | null;
+    /**
+     * Reference into the mandant's `venues` list (W12). Replaces the former
+     * free-text `home_venue`; `null` clears the home venue. Omitting the key
+     * entirely leaves a stored reference untouched (partial update).
+     */
+    venue_id?: number | null;
 }
 
 export const listTeams = (mandantId: number): Promise<Team[]> =>
@@ -193,6 +199,33 @@ export const updateTeam = (mandantId: number, teamId: number, payload: TeamPaylo
 export const deleteTeam = (mandantId: number, teamId: number): Promise<void> =>
     request<void>(`/api/admin/mandants/${mandantId}/teams/${teamId}`, { method: 'DELETE' });
 
+/**
+ * Mandant-scoped venue master data (W12). The list is NOT paginated by the
+ * frontend: the combobox needs the whole mandant list to filter locally, and
+ * the admin page paginates the same array client-side (the Categories/Events
+ * page idiom).
+ */
+export interface VenuePayload {
+    name: string;
+}
+
+export interface VenueUpdatePayload {
+    name?: string;
+    is_active?: boolean;
+}
+
+export const listVenues = (): Promise<Venue[]> => request<Venue[]>('/api/admin/venues');
+
+export const createVenue = (payload: VenuePayload): Promise<Venue> =>
+    request<Venue>('/api/admin/venues', { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateVenue = (id: number, payload: VenueUpdatePayload): Promise<Venue> =>
+    request<Venue>(`/api/admin/venues/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+
+/** 204 when unreferenced, 409 (with counts) while teams or events point at it. */
+export const deleteVenue = (id: number): Promise<void> =>
+    request<void>(`/api/admin/venues/${id}`, { method: 'DELETE' });
+
 export interface CategoryPayload {
     name: string;
     slug: string;
@@ -204,7 +237,11 @@ export interface EventPayload {
     title: string;
     team_id?: number | null;
     date?: string | null;
-    venue?: string | null;
+    /**
+     * Reference into the mandant's `venues` list (W12). Replaces the former
+     * free-text `venue`; `null` clears the venue.
+     */
+    venue_id?: number | null;
     competition?: string | null;
     deadline_start?: string | null;
     deadline_end?: string | null;

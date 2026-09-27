@@ -48,12 +48,48 @@ export interface Mandant {
     teams_count: number;
 }
 
+/**
+ * A venue as embedded in a team/event resource (W12): the reference plus the
+ * RESOLVED name, so a form can render the current value without waiting for the
+ * venue list. `null` when nothing is referenced.
+ *
+ * Note the asymmetry with the public portal resources, which keep the plain
+ * name string (`PortalTeam.home_venue`, `PortalEvent.venue`): the portal must
+ * not expose ids, the admin forms need both.
+ */
+export interface VenueReference {
+    id: number;
+    name: string;
+}
+
+/**
+ * Mandant-scoped venue master data (W12). One list per mandant, referenced by
+ * both teams (`venue_id`) and events (`venue_id`).
+ *
+ * A venue is DEACTIVATED, never deleted, while it is referenced — that is why
+ * `teams_count` / `events_count` travel with it: the admin area needs them to
+ * decide between "deactivate" (the primary action) and "delete" (the escape
+ * hatch for unreferenced rows).
+ */
+export interface Venue {
+    id: number;
+    name: string;
+    is_active: boolean;
+    teams_count: number;
+    events_count: number;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface Team {
     id: number;
     mandant_id: number;
     slug: string;
     name: string;
-    home_venue: string | null;
+    /** Reference into the mandant's `venues` list (W12). */
+    venue_id: number | null;
+    /** Resolved venue of `venue_id`. */
+    venue: VenueReference | null;
     created_at: string;
 }
 
@@ -88,7 +124,10 @@ export interface Event {
     team_id: number | null;
     title: string;
     date: string | null;
-    venue: string | null;
+    /** Reference into the mandant's `venues` list (W12). */
+    venue_id: number | null;
+    /** Resolved venue of `venue_id`. */
+    venue: VenueReference | null;
     competition: string | null;
     deadline_start: string | null;
     deadline_end: string | null;

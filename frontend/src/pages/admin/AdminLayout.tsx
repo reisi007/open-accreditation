@@ -43,6 +43,15 @@ function AdminNav({ className, showMandants, showUsers, showTemplates, showMedia
             </li>
             <li>
                 <NavLink
+                    to="/admin/venues"
+                    className={({ isActive }) => (isActive ? 'menu-active' : '')}
+                    onClick={onNavigate}
+                >
+                    {i18n._(t`Spielorte`)}
+                </NavLink>
+            </li>
+            <li>
+                <NavLink
                     to="/admin/events"
                     className={({ isActive }) => (isActive ? 'menu-active' : '')}
                     onClick={onNavigate}

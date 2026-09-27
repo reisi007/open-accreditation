@@ -9,7 +9,11 @@ export const createEventSchema = () =>
             title: z.string().min(1, t`Titel ist erforderlich.`),
             team_id: z.string(),
             date: z.string(),
-            venue: z.string(),
+            /**
+             * Reference into the mandant's `venues` list (W12). Empty string =
+             * "no venue", translated to `null` by `buildEventPayload`.
+             */
+            venue_id: z.string(),
             competition: z.string(),
             deadline_start: z.string(),
             deadline_end: z.string(),
@@ -35,7 +39,7 @@ export function eventFormDefaults(initial: Event | null): EventFormValues {
         title: initial?.title ?? '',
         team_id: initial?.team_id === null || initial?.team_id === undefined ? '' : String(initial.team_id),
         date: initial?.date ?? '',
-        venue: initial?.venue ?? '',
+        venue_id: initial?.venue_id === null || initial?.venue_id === undefined ? '' : String(initial.venue_id),
         competition: initial?.competition ?? '',
         deadline_start: initial?.deadline_start ?? '',
         deadline_end: initial?.deadline_end ?? '',
@@ -48,7 +52,7 @@ export function buildEventPayload(values: EventFormValues): EventPayload {
         title: values.title,
         team_id: values.team_id === '' ? null : Number(values.team_id),
         date: values.date === '' ? null : values.date,
-        venue: values.venue.trim() === '' ? null : values.venue.trim(),
+        venue_id: values.venue_id === '' ? null : Number(values.venue_id),
         competition: values.competition.trim() === '' ? null : values.competition.trim(),
         deadline_start: values.deadline_start === '' ? null : values.deadline_start,
         deadline_end: values.deadline_end === '' ? null : values.deadline_end,

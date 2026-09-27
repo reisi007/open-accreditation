@@ -2,8 +2,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useEffect, type ChangeEvent } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import type { Event } from '../../api/types';
+import { VenueCombobox } from '../../components/VenueCombobox';
 import { useAdminTeams } from '../../logic/useAdminTeams';
 import { createEventSchema, eventFormDefaults, type EventFormValues } from './eventFormUtils';
 
@@ -25,6 +26,7 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
         handleSubmit,
         setValue,
         getValues,
+        control,
         formState: { errors, isSubmitting },
     } = useForm<EventFormValues>({
         resolver: zodResolver(eventSchema),
@@ -37,8 +39,10 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
         const ownTeam = teams.find((team) => currentTeamIds.includes(team.id));
         if (!ownTeam) return;
         setValue('team_id', String(ownTeam.id));
-        if (ownTeam.home_venue) {
-            setValue('venue', ownTeam.home_venue);
+        // The home-venue default is a venue REFERENCE now (W12), so the id is
+        // what the field carries — the combobox resolves the name itself.
+        if (ownTeam.venue_id !== null) {
+            setValue('venue_id', String(ownTeam.venue_id));
         }
     }, [initial, currentTeamIds, teams, setValue, getValues]);
 
@@ -47,8 +51,8 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
     const handleTeamChange = (event: ChangeEvent<HTMLSelectElement>) => {
         const teamId = Number(event.target.value);
         const team = (teams ?? []).find((candidate) => candidate.id === teamId);
-        if (team?.home_venue) {
-            setValue('venue', team.home_venue);
+        if (team?.venue_id !== null && team?.venue_id !== undefined) {
+            setValue('venue_id', String(team.venue_id));
         }
     };
 
@@ -105,12 +109,20 @@ export function EventForm({ initial, submitLabel, submitError, onSubmit, onCance
                     </label>
                     <input id="event-date" type="date" className="input" {...register('date')} />
                 </div>
-                <div className="form-control">
-                    <label className="label" htmlFor="event-venue">
-                        <span className="label-text">{i18n._(t`Spielort`)}</span>
-                    </label>
-                    <input id="event-venue" type="text" className="input" {...register('venue')} />
-                </div>
+                <Controller
+                    control={control}
+                    name="venue_id"
+                    render={({ field }) => (
+                        <VenueCombobox
+                            label={i18n._(t`Spielort`)}
+                            inputId="event-venue"
+                            value={field.value}
+                            onChange={field.onChange}
+                            valueLabel={initial?.venue?.name ?? null}
+                            disabled={isSubmitting}
+                        />
+                    )}
+                />
             </div>
 
             <div className="form-control">

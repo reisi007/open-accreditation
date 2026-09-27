@@ -4,12 +4,12 @@ import { SWRConfig } from 'swr';
 import { useAdminTeams } from './useAdminTeams';
 
 const teamsPayload = [
-    { id: 10, mandant_id: 5, slug: 'heim', name: 'Heimverein', home_venue: 'Heimstadion', created_at: '2026-01-01T00:00:00Z' },
-    { id: 11, mandant_id: 5, slug: 'gast', name: 'Gastverein', home_venue: null, created_at: '2026-01-01T00:00:00Z' },
+    { id: 10, mandant_id: 5, slug: 'heim', name: 'Heimverein', venue_id: 4, venue: { id: 4, name: 'Heimstadion' }, created_at: '2026-01-01T00:00:00Z' },
+    { id: 11, mandant_id: 5, slug: 'gast', name: 'Gastverein', venue_id: null, venue: null, created_at: '2026-01-01T00:00:00Z' },
 ];
 
 const otherTeamsPayload = [
-    { id: 20, mandant_id: 9, slug: 'other', name: 'Otherverein', home_venue: null, created_at: '2026-01-01T00:00:00Z' },
+    { id: 20, mandant_id: 9, slug: 'other', name: 'Otherverein', venue_id: null, venue: null, created_at: '2026-01-01T00:00:00Z' },
 ];
 
 function AdminTeamsProbe() {

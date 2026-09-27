@@ -6,7 +6,7 @@ const baseValues: EventFormValues = {
     title: 'Heimspiel',
     team_id: '',
     date: '',
-    venue: '',
+    venue_id: '',
     competition: '',
     deadline_start: '',
     deadline_end: '',
@@ -23,7 +23,7 @@ describe('buildEventPayload', () => {
             valuesWith({
                 team_id: '7',
                 date: '2026-09-01',
-                venue: '  Stadion Nord  ',
+                venue_id: '12',
                 competition: 'Pokal',
                 deadline_start: '2026-08-01',
                 deadline_end: '2026-08-20',
@@ -35,7 +35,7 @@ describe('buildEventPayload', () => {
             title: 'Heimspiel',
             team_id: 7,
             date: '2026-09-01',
-            venue: 'Stadion Nord',
+            venue_id: 12,
             competition: 'Pokal',
             deadline_start: '2026-08-01',
             deadline_end: '2026-08-20',
@@ -48,17 +48,17 @@ describe('buildEventPayload', () => {
 
         expect(payload.team_id).toBeNull();
         expect(payload.date).toBeNull();
-        expect(payload.venue).toBeNull();
+        expect(payload.venue_id).toBeNull();
         expect(payload.competition).toBeNull();
         expect(payload.deadline_start).toBeNull();
         expect(payload.deadline_end).toBeNull();
         expect(payload.active).toBe(true);
     });
 
-    it('trims whitespace-only venue and competition to null', () => {
-        const payload = buildEventPayload(valuesWith({ venue: '   ', competition: ' ' }));
+    it('sends null for a cleared venue and trims whitespace-only competition', () => {
+        const payload = buildEventPayload(valuesWith({ venue_id: '', competition: ' ' }));
 
-        expect(payload.venue).toBeNull();
+        expect(payload.venue_id).toBeNull();
         expect(payload.competition).toBeNull();
     });
 });
@@ -69,7 +69,7 @@ describe('eventFormDefaults', () => {
             title: '',
             team_id: '',
             date: '',
-            venue: '',
+            venue_id: '',
             competition: '',
             deadline_start: '',
             deadline_end: '',
@@ -84,7 +84,8 @@ describe('eventFormDefaults', () => {
             team_id: 4,
             title: 'Heimspiel',
             date: '2026-09-01',
-            venue: 'Stadion Nord',
+            venue_id: 12,
+            venue: { id: 12, name: 'Stadion Nord' },
             competition: null,
             deadline_start: '2026-08-01',
             deadline_end: '2026-08-20',
@@ -96,8 +97,30 @@ describe('eventFormDefaults', () => {
 
         expect(defaults.title).toBe('Heimspiel');
         expect(defaults.team_id).toBe('4');
+        // The form carries the venue REFERENCE (W12), the combobox resolves
+        // the name — so the string `venue` must not leak into the payload.
+        expect(defaults.venue_id).toBe('12');
         expect(defaults.active).toBe(false);
         expect(defaults.competition).toBe('');
+    });
+
+    it('maps an event without a venue onto an empty reference', () => {
+        const event: Event = {
+            id: 12,
+            mandant_id: 1,
+            team_id: null,
+            title: 'Auswärtsspiel',
+            date: null,
+            venue_id: null,
+            venue: null,
+            competition: null,
+            deadline_start: null,
+            deadline_end: null,
+            active: true,
+            team: null,
+        };
+
+        expect(eventFormDefaults(event).venue_id).toBe('');
     });
 });
 

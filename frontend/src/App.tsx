@@ -35,6 +35,7 @@ import { MandantFormPage } from './pages/admin/MandantFormPage';
 import { MandantListPage } from './pages/admin/MandantListPage';
 import { MandantMediaPage } from './pages/admin/MandantMediaPage';
 import { UsersPage } from './pages/admin/UsersPage';
+import { VenuesPage } from './pages/admin/VenuesPage';
 import { BadgeTemplatesPage } from './pages/admin/BadgeTemplatesPage';
 import { VerifyPage } from './pages/VerifyPage';
 
@@ -276,6 +277,10 @@ const router = createBrowserRouter([
                         ],
                     },
                     { path: 'categories', element: <CategoriesPage /> },
+                    // Venue master data (W12). Reference data like categories,
+                    // so it carries no extra role gate — teams and events
+                    // reference it from their own forms.
+                    { path: 'venues', element: <VenuesPage /> },
                     { path: 'events', element: <EventsPage /> },
                     { path: 'accreditations', element: <AdminAccreditationsPage /> },
                     { path: 'freigaben', element: <ApprovalsPage /> },

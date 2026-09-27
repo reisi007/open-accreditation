@@ -13,7 +13,12 @@ export const createTeamSchema = () =>
                 /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
                 t`Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten (z. B. "mein-verein").`,
             ),
-        home_venue: z.string(),
+        /**
+         * Reference into the mandant's `venues` list (W12). Empty string = "no
+         * home venue" and is translated to `null` by `buildTeamPayload`; the
+         * id shape itself is constrained by the combobox, not by zod.
+         */
+        venue_id: z.string(),
     });
 
 export type TeamFormValues = z.infer<ReturnType<typeof createTeamSchema>>;
@@ -22,7 +27,7 @@ export function teamFormDefaults(initial: Team | null): TeamFormValues {
     return {
         name: initial?.name ?? '',
         slug: initial?.slug ?? '',
-        home_venue: initial?.home_venue ?? '',
+        venue_id: initial?.venue_id === null || initial?.venue_id === undefined ? '' : String(initial.venue_id),
     };
 }
 
@@ -30,6 +35,6 @@ export function buildTeamPayload(values: TeamFormValues): TeamPayload {
     return {
         name: values.name,
         slug: values.slug,
-        home_venue: values.home_venue.trim() === '' ? null : values.home_venue.trim(),
+        venue_id: values.venue_id === '' ? null : Number(values.venue_id),
     };
 }

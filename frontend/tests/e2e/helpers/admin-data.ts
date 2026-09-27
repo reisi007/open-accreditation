@@ -36,11 +36,83 @@ export async function loginAdminApi() {
 }
 
 /**
+ * Home venue of the shared `E2E Heimverein *` teams, and the venue the portal
+ * fixture pins on its own event (`portal.spec.ts` asserts the resolved name
+ * "E2E Portal Arena" on the event detail page, so it must stay distinct).
+ */
+const HOME_VENUE_NAME = 'E2E Heimstadion';
+const PORTAL_VENUE_NAME = 'E2E Portal Arena';
+
+/**
+ * Ensures both shared E2E venues exist as ACTIVE rows and returns them. Venue
+ * master data (W12) is referenced by id, so every fixture that needs a venue
+ * must resolve the id first.
+ *
+ * Reuses an existing venue of that name: the names are deliberately
+ * worker-independent (shared fixtures, like the "E2E Heimverein *" teams), and
+ * a duplicate `POST` would be refused with a 422 anyway. A name that exists but
+ * is INACTIVE is reactivated rather than duplicated — that is the whole point
+ * of deactivation instead of deletion.
+ *
+ * Zero parameters on purpose, for the reason spelled out on `LOGO_LOCK_FILE`
+ * below: `tests/e2e` is linted with the PLAIN-JS parser but still built by the
+ * strict `tsc -b`, so a parameter type annotation would be an ESLint parse error
+ * and an un-annotated one an implicit `any`. Both names are module constants
+ * instead, which is why this returns the pair rather than taking a name.
+ *
+ * @returns {Promise<{ home: { id: number; name: string }, portal: { id: number; name: string } }>}
+ */
+export async function ensurePrimaryMandantHasVenues() {
+    const api = await loginAdminApi();
+    try {
+        const body = await (await api.get('/api/admin/venues')).json();
+        const existing = body.data ?? [];
+        const resolved = new Map();
+
+        for (const name of [HOME_VENUE_NAME, PORTAL_VENUE_NAME]) {
+            let match = null;
+            for (const venue of existing) {
+                if (venue.name === name) {
+                    match = venue;
+                    break;
+                }
+            }
+
+            if (match !== null && match.is_active) {
+                resolved.set(name, match);
+                continue;
+            }
+
+            if (match !== null) {
+                // Deactivated, not deleted: reactivation is the sanctioned way
+                // to bring a retired name back, and a second POST would 422.
+                const reactivate = await api.put(`/api/admin/venues/${match.id}`, { data: { is_active: true } });
+                if (reactivate.status() !== 200) {
+                    throw new Error(`Reactivating the setup venue failed with status ${reactivate.status()}`);
+                }
+                resolved.set(name, (await reactivate.json()).data);
+                continue;
+            }
+
+            const create = await api.post('/api/admin/venues', { data: { name } });
+            if (create.status() !== 201) {
+                throw new Error(`Creating the setup venue failed with status ${create.status()}`);
+            }
+            resolved.set(name, (await create.json()).data);
+        }
+
+        return { home: resolved.get(HOME_VENUE_NAME), portal: resolved.get(PORTAL_VENUE_NAME) };
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Ensures the primary mandant (the domain-derived current mandant in local
  * dev) has teams enabled and at least one team with a home venue, so the
  * category/event UI can create team-level rows. Returns the first team.
  *
- * @returns {Promise<{ id: number; name: string; home_venue: string | null }>}
+ * @returns {Promise<{ id: number; name: string; venue: { id: number; name: string } | null, venue_id: number | null }>}
  */
 export async function ensurePrimaryMandantHasTeam() {
     const api = await loginAdminApi();
@@ -75,11 +147,12 @@ export async function ensurePrimaryMandantHasTeam() {
         }
 
         const suffix = uniqueSuffix();
+        const { home: homeVenue } = await ensurePrimaryMandantHasVenues();
         const create = await api.post(`/api/admin/mandants/${primary.id}/teams`, {
             data: {
                 name: `E2E Heimverein ${suffix}`,
                 slug: `e2e-heimverein-${suffix}`,
-                home_venue: 'E2E Heimstadion',
+                venue_id: homeVenue.id,
             },
         });
         if (create.status() !== 201) {
@@ -727,11 +800,12 @@ export async function ensurePrimaryMandantActivePortalEvent() {
         let team = teamsList[0];
         if (!team) {
             const suffix = uniqueSuffix();
+            const { home: homeVenue } = await ensurePrimaryMandantHasVenues();
             const teamCreate = await api.post(`/api/admin/mandants/${primary.id}/teams`, {
                 data: {
                     name: `E2E Heimverein ${suffix}`,
                     slug: `e2e-heimverein-${suffix}`,
-                    home_venue: 'E2E Heimstadion',
+                    venue_id: homeVenue.id,
                 },
             });
             if (teamCreate.status() !== 201) {
@@ -751,12 +825,15 @@ export async function ensurePrimaryMandantActivePortalEvent() {
         const stamp = `${PORTAL_FIXTURE_KEY} ${Date.now()}`;
         const title = `Portal-Test ${stamp}`;
         const competition = `E2E Wettbewerb ${stamp}`;
+        // The portal event pins its OWN venue so the portal fixture does not
+        // depend on the shared team's home venue.
+        const { portal: portalVenue } = await ensurePrimaryMandantHasVenues();
         const create = await api.post('/api/admin/events', {
             data: {
                 title,
                 team_id: team.id,
                 date: isoDateInDays(60),
-                venue: 'E2E Portal Arena',
+                venue_id: portalVenue.id,
                 competition,
                 deadline_start: isoDateInDays(20),
                 deadline_end: isoDateInDays(30),
@@ -985,6 +1062,16 @@ export async function purgeAllE2EArtifacts() {
         for (const team of teamBody.data ?? []) {
             if ((team.name ?? '').startsWith('E2E Heimverein ')) {
                 await api.delete(`/api/admin/mandants/${primaryId}/teams/${team.id}`);
+            }
+        }
+
+        // Venues (W12): the shared E2E fixtures. Deleted AFTER the teams and
+        // events above, because a referenced venue is refused with a 409 and
+        // would otherwise survive every run.
+        const venueBody = await (await api.get('/api/admin/venues')).json();
+        for (const venue of venueBody.data ?? []) {
+            if ((venue.name ?? '').startsWith('E2E ')) {
+                await api.delete(`/api/admin/venues/${venue.id}`);
             }
         }
 

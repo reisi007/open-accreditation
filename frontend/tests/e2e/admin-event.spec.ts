@@ -40,8 +40,10 @@ test.describe('Admin: Events (P2b)', () => {
         await adminMain.getByRole('button', { name: 'Neu' }).click();
         await adminMain.getByLabel('Titel', { exact: true }).fill(uniqueTitle);
         await adminMain.getByLabel('Team', { exact: true }).selectOption(String(team.id));
-        if (team.home_venue) {
-            await expect(adminMain.getByLabel('Spielort', { exact: true })).toHaveValue(team.home_venue);
+        if (team.venue) {
+            // The combobox shows the RESOLVED venue name for the id the team
+            // carries, so the readable assertion stays the same.
+            await expect(adminMain.getByRole('combobox', { name: 'Spielort' })).toHaveValue(team.venue.name);
         }
         await adminMain.getByLabel('Datum', { exact: true }).fill('2026-09-01');
         await adminMain.getByLabel('Frist Beginn', { exact: true }).fill('2026-08-01');

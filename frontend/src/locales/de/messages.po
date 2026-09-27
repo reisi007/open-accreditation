@@ -18,6 +18,16 @@ msgstr ""
 #~ msgid "{0} Felder"
 #~ msgstr "{0} Felder"
 
+#. placeholder {0}: option.name
+#: src/components/VenueCombobox.tsx
+#~ msgid "{0} neu anlegen"
+#~ msgstr "{0} neu anlegen"
+
+#. placeholder {0}: venue.name
+#: src/components/VenueCombobox.tsx
+#~ msgid "{0} reaktivieren"
+#~ msgstr "{0} reaktivieren"
+
 #: src/logic/accreditationLabels.ts
 msgid "{available, plural, one {# Platz frei} other {# Plätze frei}}"
 msgstr "{available, plural, one {# Platz frei} other {# Plätze frei}}"
@@ -42,9 +52,25 @@ msgstr "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
 #~ msgid "{count} Benutzer"
 #~ msgstr "{count} Benutzer"
 
+#: src/pages/admin/VenuesPage.tsx
+msgid "{eventsCount, plural, one {# Event} other {# Events}}"
+msgstr "{eventsCount, plural, one {# Event} other {# Events}}"
+
 #: src/pages/admin/BadgeTemplatesPage.tsx
 msgid "{fieldCount, plural, one {# Feld} other {# Felder}}"
 msgstr "{fieldCount, plural, one {# Feld} other {# Felder}}"
+
+#: src/components/VenueCombobox.tsx
+msgid "{name} neu anlegen"
+msgstr "{name} neu anlegen"
+
+#: src/components/VenueCombobox.tsx
+msgid "{name} reaktivieren"
+msgstr "{name} reaktivieren"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "{teamsCount, plural, one {# Team} other {# Teams}}"
+msgstr "{teamsCount, plural, one {# Team} other {# Teams}}"
 
 #: src/pages/AccreditationsPage.tsx
 #: src/pages/admin/AccreditationsPage.tsx
@@ -71,6 +97,10 @@ msgstr "{totalCount, plural, one {# Kategorie} other {# Kategorien}}"
 msgid "{totalCount, plural, one {# Mandant} other {# Mandanten}}"
 msgstr "{totalCount, plural, one {# Mandant} other {# Mandanten}}"
 
+#: src/pages/admin/VenuesPage.tsx
+msgid "{totalCount, plural, one {# Spielort} other {# Spielorte}}"
+msgstr "{totalCount, plural, one {# Spielort} other {# Spielorte}}"
+
 #: src/pages/admin/UsersPage.tsx
 #~ msgid "{totalCount} Benutzer"
 #~ msgstr "{totalCount} Benutzer"
@@ -84,6 +114,7 @@ msgstr "{totalCount, plural, one {# Mandant} other {# Mandanten}}"
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
 #: src/pages/admin/TeamForm.tsx
+#: src/pages/admin/VenueForm.tsx
 msgid "Abbrechen"
 msgstr "Abbrechen"
 
@@ -183,6 +214,7 @@ msgstr "Akkreditierungen konnten nicht geladen werden."
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Aktionen"
 msgstr "Aktionen"
 
@@ -193,6 +225,7 @@ msgstr "Aktionen"
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Aktiv"
 msgstr "Aktiv"
 
@@ -478,6 +511,10 @@ msgstr "Datenschutzerklärung"
 #: src/pages/VerifyPage.tsx
 msgid "Datum"
 msgstr "Datum"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Deaktivieren"
+msgstr "Deaktivieren"
 
 #: src/App.tsx
 msgid "Die angeforderte Seite existiert nicht."
@@ -808,9 +845,14 @@ msgstr "Höhe muss eine Zahl sein."
 msgid "Impressum"
 msgstr "Impressum"
 
+#: src/components/VenueCombobox.tsx
+msgid "inaktiv"
+msgstr "inaktiv"
+
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Inaktiv"
 msgstr "Inaktiv"
 
@@ -871,6 +913,7 @@ msgstr "Kein Mandanten-Kontext vorhanden."
 #~ msgstr "Kein Passwort gespeichert."
 
 #: src/pages/admin/MandantForm.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Keine"
 msgstr "Keine"
 
@@ -910,6 +953,10 @@ msgstr "Keine Sub-Anträge für diese Filter."
 msgid "Keine Sub-Anträge vorhanden."
 msgstr "Keine Sub-Anträge vorhanden."
 
+#: src/components/VenueCombobox.tsx
+msgid "Keine Treffer."
+msgstr "Keine Treffer."
+
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Keine Veranstaltungen"
 msgstr "Keine Veranstaltungen"
@@ -933,6 +980,10 @@ msgstr "Lege das erste Ausweis-Template an, um Ausweise zu drucken und zu verifi
 #: src/pages/admin/EventsPage.tsx
 msgid "Lege das erste Event an, damit Akkreditierungen einem Spiel zugeordnet werden können."
 msgstr "Lege das erste Event an, damit Akkreditierungen einem Spiel zugeordnet werden können."
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Lege den ersten Spielort an. Er kann direkt in Team- und Event-Formularen angelegt werden."
+msgstr "Lege den ersten Spielort an. Er kann direkt in Team- und Event-Formularen angelegt werden."
 
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Lege die erste Akkreditierung an, damit sich Interessierte bewerben können."
@@ -977,6 +1028,7 @@ msgstr "Logo & Header"
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Löschen"
 msgstr "Löschen"
 
@@ -1077,14 +1129,21 @@ msgstr "Mindestens eine Rolle muss ausgewählt bleiben."
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenueForm.tsx
+#: src/pages/admin/VenuesPage.tsx
 #: src/pages/VerifyPage.tsx
 msgid "Name"
 msgstr "Name"
+
+#: src/pages/admin/venueFormUtils.ts
+msgid "Name darf höchstens 120 Zeichen lang sein."
+msgstr "Name darf höchstens 120 Zeichen lang sein."
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/categoryFormUtils.ts
 #: src/pages/admin/mandantFormUtils.ts
 #: src/pages/admin/teamFormUtils.ts
+#: src/pages/admin/venueFormUtils.ts
 msgid "Name ist erforderlich."
 msgstr "Name ist erforderlich."
 
@@ -1093,6 +1152,7 @@ msgstr "Name ist erforderlich."
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Neu"
 msgstr "Neu"
 
@@ -1115,6 +1175,10 @@ msgstr "Neuer Eintrag"
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Neuer Mandant"
 msgstr "Neuer Mandant"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Neuer Spielort"
+msgstr "Neuer Spielort"
 
 #: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Neues Bild hochladen"
@@ -1191,6 +1255,11 @@ msgstr "Noch keine Kategorien vorhanden."
 #: src/pages/admin/MandantListPage.tsx
 msgid "Noch keine Mandanten vorhanden."
 msgstr "Noch keine Mandanten vorhanden."
+
+#: src/components/VenueCombobox.tsx
+#: src/pages/admin/VenuesPage.tsx
+msgid "Noch keine Spielorte vorhanden."
+msgstr "Noch keine Spielorte vorhanden."
 
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "Noch keine Sub-Akkreditierungen vorhanden."
@@ -1295,9 +1364,18 @@ msgstr "Quota"
 msgid "Quota muss mindestens 1 sein."
 msgstr "Quota muss mindestens 1 sein."
 
+#: src/components/VenueCombobox.tsx
+#: src/pages/admin/VenuesPage.tsx
+msgid "Reaktivieren"
+msgstr "Reaktivieren"
+
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Rechts"
 msgstr "Rechts"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Referenzen"
+msgstr "Referenzen"
 
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -1348,6 +1426,7 @@ msgstr "Schriftgröße muss mindestens 1 sein."
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Seite {currentPage} von {pageCount}"
 msgstr "Seite {currentPage} von {pageCount}"
 
@@ -1366,6 +1445,7 @@ msgstr "Seite nicht gefunden."
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Seitennavigation"
 msgstr "Seitennavigation"
 
@@ -1453,6 +1533,7 @@ msgstr "Sobald sich Nutzer für Sub-Akkreditierungen bewerben, erscheinen ihre S
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantDetailPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Speichern"
 msgstr "Speichern"
 
@@ -1465,9 +1546,55 @@ msgstr "Spiel"
 msgid "Spielort"
 msgstr "Spielort"
 
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielort erstellen"
+msgstr "Spielort erstellen"
+
+#: src/components/VenueCombobox.tsx
+msgid "Spielort konnte nicht angelegt werden."
+msgstr "Spielort konnte nicht angelegt werden."
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielort konnte nicht gelöscht werden."
+msgstr "Spielort konnte nicht gelöscht werden."
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielort konnte nicht gespeichert werden."
+msgstr "Spielort konnte nicht gespeichert werden."
+
+#: src/components/VenueCombobox.tsx
+msgid "Spielort konnte nicht reaktiviert werden."
+msgstr "Spielort konnte nicht reaktiviert werden."
+
+#: src/components/VenueCombobox.tsx
+msgid "Spielort suchen oder anlegen"
+msgstr "Spielort suchen oder anlegen"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielort umbenennen"
+msgstr "Spielort umbenennen"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielort wirklich löschen?"
+msgstr "Spielort wirklich löschen?"
+
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielorte"
+msgstr "Spielorte"
+
+#: src/components/VenueCombobox.tsx
+#: src/pages/admin/VenuesPage.tsx
+msgid "Spielorte konnten nicht geladen werden."
+msgstr "Spielorte konnten nicht geladen werden."
+
 #: src/components/LanguageSwitcher.tsx
 msgid "Sprache"
 msgstr "Sprache"
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Stammdaten der Spielorte. Wird von Teams und Events referenziert."
+msgstr "Stammdaten der Spielorte. Wird von Teams und Events referenziert."
 
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
@@ -1483,6 +1610,7 @@ msgstr "Standard-Template"
 #: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Status"
 msgstr "Status"
 
@@ -1643,6 +1771,10 @@ msgstr "Template wirklich löschen?"
 msgid "Templates konnten nicht geladen werden."
 msgstr "Templates konnten nicht geladen werden."
 
+#: src/components/VenueCombobox.tsx
+msgid "Tippe einen Namen ein, um den Spielort hier anzulegen."
+msgstr "Tippe einen Namen ein, um den Spielort hier anzulegen."
+
 #: src/pages/admin/EventForm.tsx
 #: src/pages/admin/EventsPage.tsx
 msgid "Titel"
@@ -1663,6 +1795,10 @@ msgstr "Übersprungen (Blacklist)"
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
 msgstr "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
+
+#: src/pages/admin/VenuesPage.tsx
+msgid "Umbenennen"
+msgstr "Umbenennen"
 
 #: src/pages/VerifyPage.tsx
 msgid "Ungültiger Code."
@@ -1754,6 +1890,7 @@ msgstr "Warteliste"
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Weiter"
 msgstr "Weiter"
 
@@ -1810,6 +1947,7 @@ msgstr "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewe
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Zum Scrollen wischen"
 msgstr "Zum Scrollen wischen"
 
@@ -1826,6 +1964,7 @@ msgstr "Zur Startseite"
 #: src/pages/admin/EventsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
+#: src/pages/admin/VenuesPage.tsx
 msgid "Zurück"
 msgstr "Zurück"
 
