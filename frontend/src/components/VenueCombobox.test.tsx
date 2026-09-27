@@ -814,6 +814,145 @@ describe('VenueCombobox — listbox ARIA structure (the reactivate action must s
     });
 });
 
+interface ReactivateRow {
+    /** The button as rendered, so an assertion failure can point at it. */
+    button: HTMLElement;
+    /** Accessible name as COMPUTED by the accname algorithm, not read off the template. */
+    accessibleName: string;
+    /** The words printed on the control — what a sighted user reads. */
+    visibleText: string;
+    /** The venue whose row this button sits in. */
+    venueName: string;
+}
+
+/**
+ * The open list's reactivate buttons, each paired with its COMPUTED accessible
+ * name, its visible text and its venue.
+ *
+ * The name is harvested through the `name` MATCHER FUNCTION rather than via
+ * `getAttribute('aria-label')`: testing-library runs the real
+ * `computeAccessibleName` algorithm in that matcher, so this reads what
+ * assistive tech would announce rather than what the template happens to say.
+ * Inside that query the role filter runs before the name filter, so the matcher
+ * is only ever invoked for buttons.
+ */
+function reactivateRows(): ReactivateRow[] {
+    const computed = new Map<Element, string>();
+    const buttons = within(listbox()).getAllByRole('button', {
+        name: (accessibleName, element) => {
+            computed.set(element, accessibleName);
+            return true;
+        },
+    });
+    return buttons.map((button) => ({
+        button,
+        accessibleName: computed.get(button) ?? '',
+        // `textContent`, not `innerText`: the label is plain text with no
+        // block-level children, and jsdom implements neither `innerText` nor
+        // the layout the button's daisyUI classes depend on.
+        visibleText: button.textContent ?? '',
+        venueName: button.closest('li')?.querySelector('[role="option"]')?.textContent ?? '',
+    }));
+}
+
+/**
+ * "Contains" at WORD granularity, which is the granularity 2.5.3 talks about:
+ * a label that only matches mid-word ("Reaktiv" inside "Reaktivieren") is not
+ * contained, even though the raw substring test would pass.
+ */
+function containsWords(haystack: string, needle: string): boolean {
+    const hay = haystack.split(' ');
+    const pin = needle.split(' ');
+    return hay.some((_, start) => pin.every((word, offset) => hay[start + offset] === word));
+}
+
+/** Fold the way the accname algorithm folds: whitespace collapsed, case ignored. */
+function fold(value: string): string {
+    return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+/**
+ * WCAG 2.5.3 "Label in Name" (Level A) for the reactivate button: the words a
+ * sighted user reads on a control have to be words a speech-input user can say.
+ *
+ * The criterion is CASE-INSENSITIVE, and German sentence case is the case that
+ * proves it. The visible label is the bare noun "Reaktivieren", capitalized
+ * because it is a whole label; the same word sits mid-sentence and therefore
+ * LOWERCASE at the end of the name "Stadion Ost reaktivieren". The W3C
+ * Understanding document is explicit that "differences in capitalization and
+ * punctuation are not relevant when evaluating this criterion" and that a
+ * computed "first name" passes a visible "First Name:" — so the capitalization
+ * gap here is NOT a violation, and rewriting the name to close it would only
+ * churn the wording of a control that already conforms.
+ *
+ * What is worth nailing down is the CONDITION, not the string: whatever the
+ * wording becomes, the visible text must stay inside the accessible name. So
+ * every assertion below folds case and compares WORDS — none of them freeze the
+ * current phrasing. That is deliberate in both directions: the test must still
+ * pass after a translation or a re-wording, and it must not BLOCK the one
+ * improvement the W3C doc does recommend ("while normatively this success
+ * criterion is 'case-insensitive', it's still recommended that authors match
+ * the case/capitalization"). A test that pinned the current capitalization
+ * would fail on exactly the change the spec asks for.
+ *
+ * The second test pins the other, genuinely load-bearing reason the name
+ * carries the venue at all — see its own comment.
+ */
+describe('VenueCombobox — WCAG 2.5.3 (Label in Name) on the reactivate button', () => {
+    it('keeps the visible label inside the accessible name, ignoring case', async () => {
+        setVenues([
+            makeVenue({ id: 1, name: 'Arena Nord' }),
+            makeVenue({ id: 2, name: 'Stadion Ost', is_active: false }),
+        ]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.click(combobox());
+
+        const rows = reactivateRows();
+        expect(rows).toHaveLength(1);
+        const { button, visibleText, accessibleName } = rows[0];
+        // The control really does print something: containment against an empty
+        // label would pass vacuously.
+        expect(visibleText.trim()).not.toBe('');
+        // The condition, and the whole of it: word-level containment, case
+        // folded. Fails as soon as the label's words leave the name.
+        expect(containsWords(fold(accessibleName), fold(visibleText))).toBe(true);
+        // Reported against the element, so a failure says WHICH button broke
+        // and confirms the harvested name is the computed one.
+        expect(button).toHaveAccessibleName(accessibleName);
+    });
+
+    it('keeps visually identical buttons on several inactive rows distinguishable', async () => {
+        setVenues([
+            makeVenue({ id: 1, name: 'Arena Nord', is_active: false }),
+            makeVenue({ id: 2, name: 'Arena Sued', is_active: false }),
+            makeVenue({ id: 3, name: 'Arena West', is_active: false }),
+        ]);
+        const user = userEvent.setup();
+        renderCombobox();
+
+        await user.click(combobox());
+
+        const rows = reactivateRows();
+        expect(rows).toHaveLength(3);
+        // The premise: every button prints the SAME label, so nothing visible
+        // distinguishes them and the name is the only channel left. Compared as
+        // a set size, not against a literal, so renaming the label is fine.
+        expect(new Set(rows.map((row) => fold(row.visibleText))).size).toBe(1);
+        // So the name has to be unique per row and has to name the venue. A
+        // scheme that dropped the venue would satisfy 2.5.3 perfectly while
+        // destroying the only thing that told the rows apart — this is the
+        // regression the word order actually guards against.
+        expect(new Set(rows.map((row) => row.accessibleName)).size).toBe(3);
+        for (const { button, accessibleName, venueName } of rows) {
+            expect(fold(venueName)).not.toBe('');
+            expect(containsWords(fold(accessibleName), fold(venueName))).toBe(true);
+            expect(button).toHaveAccessibleName(accessibleName);
+        }
+    });
+});
+
 describe('VenueCombobox — list failures and the empty state', () => {
     it('shows the empty state and still allows typing when the list is empty', async () => {
         setVenues([]);

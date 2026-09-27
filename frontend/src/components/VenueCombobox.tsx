@@ -492,6 +492,24 @@ export function VenueCombobox({
                                                 type="button"
                                                 className="btn btn-xs btn-outline"
                                                 disabled={pendingId === venue.id}
+                                                /*
+                                                  Venue FIRST on purpose — an
+                                                  audit read the capitalisation
+                                                  gap ("Reaktivieren" vs the
+                                                  trailing "reaktivieren") as a
+                                                  WCAG 2.5.3 failure. It is not
+                                                  one: that criterion is
+                                                  case-insensitive, and the W3C
+                                                  Understanding doc says
+                                                  capitalisation "is not
+                                                  relevant when evaluating this
+                                                  criterion". The venue also has
+                                                  to stay: several inactive
+                                                  venues render identical
+                                                  buttons, so the name is the
+                                                  only thing telling them apart.
+                                                  See VenueCombobox.test.tsx.
+                                                */
                                                 aria-label={i18n._(t`${name} reaktivieren`)}
                                                 onClick={() => void handleReactivate(venue)}
                                             >
