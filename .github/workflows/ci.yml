@@ -3,15 +3,16 @@ name: CI
 # Push auf ALLE Branches + Pull Requests. Backend/Frontend laufen überall;
 # der E2E-Job läuft bei `push`/`pull_request`/`schedule`/`workflow_dispatch`
 # (keine externen Secrets nötig, aber bewusst schlank gehalten — kein
-# Meilisearch, kein Stripe in diesem Projekt). `schedule` zieht die VOLLE
-# E2E-Suite (AGENTS.md §7: „`@regression` … vor Deployment") — auf
-# `push`/`pull_request` läuft nur `@smoke`.
+# Meilisearch, kein Stripe in diesem Projekt). Er zieht die VOLLE E2E-Suite
+# (@smoke + @regression + @feature:*) — auch auf `push`/`pull_request`.
+# Unterschiedlich ist nur das Fehler-Budget: verzeihendes Profil für
+# Push/PR/Default-Dispatch, striktes Profil für `schedule` (Nightly) und
+# `e2e_suite=strict` (siehe Run-Step).
 on:
   push:
   pull_request:
-  # Nightly: die volle Suite (Smoke + @regression + @feature:*). Ohne diesen
-  # Cron lief in CI ausschließlich @smoke — der in AGENTS.md §7 geforderte
-  # Regression-Lauf war nirgends durchgesetzt.
+  # Nightly: dieselbe volle Suite, aber mit dem strikten Profil (retries: 0,
+  # maxFailures: 1) — der Flakiness-Detektor.
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
@@ -23,6 +24,14 @@ on:
         options:
           - preview
           - dev
+      e2e_suite:
+        description: 'Welche E2E-Suite soll laufen? (full = alle Tests mit verzeihendem Profil wie beim Push/PR — Standard; smoke = nur die schnellen @smoke-Tests, Iterationshilfe ohne Gate; strict = alle Tests mit striktem Fehler-Budget wie der Nightly, ein einziger Fehlversuch ist rot)'
+        type: choice
+        default: full
+        options:
+          - full
+          - smoke
+          - strict
 
 concurrency:
   # Der Suffix trennt den Nightly von den Event-Runs: `github.ref` ist beim
@@ -117,21 +126,27 @@ jobs:
         run: pnpm test:run
 
   e2e:
-    # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst der
-    # `@smoke`-Pfad auch auf `pull_request` (AGENTS.md §7 nennt push UND PR als
-    # Smoke-Gate — der Job lief vorher nur bei push/schedule/workflow_dispatch,
-    # ein PR bekam also NIE einen E2E-Check). Ein Job, zwei Suiten — die
-    # Auswahl hängt am Event (AGENTS.md §7):
-    #   * push / pull_request  → `@smoke` (Critical Path, schnell) über
-    #     `playwright.config.ts`, retries: 2 / maxFailures: 10 (verzeihend:
-    #     geteilter Runner, echtes Netzwerk-/Timing-Rauschen)
-    #   * schedule (Nightly)   → VOLLE Suite (alle Specs × beide Browser-
-    #     Projects, inkl. aller `@regression`- und `@feature:*`-Specs; lokal
-    #     gemessen: 80 Test-Slots, davon 36 zur Laufzeit übersprungen) über
-    #     `playwright.regression.config.ts`, retries: 0 / maxFailures: 1
-    #     (ausschlaggebend — der Flakiness-Detektor, siehe Run-Step).
-    #     Vorher lief in CI ausschließlich `@smoke` — der in §7 geforderte
-    #     Regression-Lauf war nirgends durchgesetzt.
+    # Keine Secrets nötig (kein Stripe/Meilisearch), daher bewusst auch auf
+    # `pull_request` aktiv (AGENTS.md §7 nennt push UND PR als Gate — der Job
+    # lief vorher nur bei push/schedule/workflow_dispatch, ein PR bekam also
+    # NIE einen E2E-Check). Ein Job, ein Testset, zwei Fehler-Budgets — die
+    # Auswahl hängt am Event bzw. am workflow_dispatch-Input (AGENTS.md §7):
+    #   * push / pull_request / workflow_dispatch (Default `full`) → VOLLE
+    #     Suite (alle Specs × beide Browser-Projects, inkl. `@smoke`,
+    #     `@regression` und `@feature:*`) über `playwright.config.ts`,
+    #     retries: 2 / maxFailures: 10 (verzeihend: geteilter Runner, echtes
+    #     Netzwerk-/Timing-Rauschen)
+    #   * schedule (Nightly) und workflow_dispatch mit `e2e_suite=strict` →
+    #     dieselbe VOLLE Suite über `playwright.regression.config.ts`,
+    #     retries: 0 / maxFailures: 1 (ausschlaggebend — der
+    #     Flakiness-Detektor, siehe Run-Step)
+    #   * workflow_dispatch mit `e2e_suite=smoke` → nur die `@smoke`-Specs
+    #     (die lokale `test:e2e:smoke` als CI-Lauf angestoßen; kein Gate)
+    # Vorher fuhr der Push-/PR-Zweig `--grep @smoke`: 26 von 84 Tests, die
+    # 58 @regression-/@feature-*-Specs sahen weder Push noch PR. Und das
+    # strikte Profil war ausschließlich über den 03:30-UTC-Cron erreichbar —
+    # ein roter Nightly ließ sich nicht vor dem nächsten Fenster anstoßen.
+    # Beides regelt der Run-Step jetzt.
     # Beide Profile teilen testDir/Projects/baseURL ⇒ identisches Testset, nur
     # unterschiedlicher Fehler-Budget.
     # Kein `continue-on-error` und kein `|| true` im Test-Step: ein roter Lauf
@@ -311,7 +326,7 @@ jobs:
           timeout 60s bash -c 'until curl -sf http://localhost:5173/ > /dev/null; do sleep 1; done'
         env:
           VITE_API_PROXY: http://127.0.0.1:8000
-      - name: Run E2E suite (${{ github.event_name == 'schedule' && 'volle Suite, ausschlaggebend' || '@smoke' }})
+      - name: Run E2E-Suite (${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'strict') && 'volle Suite, strikt' || (inputs.e2e_suite == 'smoke' && 'nur @smoke' || 'volle Suite, verzeihend') }})
         working-directory: frontend
         # Serial (--workers=1) in BEIDEN Profilen: Backend-Login-Limiter
         # (RateLimiter::for('login'), 40/min pro IP laut AppServiceProvider —
@@ -319,22 +334,36 @@ jobs:
         # parallel workers teilen sich die CI-IP und erzeugen 429
         # Too-Many-Attempts-Flakes (P2b-F9). Serial läuft grün.
         #
-        # Zwei Laufprofile, EIN Testset (gleiche testDir/Projects/baseURL):
-        #   * `schedule` → VOLLE Suite über playwright.regression.config.ts
-        #     (retries: 0, maxFailures: 1). Dieser Lauf ist der
-        #     Flakiness-Detektor: **Rot heißt „ein Test ist flaky oder echt
-        #     kaputt"** — nicht „ignorieren". Er wird behoben (oder mit
-        #     Datei/Testname + Ursache in AGENTS.todo.md begründet), und
-        #     ausdrücklich NICHT mit Retries bzw. einem höheren maxFailures
+        # Zwei Laufprofile, EIN Testset (gleiche testDir/Projects/baseURL) —
+        # Unterschied ist nur das Fehler-Budget, nicht die Abdeckung:
+        #   * `schedule` ODER `e2e_suite=strict` → VOLLE Suite über
+        #     playwright.regression.config.ts (retries: 0, maxFailures: 1).
+        #     Dieser Lauf ist der Flakiness-Detektor: **Rot heißt „ein Test ist
+        #     flaky oder echt kaputt"** — nicht „ignorieren". Er wird behoben
+        #     (oder mit Datei/Testname + Ursache in AGENTS.todo.md begründet),
+        #     und ausdrücklich NICHT mit Retries bzw. einem höheren maxFailures
         #     wegkonfiguriert — genau das hat den Gate vorher blind gemacht.
-        #   * sonst (@smoke) → playwright.config.ts, retries: 2,
-        #     maxFailures: 10; der Smoke-Gate bleibt bewusst verzeihend.
+        #     Der `schedule`-Zweig war historisch der einzige Weg dorthin; über
+        #     `e2e_suite=strict` ist der strikte Lauf jetzt jederzeit per
+        #     `gh workflow run` reproduzierbar.
+        #   * `e2e_suite=smoke` → nur die `@smoke`-Specs über
+        #     playwright.config.ts (schnelle Iterationsläufe, kein Gate).
+        #   * sonst (push / pull_request / `e2e_suite=full`) → VOLLE Suite
+        #     über playwright.config.ts, retries: 2, maxFailures: 10; dieses
+        #     Profil bleibt bewusst verzeihend. Bis hierher fuhr dieser Zweig
+        #     `--grep @smoke`, d. h. 58 @regression-/@feature:*-Tests sahen CI
+        #     nie.
+        # `${{ inputs.* }}` ist bei `push`/`pull_request` leer (dort existiert
+        # kein Input) — der leere Vergleich gegen 'strict'/'smoke' ist false
+        # und landet korrekt im `else`.
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = 'schedule' ]; then
+          if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ inputs.e2e_suite }}" = 'strict' ]; then
             pnpm exec playwright test -c playwright.regression.config.ts --workers=1
-          else
+          elif [ "${{ inputs.e2e_suite }}" = 'smoke' ]; then
             pnpm exec playwright test --workers=1 --grep @smoke
+          else
+            pnpm exec playwright test --workers=1
           fi
         env:
           CI: '1'

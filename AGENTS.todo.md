@@ -36,7 +36,7 @@ Behauptung, kein Fakt.
 
 | # | Position | Aufwand | Warum hier |
 |---|---|---|---|
-| **1** | **Venue-E2E ausführen + promoten** | S1 | `frontend/tests/e2e/admin-venue.spec.ts` (2 Tests) ist **nie gelaufen** — weder lokal noch in CI. Belegt: beide Tests tragen nur `@feature:admin:venue`, `.github/workflows/ci.yml:8` fährt auf `push` **ausschließlich** `@smoke`. Der grüne Lauf `36317288916` hat das Spec also nicht berührt. Der Frontend-Agent hat es bewusst ohne `@smoke` gelassen (korrekt: ungeprüfter Spec darf den Push-Gate nicht anführen) — jetzt ist die Reihenfolge umgekehrt: einmal real fahren, dann promoten. Erfordert laufenden Stack. |
+| **1** | **Volle E2E-Suite in CI verifizieren** | S1 | `frontend/tests/e2e/admin-venue.spec.ts` (2 Tests) war **nie gelaufen**: beide tragen nur `@feature:admin:venue`, `ci.yml` fuhr auf `push` nur `--grep @smoke`, der grüne Lauf `36317288916` hat das Spec also nicht berührt. **Ursache behoben 2026-09-27:** `push`/`pull_request` fahren jetzt die volle Suite statt der 26 Smoke-Tests (58 von 84 Tests sahen vorher nie CI). Offen bleibt die **Messung**: (a) Laufzeit der vollen Suite — nie gemessen, weil sie nie lief, Smoke brauchte 29 s für 26 Slots; (b) **429-Risiko** — der Login-Limiter liegt bei 40/min pro IP (`AppServiceProvider`, local/testing-Floor); seriell fährt die Suite ~48 echte Tests, was die Grenze reiben *könnte*. Der serielle `--workers=1` war bisher nur für 26 Tests kalibriert. Der erste volle Push-Lauf ist die Evidenz — vorher nicht spekulieren. |
 | **2** | **Board-/SOLL-Korrektur Badge-Editor** | S1 | `features/badge-template-editor.md:7` zitiert als Anlass „User-Entscheidung **VOLL frei positionierbar**". Die tatsächliche Entscheidung (2026-09-27 interaktiv bestätigt) ist **Raster + konfigurierbare Labels**. §4 verlangt, dass `features/` den SOLL-Zustand hält — das Dokument ist derzeit **falsch** und die FE1–FE4-Commits wurden auf der alten Annahme gebaut. Muss vor Position 3 geklärt werden, sonst wird gegen die falsche Spec gebaut. |
 | **3** | **Badge-Editor auf Raster+Labels umstellen** | S2 | Betrifft `BadgeCanvas.tsx`, `BadgePropertiesPanel.tsx` + Phasing-Abschnitt in `features/badge-template-editor.md`. **Keine** DnD-Bibliothek nötig — im `package.json` ist keine, die alte SOLL hätte sie eingeführt. Zu klären bleibt, ob Schema v2 (`x/y/w/h` in mm) die geänderte UX trägt (Positionen werden ja weiterhin gebraucht, nur nicht per Maus gezogen) — das ist der eigentliche Entscheidungspunkt. |
 | **4** | **Venue-Schreibbreite `team_admin` (PRODUCT-DECISION)** | S1 | Steht als eigene Position, **nicht selbst entscheiden** (siehe Session 2026-09-19). |
@@ -48,8 +48,11 @@ Behauptung, kein Fakt.
 
 ### Warte auf externe Schritte (nicht Go-Live, aber nicht von uns machbar)
 - **Google Wallet (P6):** API-Zugang/Issuer-Setup beim Google nötig.
-- **Nightly-E2E:** der `@regression`-Cron ist eingerichtet, war in dieser Session aber
-  nie gelaufen — der Flakiness-Detektor hat also noch nie gegen dieses Stand gearbeitet.
+- **Nightly-E2E (striktes Profil):** der `@regression`-Cron ist eingerichtet, hat aber
+  **null Läufe** — `gh run list --event schedule` ist leer. Der Cron kam erst am 2026-09-26
+  (`3d9d3d3`), erster Zündtermin war der 2026-09-28 03:30 UTC. Der Flakiness-Detektor hat
+  also noch nie gegen diesen Stand gearbeitet. Seit der CI-Umstellung vom 2026-09-27 deckt
+  allerdings jeder Push dieselbe Testmenge ab — nur mit dem verzeihenden Budget.
 - **Screenshot-/Vision-Loop (§7):** in dieser Session komplett ungelaufen.
 - **`EXPLAIN ANALYZE`:** Index-*Form* ist verifiziert, nicht die Geschwindigkeit.
 

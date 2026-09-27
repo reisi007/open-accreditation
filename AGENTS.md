@@ -122,23 +122,32 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 
 **Execution:**
 
-- Bei jedem Code-Change: `test:e2e:smoke` (`npx playwright test --grep @smoke`)
+- Bei jedem Code-Change **lokal**: `test:e2e:smoke` (`npx playwright test --grep @smoke`) —
+  schnelle Iterationshilfe. In **CI** fährt der Push-/PR-Job (`e2e`) die **volle Suite**
+  (alle getaggten Specs), nicht nur `@smoke`.
 - Feature-spezifisch: `npx playwright test --grep @feature:<name>`
 - Vor Deployment: `test:e2e` (full suite)
 - Wiederholung fehlgeschlagener Tests: `npx playwright test --last-failed`
+- CI manuell anstoßen: `workflow_dispatch` mit `e2e_suite` = `full` (Default, verzeihend) /
+  `smoke` (nur `@smoke`, Iterationshilfe) / `strict` (volle Suite mit striktem Budget wie
+  der Nightly). `strict` ist der einzige manuelle Weg, einen roten Nightly vor dem nächsten
+  03:30-UTC-Fenster erneut zu fahren.
 
 **Die zwei Laufprofile (gleiches Testset, unterschiedliches Fehler-Budget):**
 
-- **`playwright.config.ts` = Smoke-Profil** (`retries: 2`, `maxFailures: 10` in CI). Der
-  Push-/PR-/Dispatch-Gate (`--grep @smoke --workers=1`) benutzt es. Bewusst **verzeihend**:
-  geteilte Runner haben echtes Timing-Rauschen. **Nicht** verschärfen.
-- **`playwright.regression.config.ts` = Nightly-Profil** (`retries: 0`, `maxFailures: 1` in
-  CI). Der `schedule`-Cron benutzt es und läuft die **volle** Suite. Es ist der
-  **Flakiness-Detektor** und muss deshalb **strikt** bleiben: Ein erster Fehlversuch IST das
-  Ergebnis. Wer `retries`/höheres `maxFailures` hier einführt, macht das Gate blind — der
-  Nightly wird nicht „grüngezogen", sondern der flaky Test wird behoben oder mit
-  Datei/Testname + Ursache in `AGENTS.todo.md` begründet.
-- Die Profile teilen `testDir`/`projects`/`baseURL` (identisches Testset). Die `use.baseURL`
+- **`playwright.config.ts` = verzeihendes Profil** (`retries: 2`, `maxFailures: 10` in CI).
+  Fährt bei `push`/`pull_request` und bei `workflow_dispatch` mit `e2e_suite=full`/`smoke`
+  die Suite — bei `push`/`pull_request` die **volle** Suite (alle Tests: `@smoke`,
+  `@regression`, `@feature:*`), ohne `--grep`. Bewusst **verzeihend**: geteilte Runner haben
+  echtes Timing-Rauschen. **Nicht** verschärfen.
+- **`playwright.regression.config.ts` = striktes Profil** (`retries: 0`, `maxFailures: 1` in
+  CI). Fährt die **volle** Suite bei `schedule` (Nightly) und bei `workflow_dispatch` mit
+  `e2e_suite=strict`. Es ist der **Flakiness-Detektor** und muss deshalb **strikt** bleiben:
+  Ein erster Fehlversuch IST das Ergebnis. Wer `retries`/höheres `maxFailures` hier einführt,
+  macht das Gate blind — der Nightly wird nicht „grüngezogen", sondern der flaky Test wird
+  behoben oder mit Datei/Testname + Ursache in `AGENTS.todo.md` begründet.
+- Die Profile teilen `testDir`/`projects`/`baseURL` (identisches Testset) — die Wahl zwischen
+  ihnen ändert **wann und wie streng** die Suite läuft, **nicht** ihren Umfang. Die `use.baseURL`
   kommt aus `E2E_BASE_URL` (Default `http://localhost:5173`) — beide Vite-Server pinnen Port
   5173, ein Dev→Preview-Wechsel darf darum nicht an einem hartkodierten Port zerschellen.
 
