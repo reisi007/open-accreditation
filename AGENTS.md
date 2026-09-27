@@ -27,6 +27,21 @@ Fachwissen her wie einen Senior Architekten. Die direkte Anrede „Senior Archit
   läuft: kein PG-spezifisches SQL in Migrationen/Queries, JSON-Spalten via Laravel `json`-Type (kein
   `jsonb`-roh), Datumsarithmetik über Query-Builder/Eloquent statt roher PG-Funktionen. Wo Postgres-
   Features nötig sind → Service-Abstraktion + separater Integrationstest (dokumentieren).
+- **Transaktionsabbruch bei Unique-Verletzung (CRITICAL):** Postgres bricht bei einer Unique-Verletzung
+  die **gesamte** Transaktion ab (SQLSTATE `25P02`, „current transaction is aborted"); SQLite tut das
+  **nicht** — dort lässt sich nach dem Fehlschlag weiterarbeiten. Das Muster „insert versuchen →
+  Exception fangen → weiterarbeiten" ist damit **nicht portabel**: auf Postgres müssen alle folgenden
+  Queries in derselben Transaktion sterben, und das Manifest meldet „Datenbank kaputt" statt „diese
+  Zeile existierte schon". Solche Stellen brauchen ein **SAVEPOINT** (oder `DB::transaction()` pro
+  Operation) um den erwarteten Fehlschlag abzufangen. Stand: **kein Code im Repo macht das** — die
+  Regel ist präventiv, für den nächsten, der es versucht.
+- **`LIKE … ESCAPE` ist auf SQLite nicht optional (CRITICAL):** Auf Postgres ist eine `ESCAPE`-Klausel
+  ein semantisches No-op (dort ist `\` der Standard-Escape-Character), auf SQLite ist sie
+  **zwingend**, weil SQLite keinen Standard-Escape-Character hat. Gefahrenrichtung: Wer das Escaping
+  im Query beibehält, aber die `ESCAPE`-Klausel entfernt, erhält auf SQLite **0 Treffer statt
+  Über-Match** — also **fail-closed, nicht fail-open**. Das ist die sichere Richtung, macht den Bug
+  aber trotzdem schwer zu finden. `ESCAPE` deshalb immer **mitschreiben**, auch wenn es auf Postgres
+  nichts zu ändern scheint.
 
 ## 3. Definition of Done (DoD)
 
