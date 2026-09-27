@@ -255,24 +255,106 @@ kann direkt im Mailable ausgegeben werden.
 > ⚠️ **Limitation:** Bulk-Läufe können `denied`-Anträge **nicht reanimieren**.
 
 Alle Bulk-Pfade (`approveSelection`, `approveAllEligible` — manuell wie
-automatisch) kandidieren ausschließlich über `eligibleRequested()`, d. h. nur
-Zeilen im Status **`requested`**. Konsequenzen:
+automatisch) lesen ihre Kandidaten ausschließlich über `eligibleRequested()`.
+Diese beiden Queries sind der **Beleg** — sie sind der einzige Ort, an dem ein
+Status-Filter auf die Kandidatenmenge wirkt:
+
+`AllocationService::eligibleRequested()` (`backend/app/Services/AllocationService.php:476`):
+
+```php
+return AllocationRules::orderEligible(
+    Application::query()
+        ->where('accreditation_id', $accreditation->id)
+        ->where('status', 'requested')
+        ->with('user:id,email'),
+)->get();
+```
+
+`SubAllocationService::eligibleRequested()` (`backend/app/Services/SubAllocationService.php:315`):
+
+```php
+return AllocationRules::orderEligible(
+    SubApplication::query()
+        ->where('sub_accreditation_id', $sub->id)
+        ->where('status', 'requested')
+        ->whereHas('application', fn (Builder $query) => $query->where('status', 'approved'))
+        ->with('user:id,email'),
+)->get();
+```
+
+Die Zeile `->where('status', 'requested')` ist damit wörtlich die Bedingung,
+die `denied` (und `approved`) aus der Kandidatenmenge ausschließt. Beim
+Sub-Antrag kommt der D9-Filter `whereHas('application', … status = 'approved')`
+dazu: ein `denied`-Sub-Antrag ist doppelt ausgeschlossen, zusätzlich darf die
+Haupt-Akkreditierung nie `approved` sein.
+
+Ein zweiter, unabhängiger Guard liegt im Write-Back: `AllocationRules::markStatus()`
+(`AllocationRules.php:195`) schreibt nur über `->where('status', 'requested')`.
+Ein Plan, der aus einem veralteten Read berechnet wurde, kann eine inzwischen
+veränderte Zeile also selbst im Erfolgsfall nicht überschreiben (Idempotenz,
+Kernregel 7) — die Bulk-Läufe sind doppelt fail-closed.
+
+**Konsequenzen**
 
 - Ein `denied`-Antrag bleibt durch jeden weiteren Bulk-Run — auch nach
   Quota-Erhöhung oder Blacklist-Löschung — **dauerhaft `denied`**. Das gilt
   ausdrücklich auch für Anträge mit VIP-Priorität: `priority = true` schützt
-  nicht vor dem Verbleib in `denied`; VIP wird nur unter den `requested`-
-  Kandidaten bevorzugt sortiert, nie re-geprüft.
-- Ebenso sind `approved`-/`blacklisted`-Zeilen nie Bulk-Kandidaten
-  (Idempotenz, siehe Kernregel 7).
+  nicht vor dem Verbleib in `denied`. VIP ist **nur eine Sortiervorgabe**
+  innerhalb der `requested`-Kandidatenmenge — `AllocationRules::orderEligible()`
+  ist `orderByDesc('priority')->orderBy('created_at')->orderBy('id')`, und
+  `setPriority()` ist ein reines Feld-Update „no status change, no guards"
+  (`AllocationService.php:422`). VIP kann nie einen Status überschreiben.
+- Ebenso sind `approved`-/`blacklisted`-Zeilen nie Bulk-Kandidaten.
+- **`blacklisted` ist kein Query-Filter**, sondern eine Plan-Entscheidung zur
+  Laufzeit: `AllocationRules::isBlacklisted()` prüft die mandanten-skalierten
+  `blacklist`-Zeilen (E-Mail/Domain, case-insensitive) gegen den geladenen
+  User. In `approveAllEligible` landen Treffer in `deny_blacklist` → `denied`
+  mit `REASON_BLACKLIST`; in `approveSelection` werden sie nur **übersprungen**
+  und bleiben `requested` (Zähler `skipped_blacklist`, siehe `AllocationResult`).
+  Die Engine **setzt den Status `blacklisted` nie** — er ist der Blacklist-
+  Verwaltung vorbehalten (siehe „Status-Semantik"). Ein Bulk-Run kann eine
+  Zeile also wegen der Blacklist ablehnen, aber nie wegen ihr auf `denied`
+  fixieren: nach dem Löschen des Blacklist-Eintrags ist die Zeile `denied` und
+  bleibt es — dieselbe Limitation wie oben.
+- Für Sub-Anträge kommt der D9-Filter hinzu: `requested` auf einem
+  Haupt-Antrag, der selbst `requested`/`denied` ist, ist **kein** Kandidat und
+  bleibt bewusst `requested` — der Admin kann den Haupt-Antrag erst
+  freigeben, dann nimmt der nächste Lauf die Sub-Zeile mit.
 
-**Einziger Reanimationsweg:** die Einzelaktion
-`AllocationService::approveApplication()` (P3e), die als Ausgangsstatus
-explizit `requested | denied` zulässt (Blacklist-Guard und Quota-Check laufen
-dort erneut). Die Massenfreigabe ist bewusst vom Reanimationsweg
-ausgeschlossen: Bulk-Läufe bleiben deterministisch und idempotent, die
-Reaktivierung abgelehnter Anträge ist eine bewusste Admin-Entscheidung im
-Einzelfall — keine Design-Lücke, sondern gewollte Trennung.
+**Warum das eine Design-Entscheidung ist, kein Bug.** Eine bewusste
+Ablehnung soll nicht durch einen Sammellauf still überschrieben werden. Ein
+Bulk-Run ist ein Massenwerkzeug: er entscheidet nach einer deterministischen
+Regel (Quota, Priorität, Blacklist) über *alles, was gerade bewerbar ist* —
+alles andere wäre ein stilles Undo der Admin-Entscheidung von gestern, ohne
+Audit-Spur. Der Status `denied` ist die dokumentierte Endschicht (siehe
+„Status-Semantik": „Denied ist final, `approved` ist final"). Die einzige
+Stelle, die das bewusst durchbricht, ist der **Einzelfall mit explizitem
+Admin-Akt**, und das ist auch genau der einzige dokumentierte Weg zurück.
+
+**Wie man sie bewusst umgeht** (kein Bug-Workaround, der vorgesehene Weg)
+
+- Haupt-Antrag: `PUT /api/admin/applications/{application}` mit
+  `status=approved` → `AllocationService::approveApplication()`. Der Guard
+  lautet wörtlich `if (! in_array($application->status, ['requested', 'denied'], true))`
+  (`AllocationService.php:239`) — `denied` ist also ausdrücklich ein gültiger
+  Ausgangsstatus. Blacklist-Guard und Quota-Check laufen dort erneut, und das
+  Freigeben setzt den `reason` auf `null`.
+- Sub-Antrag: `PUT /api/admin/sub-applications/{subApplication}` mit
+  `status=approved` → `SubAllocationService::approveSubApplication()`, gleiche
+  Status-Lehre (`in_array($subApplication->status, ['requested', 'denied'], true)`,
+  `SubAllocationService.php:177`) plus der D9-Guard: der Haupt-Antrag muss
+  `approved` sein, sonst 422 `REASON_PARENT_NOT_APPROVED`.
+- Einen Weg **zurück auf `requested` gibt es nicht** — weder über die API
+  (`update()` validiert `status` nur gegen `Rule::in(['approved', 'denied'])`)
+  noch in der Engine. Das ist gewollt: der Reanimationsweg ist die
+  Einzelgenehmigung, nicht das Zurücksetzen auf bewerbar.
+- Wer eine ganze Gruppe reaktivieren will, muss die Zeile im Admin-UI
+  einzeln freigeben — die Freigabe-Tabelle (`ApprovalsPage.tsx`) hat **keine**
+  Mehrfachauswahl für Reanimationen; die Checkbox je Zeile schaltet nur den
+  VIP-Toggle (`setPriority`, status-neutral). Die einzigen Massenknöpfe dort
+  sind `approveSelection` und `approveAllEligible` — und die sind per
+  Konstruktion die Wege, die `denied` nicht sehen. Das gehört hierher, damit
+  niemand die Einschränkung später als fehlendes Feature im UI meldet.
 
 ## Service-API
 
