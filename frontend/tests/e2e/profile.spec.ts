@@ -1,5 +1,5 @@
 import { expect, request, test } from '@playwright/test';
-import { FRONTEND_BASE_URL } from './helpers/admin-data';
+import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 
 // Realistic head-and-shoulders portrait fixture (96×120 PNG, ~0.7 KB) —
@@ -28,7 +28,9 @@ const PORTRAIT_PNG_BASE64 =
  * default values instead of annotations.
  */
 async function createActivatedSession(prefix = 'profile') {
-    const email = `${prefix}-${Date.now()}@example.test`;
+    // Worker- and process-scoped stamp (see `uniqueSuffix`): one mint per
+    // invocation, so every caller of this helper registers a distinct account.
+    const email = `${prefix}-${uniqueSuffix()}@example.test`;
     const password = 'SecurePassw0rd!';
 
     const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });

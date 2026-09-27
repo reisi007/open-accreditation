@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ensurePrimaryMandantHasTeam } from './helpers/admin-data';
+import { ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 
 test.describe('Admin: Kategorien (P2b)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
@@ -9,7 +9,7 @@ test.describe('Admin: Kategorien (P2b)', () => {
     });
 
     test('create, edit, override and delete categories', { tag: ['@smoke', '@feature:admin:category'] }, async ({ page }) => {
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const uniqueName = `E2E Kategorie ${suffix}`;
         const uniqueSlug = `e2e-kategorie-${suffix}`;
         const editedName = `${uniqueName} bearbeitet`;

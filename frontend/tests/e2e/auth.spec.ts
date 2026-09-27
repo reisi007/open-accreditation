@@ -1,5 +1,5 @@
 import { expect, request, test } from '@playwright/test';
-import { FRONTEND_BASE_URL } from './helpers/admin-data';
+import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 
 test.describe('Auth flow (P1b)', () => {
@@ -11,7 +11,9 @@ test.describe('Auth flow (P1b)', () => {
     });
 
     test('register → activate → login → me', { tag: ['@smoke', '@feature:auth'] }, async () => {
-        const email = `auth-${Date.now()}@example.test`;
+        // One stamp per test, reused for register + activation + login: two
+        // same-millisecond mints inside one worker would defeat the purpose.
+        const email = `auth-${uniqueSuffix()}@example.test`;
         const password = 'SecurePassw0rd!';
 
         // Dedicated context: the login cookie (accr_jwt) stays in its cookie jar,
@@ -44,10 +46,13 @@ test.describe('Auth flow (P1b)', () => {
     });
 
     test('login with wrong password returns 401', { tag: ['@smoke', '@feature:auth'] }, async () => {
+        // Separate test from the register flow above, so it mints its OWN stamp —
+        // but still exactly one, hoisted out of the request body.
+        const email = `auth-${uniqueSuffix()}@example.test`;
         const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
         try {
             const login = await api.post('/api/auth/login', {
-                data: { email: `auth-${Date.now()}@example.test`, password: 'wrong-password-123' },
+                data: { email, password: 'wrong-password-123' },
             });
             expect(login.status()).toBe(401);
         } finally {

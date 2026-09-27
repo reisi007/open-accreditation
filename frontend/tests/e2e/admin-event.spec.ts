@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ensurePrimaryMandantHasTeam } from './helpers/admin-data';
+import { ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 
 test.describe('Admin: Events (P2b)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
@@ -9,7 +9,7 @@ test.describe('Admin: Events (P2b)', () => {
     });
 
     test('create, edit and delete an event with team venue default', { tag: ['@smoke', '@feature:admin:event'] }, async ({ page }) => {
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const uniqueTitle = `E2E Event ${suffix}`;
         const editedTitle = `${uniqueTitle} bearbeitet`;
 

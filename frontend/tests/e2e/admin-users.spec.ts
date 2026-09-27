@@ -1,5 +1,5 @@
 import { expect, request, test } from '@playwright/test';
-import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam } from './helpers/admin-data';
+import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 
 test.describe('Admin: Benutzer (P2c)', () => {
@@ -10,7 +10,7 @@ test.describe('Admin: Benutzer (P2c)', () => {
     });
 
     test('edit user roles: user → team_admin → user', { tag: ['@smoke', '@feature:admin:users'] }, async ({ page }) => {
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const email = `admin-users-${suffix}@example.test`;
         const password = 'SecurePassw0rd!';
 
