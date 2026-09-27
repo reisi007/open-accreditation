@@ -395,21 +395,20 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 
 ### Offene Follow-ups
 
-- [ ] **Nachtrag zu `AGENTS.md` §10 A3:** `MandantContext::forgetHostnames()` ist jetzt an
-  allen drei hostname-schreibenden Pfaden vorhanden (Domain anlegen/ändern/löschen,
-  Mandant löschen). Ein **Domain-Update**-Endpunkt existiert weiterhin nicht — falls einer
-  dazukommt, gehört der Aufruf dazu.
-- [ ] **403/404-Split beim eigenen Mandant (low, bewusst):** `User` ist auf
-  `PUT /api/admin/users/{user}/roles` **ohne** Mandant-Scope gebunden — dieselbe
-  404-vs-403-Form wie M2, aber der Aufrufer ist Mitglied des **eigenen** Mandants
-  (nur `super_admin`-Routen; `Mandant`/`MandantDomain` ebenso ohne Scope). Die
-  Controller scopen selbst ⇒ **kein IDOR**, offengelegt werden nur sequenzielle
-  Integer-IDs. Bleibt bewusst so: den Split zu schließen hieße den Membership-Check
-  **vor** das Route-Binding zu ziehen — das dreht das dokumentierte 403 überall auf 404.
-- [ ] **M1-Residual (low):** Ein hard-killed Run (SIGKILL/CI-Timeout) strandet das Logo;
-  der **nächste** E2E-Lauf scheitert einmal an `portal.spec.ts` „no logo" bevor der
-  Teardown räumt. Bewusst kein Pre-Test-Reset (würde die Assertion self-fulfilling).
-- [ ] **W6 (info):** Unmounted `MEDIA_ROOT` ist von einem leeren ununterscheidbar —
-  jeder `delete()` meldet Erfolg. Operator-Hinweis (Mount-Check im Entrypoint).
-- [ ] **W7 (info):** Hand-gesetzte Per-Domain-Raster-Fallbacks würde der Reaper löschen
-  (`<domain>/logo.png` ist managed by definition). Entspricht dem dokumentierten Vertrag.
+- [ ] **403/404-Split auf `{mandant}` (low, bewusst offen):** `User` war auf
+  `PUT /api/admin/users/{user}/roles` ohne Mandant-Scope gebunden — das ist seit
+  `a761f4a` **behoben** (`User::resolveRouteBindingQuery()` scoped über genau die
+  `isMemberOfMandant()`-Prädikat, beide über `constrainToMandantMembership()`),
+  weil dort PII (Name, E-Mail, Adresse) gemint wird. `Mandant` trägt dieselbe
+  Form, **bleibt aber bewusst offen**, weil die naive Lösung falsch ist: ein
+  `where('mandant_id', currentId)`-Scope entzieht `super_admin` den Zweck, jeden
+  Mandanten über einen beliebigen Host zu verwalten (`PUT /api/admin/mandants/{B}`
+  mit A als Host ist ein getesteter, gewollter Flow). Was dort durchsickert, ist
+  „Mandant X existiert" — jeder Mandant hat ohnehin ein öffentliches Portal, sein
+  Hostname steht in der öffentlichen `trustHosts`-Liste, und es sind eine
+  Handvoll Zeilen. `MandantDomain` ist **überhaupt nicht** route-gebunden
+  (`DELETE …/domains/{domain}` nimmt `string $domain` und sucht selbst über die
+  Relation). Die richtige Form, falls es jemand will, ist eine **403/404-Unifikation
+  im Controller** — wie `TeamController`/`UserController` sie für ihre Ressourcen
+  schon haben — als eigenes Ticket mit eigenen Tests, nicht in einem Binding-Scope
+  mitgeschmuggelt.
