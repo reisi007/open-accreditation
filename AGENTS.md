@@ -224,6 +224,22 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   hostname-schreibenden Pfad (Domain anlegen/ändern/**löschen**, Mandant löschen) ist der
   Aufruf Pflicht — inklusive der inzwischen nachgezogenen `MandantController::destroy()`.
   Re-evaluieren, wenn `trustHosts` oder die Cache-TTL umgebaut werden.
+- **A4 (accepted 2026-09-27, low):** zwei offene Dependabot-Advisories für `npm/svgo`
+  (1 × high `removeScripts`-Executable-Links, 1 × medium `foreignObject`-Sanitize;
+  **beide ohne `first_patched_version`** — es gibt derzeit keinen Fix zum Einspielen).
+  `svgo` ist **keine** direkte Abhängigkeit, sondern transitive über
+  `@iconify/tailwind4` → `@iconify/utils`, und der Pfad ist **rein build-zeitlich**:
+  SVGOs Input sind die gepinnten Icon-Sets `@iconify-json/mdi` und
+  `@iconify-json/material-symbols`, die `vite build` über den Tailwind-v4-Plugin
+  verarbeitet. Die Icons werden zur Laufzeit ausschließlich als CSS-Klassen
+  referenziert (`iconify mdi--menu`), es gibt **keinen** SVG-Optimizer-Lauf und
+  **keinen** untrusted-SVG-Durchsatz — hochgeladene Medien laufen serverseitig über
+  `symfony/html-sanitizer` (siehe §11), nicht über dieses npm-Paket. Die Advisories
+  betreffen `removeScripts`-Sanitize von Angreifer-SVG und greifen daher nur bei
+  unvertreutem Input. Bewusst **kein** Lockfile-Churn auf eine nicht existierende
+  Version. Re-evaluieren, wenn (a) ein `svgo`-Release mit Fix erscheint, (b) Iconify
+  von der CSS-Klassen-Nutzung auf den Vite-Plugin-Pfad wechselt (dann verarbeitet
+  SVGO ggf. eigene Icons) oder (c) SVGO je zur Laufzeit auf User-Uploads gelegt wird.
 
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 
