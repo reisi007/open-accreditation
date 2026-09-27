@@ -65,7 +65,7 @@ Behauptung, kein Fakt.
 | ~~**8**~~ | ~~§2-Portabilitätsregeln ergänzen~~ | — | Zwei verifizierte Fakten, die in `AGENTS.md` §2 **fehlen** und dort hinzugehören: (a) Postgres bricht bei Unique-Verletzung die **ganze Transaktion** ab (SQLSTATE 25P02), SQLite nicht — „try insert → catch → continue" braucht für §2-Portabilität ein **SAVEPOINT**; heute schreibt kein Code so etwas, die Regel ist also präventiv. (b) `LIKE … ESCAPE '\'`: auf PG ein semantisches No-op, auf SQLite **zwingend** — ohne die Klausel fail-closed (0 statt Über-Match). |
 | ~~**8b**~~ | ~~Kein CI-Gate gegen echtes Postgres~~ | — | Die beiden neuen §2-Regeln (SAVEPOINT, `LIKE … ESCAPE`) sind **nur durch Messung** abgesichert, nicht durch eine wiederholbare Prüfung — §2/§7 nennen kein Gate, das die Testsuite je gegen Postgres fährt. Damit stehen sie still, sobald niemand mehr nachmisst. Ein wiederholbarer Lauf (`DB_CONNECTION=pgsql php artisan test`) wäre die naheliegende Absicherung. |
 | **9** | ~~`migrate:fresh --seed` auf der Dev-DB~~ — vom Benutzer **fallengelassen** | — | Einziger Rest von Position 9. `BE-R8` ist dokumentiert (`bbef109`, mit wörtlichem Query-Beleg statt Prosa), `FE-R3` geprüft und aus dem Board entfernt. ⚠️ **Nicht ohne Freigabe ausführen:** `migrate:fresh` löscht die lokale Dev-DB inkl. angelegter Mandanten/Templates. Ein Agent hat im Rahmen der Debug-Session zudem `teams_enabled = true` auf dem Hauptmandanten **manuell** gesetzt — ohne das erreicht das E2E das Team-Formular gar nicht. Diese manuelle Änderung überlebt kein `migrate:fresh`; falls der Seeder `teams_enabled` nicht setzt, ist das eine Lücke, die vor dem Aufräumen zu klären ist. |
-| **10** | **`PDF-VISION`-Pipeline** | S2 | dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG **schwarz**. `magick` + Ghostscript 10.07.1 sind verifiziert installiert, die zweistufige Pipeline ist in Session 2026-08-26 beschrieben, wurde aber nie auf einem Badge-PDF durchlaufen. Gehört **inhaltlich zu Position 4**: ein Raster-/Labels-Editor verändert das Badge-Layout, und ohne visuelle Verifikation ist „sieht gut aus" nicht belegbar. |
+| ~~**10**~~ | ~~`PDF-VISION`-Pipeline~~ | — | Erledigt 2026-09-27: **durchlaufen, nicht behauptet.** Ein echtes 2-Seiten-Badge-PDF aus `BadgeRenderService::renderPdf` gerendert (PHPUnit-Fixture, SQLite `:memory:`, 13 970 Byte, `gs pdfpagecount` = 2), Pipeline ausgeführt, Bildmaße gemessen: A6 @200 dpi = **827×1165 px** (die Board-Referenz „1165×827" ist dieselbe Zahl, nur gedreht), `sips` = 298×420 px und nur Seite 1. Wiederholbar gemacht über `scripts/pdf-to-png-vision.sh`; alle vier Routen exit-getestet (Primär 0 · Fallback `gs`/`png16m` 0 · Fallback `sips` **3** · kein Werkzeug 1). **Die Board-Behauptung „transparente Pixel erscheinen schwarz" war für den `magick`-Pfad FALSCH und für `sips` wörtlich richtig:** die transparenten Pixel heissen dort `#FFFFFF00` und decken 89,8 % der Seite — schwarz werden sie erst beim Komponieren auf schwarzen Grund, wo die schwarze Badgeschrift **vollständig verschwindet** (0 sichtbare Tintepixel in einem 79 520-Pixel-Textband). Korrigiert in `features/badges-qr.md` samt allen Messwerten, zwei Werkzeug-Fallen und dem Nebenbefund, dass der Layoutkasten nicht clippt. Offen bleibt allein die **Produktentscheidung** über `background-color: #ffffff` — dort dokumentiert, ausdrücklich **nicht** umgesetzt. |
 
 ### Warte auf externe Schritte (nicht Go-Live, aber nicht von uns machbar)
 - **Google Wallet (P6):** API-Zugang/Issuer-Setup beim Google nötig.
@@ -353,31 +353,46 @@ Verzögert / blockiert (nicht Teil dieses PRs):
 _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`; FK-Migration: `8e487ca`; Profile-E2E+BadgeCanvas: `17498c4`.)_
 
 ### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487ca`), DOC-H-F1/F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`), BE-R1-F3 (by-design: Tests nutzen `:memory:`, sqlite-Datei ist Dev-Artefakt).
-- [ ] **PDF-VISION (Pipeline-Learning, 2026-08-26)** — dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG schwarz. Verifikations-Pipeline daher **zweistufig** (ImageMagick 7 kombiniert Flags nicht mit PDF-Input): `magick -density 200 x.pdf x-step.png && magick x-step.png -background white -alpha remove -alpha off x.png`. Optional robuster: `background-color:#ffffff` auf body/@page im Badge-HTML. Vision-Provider kann flaky sein → Fallback: PNGs per Read-Tool selbst analysieren.
+> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487c`), DOC-H-F1/F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`), BE-R1-F3 (by-design: Tests nutzen `:memory:`, sqlite-Datei ist Dev-Artefakt), **PDF-VISION (Position 10, am 2026-09-27 durchlaufen → `scripts/pdf-to-png-vision.sh`; Messwerte in `features/badges-qr.md`)**.
 
 ### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
 > Alle Punkte abgeschlossen (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`, RV-U3 dokumentiert `17498c4`).
 
-### PDF-visuelle-Verifikation (Überlegungen, 2026-08-26)
-> Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen Checklist:
-> QR-Position, Feld-Überlappung, Abschneiden, Kontrast, Skalierung). Besonders relevant für **FE1** (Render-Kontrakt).
+### PDF-visuelle-Verifikation — **durchlaufen 2026-09-27** (Board-Position 10)
+> Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen
+> Checkliste: QR-Position, Feld-Überlappung, Abschneiden, Kontrast, Skalierung). Die SOLL-Beschreibung stand bis
+> 2026-09-27 **ungetestet**; sie ist jetzt gemessen. Skript, Messwerte und Render-Vertrag:
+> `features/badges-qr.md` → „Visuelle Verifikation des gerenderten PDF". Offen sind nur die zwei Punkte unten.
 
-- **Tool-Befund lokal (macOS):**
-  - ✅ **`magick` + Ghostscript (10.07.1) installiert und verifiziert** (User hat `brew install ghostscript`
-    ausgeführt): `magick -density 200 t.pdf t-magick.png` rendert sauber — **primäre Methode** (hohe DPI,
-    A6-Test: 1165×827 px vs. 420×298 @72dpi via sips → Schrift/QR-Details für die Vision-Analyse gut lesbar).
-  - `sips` (macOS-Bordmittel) funktioniert ebenfalls out-of-the-box (nur erste Seite, ~72dpi) → **Fallback**.
-  - `pdftoppm` (poppler) nicht installiert — nur relevant für den CI-Pfad (`poppler-utils` im E2E-Image).
-- **Fixture-Pfad:** Badge-PDF wird backend-seitig erzeugt (dompdf ^3.1 verifiziert): entweder über den auth-geschützten
-  Badge-Endpoint im laufenden Dev-Stack oder per PHPUnit/Artisan-Fixture in eine temp Datei gerendert → `sips` → PNG.
-- **SOLL-Pipeline (FE1-Verifikation + künftige PDF-Änderungen):**
-  1. Badge-PDF generieren (Dev-Stack/Fixture), 2. `magick -density 200 x.pdf x.png` (primär, Multi-Page-fähig) bzw.
-     `sips -s format png` als Fallback, 3. PNG(s) an `vision`-Subagent mit PDF-Checkliste (QR unten rechts 20×20 mm,
-     Felder ohne Überlappung/Abschneidung, Font-Skalierung, Rückwärtskompatibles Default-Layout),
-  4. Findings-Report wie beim UI-Review (critical/high blockieren APPROVED), 5. bei Fixes: neu rendern + old-vs-new-Diff.
-- **CI (optional, Follow-up):** für automatisierte PDF-Vision-Checks im E2E-Job `poppler-utils` (pdftoppm) ins
-  `deployment/Dockerfile.e2e` aufnehmen — nicht blockierend für FE1, lokale Verifikation genügt zunächst.
+- [ ] **`background-color: #ffffff` auf `body`/`@page` im Badge-HTML — PRODUKTENTSCHEIDUNG, nicht umgesetzt.** Wäre
+  die einfachere und robustere Lösung (der Seitenhintergrund wäre im PDF selbst weiss, die Nachbearbeitung
+  entfiele). Bewusst nicht mitgenommen: es ändert den **Render-Vertrag** — jeder Ausweis bekäme einen gemalten,
+  nicht mehr transparenten Hintergrund (relevant für Ausweisspiele auf Folie/Glas/Siebdruck) — und
+  `BadgeRenderService::cardHtml` ist der Vertrag, gegen den die Tests prüfen. Die Entscheidung liegt beim Benutzer.
+- [ ] **CI-Pfad (optional):** `poppler-utils` (`pdftoppm`) in `deployment/Dockerfile.e2e` aufnehmen, **falls**
+  PDF-Vision jemals automatisierte Checks werden soll. Für die Verifikation von Hand nicht nötig —
+  `scripts/pdf-to-png-vision.sh` deckt macOS (`magick`+`gs`, `gs`-only, `sips`) und ein Linux-Feld mit `gs` ab.
+  Nicht blockierend.
+
+**Was die Messung an den alten Annahmen korrigiert hat** (nicht nur bestätigt):
+
+- ❌ „transparente Pixel erscheinen im PNG schwarz" — **für den `magick`-Pfad falsch.** Sie sind `#FFFFFF00`
+  (weiss, alpha 0) und decken 89,8 % der Seite. Schwarz werden sie erst, wenn ein Konsument auf schwarzen Grund
+  komponiert; dann verschwindet die schwarze Badgeschrift **vollständig** (0 sichtbare Tintepixel in einem
+  79 520-Pixel-Textband). Für `sips` stimmt die Behauptung wörtlich (`#00000000`).
+- ➕ Es gibt eine **einstufige** Route: `gs -sDEVICE=png16m` ist ein *deckendes* Device (kein Alpha, weisser
+  Hintergrund von Ghostscript gemalt) — 0,29 % Abweichung zum Primärpfad, reines Anti-Aliasing-Rauschen. Das
+  Skript nutzt sie als Fallback A, wenn `magick` fehlt.
+- ⚠️ `magick identify -format '%[pixel:p{x,y}]'` meldet auf PaletteAlpha-Bildern **immer** `srgba(0,0,0,0)`, egal was
+  wirklich dasteht — ein Befund mit diesem Werkzeug „beweist" einen schwarzen Hintergrund, den die Datei nicht
+  enthält. Korrekt ist ein 1×1-Crop mit `txt:`.
+- ⚠️ `sips` quittiert ein unlesbares PDF mit `not a valid file - skipping` und **Exit 0** — Skripte müssen die
+  Zieldatei prüfen, nicht den Exit-Code.
+- ➕ Der Layoutkasten **clippt nicht** (nur `photo`/`image` tragen `overflow:hidden`): gemessen ein 10-mm-Kasten
+  mit 12,2 mm Tinte, 4,8 mm darüber hinaus. Eine Feld-Überlappung ist damit nicht automatisch ein Renderer-Fehler,
+  sondern kann aus einem zu kleinen Kasten im Template kommen.
+- ℹ️ Vision-Provider kann flaky sein → PNGs notfalls per Read-Tool selbst analysieren; die PNGs sind
+  nachweislich self-contained (kein Alpha, weisser Grund).
 
 ### Bewusst NICHT in diesem Batch
 - P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme

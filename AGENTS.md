@@ -228,6 +228,22 @@ Loop (Schritte 1–4):
 sondern erzeugt ausschließlich Pixel zur Design-QA durch den vision-Subagenten. Er gate **nicht** CI oder
 Deployment; funktional verbindlich bleiben ausschließlich die E2E-Suiten dieses §7.
 
+**PDFs statt Screenshots (`PDF-VISION`).** Für **Badge-/Ausweis-PDFs** (dompdf) ist
+`playwright.screenshots` nicht das Werkzeug: der Renderer malt keinen weissen Seitenhintergrund,
+die Rasterung liefert einen Alpha-Kanal, und wie das aussieht entscheidet der Konsument. Der
+wiederholbare Weg ist **ein Skript**, keine Einmal-Anweisung:
+
+```bash
+bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
+```
+
+Es prüft seine Werkzeuge namentlich, kündigt jeden Fallback **laut** an, verifiziert das Ergebnis
+(kein Alpha-Kanal, weisser Eckpixel, Seitenzahl) und beendet sich ungleich 0, wenn etwas fehlt oder
+das Bild nicht vertrauenswürdig ist (u. a. Exit 3, wenn nur `sips` verfügbar ist — das kann keinen
+Alpha entfernen). Danach die PNGs wie oben an den `vision`-Subagenten, Checkliste: QR-Position,
+Feld-Überlappung, Abschneiden, Kontrast, Font-Skalierung. Messwerte, Render-Vertrag und die
+Stolperfallen: `features/badges-qr.md` → „Visuelle Verifikation des gerenderten PDF".
+
 ## 8. Domain-Modell (Kurzreferenz)
 
 Hierarchie: **Super Admin → Mandant (Verband, eigene Domain) → Team (Verein, optional je Mandant) →

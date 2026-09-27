@@ -72,9 +72,12 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
 - **Kartenformat:** A6, **105 × 148 mm**, Hochformat. Jede Karte ist ein
   `position: relative`-Container mit `page-break-after: always` (eine Karte pro
   genehmigter Application).
-- **Feld-Positionierung:** jedes Layout-Feld wird absolut positioniert
+- **Feld-Positionisierung:** jedes Layout-Feld wird absolut positioniert
   (`left/top` mm, `width/height` mm, `font-size` pt, `text-align`). Text wird
-  via `e()` escaped (XSS-Safe).
+  via `e()` escaped (XSS-Safe). `width/height` **clippen nicht** — sie
+  positionieren und reservieren Platz; nur `photo` und `image` tragen
+  `overflow:hidden`. Ein mehrzeiliger Text in einem zu kleinen Kasten läuft in
+  das Feld darunter (gemessen, siehe „Visuelle Verifikation“ unten).
 - **`photo`:** Portrait aus `user.media` (`type = 'portrait'`) auf der `private`-
   Disk, als Base64-`data:`-URI eingebettet (`object-fit: cover`). Fehlt das
   Portrait, bleibt eine leere Box an der Layout-Position.
@@ -196,6 +199,109 @@ kann den QR überlappen — der QR wird aber als oberste Z-Ebene gerendert
 optionale `qr`-Layout-Feld (P4-F4, implementiert): der Template-Autor verschiebt
 den QR an eine freie Position. Die Fixposition bleibt bestehen, solange
 Bestandstemplates ohne `qr`-Entry existieren (Rückwärtskompatibilität).
+
+### Visuelle Verifikation des gerenderten PDF (`PDF-VISION`)
+
+Ein Badge-PDF ist nur dann visuell prüfbar, wenn daraus **das richtige PNG**
+wird. Der Renderer malt **keinen** weissen Seitenhintergrund — dompdf lässt die
+Seite transparent. Damit hängt das Aussehen der Rasterung vom *Konsumenten* ab
+und nicht vom Rasterer, und die drei üblichen Konsumenten liefern drei
+verschiedene Bilder. Das ist der Grund, warum die Verifikation zweistufig läuft
+und warum sie als Skript existiert statt als Einmal-Anweisung:
+
+```bash
+bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
+```
+
+Das Skript nimmt einen PDF-Pfad, schreibt die PNGs in ein Ausgabeverzeichnis
+(Default `${TMPDIR}/pdf-vision-<name>`), prüft seine Werkzeuge **namentlich**,
+verifiziert das Ergebnis und beendet sich ungleich 0, wenn etwas fehlt oder das
+Ergebnis nicht vertrauenswürdig ist (kein `|| true`, kein stilles Überspringen).
+Routen, alle gemessen (siehe unten):
+
+| Route | Werkzeuge | Seiten | DPI | Ergebnis |
+|---|---|---|---|---|
+| **Primär** (zweistufig) | `magick` + `gs` | alle | frei | kein Alpha, Eckpixel weiss |
+| **Fallback A** (einstufig) | `gs` allein | alle | frei | kein Alpha, Eckpixel weiss |
+| **Fallback B** | `sips` | **nur 1** | ~72 | **Alpha bleibt → Exit 3** |
+| keines | — | — | — | Exit 1, nennt die fehlenden Werkzeuge |
+
+Jede Fallback-Route wird **laut** angekündigt (stderr, `>>> FALLBACK <<<`).
+Fallback B endet mit Exit 3, weil `sips` keinen Alpha-Kanal entfernen kann —
+ein grüner Lauf auf genau dem Bild, das diese Pipeline beseitigen soll, wäre
+schlimmer als gar keiner.
+
+**Gemessene Zahlen** (A6, 2-Karten-Badge-PDF aus `BadgeRenderService::renderPdf`,
+13 970 Byte, 2 Seiten; macOS, ImageMagick 7.1.2-31, Ghostscript 10.08.0):
+
+| | Maße | Kanäle | Eckpixel (2,2) |
+|---|---|---|---|
+| Stufe 1 `magick -density 200` | **827 × 1165 px** | `srgba` (PaletteAlpha) | `#FFFFFF00` — weiss, alpha 0 |
+| Stufe 2 `-background white -alpha remove -alpha off` | 827 × 1165 px | `srgb` (kein Alpha) | `#FFFFFF` — literal weiss |
+| `sips -s format png` | 298 × 420 px | `srgba` | `#00000000` — schwarz, alpha 0 |
+
+**Was in Stufe 1 wirklich dasteht** (nicht die verbreitete Vermutung): 89,8 %
+aller Pixel (865 288 von 963 455) sind **vollständig transparent**, und sie
+tragen als RGB **weiss** — `#FFFFFF00`. Die Behauptung „transparente Pixel
+erscheinen schwarz" ist damit **für den `magick`-Pfad falsch** und **für den
+`sips`-Pfad wörtlich richtig** (`sips` legt `#00000000` ab). Der Defekt ist
+real, nur seine Mechanik ist die andere: nicht ein fixed Schwarz, sondern ein
+**Alpha-Kanal, dessen Behandlung der Konsument festlegt**. Gemessen an einem
+Textband (x 330…827, y 200…360 = 79 520 px, Endbild der Karte):
+
+| Konsument von Stufe 1 | Hintergrund | Schrift |
+|---|---|---|
+| Alpha ignorieren (`-alpha off`) | weiss | 2 Farben, 7 756 dunkle px — **+14,1 % zu fett**, Anti-Aliasing weg |
+| auf weiss komponieren | weiss | 22 Farben, 6 799 dunkle px, echte Graustufen (17/68/119/187) |
+| auf schwarz komponieren | **schwarz** | **1 Farbe, 0 sichtbare Tintepixel** — der gesamte Ausweistext ist weg |
+
+Der QR-Code überlebt beide Stufen unverändert: sein PNG ist deckend, im
+QR-Kasten (158 × 158 px) sind in Stufe 1 wie in Stufe 2 exakt 12 653 px `#FCFEFC`
+und 12 153 px `#040204` — nur die 158 px Seitenhintergrund im Kasten wechseln die
+Farbe. Auf schwarz flachgerechnet kippt allerdings die **Figur-Grund-Wahrnehmung**
+des QR (die weissen Module heben sich nun vom schwarzen Grund ab), was eine
+Vision-Analyse der Modul-Polarität irreführen kann.
+
+**Einstufige Alternative.** `gs -sDEVICE=png16m` ist ein **deckendes** Device:
+kein Alpha-Kanal, der weisse Hintergrund wird von Ghostscript selbst gemalt, alle
+Seiten, freie DPI — eine Stufe statt zwei. Gemessen gegen den Primärpfad:
+2 821 abweichende Pixel von 963 455 (**0,29 %**), RMSE 0,0029, 25 statt 26
+Farben — reines Anti-Aliasing-Rauschen, keine strukturelle Abweichung. Das Skript
+nutzt diese Route als Fallback A, wenn `magick` fehlt.
+
+**Zwei Stolperfallen, die in der Doku nicht stehen sollten:**
+
+- `magick identify -format '%[pixel:p{x,y}]'` ist auf einem PaletteAlpha-Bild
+  **unbrauchbar**: es meldet unabhängig vom gespeicherten Wert `srgba(0,0,0,0)`.
+  Der zuverlässige Weg ist ein 1×1-Crop mit `txt:`
+  (`magick f.png -crop 1x1+2+2 +repage txt:` → `#FFFFFF00`). Ein Skript, das
+  hier `%[pixel:…]` auswertet, „beweist" einen schwarzen Hintergrund, den die
+  Datei gar nicht enthält.
+- `sips -s format png kaputt.pdf` quittiert mit `not a valid file - skipping` und
+  **Exit 0**. Deshalb prüft das Skript die Existenz und Größe der Zieldatei,
+  nicht den Exit-Code.
+
+**Der Layoutkasten clippt nicht** (Render-Vertrag, gemessen). `x/y/w/h`
+positionieren und reservieren Platz; `h` ist **keine Clip-Grenze** — nur
+`photo`- und `image`-Entries tragen `overflow:hidden`, Textfelder nicht. Gemessen
+an einer Fixture mit **einzigem** Feld (`name`, 42…97 × 26…36 mm, 15 pt,
+zweizeiliger Name): die Tinte beginnt bei 42,5 mm / 28,6 mm, ist 53,1 × 12,2 mm
+gross und reicht bis **40,8 mm** — 4,8 mm über den Kasten hinaus. Eine
+Feld-Überlappung auf dem Ausweis ist deshalb **nicht automatisch ein
+Renderer-Fehler**, sondern kann aus einem zu kleinen Kasten im Template kommen.
+Die Vision-Checkliste muss das unterscheiden, bevor sie einen Befund meldet.
+
+**Empfehlung, ausdrücklich NICHT umgesetzt (Produktentscheidung):**
+`background-color: #ffffff` auf `body` bzw. `@page` im Badge-HTML wäre die
+einfachere und robustere Lösung — dann wäre der Seitenhintergrund im PDF
+selbst weiss und die Nachbearbeitung entfiele. Sie ist **nicht** implementiert,
+weil sie den **Render-Vertrag** ändert (jeder Ausweis bekäme einen gemalten
+Hintergrund, `BadgeRenderService::cardHtml` wird zum Render-Vertrag, gegen den
+die Tests prüfen) und weil sie eine **Produktfrage** berührt, die nicht
+technisch ist: Ein Ausweis mit weiss gemaltem Hintergrund ist nicht mehr
+transparent, was für Ausweisspiele mit farbigem oder transparentem Untergrund
+(Folien, Glas, Siebdruck) eine echte Einschränkung ist. Entscheidung liegt beim
+Benutzer; bis dahin gilt die gemessene zweistufige Pipeline.
 
 ## Export — `BadgeExportService` (P4)
 
