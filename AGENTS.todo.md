@@ -26,6 +26,22 @@
 > Jede Position ist §5-konform zu delegieren (Implementer ≠ Verifikator), mit
 > Test-Forderung nach §3 DoD.
 
+### Aus dem vollen E2E-Lauf: zwei Fehler, die ein `@smoke`-Gate nicht gesehen hätte
+
+1. **Lost-Update-Fenster** (Position 1) — plus die **verschärfte EventForm-Variante**, die
+   still den falschen Ort speichert statt leer zu bleiben.
+2. **`VENUES_KEY` wurde nach Team-/Event-Mutation nicht invalidiert.** `VenueController::index`
+   liefert abgeleitete `teams_count`/`events_count`, und `VenuesPage` blendet den destruktiven
+   **`Löschen`**-Button anhand von `references(venue) === 0` aus — ohne Revalidierung sah ein
+   frisch referenzierter Ort weiterhin löschbar aus und der Button hätte einen 409 geworfen.
+   **Der E2E wäre an Position 1 also aus einem zweiten, unabhängigen Grund gescheitert.**
+
+**Die Testlücke dahinter ist das eigentlich Lehreiche:** `venueFields.test.tsx:88` klickt eine
+**bestehende** Option — also den **synchronen** Pfad `selectVenue()`. Der asynchrone Pfad
+`handleCreate()` hatte **keinen** Test, und eine `teamFormUtils.test.ts` existierte gar nicht
+(anders als `eventFormUtils.test.ts`). Ein Komponententest, der nur den synchronen Erfolgspfad
+fährt, deckt ein asynchrones Verhalten prinzipiell nicht ab und meldet dabei „grün".
+
 ### Warum diese Reihenfolge
 
 Nicht nach Schweregrad, sondern nach **Vertrauens-Kosten**: eine Position, deren
@@ -36,7 +52,8 @@ Behauptung, kein Fakt.
 
 | # | Position | Aufwand | Warum hier |
 |---|---|---|---|
-| **1** | **BUG: Inline-Erstellung verliert `venue_id`** (high, 2026-09-27) | S1 | Per Trace belegt: `POST /api/admin/teams` ging mit `{"venue_id":null}` raus, während die Combobox sichtbar den richtigen Ortsnamen zeigte. **Das Team wird ohne Heimstätte gespeichert.** Funktionierender Pfad: `selectVenue()` (bestehender Ort) → `onChange` **synchron**. Defekter Pfad: `handleCreate()` (Inline-Anlage) → `await createVenue()` + `await mutate()` → **erst dann** `onChange`. Genau dieser Pfad ist in `venueFields.test.tsx:88` **nicht** abgedeckt (der Test klickt bewusst eine bestehende Option) — und es gibt keine `teamFormUtils.test.ts`. Backend ist ausgeschlossen: `rules()`, `#[Fillable]`, `withCount` und die E2E-Fixtures (setzen `venue_id` per API) sind alle korrekt. Wahrscheinlichster Mechanismus: der SWR-Refetch in `handleCreate` remountet `TeamForm`/`Controller` und setzt den Wert auf `defaultValues` zurück. Gleicher Verdacht für `EventForm`. |
+| **1** | **BUG: Inline-Erstellung verliert `venue_id`** (high, 2026-09-27) — Fix im Working Tree, Verifikation offen | S1 | **Ursache ist ein Lost-Update-Fenster, KEIN Remount** (die naheliegende Vermutung wurde gemessen und widerlegt: kein Remount, keine veraltete `field`-Closure, korrekte `created.id`-Form). `handleCreate` committet die Auswahl **zuletzt**, nach zwei Roundtrips (`POST /venues` + `await mutate()`), während `display = draft ?? selected?.name` schon den **getippten** Text zeigt → das Feld liest sich als „committed", der Formularwert ist noch `''`. Der E2E-Assertion `toHaveValue(venueName)` war deshalb **grün auf einer Lüge**. **Beim EventForm ist es schlimmer: dort wird nicht verworfen, sondern der ALTE Wert gerettet** (`venue_id: "11"` = Team-Heimort) — stilles Überschreiben statt leerem Feld. Fix: Auswahl committen sobald die Id existiert, Formular während laufender Orts-Mutation nicht abschickbar, `VENUES_KEY` nach Team-/Event-Mutation invalidieren. |
+| **1b** | **ARIA: Button in `role="option"`** (high, 2026-09-27) | S1 | Der `Reaktivieren`-Button liegt **innerhalb** `<li role="option" aria-disabled="true">`. Zwei reale Folgen, beide verifiziert: (a) `option` hat in WAI-ARIA **presentational children** — der Button verliert für Screenreader seine Rolle, die Reaktivierungsaktion ist für assistive Technik **unerreichbar**; (b) Playwright prüft `aria-disabled` auch auf Vorfahren und verweigert den Klick, der E2E scheitert seit dem Fix in Position 1 **deterministisch** an Zeile 148. Korrektur ohne Vertragsbruch: `<li role="presentation">` + innerer `<span role="option" aria-disabled>` (nur der Name) + Button als **Geschwister**. ⚠️ §7 verlangt danach den Vision-/UI-Review des Dropdowns. |
 | **2** | **Volle E2E-Suite in CI verifiziert** (2026-09-27) | — | Erledigt, inkl. Messung. Erster voller Lauf (`36321788464`): 84 Tests, **45 passed / 1 failed / 38 skipped, 1,8 min Testzeit**. **Die 429-Hypothese ist widerlegt** — keine einzige `Too-Many-Attempts` trotz ~48 echter Tests seriell; der Login-Limiter (40/min) war **nicht** das Nadelöhr und bleibt unangetastet (dennoch auf Flakiness beobachten). **Der Lauf hat einen echten Produktfehler gefunden**, den das `@smoke`-Gate strukturell nicht sehen konnte — das ist der erste praktische Nutzen der Umstellung. |
 | **3** | **Board-/SOLL-Korrektur Badge-Editor** | S1 | `features/badge-template-editor.md:7` zitiert als Anlass „User-Entscheidung **VOLL frei positionierbar**". Die tatsächliche Entscheidung (2026-09-27 interaktiv bestätigt) ist **Raster + konfigurierbare Labels**. §4 verlangt, dass `features/` den SOLL-Zustand hält — das Dokument ist derzeit **falsch** und die FE1–FE4-Commits wurden auf der alten Annahme gebaut. Muss vor Position 4 geklärt werden, sonst wird gegen die falsche Spec gebaut. |
 | **4** | **Badge-Editor auf Raster+Labels umstellen** | S2 | Betrifft `BadgeCanvas.tsx`, `BadgePropertiesPanel.tsx` + Phasing-Abschnitt in `features/badge-template-editor.md`. **Keine** DnD-Bibliothek nötig — im `package.json` ist keine, die alte SOLL hätte sie eingeführt. Zu klären bleibt, ob Schema v2 (`x/y/w/h` in mm) die geänderte UX trägt (Positionen werden ja weiterhin gebraucht, nur nicht per Maus gezogen) — das ist der eigentliche Entscheidungspunkt. |
