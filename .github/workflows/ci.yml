@@ -98,6 +98,178 @@ jobs:
       - name: Pint (code style)
         run: vendor/bin/pint --test
 
+  backend-pgsql:
+    # ==========================================================================
+    # Postgres-Portabilitäts-Gate (AGENTS.md §2)
+    # ==========================================================================
+    # Der `backend`-Job fährt die Suite auf SQLite `:memory:`. Die beiden
+    # CRITICAL-Regeln in AGENTS.md §2 (Transaktionsabbruch bei Unique-Verletzung
+    # / `LIKE … ESCAPE`) sind gegen echtes PostgreSQL 17 verifiziert — bisher nur
+    # durch Messung. Ohne wiederholbaren Lauf verfallen sie still, sobald niemand
+    # mehr nachmisst. Dieser Job ist das Gate: dieselbe Suite, einziger
+    # Unterschied ist die Engine. Damit ist es ein sauberer A/B-Vergleich.
+    #
+    # Blockierend seit der Behebung der beiden Test-Suite-Befunde — siehe den
+    # Kommentar am Test-Step. Der `backend`-Job auf SQLite bleibt blockierend.
+    name: Backend (PHPUnit vs. Postgres)
+    runs-on: ubuntu-latest
+    # Bewusst NICHT im E2E-Container: dort sind die Dienste nur per Service-NAME
+    # erreichbar (`postgres:5432`), hier läuft der Job auf dem Runner, also
+    # `127.0.0.1:5432` — dieselbe Topologie wie der `backend`-Job.
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        # Gleiche Major-Version wie der E2E-Job (`postgres:17-alpine`), bewusst
+        # nichts neu gepinnt: die §2-Regeln sind gegen 17 verifiziert.
+        image: postgres:17-alpine
+        ports:
+          - 5432:5432
+        env:
+          # Eigene DB, NICHT `accriditation` wie im E2E-Job: `RefreshDatabase`
+          # macht `migrate:fresh` und würde die Dev-/Prod-Datenbank leeren. Jeder
+          # Job bekommt ohnehin seinen eigenen Service-Container — der Name ist
+          # nur die zweite Absicherung, falls das Gate irgendwann mal lokal
+          # gegen einen laufenden Postgres läuft.
+          POSTGRES_DB: accriditation_test
+          POSTGRES_USER: accriditation
+          # Wegwerf-Passwort für einen ephemeren CI-Service (gleiche Begründung
+          # und gleiche Behandlungsweise wie im E2E-Job).
+          POSTGRES_PASSWORD: accriditation
+        options: >-
+          --health-cmd="pg_isready -U accriditation -d accriditation_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      mailpit:
+        # Bewusst identisch zum `backend`-Job. Die Mailable-Tests nutzen
+        # `Mail::fake()`, aber Mailpit ist das Real-Backend als Sicherheitsnetz
+        # für nicht-gefakte Mail-Zustellung — `phpunit.xml:65-69` zeigt auf
+        # 127.0.0.1:1025. Ohne den Service wäre dieser Job gegenüber dem
+        # `backend`-Job um mehr als die Engine unterschieden, und ein Mail-Fehler
+        # wäre dann ein Befund, der in Wahrheit fehlender Infra ist.
+        # CC-R4: untagged → resolves to `:latest` (floating). No reproducible
+        # version is pinned in this repo:
+        # TODO: pin to an immutable digest (e.g. axllent/mailpit@sha256:…) for reproducible CI
+        image: axllent/mailpit
+        ports:
+          - 1025:1025
+          - 8025:8025
+    # Die Engine-Umschaltung erfolgt rein über ENV — phpunit.xml wird NICHT
+    # angefasst. Warum das trägt (nicht geraten, sondern im Code belegt):
+    #
+    #   * `backend/phpunit.xml:61-63` pinnt `DB_CONNECTION=sqlite` /
+    #     `DB_DATABASE=:memory:` / `DB_URL=""` — OHNE `force="true"`.
+    #   * `vendor/phpunit/phpunit/src/TextUI/Configuration/PhpHandler.php:160-168`
+    #     setzt eine `<env>`-Variable nur, wenn `force` gesetzt ist ODER sie in
+    #     der Prozess-Umgebung noch nicht existiert:
+    #         if ($force || getenv($name) === false) { putenv(...); }
+    #     Die Job-ENV gewinnt also gegen den phpunit.xml-Pin. (Dasselbe Prinzip,
+    #     das der Kommentar in `phpunit.xml:35-42` für APP_KEY/JWT_SECRET belegt.)
+    #   * Laravels Dotenv-Repository ist immutable und überschreibt keine bereits
+    #     gesetzte Prozess-Variable — die `.env` kann die Job-ENV also weder
+    #     übernehmen noch die Job-ENV überschreiben.
+    #
+    # Die Namen sind die aus `backend/config/database.php`, nicht Laravel-Defaults
+    # geraten: `default` (Z. 20) `env('DB_CONNECTION')`, `pgsql`-Connection
+    # (Z. 87-100) `DB_URL`/`DB_HOST`/`DB_PORT`/`DB_DATABASE`/`DB_USERNAME`/
+    # `DB_PASSWORD`. `DB_URL` wird absichtlich NICHT gesetzt: der Leerwert aus
+    # `phpunit.xml:63` ist ein bewiesener No-op
+    # (`Illuminate/Support/ConfigurationUrlParser.php:43` — `if (! $url) return
+    # $config;`).
+    env:
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_DATABASE: accriditation_test
+      DB_USERNAME: accriditation
+      DB_PASSWORD: accriditation
+    steps:
+      - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2  # major tag pin — SHA-pinning is a stronger, immutable option
+        with:
+          php-version: 8.5
+          # pgsql/pdo_pgsql sind hier Pflicht (anders als beim SQLite-Lauf, wo
+          # sie nur mitinstalliert, nicht benutzt werden).
+          extensions: mbstring, pgsql, pdo_pgsql, pdo_sqlite, dom, gd, zip
+          coverage: none
+      - name: Install dependencies
+        # Wegwerf-APP_KEY aus exakt demselben Grund wie im `backend`-Job:
+        # `post-autoload-dump` bootet die App via `package:discover` und ohne
+        # `.env` ist `APP_ENV` = `production`, wo der A2-Boot-Guard ohne Key hart
+        # abbricht. Die Testsuite nutzt den TEST-ONLY-Key aus `phpunit.xml`.
+        run: APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" composer install --no-interaction --prefer-dist --no-progress
+      # Env-Prep bewusst IDENTISCH zum `backend`-Job (`.env.example` + Key +
+      # JWT-Secret). Nicht weil die Suite die `.env` bräuchte (phpunit.xml pinnt
+      # APP_KEY/JWT_SECRET/DB_*), sondern damit der einzige Unterschied zwischen
+      # den beiden Läufen die Engine ist. Jede abweichende `.env` würde sonst
+      # einen Befund erzeugen, der eigentlich Env-Skew ist.
+      - name: Prepare environment
+        run: cp .env.example .env
+      - name: Generate app key
+        run: php artisan key:generate
+      - name: Generate JWT secret
+        run: php artisan jwt:secret --force
+      - name: Assert the resolved driver is really pgsql
+        # Self-check des Gates. Ohne diesen Schritt ist die ganze Job-Idee nicht
+        # abgesichert: fiele die ENV-Umleitung aus irgendeinem Grund auf SQLite
+        # zurück, wäre der Job ein zweiter SQLite-Lauf, der GRÜN ist und trotzdem
+        # nichts prüft — das schlimmste Ergebnis, weil es als Absicherung
+        # missverstanden wird. Geprüft wird die von Laravel aufgelöste Connection,
+        # nicht der ENV-String. Dasselbe Skript nutzt `scripts/test-pgsql.sh`
+        # lokal, damit CI und lokal dieselbe Prüfung fahren.
+        run: php ../scripts/assert-db-driver.php pgsql
+      - name: Run PHPUnit against Postgres
+        # Bewusst SERIELL, niemals `--parallel`: paratest gibt jedem Worker eine
+        # eigene Test-DB (`TestDatabases::testDatabase()`), und die SQLite-
+        # Isolationsannahme der Suite (`backend/AGENTS.md`) — ein Prozess, eine
+        # In-Memory-DB — trägt auf einer geteilten Postgres-DB nicht. Ohne
+        # Paratest ist es genau der `RefreshDatabase`-Ablauf, den der
+        # `backend`-Job auch fährt, nur auf der anderen Engine.
+        #
+        # failOnRisky/failOnWarning stehen in phpunit.xml — ein risiger Test oder
+        # eine PHPUnit-Warning machen auch diesen Job rot.
+        #
+        # `continue-on-error` ist **entfernt**: das Gate ist jetzt blockierend.
+        #
+        # Es war zunächst gesetzt, und zwar **gemessen** begründet: Der erste volle
+        # Lauf gegen PostgreSQL 17.10 (1465 passed / 2 failed) fand zwei
+        # SQLite-Annahmen in der TEST-Suite — Stellen, die §2 im Anwendungs-Code
+        # nicht verletzen, die Suite aber auf der Produktions-Engine nicht
+        # lauffähig hielten. Per AGENTS.md §4 ist „vorbestehend" **kein** zulässiges
+        # Label, also wurden beide behoben statt etikettiert:
+        #   * `AllocationAtomicityTest` staged den Foreign-Key-Verstoß mit
+        #     `PRAGMA defer_foreign_keys`. Nachgewiesen nicht portabel: die
+        #     Migration erzeugt per `constrained()->cascadeOnDelete()` **kein**
+        #     `DEFERRABLE` (`condeferrable = NO` im Katalog der migrierten DB,
+        #     0 deferrable Constraints im ganzen Schema), und
+        #     `SET CONSTRAINTS ALL DEFERRED` hebt den Check auf PG 17 nicht auf —
+        #     der `UPDATE` auf eine nicht existierende mandant_id wirft trotzdem
+        #     sofort `23503`. Der Test ist dort jetzt ein **dokumentierter Skip**;
+        #     auf SQLite läuft er unverändert und vollständig.
+        #   * `QrTokenV2Test` band seine Precondition an die feste Id 1. SQLite
+        #     vergibt die rowid nach einem Rollback neu, eine Postgres-Sequence
+        #     nicht → 711. Der Schlüssel wird jetzt **für die tatsächlich
+        #     erzeugte Id abgeleitet** (Suche nach einem `<base>`-Kandidaten, dessen
+        #     HMAC genau die beiden Parser-Bedingungen erfüllt), statt auf eine
+        #     glückliche Id zu hoffen. Auf SQLite trifft der abgeleitete Schlüssel
+        #     nach einem Kandidaten **byte-identisch** die alte Konstante.
+        #
+        # Stand beider Engines, lokal gemessen: SQLite **1468 passed / 0 skipped**,
+        # PostgreSQL 17 **1467 passed / 1 skipped / 0 failed** (exit 0). Der eine
+        # Skip ist der dokumentierte Guard aus Befund 1; die Suite ist damit auf
+        # beiden Engines deckungsgleich, und `1468 = 1467 + 1`.
+        #
+        # Ein echter Hinweis für später, der mit dem Skip **nicht** behoben ist:
+        # `test_a_missing_mandant_does_not_abort_the_auto_allocation_loop` ist der
+        # einzige Test des Notification-Guards und läuft auf der Produktions-Engine
+        # nicht. Ihn dort sichtbar zu machen ginge nur per DDL-Chirurgie am
+        # Constraint (`DROP` + `ADD … NOT VALID`) — das verändert die
+        # Schema-Semantik für den restlichen Test und ist bewusst unterblieben.
+        run: php artisan test --no-ansi
+
   frontend:
     name: Frontend (Lint, Build, Vitest)
     runs-on: ubuntu-latest

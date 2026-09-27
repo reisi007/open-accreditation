@@ -71,6 +71,22 @@ use Throwable;
  * with a result consistent with the first one's commit. The scenario is spelled
  * out verbatim in `test_the_quota_contract_of_two_racing_writers` so it can be
  * lifted into that integration test unchanged.
+ *
+ * A second gap is NOT deferrable to a future integration test, because it is a
+ * property of the SCHEMA, not of the concurrency:
+ * `test_a_missing_mandant_does_not_abort_the_auto_allocation_loop` needs a
+ * dangling `accreditations.mandant_id`, and the only way to produce one is to
+ * defer the FK check to a commit that never comes. SQLite offers that per
+ * transaction (`PRAGMA defer_foreign_keys`); Postgres defers a check only for
+ * constraints declared `DEFERRABLE`, and this schema declares none — no migration
+ * calls `deferrable()`, and `pg_constraint.condeferrable` is false for all six
+ * FKs of `accreditations`/`applications`. Staging the state on Postgres would
+ * therefore mean dropping a production constraint inside the test, so that one
+ * test skips itself off SQLite. It is the ONLY test of the notification guard
+ * (a broken `MandantMailerService::send()` must never abort the loop), i.e. the
+ * corruption it feeds the engine is pinned by the SQLite run of this single
+ * test — stated here so the coverage gap stays visible instead of being read as
+ * "covered on both engines".
  */
 class AllocationAtomicityTest extends TestCase
 {
@@ -696,11 +712,27 @@ class AllocationAtomicityTest extends TestCase
      * still finds the applicant — it is only the MANDANT that the notification
      * needs and cannot resolve.
      *
+     * That staging step is what needs SQLite (see the class docblock for the
+     * verified reason: Postgres defers only `DEFERRABLE` constraints, and this
+     * schema declares none), so the test pins the guard where it can run — on
+     * the engine the suite normally runs on — and skips itself elsewhere
+     * instead of pretending to have covered the corruption.
+     *
      * FAILS WITHOUT THE FIX: `TypeError` out of `runAutoAllocations()`, the
      * second accreditation is never processed and nobody is notified.
      */
     public function test_a_missing_mandant_does_not_abort_the_auto_allocation_loop(): void
     {
+        if ($this->connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped(
+                'needs a DEFERRED foreign-key check: the corruption this test feeds the engine is '
+                .'staged by deferring the accreditations -> mandants FK to a commit that never comes. '
+                .'SQLite defers FK checks per transaction (PRAGMA defer_foreign_keys); Postgres defers '
+                .'only constraints declared DEFERRABLE, and this schema declares none, so the dangling '
+                .'mandant_id cannot be staged here without dropping a production constraint.',
+            );
+        }
+
         Mail::fake();
         Log::spy();
 
@@ -776,7 +808,11 @@ class AllocationAtomicityTest extends TestCase
      * SQLite-specific by necessity: `defer_foreign_keys` is the only way to
      * create the inconsistency, because
      * `accreditations → applications → mandants` are all `cascadeOnDelete`
-     * and a plain delete would take the applications with it.
+     * and a plain delete would take the applications with it. Postgres has no
+     * per-transaction equivalent for a constraint that is not `DEFERRABLE`
+     * (`SET CONSTRAINTS ALL DEFERRED` is a no-op here — verified against
+     * `pg_constraint`), so the caller must guard itself; the test using this
+     * helper does.
      */
     private function orphanTheAccreditationsMandant(Accreditation $accreditation): void
     {

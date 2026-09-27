@@ -44,18 +44,33 @@ class QrTokenV2Test extends TestCase
     private const NEW_KEY = 'base64:0cW0kZm9vdHM5bm90aGluZ0hlcmVGb3JUaGVXZXk=';
 
     /**
-     * Fixed key for the ambiguous legacy-signature fixture. Under this key the
-     * HMAC of application id 1 contains a '.' byte with an all-digit tail
-     * ("…d2e.8"), i.e. a v1 token whose signature is indistinguishable from a
-     * v2 token by segment shape alone. Fixed so the fixture is deterministic
-     * and cannot silently degrade into "no fixture found".
+     * Base key of the ambiguous legacy-signature fixture. Under a key whose HMAC
+     * of an application id ends in a '.' byte with an all-digit tail ("…d2e.8"),
+     * a v1 token is indistinguishable from a v2 token by segment shape alone.
+     *
+     * The ambiguity is a property of the PAIR (application id, key) — and the
+     * application id is ENGINE-DEPENDENT: SQLite's AUTOINCREMENT counter starts
+     * over in every fresh in-memory test database, while a Postgres sequence is
+     * not transactional and keeps counting across the rolled-back tests of a run
+     * (that run reached 711 for the very first application). A hardcoded id would
+     * therefore have pinned the fixture to one engine.
+     *
+     * So the fixture is pinned the other way round: for the id the engine really
+     * assigned, `ambiguousLegacyKeyFor()` derives a key that is ambiguous for
+     * exactly that id. For SQLite's first application (id 1) the base key
+     * already is, so the derived key IS the base key and that run stays
+     * byte-for-byte the old one. Bounded, and asserted non-null by the callers,
+     * so it cannot silently degrade into "no fixture found".
      */
     private const LEGACY_FIXTURE_KEY = 'wp1-ambiguous-v1-signature-fixture-4809';
 
     /**
-     * The application id the fixture key is ambiguous for.
+     * Upper bound for the key search in `ambiguousLegacyKeyFor()`. The measured
+     * hit rate is ~1 in 6 400 candidates (the same "4 of 40 000" the parser
+     * comment cites); the worst value seen over a few hundred ids was ~33 000,
+     * and a full miss costs well under a second.
      */
-    private const AMBIGUOUS_LEGACY_ID = 1;
+    private const LEGACY_FIXTURE_KEY_SEARCH_LIMIT = 250000;
 
     private Mandant $mandantA;
 
@@ -321,18 +336,21 @@ class QrTokenV2Test extends TestCase
         // and reject the token — ~0.05 % of issued ids (measured: 4 of 40 000),
         // so a real badge silently 404s.
         //
-        // The key is fixed so the fixture id is deterministic.
-        config(['app.key' => self::LEGACY_FIXTURE_KEY, 'app.previous_keys' => []]);
-
+        // The key is derived so that the ambiguity holds for the application id
+        // the ENGINE assigned (see LEGACY_FIXTURE_KEY) — the property under
+        // test, not the number 1.
         $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
 
-        $this->assertSame(
-            self::AMBIGUOUS_LEGACY_ID,
-            (int) $application->id,
-            'precondition: the fixture key is ambiguous for this application id',
+        $key = $this->ambiguousLegacyKeyFor((int) $application->id);
+
+        $this->assertNotNull(
+            $key,
+            'precondition: no key found under which this application id is ambiguous — the fixture search is broken',
         );
 
-        $signature = hash_hmac('sha256', (string) self::AMBIGUOUS_LEGACY_ID, self::LEGACY_FIXTURE_KEY, true);
+        config(['app.key' => $key, 'app.previous_keys' => []]);
+
+        $signature = hash_hmac('sha256', (string) $application->id, $key, true);
         $lastDot = strrpos($signature, '.');
 
         $this->assertIsInt($lastDot, 'precondition: the fixture signature must contain a dot');
@@ -341,13 +359,13 @@ class QrTokenV2Test extends TestCase
             'precondition: everything after the last dot must be digits, or the token is a well-formed v2 token',
         );
 
-        $legacy = $this->encode(self::AMBIGUOUS_LEGACY_ID.'.'.$signature);
+        $legacy = $this->encode($application->id.'.'.$signature);
         $application->update(['qr_token' => $legacy]);
 
         $claims = app(QrTokenService::class)->parse($legacy);
 
         $this->assertNotNull($claims, 'a legacy token must never be rejected for the shape of its signature');
-        $this->assertSame(self::AMBIGUOUS_LEGACY_ID, $claims->applicationId);
+        $this->assertSame((int) $application->id, $claims->applicationId);
         $this->assertNull($claims->mandantId, 'a v1 token carries no tenant claim');
         $this->assertFalse($claims->isTenantBound());
 
@@ -360,6 +378,45 @@ class QrTokenV2Test extends TestCase
 
         MandantContext::set($this->mandantB);
         $this->getJson('/api/verify/'.$legacy)->assertStatus(404);
+    }
+
+    /**
+     * The companion of the test above, and the regression guard against a
+     * return to a hardcoded id: the ambiguity belongs to the PAIR (application
+     * id, key), not to any single id. That test needs a real row, so its id is
+     * whatever the engine hands out (1 on SQLite, an ever-growing sequence value
+     * on Postgres). This one pins the very same scenario for an id no engine
+     * would ever assign on its own, without touching the database at all — it
+     * fails on SQLite too if anyone re-introduces an id assumption.
+     */
+    public function test_the_ambiguous_legacy_fixture_holds_for_an_arbitrary_application_id(): void
+    {
+        $applicationId = 4711;
+
+        $key = $this->ambiguousLegacyKeyFor($applicationId);
+
+        $this->assertNotNull(
+            $key,
+            'precondition: no key found under which this application id is ambiguous — the fixture search is broken',
+        );
+
+        config(['app.key' => $key, 'app.previous_keys' => []]);
+
+        $signature = hash_hmac('sha256', (string) $applicationId, $key, true);
+        $lastDot = strrpos($signature, '.');
+
+        $this->assertIsInt($lastDot, 'precondition: the fixture signature must contain a dot');
+        $this->assertTrue(
+            ctype_digit(substr($signature, $lastDot + 1)),
+            'precondition: everything after the last dot must be digits, or the token is a well-formed v2 token',
+        );
+
+        $claims = app(QrTokenService::class)->parse($this->encode($applicationId.'.'.$signature));
+
+        $this->assertNotNull($claims, 'a legacy token must never be rejected for the shape of its signature');
+        $this->assertSame($applicationId, $claims->applicationId);
+        $this->assertNull($claims->mandantId, 'a v1 token carries no tenant claim');
+        $this->assertFalse($claims->isTenantBound());
     }
 
     public function test_the_legacy_fallback_never_turns_a_tampered_v2_token_into_a_v1_token(): void
@@ -858,6 +915,37 @@ class QrTokenV2Test extends TestCase
         }
 
         return 0;
+    }
+
+    /**
+     * The first key of the form `<LEGACY_FIXTURE_KEY>` / `<LEGACY_FIXTURE_KEY>-<n>`
+     * under which the legacy signature of `$applicationId` ends in a '.' byte
+     * followed by digits only — i.e. the first key that makes a v1 token of that
+     * id indistinguishable from a v2 token by segment shape alone.
+     *
+     * Null if none of the `LEGACY_FIXTURE_KEY_SEARCH_LIMIT` candidates is, so
+     * the caller can fail loudly instead of testing a fixture that is not
+     * ambiguous after all.
+     *
+     * The two conditions checked here are the parser's own (`QrTokenService::
+     * parse()`: a trailing all-digit segment is read as a mandant claim), and
+     * they are the definition of "ambiguous" for this suite — not an
+     * approximation of it.
+     */
+    private function ambiguousLegacyKeyFor(int $applicationId): ?string
+    {
+        for ($n = 0; $n < self::LEGACY_FIXTURE_KEY_SEARCH_LIMIT; $n++) {
+            $key = $n === 0 ? self::LEGACY_FIXTURE_KEY : self::LEGACY_FIXTURE_KEY.'-'.$n;
+
+            $signature = hash_hmac('sha256', (string) $applicationId, $key, true);
+            $lastDot = strrpos($signature, '.');
+
+            if ($lastDot !== false && ctype_digit(substr($signature, $lastDot + 1))) {
+                return $key;
+            }
+        }
+
+        return null;
     }
 
     /**

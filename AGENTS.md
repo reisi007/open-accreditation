@@ -42,6 +42,28 @@ Fachwissen her wie einen Senior Architekten. Die direkte Anrede „Senior Archit
   Über-Match** — also **fail-closed, nicht fail-open**. Das ist die sichere Richtung, macht den Bug
   aber trotzdem schwer zu finden. `ESCAPE` deshalb immer **mitschreiben**, auch wenn es auf Postgres
   nichts zu ändern scheint.
+- **Portabilitäts-Gate (die beiden Regeln oben sind gemessen, nicht behauptet):** Die Suite läuft
+  regulär auf SQLite `:memory:` (`backend`-Job). Ein zusätzlicher CI-Job `backend-pgsql` in
+  `.github/workflows/ci.yml` fährt **dieselbe Suite gegen echtes PostgreSQL 17** (`postgres:17-alpine`,
+  eigene Wegwerf-DB `accriditation_test`, Bereitschaft über den `pg_isready`-Healthcheck, **seriell** —
+  nie `--parallel`, weil paratest eine eigene Test-DB pro Worker braucht). Umgeschaltet wird rein
+  über ENV (`DB_CONNECTION=pgsql`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` —
+  die Namen aus `backend/config/database.php`); `phpunit.xml` bleibt unangetastet, weil seine
+  `DB_CONNECTION`-/`DB_DATABASE`-Pins **ohne** `force="true"` dastehen und ein vorhandener
+  Prozess-Wert gewinnt (`PhpHandler.php:160-168`). Der Job prüft vor dem Lauf, dass der aufgelöste
+  Driver wirklich `pgsql` ist — sonst wäre er ein zweiter SQLite-Lauf, der grün ist und nichts prüft.
+  **Lokal:** `bash scripts/test-pgsql.sh` (legt die Wegwerf-DB selbst an, braucht weder `docker`
+  noch `psql`; `migrate:fresh` läuft dabei nur gegen diese Wegwerf-DB, **nie** gegen die Dev-DB).
+  Der Job ist **blockierend**. Er war zunächst `continue-on-error` — **gemessen** begründet, weil
+  der erste Lauf zwei in der **Test-Suite** liegende SQLite-Annahmen fand. „Vorbestehend" ist nach
+  §4 **kein** zulässiges Label, also wurden beide behoben statt etikettiert:
+  `AllocationAtomicityTest` staged den Foreign-Key-Verstoß mit `PRAGMA defer_foreign_keys` — nach
+  der Migration nachweislich nicht portabel (sie erzeugt **kein** `DEFERRABLE`, und
+  `SET CONSTRAINTS ALL DEFERRED` hebt den Check auf PG 17 nicht auf), dort jetzt ein dokumentierter
+  **Skip**; `QrTokenV2Test` band seine Precondition an die feste Id 1, der Legacy-Schlüssel wird
+  jetzt **für die tatsächlich erzeugte Id abgeleitet** (auf SQLite byte-identisch zur alten
+  Konstante). Stand beider Engines lokal gemessen: SQLite **1468 passed / 0 skipped**, PostgreSQL
+  **1467 passed / 1 skipped / 0 failed** — deckungsgleich, denn `1468 = 1467 + 1`.
 
 ## 3. Definition of Done (DoD)
 
