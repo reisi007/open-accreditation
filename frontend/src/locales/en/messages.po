@@ -853,6 +853,7 @@ msgstr "Height must be a number."
 msgid "Impressum"
 msgstr "Imprint"
 
+#: src/components/MandantSwitcher.tsx
 #: src/components/VenueCombobox.tsx
 msgid "inaktiv"
 msgstr "inactive"
@@ -952,6 +953,10 @@ msgstr "No permission for this application."
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Blacklist-Einträge vorhanden."
 msgstr "No blacklist entries."
+
+#: src/components/MandantSwitcher.tsx
+msgid "keine Domain"
+msgstr "no domain"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Sub-Anträge für diese Filter."
@@ -1077,6 +1082,7 @@ msgstr "Mandant admin"
 msgid "Mandanten"
 msgstr "Mandants"
 
+#: src/components/MandantSwitcher.tsx
 #: src/pages/admin/MandantListPage.tsx
 msgid "Mandanten konnten nicht geladen werden."
 msgstr "The mandants could not be loaded."
@@ -1827,6 +1833,14 @@ msgstr "The events could not be loaded."
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Veranstaltungskalender"
 msgstr "Event calendar"
+
+#: src/components/MandantSwitcher.tsx
+msgid "Verband wechseln"
+msgstr "Switch association"
+
+#: src/components/MandantSwitcher.tsx
+msgid "Verband: {currentName} ({hostName})"
+msgstr "Association: {currentName} ({hostName})"
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/CategoriesPage.tsx

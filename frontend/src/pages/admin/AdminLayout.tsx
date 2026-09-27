@@ -3,6 +3,7 @@ import { useLingui } from '@lingui/react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { MandantSwitcher } from '../../components/MandantSwitcher';
 import { isMandantAdminUser, isSuperAdminUser } from '../../logic/adminRoles';
 import { useAuth } from '../../logic/useAuth';
 
@@ -222,6 +223,16 @@ export function AdminLayout() {
                             >
                                 <span className="iconify mdi--menu text-2xl"></span>
                             </button>
+                            {/*
+                              The domain switcher belongs to the HEADER, not to
+                              the nav list (E2): the list is instantiated twice
+                              (desktop `aside` + mobile drawer), which would give
+                              two states and two ARIA trees for one control,
+                              while the header is rendered exactly once at every
+                              viewport. `MandantSwitcher` renders nothing for
+                              every role but `super_admin` (E1).
+                            */}
+                            <MandantSwitcher />
                             <span className="hidden text-sm text-base-content/70 sm:inline">{user?.email}</span>
                             <button
                                 type="button"
