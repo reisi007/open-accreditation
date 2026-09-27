@@ -1,13 +1,17 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
     badgeCanvasFontSizeCss,
     badgeFieldLabel,
     CANVAS_GRID_STEP_MM,
+    computeNudgePosition,
     isBoxEntry,
+    nudgeDirectionFromKey,
     type BadgeRowValues,
+    type NudgeDirection,
 } from './badgeTemplateFormUtils';
 
 /**
@@ -15,14 +19,21 @@ import {
  * Labels" (2026-09-27, features/badge-template-editor.md): every layout row
  * renders as a box positioned in percent of the REAL A6 sheet (105 × 148 mm),
  * so preview and print share one coordinate system (WYSIWYG in mm). The
- * 5 mm editor raster is drawn as a background overlay; the geometry itself is
- * authored numerically in `BadgePropertiesPanel`, so the canvas is a read-only
- * preview that only carries selection.
+ * 5 mm editor raster is drawn as a background overlay; the exact geometry is
+ * authored numerically in `BadgePropertiesPanel`.
+ *
+ * Two interactions live here (both writing straight into react-hook-form — a
+ * single source of truth):
+ * - SELECTION: clicking a box selects it, clicking the card background or
+ *   pressing Escape clears the selection.
+ * - NUDGE via arrow keys on the focused box: 1 mm per press, Shift = one grid
+ *   step (5 mm), hard-clamped into the A6 bounds. This is the fine positioning
+ *   the panel's `step="any"` inputs cannot express relative to the current
+ *   value (there, "1 mm to the left" at 27,4 mm means retyping the number).
  *
  * Deliberately NOT here (superseded with the drag interaction): pointer-drag
- * move, corner resize handles, arrow-key nudge and the magnetic alignment
- * guides. Clicking a box selects it, clicking the card background or pressing
- * Escape clears the selection.
+ * move, corner resize handles and the magnetic alignment guides. The panel
+ * stays the canonical writer for absolute geometry.
  */
 interface BadgeCanvasProps {
     rows: BadgeRowValues[];
@@ -30,6 +41,8 @@ interface BadgeCanvasProps {
     /** Row indices overlapping another row (soft warning marker, non-blocking). */
     overlapIndices: ReadonlySet<number>;
     onSelect: (index: number | null) => void;
+    /** Live nudge update — receives the clamped mm position of the moved box. */
+    onMove: (index: number, x: number, y: number) => void;
 }
 
 const finiteOrZero = (value: number): number => (Number.isFinite(value) ? value : 0);
@@ -93,6 +106,7 @@ function CanvasBox({
     overlapWarning,
     label,
     onSelect,
+    onKeyDown,
 }: {
     row: BadgeRowValues;
     index: number;
@@ -101,6 +115,7 @@ function CanvasBox({
     overlapWarning: string;
     label: string;
     onSelect: (index: number | null) => void;
+    onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => void;
 }) {
     // Tailwind-Only-Policy exception: position/size/font values are runtime
     // numbers authored in mm/pt by the properties panel and projected onto the
@@ -153,6 +168,7 @@ function CanvasBox({
                 event.stopPropagation();
                 onSelect(index);
             }}
+            onKeyDown={(event) => onKeyDown(event, index)}
         >
             <span
                 className={`block w-full leading-tight ${isBoxEntry(row.field) ? 'h-full' : ''}`}
@@ -164,8 +180,32 @@ function CanvasBox({
     );
 }
 
-export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect }: BadgeCanvasProps) {
+export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect, onMove }: BadgeCanvasProps) {
     const { i18n } = useLingui();
+
+    const handleNudge = (direction: NudgeDirection, index: number, coarse: boolean, row: BadgeRowValues) => {
+        const next = computeNudgePosition(
+            { x: finiteOrZero(row.x), y: finiteOrZero(row.y) },
+            direction,
+            coarse ? CANVAS_GRID_STEP_MM : 1,
+            { w: finiteOrZero(row.w), h: finiteOrZero(row.h) },
+        );
+        onMove(index, next.x, next.y);
+    };
+
+    const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+        const direction = nudgeDirectionFromKey(event.key);
+        if (!direction) return;
+        // The box is a native <button>, so it is focusable without a tabIndex:
+        // arrow keys reach it and only there (the card background swallows
+        // them). preventDefault stops the page from scrolling underneath.
+        event.preventDefault();
+        event.stopPropagation();
+        if (selectedIndex !== index) {
+            onSelect(index);
+        }
+        handleNudge(direction, index, event.shiftKey, rows[index]);
+    };
 
     const overlapWarning = i18n._(t`Felder überschneiden sich.`);
 
@@ -205,6 +245,7 @@ export function BadgeCanvas({ rows, selectedIndex, overlapIndices, onSelect }: B
                         overlapWarning={overlapWarning}
                         label={`${i18n._(t`Feld`)} ${badgeFieldLabel(row.field, i18n)}`}
                         onSelect={onSelect}
+                        onKeyDown={handleKeyDown}
                     />
                 ))}
             </div>

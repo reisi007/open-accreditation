@@ -13,11 +13,13 @@ import {
     boxesOverlap,
     buildBadgeTemplatePayload,
     CANVAS_GRID_STEP_MM,
+    computeNudgePosition,
     createBadgeTemplateSchema,
     createDefaultBadgeRow,
     findDuplicateDataFieldIndices,
     findFreePosition,
     findOverlappingIndices,
+    nudgeDirectionFromKey,
     type BadgeRowValues,
     type BadgeTemplateFormValues,
 } from './badgeTemplateFormUtils';
@@ -357,9 +359,9 @@ describe('findFreePosition', () => {
 
 /**
  * The editor raster stays at 5 mm (decision „Raster + konfigurierbare Labels",
- * 2026-09-27). After the drag interaction was removed the constant no longer
- * has a snap helper behind it — it drives the visible grid overlay
- * (`BadgeCanvas`) and the {@link findFreePosition} scan, so pin both users.
+ * 2026-09-27). The constant has no snap helper behind it — it drives the
+ * visible grid overlay (`BadgeCanvas`), the {@link findFreePosition} scan and
+ * the coarse Shift step of the keyboard nudge, so pin all three users.
  */
 describe('CANVAS_GRID_STEP_MM', () => {
     it('is the agreed 5 mm editor raster', () => {
@@ -370,6 +372,59 @@ describe('CANVAS_GRID_STEP_MM', () => {
         const position = findFreePosition([{ x: 0, y: 0, w: 105, h: 40 }], 40, 8);
         expect(position.x % CANVAS_GRID_STEP_MM).toBe(0);
         expect(position.y % CANVAS_GRID_STEP_MM).toBe(0);
+    });
+
+    it('is the coarse (Shift) keyboard nudge step', () => {
+        // Shift + arrow moves exactly one grid cell, plain arrow exactly 1 mm.
+        expect(computeNudgePosition({ x: 20, y: 30 }, 'right', CANVAS_GRID_STEP_MM, { w: 40, h: 8 }).x)
+            .toBe(20 + CANVAS_GRID_STEP_MM);
+    });
+});
+
+/**
+ * Arrow-key fine positioning of the canvas boxes (restored 2026-09-27 — the
+ * panel's `step="any"` inputs cannot move a box relatively, there "1 mm to the
+ * left" at 27,4 mm means retyping the whole number). The nudge is a nudge, not
+ * a drag: it only ever moves by whole steps and stops at the card edge.
+ */
+describe('computeNudgePosition / nudgeDirectionFromKey', () => {
+    it('maps only the arrow keys to nudge directions', () => {
+        expect(nudgeDirectionFromKey('ArrowLeft')).toBe('left');
+        expect(nudgeDirectionFromKey('ArrowRight')).toBe('right');
+        expect(nudgeDirectionFromKey('ArrowUp')).toBe('up');
+        expect(nudgeDirectionFromKey('ArrowDown')).toBe('down');
+        expect(nudgeDirectionFromKey('a')).toBe(null);
+        expect(nudgeDirectionFromKey('Escape')).toBe(null);
+    });
+
+    it('moves by exactly one step in each direction', () => {
+        const current = { x: 20, y: 30 };
+        expect(computeNudgePosition(current, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 19, y: 30 });
+        expect(computeNudgePosition(current, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 21, y: 30 });
+        expect(computeNudgePosition(current, 'up', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 29 });
+        expect(computeNudgePosition(current, 'down', 1, { w: 40, h: 8 })).toEqual({ x: 20, y: 31 });
+    });
+
+    it('supports the coarse Shift step (grid size) via the step parameter', () => {
+        expect(computeNudgePosition({ x: 20, y: 30 }, 'down', CANVAS_GRID_STEP_MM, { w: 40, h: 8 })).toEqual({
+            x: 20,
+            y: 35,
+        });
+    });
+
+    it('stops at the card edges without leaving the bounds', () => {
+        expect(computeNudgePosition({ x: 0, y: 0 }, 'left', 1, { w: 40, h: 8 })).toEqual({ x: 0, y: 0 });
+        expect(computeNudgePosition({ x: A6_WIDTH_MM - 40, y: 0 }, 'right', 5, { w: 40, h: 8 })).toEqual({
+            x: A6_WIDTH_MM - 40,
+            y: 0,
+        });
+        expect(computeNudgePosition({ x: 50, y: A6_HEIGHT_MM - 8 }, 'down', 1, { w: 40, h: 8 }).y).toBe(
+            A6_HEIGHT_MM - 8,
+        );
+    });
+
+    it('is NaN-safe for in-progress edits', () => {
+        expect(computeNudgePosition({ x: Number.NaN, y: 10 }, 'right', 1, { w: 40, h: 8 })).toEqual({ x: 1, y: 10 });
     });
 });
 

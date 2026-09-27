@@ -59,7 +59,7 @@ Details im Abschnitt „Elementtyp `image`".
 | Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
 | Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
 | API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
-| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **schreibgeschützte Vorschau mit Auswahl** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die Geometrie entsteht ausschließlich aus den Panel-Zahleneingaben, der Canvas selbst ändert nichts (Maus-Drag, Eckgriffe, Pfeiltasten-Nudge und magnetische Guides wurden am 2026-09-27 zurückgebaut). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
+| Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **Vorschau mit Auswahl + Pfeiltasten-Nudge** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die **absoluten** Koordinaten entstehen ausschließlich aus den Panel-Zahleneingaben, der Canvas verschiebt relativ um 1 mm (Shift = 5 mm) und sonst nichts (Maus-Drag, Eckgriffe und magnetische Guides wurden am 2026-09-27 zurückgebaut, das Nudge am selben Tag wiederhergestellt). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
 
 ## Zielbild
 
@@ -249,10 +249,13 @@ Upload-Flow) sind umgesetzt.
 > - **Weiter gültig** (unabhängig von der Interaktionsentscheidung): Canvas
 >   statt Feld-Tabelle, mm→%-Projektion gegen echte A6-Konstanten, Raster als
 >   Konzept, Bildquellen-/Fit-Auswahl, Framework-Disziplin, weiche Warnungen.
-> - **Superseded** (setzten Maus-Drag voraus): die Regeln zu *Ziehen*,
->   *Resize-Griffen* und *Nudge* — inklusive der daran hängenden
+> - **Superseded** (setzten Maus-Drag voraus): die Regeln zu *Ziehen* und
+>   *Resize-Griffen* — inklusive der daran hängenden
 >   Pixel-zu-mm-Projektion „gegen die LIVE gerenderte Kartenhöhe". Siehe
 >   „Folge für die Umsetzung".
+> - **Wiederhergestellt** (2026-09-27): das *Pfeiltasten-Nudge*. Es war nie
+>   Drag&Drop, und die Panel-Eingaben können es nicht ersetzen (`step="any"`:
+>   „1 mm nach links" bei 27,4 mm ist dort eine Neu-Eingabe).
 
 - **Canvas statt Tabelle:** Die Feld-Tabelle im `BadgeTemplateForm` wird zur
   interaktiven Fläche: Die A6-Vorschau (`aspect-a6`, weißes Karte-Panel) zeigt
@@ -264,12 +267,20 @@ Upload-Flow) sind umgesetzt.
   echten A6-Konstanten (105 × 148), nicht mehr gegen die virtuelle
   85×121-Karte (Ist-Abweichung, siehe Ist-Tabelle) — damit Preview = Druck.
 - **Raster (gilt weiter):** Ein Raster strukturiert die Fläche. **Ist-Stand:
-  5 mm** (`CANVAS_GRID_STEP_MM = 5`) mit sichtbarem Overlay. Die in der alten
-  Fassung genannte Feinpositionierung („Raster 1 mm, Toggle 0,5 mm für
-  Feinpositionierung") ist **nicht umgesetzt** und wird hier **nicht** als
-  Ziel fortgeschrieben — die Rasterweite ist Teil der offenen Fragen.
+  5 mm** (`CANVAS_GRID_STEP_MM = 5`) mit sichtbarem Overlay. Der in der alten
+  Fassung genannte *Raster*-Toggle („Raster 1 mm, Toggle 0,5 mm") ist **nicht
+  umgesetzt** und wird hier **nicht** als Ziel fortgeschrieben — die Rasterweite
+  ist Teil der offenen Fragen. Die *Feinpositionierung* ist davon unberührt und
+  existiert als Tastaturschritt (1 mm), siehe nächster Punkt.
 - **Auswahl:** Auswahl per Klick (sichtbarer Rahmen), Entfernen per
   Button/Taste.
+- **Feinpositionierung per Tastatur (gilt wieder, 2026-09-27):** Pfeiltasten auf
+  dem fokussierten Box-Button verschieben um **1 mm**, mit **Shift** um einen
+  Rasterschritt (**5 mm**), hart in die A6-Grenzen geklemmt. Der Box-Button ist
+  ein nativer `<button>` und damit ohne `tabIndex` fokussierbar — das ist der
+  einzige Tastatureinstieg in die Vorschau. Die absolute Position bleibt
+  kanonisch im Panel; das Nudge ist die *relative* Korrektur, die `step="any"`
+  nicht abdeckt.
 - **Feld-Palette/Liste:** verfügbare Feldtypen inkl. `qr` und `image`; Klick
   legt ein Feld an Default-Position an (Defaults wie Ist: `w40 h8 size12
   left`, `qr`: `20×20` an der bisherigen Fixposition, `image`: `30×20` mm
@@ -290,7 +301,7 @@ Upload-Flow) sind umgesetzt.
   (Laufzeitwerte), statische Editor-Chrome ausschließlich Tailwind/daisyUI.
   Keine Persistenz in localStorage.
 
-### ~~Interaktion: Ziehen / Resize / Nudge~~ — SUPERSEDED (2026-09-27)
+### ~~Interaktion: Ziehen / Resize~~ — SUPERSEDED (2026-09-27)
 
 > **Ersetzt.** Die Entscheidung lautet „Raster + konfigurierbare Labels":
 > **kein** freies Ziehen per Maus. Die folgenden Regeln gelten nicht mehr und
@@ -306,8 +317,10 @@ Upload-Flow) sind umgesetzt.
 >   Fragen.)*
 > - ~~Auswahl per Klick (sichtbarer Rahmen), Entfernen per Button/Taste;
 >   Pfeiltasten nudgen 1 mm (mit Shift 5 mm).~~ *(Auswahl per Klick und
->   Entfernen gelten weiter; das Pfeiltasten-Nudge war Teil der
->   Maus-/Feinsteuerungs-Interaktion und ist mitentschieden.)*
+>   Entfernen gelten weiter. Das Pfeiltasten-Nudge ist **kein** Drag&Drop und
+>   war nie von der Maus-Entscheidung abhängig: Es wurde am 2026-09-27 mit
+>   `e04fdfd` entfernt und am selben Tag wiederhergestellt — siehe „Editor-UX"
+>   oben.)*
 
 ## Validierung
 
@@ -406,41 +419,48 @@ Interaktiver Canvas ersetzt die Feld-Tabelle; Auswahl + Eigenschaften-Panel;
 Snap 1 mm; Anlage/Löschung von Feldern; Projektion auf echte A6-Basis.
 
 **Test-Forderung:**
-- Vitest Unit (Stand 2026-09-27, nach dem Rückbau): zod-Spiegel +
+- Vitest Unit (Stand 2026-09-27, nach Rückbau + Nudge-Rückkehr): zod-Spiegel +
   Payload-Mapping, `findFreePosition`/`boxesOverlap` (Warnungen),
-  `badgeCanvasFontSizeCss` (Auto-Fit), Rasterkonstante `CANVAS_GRID_STEP_MM`.
-  **Nicht mehr:** Snap-/Clamp-/Drag-Mathematik — sie ist mit der Interaktion
-  entfallen.
+  `badgeCanvasFontSizeCss` (Auto-Fit), Rasterkonstante `CANVAS_GRID_STEP_MM`
+  (samt ihrem dritten Nutzer, dem groben Shift-Nudge-Schritt) und
+  `computeNudgePosition`/`nudgeDirectionFromKey`. **Nicht mehr:**
+  Snap-/Resize-/Drag-Mathematik — sie ist mit der Zieh-Interaktion entfallen.
 - Playwright E2E, getaggt `{ tag: ['@feature:badge-editor'] }`
   (+ mind. ein weiterer Tag lt. Tag-Policy): Editor öffnen, Position/Größe
   **über das Panel** setzen, WYSIWYG in mm prüfen, speichern, erneut öffnen →
   persistiert; Ungültiges (außerhalb der Fläche) wird abgewiesen. Ergänzend die
-  **Abwesenheitsnageln** auf die entfernte Interaktion (keine Eckgriffe, keine
-  Guides, Drag/Arrow verändern nichts). `@smoke` bleibt unberührt.
+  **Abwesenheitsnageln** auf die entfernte **Zeiger**-Interaktion (keine
+  Eckgriffe, keine Guides, ein Drag-Sweep verändert weder Geometrie noch
+  Panel-Werte) **und** das **Nudge-Verhalten** (1 mm pro Pfeiltaste, Shift =
+  5 mm, Klemmung an den A6-Grenzen, Roundtrip). `@smoke` bleibt unberührt.
 
-### ~~Etappe 3 — Polish~~ — SUPERSEDED (2026-09-27)
+### ~~Etappe 3 — Polish~~ — TEILWEISE SUPERSEDED (2026-09-27)
 
-> **Ersetzt.** Resize-Griffe, Keyboard-Nudge und Ausrichtungs-Guides gehören
-> zur superseded Maus-/Feinsteuerungs-Interaktion. Die weichen Warnungen
-> (Überlappung/Duplikat) und der Grid-Toggle sind davon **nicht** betroffen und
-> bleiben gültig.
+> **Ersetzt.** Resize-Griffe und Ausrichtungs-Guides gehören zur superseded
+> Maus-/Feinsteuerungs-Interaktion. Das **Keyboard-Nudge ist wieder da** (es
+> war nie Teil des Maus-Entscheids, siehe „Editor-UX"), die weichen Warnungen
+> (Überlappung/Duplikat) und der Grid-Toggle sind ohnehin **nicht** betroffen
+> und bleiben gültig.
 
-Resize-Griffe, Keyboard-Nudge, Überlappungs-/Duplikatwarnungen, Grid-Toggle,
+~~Resize-Griffe~~, Keyboard-Nudge, Überlappungs-/Duplikatwarnungen, Grid-Toggle,
 Touch-Feinschliff.
 
 **Test-Forderung:**
-- Vitest: Warnungslogik (Rechteck-Schnitt, Duplikaterkennung).
-- Playwright getaggt (`@feature:badge-editor`): Resize ändert `w/h`,
-  Nudge verschiebt rastergenau, Warnung erscheint bei Überlappung.
+- Vitest: Warnungslogik (Rechteck-Schnitt, Duplikaterkennung) +
+  Nudge-Mathematik (Richtung, 1-mm-/5-mm-Schritt, Klemmung, NaN-Sicherheit).
+- Playwright getaggt (`@feature:badge-editor`): Nudge verschiebt 1 mm bzw. mit
+  Shift 5 mm und überlebt den Roundtrip, Größe nur über das Panel
+  (`Resizes a field from the panel…`), Warnung erscheint bei Überlappung.
 
 ### Bilder (`image`) — Einplanung FE2/FE3 (IST, 2026-08-26)
 
 > **⚠️ TEILWEISE SUPERSEDED (2026-09-27).** Backend-Slice **und** FE2 sind
 > umgesetzt und gültig. Superseded ist nur der **FE3-Teil**: „Bildelemente wie
-> Datenfelder ziehbar/rasternd" setzt das freie Maus-Ziehen voraus, das es
-> nicht gibt. Bounds-Clamping und die Überlappungs-Warnung (auch gegen
-> Bildelemente) bleiben als Verhalten bestehen und werden lediglich nicht mehr
-> per Maus ausgelöst. „Rastert beim Ziehen" (E2E) ist entsprechend hinfällig.
+> Datenfelde ziehbar/rasternd" setzt das freie Maus-Ziehen voraus, das es nicht
+> gibt. Bounds-Clamping, die **Pfeiltasten-Feinpositionierung** (auch für
+> Bildelemente) und die Überlappungs-Warnung (auch gegen Bildelemente) bleiben
+> als Verhalten bestehen. „Rastert beim Ziehen" (E2E) ist entsprechend
+> hinfällig.
 
 Die Backend-Voraussetzungen gingen als eigener Slice voraus (FE1-artig, kein
 UI-Change nötig): Migration `badge_images` + Upload-/Delivery-API,
@@ -486,8 +506,18 @@ diesem Schritt hat:
 | Auswahl | vorhanden: Klick-Auswahl mit Rahmen, Klick auf den Kartenhintergrund oder `Escape` hebt sie auf | `BadgeCanvas.tsx` |
 | Maus-Drag zum Verschieben | **entfernt** (war `handleDragStart/Move/End`, Pointer Events + `setPointerCapture`, px→mm gegen `getBoundingClientRect()`) | — |
 | Eckgriffe zum Skalieren | **entfernt** (war `handleResizeStart/Move/End` + `DragState`/`ResizeState` + `computeDragResize`) | — |
-| Pfeiltasten-Nudge | **entfernt** (war `handleKeyDown`/`handleNudge` + `computeNudgePosition`, 1 mm bzw. Shift = 5 mm) | — |
 | Magnetische Ausrichtungs-Guides | **entfernt** (war `computeAlignmentSnap`/`findAlignedGuides` + `[data-badge-guide]`) | — |
+| Pfeiltasten-Nudge | **vorhanden (wiederhergestellt 2026-09-27)**: `handleKeyDown`/`handleNudge` + `computeNudgePosition`, 1 mm bzw. Shift = 5 mm, geklemmt an den A6-Grenzen | `BadgeCanvas.tsx`, `badgeTemplateFormUtils.ts` |
+
+**Das Nudge ist kein Drag&Drop — und `e04fdfd` hat es zu Unrecht mitgerissen.**
+Die Entscheidung „Raster + konfigurierbare Labels" fiel gegen **freies Ziehen per
+Maus**; Tastaturbedienung war nie ausgeschlossen, und `computeNudgePosition`
+existierte bereits vor dem Rückbau. Der im Rückbau-Commit offen notierte
+Tradeoff — das Nudge sei die einzige tastaturfähige *relative* Feinverstellung,
+die Panel-Eingaben seien `step="any"` und damit nur absolut — ist damit
+aufgelöst: die **absolut**e Geometrie schreibt weiterhin nur das Panel, das
+Nudge schreibt **relativ** in dieselbe Form-State (`onMove` →
+`setValue('fields.{i}.x'|'y')`), beide schreiben nie in verschiedene Quellen.
 
 **Keine DnD-Bibliothek in `frontend/package.json` — und das war nie ein Mangel.**
 Die Zieh-Interaktion war nativ per Pointer Events implementiert; eine Bibliothek
@@ -497,29 +527,39 @@ mehr nötig.
 
 **Bewusste Konsequenzen des Rückbaus** (nicht zu „reparieren"):
 
-- `BadgeCanvas` hat nur noch `rows`/`selectedIndex`/`overlapIndices`/`onSelect` —
-  die Props `onMove`/`onResize` sind mit ihren Schreibern in `BadgeTemplateForm`
-  (`handleMoveField`/`handleResizeField`) entfallen. Die Geometrie hat damit
-  **einen** Schreiber: die Panel-Eingaben.
-- Die Hilfsfunktionen `snapToGrid` und `clampToBounds` waren nur von den
-  Drag-Pfaden erreichbar und sind mit ihnen **weg** — sie zurückzuholen, weil sie
-  nützlich aussehen, wäre toter Code. `CANVAS_GRID_STEP_MM` bleibt (Raster-Overlay
-  + `findFreePosition`-Scan).
-- Der Hinweistext unter der Vorschau zeigt jetzt auf das Panel
+- `BadgeCanvas` hat `rows`/`selectedIndex`/`overlapIndices`/`onSelect`/`onMove`.
+  `onResize` ist mit seinem Schreiber (`handleResizeField`) entfallen — es gab
+  keinen Resize-Pfad mehr, den sie speisen könnte. Die **absolut**e Geometrie
+  hat damit weiterhin **einen** Schreiber: die Panel-Eingaben.
+- `snapToGrid` bleibt **weg** — es war ausschließlich von den Drag-Pfaden
+  erreichbar und würde toter Code sein. `clampToBounds` kehrt als
+  modulprivater Helfer **zurück**, weil `computeNudgePosition` es braucht; es
+  ist bewusst *nicht* mehr exportiert (kein zweiter öffentlicher Schreiber).
+  `CANVAS_GRID_STEP_MM` bleibt (Raster-Overlay, `findFreePosition`-Scan und der
+  grobe Shift-Schritt des Nudges).
+- Der Hinweistext unter der Vorschau zeigt weiterhin auf das Panel
   („Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im
-  Eigenschaften-Panel ein.").
+  Eigenschaften-Panel ein."). Er erwähnt das Nudge **nicht** — bewusst, um keine
+  neue i18n-Zeichenkette einzuführen; die Tastatursteuerung braucht keine
+  Beschriftung, weil das Panel den vollständigen zugänglichen Pfad abdeckt.
 - **Die `BadgePropertiesPanel` und das Raster-Overlay blieben unangetastet** — sie
   waren die Ersetzung, nicht der Gegenstand des Rückbaus.
 
 **Testfolge (AGENTS.md §3):** Die vier E2E-Tests, die das superseded Verhalten
 prüften (*„drags a field onto the grid…"*, *„resizes a field with the corner
 handle…"*, *„nudges the selected field with arrow keys…"*, *„shows alignment
-guides…"*), prüfen jetzt das, was die Entscheidung verlangt: Platzierung/Größe
-aus dem Panel mit WYSIWYG-Nachweis in mm und Roundtrip, plus **Abwesenheits-
-nageln** (`[data-resize-handle]`, `[data-badge-guide]` je 0; Drag-Sweep und
-Pfeiltasten ändern weder Geometrie noch Panel-Werte). `BadgeCanvas.test.tsx` und
-`BadgeTemplateForm.test.tsx` pinnen dieselbe Abwesenheit auf Vitest-Ebene. Die
-Vitest-Tests der entfernten Hilfsfunktionen wurden mit ihnen entfernt.
+guides…"*), prüften zuerst nur das, was die Entscheidung verlangt: Platzierung/
+Größe aus dem Panel mit WYSIWYG-Nachweis in mm und Roundtrip, plus
+**Abwesenheitsnageln** (`[data-resize-handle]`, `[data-badge-guide]` je 0; der
+Drag-Sweep ändert weder Geometrie noch Panel-Werte). Mit dem zurückgeholten
+Nudge kam die Pfeiltasten-Nagel dazu — sie wurde durch das
+**Verhaltenstest-Paar** ersetzt (Vitest: `computeNudgePosition`/`nudgeDirectionFromKey`;
+Komponente: 1 mm pro Taste, Shift = 5 mm, Klemmung an den A6-Grenzen;
+E2E: *„nudges the focused field with arrow keys…"* inkl. Roundtrip). Die
+Drag-/Resize-Abwesenheitsnageln sind **unverändert** und weiterhin aktiv —
+`BadgeCanvas.test.tsx` schärft den Drag-Test zusätzlich: seit die Canvas wieder
+einen Schreiber (`onMove`) hat, prüft er nicht mehr nur unveränderte Pixel,
+sondern explizit `expect(onMove).not.toHaveBeenCalled()`.
 
 ## Am 2026-09-27 getroffene Entscheidungen (schließen die offenen Fragen)
 
@@ -538,13 +578,16 @@ Diese vier Punkte sind entschieden und damit **gültige Spec**:
    mm-Werte; der Editor schreibt dieselben. **Kein** Raster-Zellkoordinaten-
    Schema (`row`/`col`/`span`) — das ist nicht entschieden worden und wird
    nicht eingeführt.
-4. **Die A6-Vorschau bleibt bestehen, ist aber nicht mehr direkt manipulierbar:**
-   read-only Vorschau über dem Raster, die nur die Auswahl trägt. Die Platzierung
-   wandert **nicht** vollständig in Listen-/Formularbedienung. Daraus folgt für
-   `image` (Punkt 5 der alten Liste): Bilder werden wie alle anderen Elemente
-   **über X/Y/W/H im Panel** platziert, nicht rastergebunden. Der
-   PDF-Render-Kontrakt „Preview = Druck" (WYSIWYG in mm) gilt unverändert
-   weiter, weil Vorschau und Panel dieselben mm-Werte projizieren.
+4. **Die A6-Vorschau bleibt bestehen, ist aber nicht mehr frei *ziehbar*:**
+   Vorschau über dem Raster, die Auswahl und den **Pfeiltasten-Nudge** trägt.
+   Das Panel bleibt der kanonische Schreiber für die **absolute** Position;
+   verschoben wird relativ (1 mm / Shift = 5 mm, geklemmt an den A6-Grenzen).
+   Die Platzierung wandert damit **nicht** vollständig in Listen-/Formular-
+   bedienung. Daraus folgt für `image` (Punkt 5 der alten Liste): Bilder werden
+   wie alle anderen Elemente **über X/Y/W/H im Panel** platziert, nicht
+   rastergebunden. Der PDF-Render-Kontrakt „Preview = Druck" (WYSIWYG in mm)
+   gilt unverändert weiter, weil Vorschau und Panel dieselben mm-Werte
+   projizieren.
 
 ## Invarianten (nicht regredieren)
 

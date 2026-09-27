@@ -18,9 +18,10 @@ vi.mock('../../api/client', async (importOriginal) => {
 /**
  * Editor wiring of the „Raster + konfigurierbare Labels" model (decision
  * 2026-09-27, features/badge-template-editor.md): `BadgePropertiesPanel` is the
- * ONLY writer of the geometry. This is the counterpart to
- * `BadgeCanvas.test.tsx`, which pins that the canvas itself stays read-only —
- * together they cover the replacement for the removed drag interaction.
+ * canonical writer for the absolute geometry, the canvas adds selection and the
+ * arrow-key nudge. This is the counterpart to `BadgeCanvas.test.tsx`, which
+ * pins that the canvas carries no pointer interaction — together they cover
+ * the single-source-of-truth claim of both writers.
  */
 function renderForm() {
     return renderWithProviders(
@@ -122,10 +123,12 @@ describe('BadgeTemplateForm positions the canvas from the properties panel', () 
 });
 
 /**
- * The panel-driven model must not have kept a second, pointer-driven writer:
- * a drag across the box may only ever produce the selection.
+ * The panel-driven model must not have kept a second, POINTER-driven writer:
+ * a drag across the box may only ever produce the selection. The keyboard
+ * nudge is the one deliberate exception — it writes the same form state (see
+ * the nudge block below).
  */
-describe('BadgeTemplateForm has no drag interaction left', () => {
+describe('BadgeTemplateForm has no pointer drag interaction left', () => {
     it('does not change the panel values when the canvas box is dragged', async () => {
         const user = userEvent.setup();
         renderForm();
@@ -158,20 +161,6 @@ describe('BadgeTemplateForm has no drag interaction left', () => {
         expect(previewedGeometryMm().x).toBeCloseTo(30, 6);
     });
 
-    it('does not change the panel values on arrow keys', async () => {
-        const user = userEvent.setup();
-        renderForm();
-        const box = within(canvas()).getByRole('button', { name: 'Feld Name' });
-        await user.click(box);
-        box.focus();
-
-        const before = previewedGeometryMm();
-        await user.keyboard('{ArrowRight}');
-        await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
-
-        expect(previewedGeometryMm()).toEqual(before);
-    });
-
     it('renders no resize handles and no alignment guides anywhere in the dialog', async () => {
         const user = userEvent.setup();
         const { container } = renderForm();
@@ -179,5 +168,75 @@ describe('BadgeTemplateForm has no drag interaction left', () => {
 
         expect(container.querySelectorAll('[data-resize-handle]')).toHaveLength(0);
         expect(container.querySelectorAll('[data-badge-guide]')).toHaveLength(0);
+    });
+});
+
+/**
+ * The arrow-key nudge (restored 2026-09-27) is the canvas' one write path: it
+ * goes through the same react-hook-form state the panel inputs are registered
+ * on, so panel numbers, canvas preview and the saved layout cannot disagree.
+ * This is the test that would catch a nudge wired to a second source of truth.
+ */
+describe('BadgeTemplateForm nudges the selected field with the arrow keys', () => {
+    it('moves the field 1 mm per arrow key, Shift moves one 5 mm raster step', async () => {
+        const user = userEvent.setup();
+        renderForm();
+        const box = within(canvas()).getByRole('button', { name: 'Feld Name' });
+        await user.click(box);
+        await user.clear(mmInput('X (mm)'));
+        await user.type(mmInput('X (mm)'), '30');
+        await user.clear(mmInput('Y (mm)'));
+        await user.type(mmInput('Y (mm)'), '50');
+        box.focus();
+
+        await user.keyboard('{ArrowRight}');
+        expect(mmInput('X (mm)')).toHaveValue(31);
+        expect(mmInput('Y (mm)')).toHaveValue(50);
+
+        await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+        expect(mmInput('Y (mm)')).toHaveValue(55);
+
+        await user.keyboard('{ArrowUp}{ArrowLeft}');
+        expect(mmInput('X (mm)')).toHaveValue(30);
+        expect(mmInput('Y (mm)')).toHaveValue(54);
+
+        // Same numbers in the preview — one source of truth, not two.
+        const geometry = previewedGeometryMm();
+        expect(geometry.x).toBeCloseTo(30, 6);
+        expect(geometry.y).toBeCloseTo(54, 6);
+        // The nudge moves position only; the size is the panel's business.
+        expect(geometry.w).toBeCloseTo(40, 6);
+        expect(geometry.h).toBeCloseTo(8, 6);
+    });
+
+    it('stops at the A6 bounds instead of writing an out-of-bounds position', async () => {
+        const user = userEvent.setup();
+        renderForm();
+        const box = within(canvas()).getByRole('button', { name: 'Feld Name' });
+        await user.click(box);
+        await user.clear(mmInput('X (mm)'));
+        await user.type(mmInput('X (mm)'), '100');
+        box.focus();
+
+        // x + w = 140 > 105: the nudge must clamp to 105 − 40 = 65 mm instead
+        // of writing an even more out-of-bounds value.
+        await user.keyboard('{ArrowRight}');
+        expect(mmInput('X (mm)')).toHaveValue(65);
+        expect(previewedGeometryMm().x).toBeCloseTo(65, 6);
+    });
+
+    it('nudges the box the keyboard reached, even when nothing is selected yet', async () => {
+        const user = userEvent.setup();
+        renderForm();
+        const box = within(canvas()).getByRole('button', { name: 'Feld Name' });
+        expect(box).toHaveAttribute('aria-pressed', 'false');
+
+        // Focus without a click (pure keyboard path) and nudge.
+        box.focus();
+        await user.keyboard('{ArrowDown}');
+
+        expect(box).toHaveAttribute('aria-pressed', 'true');
+        expect(mmInput('X (mm)')).toHaveValue(0);
+        expect(mmInput('Y (mm)')).toHaveValue(1);
     });
 });

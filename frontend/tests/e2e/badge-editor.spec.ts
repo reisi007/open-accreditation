@@ -7,12 +7,14 @@ import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
  * fields, the properties panel edits mm coordinates / source unions, and a
  * saved schema-v2 layout roundtrips through the server-authoritative API.
  *
- * Editor model „Raster + konfigurierbare Labels" (2026-09-27): the canvas is a
- * read-only preview over a 5 mm grid; every geometry value is typed into the
- * properties panel. The FE3/FE4 pointer specs (mouse drag, corner-resize
- * handles, arrow-key nudge, magnetic guides) were REMOVED from the app — the
- * tests below assert their absence and the panel-driven replacement instead
- * of the old interaction.
+ * Editor model „Raster + konfigurierbare Labels" (2026-09-27): the canvas
+ * previews a 5 mm grid; the absolute geometry is typed into the properties
+ * panel, and the canvas itself carries selection plus the arrow-key nudge
+ * (1 mm, Shift = 5 mm — restored after the revert, because the panel's
+ * `step="any"` inputs cannot move a field relatively). The FE3/FE4 POINTER
+ * specs (mouse drag, corner-resize handles, magnetic guides) stay removed — the
+ * tests below assert their absence alongside the panel- and keyboard-driven
+ * replacements.
  *
  * The badge-images backend slice (upload/delivery API) is implemented — the
  * upload flow test exercises the real `POST /api/admin/badge-images` endpoint
@@ -368,7 +370,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Höhe (mm)')).toHaveValue('20');
     });
 
-    test('never moves a field by pointer drag or arrow keys — the panel is the only writer', {
+    test('never moves a field by pointer drag — the panel and the arrow keys are the only writers', {
         tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {
         await page.goto('/admin/badge-templates');
@@ -387,7 +389,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
 
         await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor NoDrag ${uniqueSuffix()}`);
 
-        // Deterministic base position via the panel, then focus the box.
+        // Deterministic base position via the panel, then the box itself.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
         await nameBox.click();
         await dialog.getByLabel('X (mm)').fill('30');
@@ -396,11 +398,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const card = await canvas.locator('.badge-canvas-container').boundingBox();
         if (!before || !card) throw new Error('canvas or name box not rendered on the canvas');
 
-        // 1) A full press → sweep → release across the box, then a sweep over
-        //    the whole card to the far corner. The removed
-        //    handleDragStart/Move/End trio consumed exactly this gesture.
-        //    (The release lands on the card background, which legitimately
-        //    clears the selection — so re-select before reading the panel.)
+        // A full press → sweep → release across the box, then a sweep over
+        // the whole card to the far corner. The removed
+        // handleDragStart/Move/End trio consumed exactly this gesture.
+        // (The release lands on the card background, which legitimately
+        // clears the selection — so re-select before reading the panel.)
         const startX = before.x + before.width / 2;
         const startY = before.y + before.height / 2;
         await page.mouse.move(startX, startY);
@@ -410,26 +412,76 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await page.mouse.move(card.x + 8, card.y + 8, { steps: 10 });
         await page.mouse.up();
 
-        // The box did not move by a single pixel.
+        // The box did not move by a single pixel…
         const afterDrag = await nameBox.boundingBox();
         if (!afterDrag) throw new Error('name box disappeared from the canvas');
         expect(afterDrag.x).toBeCloseTo(before.x, 1);
         expect(afterDrag.y).toBeCloseTo(before.y, 1);
-
-        // 2) The removed keyboard nudge: 1 mm per arrow key, Shift = one grid step.
-        await nameBox.click();
-        await nameBox.focus();
-        await page.keyboard.press('ArrowRight');
-        await page.keyboard.press('ArrowDown');
-        await page.keyboard.press('Shift+ArrowLeft');
-
-        const afterNudge = await nameBox.boundingBox();
-        if (!afterNudge) throw new Error('name box disappeared from the canvas');
-        expect(afterNudge.x).toBeCloseTo(before.x, 1);
-        expect(afterNudge.y).toBeCloseTo(before.y, 1);
         // … and the panel still holds exactly the authored values.
+        await nameBox.click();
         await expect(dialog.getByLabel('X (mm)')).toHaveValue('30');
         await expect(dialog.getByLabel('Y (mm)')).toHaveValue('50');
+    });
+
+    test('nudges the focused field with arrow keys (1 mm, Shift = 5 mm) and persists it', {
+        tag: ['@feature:badge-editor', '@regression'],
+    }, async ({ page }) => {
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        const templateName = `E2E Editor Nudge ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
+
+        // The box is a native button: clicking it leaves it FOCUSED, so the
+        // arrow keys reach the nudge without any tabIndex plumbing.
+        const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
+        await nameBox.click();
+        await expect(nameBox).toBeFocused();
+        await dialog.getByLabel('X (mm)').fill('10');
+        await dialog.getByLabel('Y (mm)').fill('10');
+        // …re-focus: filling the panel moved the focus into the input.
+        await nameBox.click();
+
+        await page.keyboard.press('ArrowRight');
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('11');
+        await page.keyboard.press('Shift+ArrowDown');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('15');
+        await page.keyboard.press('ArrowUp');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
+        await page.keyboard.press('ArrowLeft');
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
+
+        // WYSIWYG in mm: the nudged box really sits at 10/105 and 14/148.
+        const card = await canvas.locator('.badge-canvas-container').boundingBox();
+        const box = await nameBox.boundingBox();
+        if (!card || !box) throw new Error('canvas or name box not rendered');
+        expect(((box.x - card.x) / card.width) * 105).toBeCloseTo(10, 0);
+        expect(((box.y - card.y) / card.height) * 148).toBeCloseTo(14, 0);
+
+        await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
+        await expect(templateRow).toBeVisible();
+
+        // Roundtrip: the nudged position survives save + reopen.
+        await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
+        await expect(dialog.getByRole('heading', { name: 'Template bearbeiten' })).toBeVisible();
+        await dialog
+            .getByRole('group', { name: 'Ausweis-Vorschau' })
+            .getByRole('button', { name: 'Feld Name' })
+            .click();
+        await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
+        await expect(dialog.getByLabel('Y (mm)')).toHaveValue('14');
     });
 
     test('advertises the raster + properties panel instead of drag instructions', {

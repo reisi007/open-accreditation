@@ -30,11 +30,12 @@ interface BadgeTemplateFormProps {
 /**
  * Badge template editor (schema v2, decision „Raster + konfigurierbare Labels"
  * vom 2026-09-27, features/badge-template-editor.md): element palette + a
- * mm-scaled A6 canvas showing a 5 mm raster + a properties panel. The canvas
- * is a read-only preview that only carries selection — the geometry is
- * authored numerically in the panel, which writes the single source of truth in
- * react-hook-form. Overlapping boxes raise a soft warning that does not block
- * saving. Validation mirrors the server-authoritative schema v2 rules.
+ * mm-scaled A6 canvas showing a 5 mm raster + a properties panel. The panel is
+ * the canonical writer for the absolute geometry; the canvas carries selection
+ * and the arrow-key nudge (relative fine positioning, 1 mm / Shift = 5 mm),
+ * which writes the SAME react-hook-form state the panel inputs are registered
+ * on. Overlapping boxes raise a soft warning that does not block saving.
+ * Validation mirrors the server-authoritative schema v2 rules.
  */
 export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit, onCancel }: BadgeTemplateFormProps) {
     const { i18n } = useLingui();
@@ -73,6 +74,18 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
             { shouldValidate: true },
         );
         setSelectedIndex(null);
+    };
+
+    /**
+     * Canvas keyboard nudge: writes the mm position of the nudged box into the
+     * SAME form state the panel inputs are registered on — canvas box, panel
+     * numbers and the saved layout stay one source of truth. No
+     * `shouldValidate` on purpose: the nudge is hard-clamped into the A6
+     * bounds, the resolver runs at submit time anyway.
+     */
+    const handleMoveField = (index: number, x: number, y: number) => {
+        setValue(`fields.${index}.x`, x);
+        setValue(`fields.${index}.y`, y);
     };
 
     return (
@@ -140,6 +153,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                             selectedIndex={selectedIndex}
                             overlapIndices={overlapIndices}
                             onSelect={setSelectedIndex}
+                            onMove={handleMoveField}
                         />
                     </div>
                     <p className="text-center text-xs text-base-content/60">

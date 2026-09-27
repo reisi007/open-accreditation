@@ -53,10 +53,11 @@ export const QR_FALLBACK_MARGIN_MM = 5;
 export const QR_FALLBACK_SIZE_MM = 20;
 
 /**
- * Editor raster step in millimetres: the width of the visible canvas grid AND
- * the scan step of {@link findFreePosition} when a new element is placed.
- * The grid is the orientation aid of the „Raster + konfigurierbare Labels"
- * editor; positions themselves are typed in mm in the properties panel
+ * Editor raster step in millimetres: the width of the visible canvas grid, the
+ * scan step of {@link findFreePosition} when a new element is placed AND the
+ * coarse (Shift) step of the keyboard nudge. The grid is the orientation aid of
+ * the „Raster + konfigurierbare Labels" editor; the exact position is typed in
+ * mm in the properties panel, which stays the canonical writer
  * (features/badge-template-editor.md).
  */
 export const CANVAS_GRID_STEP_MM = 5;
@@ -67,6 +68,65 @@ export interface MmRect {
     y: number;
     w: number;
     h: number;
+}
+
+/**
+ * Hard-clamps a rectangle into the A6 card (`x/y ≥ 0`, `x+w ≤ width`,
+ * `y+h ≤ height`). An oversized rectangle anchors at the origin — a single
+ * writer can never fix its size; the zod mirror flags it instead.
+ */
+function clampToBounds(rect: MmRect): MmRect {
+    const w = Number.isFinite(rect.w) && rect.w > 0 ? rect.w : 0;
+    const h = Number.isFinite(rect.h) && rect.h > 0 ? rect.h : 0;
+    return {
+        x: Math.min(Math.max(Number.isFinite(rect.x) ? rect.x : 0, 0), Math.max(A6_WIDTH_MM - w, 0)),
+        y: Math.min(Math.max(Number.isFinite(rect.y) ? rect.y : 0, 0), Math.max(A6_HEIGHT_MM - h, 0)),
+        w,
+        h,
+    };
+}
+
+/** Direction of a keyboard nudge (arrow keys). */
+export type NudgeDirection = 'left' | 'right' | 'up' | 'down';
+
+/** Maps an arrow-key name to its nudge direction (null for any other key). */
+export function nudgeDirectionFromKey(key: string): NudgeDirection | null {
+    switch (key) {
+        case 'ArrowLeft':
+            return 'left';
+        case 'ArrowRight':
+            return 'right';
+        case 'ArrowUp':
+            return 'up';
+        case 'ArrowDown':
+            return 'down';
+        default:
+            return null;
+    }
+}
+
+/**
+ * Position after nudging the box by `stepMm` in the given direction: arrow
+ * keys move 1 mm, Shift moves the 5 mm grid step — the step itself is a caller
+ * concern. Hard-clamped into the A6 bounds: a box pushed against the edge
+ * stays put instead of leaving the card. NaN-safe, so an in-progress edit in
+ * the panel can never produce a NaN position.
+ */
+export function computeNudgePosition(
+    current: { x: number; y: number },
+    direction: NudgeDirection,
+    stepMm: number,
+    size: { w: number; h: number },
+): { x: number; y: number } {
+    const dx = direction === 'left' ? -stepMm : direction === 'right' ? stepMm : 0;
+    const dy = direction === 'up' ? -stepMm : direction === 'down' ? stepMm : 0;
+    const clamped = clampToBounds({
+        x: (Number.isFinite(current.x) ? current.x : 0) + dx,
+        y: (Number.isFinite(current.y) ? current.y : 0) + dy,
+        w: Number.isFinite(size.w) ? size.w : 0,
+        h: Number.isFinite(size.h) ? size.h : 0,
+    });
+    return { x: clamped.x, y: clamped.y };
 }
 
 /**

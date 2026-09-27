@@ -14,11 +14,11 @@ import {
  * Canvas contract of the „Raster + konfigurierbare Labels" editor (decision
  * 2026-09-27, features/badge-template-editor.md).
  *
- * The canvas is a READ-ONLY preview that only carries selection: the geometry
- * is typed in mm in `BadgePropertiesPanel`. These tests are the guard rail
- * against the superseded interaction creeping back in — every test in the
- * "no drag interaction" block fails if pointer-drag, corner resize handles,
- * arrow-key nudge or the magnetic alignment guides return.
+ * The panel is the canonical writer for absolute geometry; the canvas carries
+ * selection plus the arrow-key nudge (restored 2026-09-27). The tests in the
+ * "no drag interaction" block are the guard rail against the superseded
+ * interaction creeping back in — every test in it fails if pointer-drag, corner
+ * resize handles or the magnetic alignment guides return.
  */
 
 function row(overrides: Partial<BadgeRowValues> = {}): BadgeRowValues {
@@ -40,10 +40,17 @@ function row(overrides: Partial<BadgeRowValues> = {}): BadgeRowValues {
 
 function renderCanvas(rows: BadgeRowValues[], selectedIndex: number | null = null) {
     const onSelect = vi.fn();
+    const onMove = vi.fn();
     renderWithProviders(
-        <BadgeCanvas rows={rows} selectedIndex={selectedIndex} overlapIndices={new Set()} onSelect={onSelect} />,
+        <BadgeCanvas
+            rows={rows}
+            selectedIndex={selectedIndex}
+            overlapIndices={new Set()}
+            onSelect={onSelect}
+            onMove={onMove}
+        />,
     );
-    return { onSelect };
+    return { onSelect, onMove };
 }
 
 /** The canvas card (the element carrying the raster overlay). */
@@ -124,28 +131,41 @@ describe('BadgeCanvas selection', () => {
 });
 
 /**
- * Regression guard: the superseded drag family (FE3 move / FE4 resize, nudge,
- * magnetic guides) must not come back. The props that fed it (`onMove`,
- * `onResize`) no longer exist, so a regression can only express itself as DOM
- * affordances or as a handler mutating the previewed geometry.
+ * Regression guard: the superseded drag family (FE3 move / FE4 resize, magnetic
+ * guides) must not come back. The canvas HAS a writer again (`onMove`, used by
+ * the arrow-key nudge), so a regression can express itself either as DOM
+ * affordances or as a pointer gesture reaching that writer — the drag sweep
+ * therefore asserts the *absence of a call*, not just unchanged pixels.
  */
 describe('BadgeCanvas has no drag interaction', () => {
     it('renders no corner resize handles, not even on the selected box', () => {
         const { container } = renderWithProviders(
-            <BadgeCanvas rows={[row()]} selectedIndex={0} overlapIndices={new Set()} onSelect={vi.fn()} />,
+            <BadgeCanvas
+                rows={[row()]}
+                selectedIndex={0}
+                overlapIndices={new Set()}
+                onSelect={vi.fn()}
+                onMove={vi.fn()}
+            />,
         );
         expect(container.querySelectorAll('[data-resize-handle]')).toHaveLength(0);
     });
 
     it('renders no alignment guide lines', () => {
         const { container } = renderWithProviders(
-            <BadgeCanvas rows={[row()]} selectedIndex={0} overlapIndices={new Set()} onSelect={vi.fn()} />,
+            <BadgeCanvas
+                rows={[row()]}
+                selectedIndex={0}
+                overlapIndices={new Set()}
+                onSelect={vi.fn()}
+                onMove={vi.fn()}
+            />,
         );
         expect(container.querySelectorAll('[data-badge-guide]')).toHaveLength(0);
     });
 
-    it('keeps the projected geometry on a full pointer drag over the box', () => {
-        renderCanvas([row({ x: 10, y: 10, w: 40, h: 8 })], 0);
+    it('never writes a position on a full pointer drag over the box', () => {
+        const { onMove, onSelect } = renderCanvas([row({ x: 10, y: 10, w: 40, h: 8 })], 0);
         const box = screen.getByRole('button', { name: 'Feld Name' });
         const before = geometryOf(box);
 
@@ -157,30 +177,121 @@ describe('BadgeCanvas has no drag interaction', () => {
         fireEvent.pointerUp(box, { pointerId: 1, isPrimary: true, clientX: 900, clientY: 700 });
         fireEvent.pointerCancel(box, { pointerId: 1, isPrimary: true, clientX: 900, clientY: 700 });
 
-        expect(geometryOf(box)).toEqual(before);
-    });
-
-    it('keeps the projected geometry on arrow keys (the removed keyboard nudge)', () => {
-        renderCanvas([row({ x: 10, y: 10, w: 40, h: 8 })], 0);
-        const box = screen.getByRole('button', { name: 'Feld Name' });
-        const before = geometryOf(box);
-
-        for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
-            fireEvent.keyDown(box, { key });
-        }
-        fireEvent.keyDown(box, { key: 'ArrowRight', shiftKey: true });
-
+        // The writer stayed untouched — a px→mm pointer move must never reach it.
+        expect(onMove).not.toHaveBeenCalled();
+        // The press is completely inert: selection is bound to `click`, which a
+        // drag gesture does not produce.
+        expect(onSelect).not.toHaveBeenCalled();
         expect(geometryOf(box)).toEqual(before);
     });
 
     it('carries no drag affordance classes on the boxes', () => {
         const { container } = renderWithProviders(
-            <BadgeCanvas rows={[row()]} selectedIndex={0} overlapIndices={new Set()} onSelect={vi.fn()} />,
+            <BadgeCanvas
+                rows={[row()]}
+                selectedIndex={0}
+                overlapIndices={new Set()}
+                onSelect={vi.fn()}
+                onMove={vi.fn()}
+            />,
         );
         for (const box of container.querySelectorAll('.badge-canvas-box')) {
             const className = box.className;
             expect(className).not.toContain('cursor-grab');
             expect(className).not.toContain('touch-none');
         }
+    });
+});
+
+/**
+ * Arrow-key fine positioning, restored 2026-09-27: 1 mm per press, Shift = one
+ * 5 mm raster step, hard-clamped at the A6 edges. The box is a native
+ * `<button>`, so it is focusable without a `tabIndex` — that is the whole
+ * keyboard entry point into the canvas.
+ */
+describe('BadgeCanvas keyboard nudge', () => {
+    it('is reachable by keyboard alone: the box is a focusable button', async () => {
+        const user = userEvent.setup();
+        renderCanvas([row({ x: 10, y: 10 })]);
+
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+        // No tabIndex is needed or set — a native button is in the tab order.
+        expect(box).not.toHaveAttribute('tabindex');
+        await user.tab();
+        expect(box).toHaveFocus();
+    });
+
+    it('moves the box by 1 mm per arrow key', () => {
+        const { onMove } = renderCanvas([row({ x: 10, y: 20, w: 40, h: 8 })], 0);
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+
+        fireEvent.keyDown(box, { key: 'ArrowRight' });
+        expect(onMove).toHaveBeenLastCalledWith(0, 11, 20);
+        fireEvent.keyDown(box, { key: 'ArrowDown' });
+        expect(onMove).toHaveBeenLastCalledWith(0, 10, 21);
+        fireEvent.keyDown(box, { key: 'ArrowLeft' });
+        expect(onMove).toHaveBeenLastCalledWith(0, 9, 20);
+        fireEvent.keyDown(box, { key: 'ArrowUp' });
+        expect(onMove).toHaveBeenLastCalledWith(0, 10, 19);
+        expect(onMove).toHaveBeenCalledTimes(4);
+    });
+
+    it('moves the box by one 5 mm raster step with Shift held', () => {
+        const { onMove } = renderCanvas([row({ x: 10, y: 20, w: 40, h: 8 })], 0);
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+
+        fireEvent.keyDown(box, { key: 'ArrowRight', shiftKey: true });
+        expect(onMove).toHaveBeenLastCalledWith(0, 10 + CANVAS_GRID_STEP_MM, 20);
+        fireEvent.keyDown(box, { key: 'ArrowDown', shiftKey: true });
+        expect(onMove).toHaveBeenLastCalledWith(0, 10, 20 + CANVAS_GRID_STEP_MM);
+    });
+
+    it('stops at the A6 edges instead of leaving the card', () => {
+        const { onMove } = renderCanvas([row({ x: A6_WIDTH_MM - 40, y: A6_HEIGHT_MM - 8, w: 40, h: 8 })], 0);
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+
+        fireEvent.keyDown(box, { key: 'ArrowRight', shiftKey: true });
+        expect(onMove).toHaveBeenLastCalledWith(0, A6_WIDTH_MM - 40, A6_HEIGHT_MM - 8);
+        fireEvent.keyDown(box, { key: 'ArrowDown', shiftKey: true });
+        expect(onMove).toHaveBeenLastCalledWith(0, A6_WIDTH_MM - 40, A6_HEIGHT_MM - 8);
+    });
+
+    it('selects the box first when the nudge reaches an unselected one', () => {
+        const { onMove, onSelect } = renderCanvas(
+            [row({ field: 'name' }), row({ field: 'category', x: 10, y: 40 })],
+            0,
+        );
+        const category = screen.getByRole('button', { name: 'Feld Kategorie' });
+
+        fireEvent.keyDown(category, { key: 'ArrowRight' });
+
+        expect(onSelect).toHaveBeenLastCalledWith(1);
+        expect(onMove).toHaveBeenLastCalledWith(1, 11, 40);
+    });
+
+    it('leaves every other key to the browser and the card handler', () => {
+        const { onMove, onSelect } = renderCanvas([row({ x: 10, y: 20, w: 40, h: 8 })], 0);
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+
+        const space = fireEvent.keyDown(box, { key: ' ' });
+        const enter = fireEvent.keyDown(box, { key: 'Enter' });
+        const escape = fireEvent.keyDown(box, { key: 'Escape' });
+
+        expect(onMove).not.toHaveBeenCalled();
+        // No preventDefault: the browser keeps its own behaviour for these keys.
+        expect(space).toBe(true);
+        expect(enter).toBe(true);
+        // Escape is none of the canvas box's business — it still bubbles to the
+        // card, which owns clearing the selection.
+        expect(escape).toBe(true);
+        expect(onSelect).toHaveBeenLastCalledWith(null);
+    });
+
+    it('suppresses the page scroll the arrow keys would otherwise trigger', () => {
+        renderCanvas([row({ x: 10, y: 20, w: 40, h: 8 })], 0);
+        const box = screen.getByRole('button', { name: 'Feld Name' });
+
+        // `fireEvent` returns false when a handler called preventDefault().
+        expect(fireEvent.keyDown(box, { key: 'ArrowDown' })).toBe(false);
     });
 });
