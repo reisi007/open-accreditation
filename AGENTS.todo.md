@@ -1,20 +1,62 @@
 # Task Board — open-accreditation
 
-> Stand: 2026-08-15. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
+> Stand: 2026-09-27. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
 > Umsetzung nach `features/`. Referenz: Sportdata „Accreditation Services" + Screenshots des
 > Altsystems (Bundesliga/ÖFB) in `reference/`.
 >
-> **Status (2026-08-15):** P1–P6 + UI-Polish (UI-Review-Befunde, Formular-Abstände) + P7-Hardening
-> (F2–F5, B2/B3, P2a-RL, P4-F1, P5-F2, P1a-B1/B2/B4, P0-Fix-F3, P3d-F2, P2c-F3, P2b-F8, P4-F4) sowie
-> P8/P8b (UI-Review-Skill + Mandant-Bilder Self-Service) sind **umgesetzt und verifiziert**: Backend
-> 672 PHPUnit grün (APPROVED), Frontend 124 Vitest grün (APPROVED), E2E smoke + Features grün,
-> Screenshot-Suite 57/57, finale Vision-Analyse 0 Issues. Commits: 8b340fa, 4b8497a, 9ec0ec2, c618ad0,
-> 157ebfe, b78e2b8, a9d02ee, 2e6185f, acc2609. **Verbleibend:** P7 Go-Live (Caddy multi-Domain,
-> Prod-Deploy — wartet auf Benutzer-Freigabe) + die unten gelisteten offenen Follow-ups + finaler
-> User-Test.
+> **Status (2026-09-27):** P1–P8 umgesetzt und verifiziert. **Aktuell grün:** 1467 PHPUnit
+> (7255 Assertions) + Pint 258, 304 Vitest, Lint + Build clean, E2E `@smoke` in CI gegen den
+> Production-Build (Lauf `36317288916`, alle drei Jobs success). Zuletzt: Whole-Project-Review
+> 2026-09-26 (40 Befunde, davon 1 critical + 1 high, alle behoben), Postgres-Portabilitäts-Gate
+> 5/5 PASS auf echter PG 17.10, `MEDIA_ROOT`-Mount-Guard 7/7, Venue-Stammdaten (W12).
+> **Verbleibend:** Go-Live (~20 Positionen, liegt per Anweisung unten) + der **„Nächster Batch"**
+> weiter oben. Abgeschlossene Phasen stehen nicht mehr hier, sondern in `features/` bzw. in der
+> Git-Historie (§4).
 >
 > Test-Regel (DoD): Backend → PHPUnit (SQLite `:memory:`), Allocation-Logik → eigene PHPUnit-Tests,
 > Frontend-Logik → Vitest, UI/Formulare → Playwright-E2E (getaggt).
+
+---
+
+## 📌 Nächster Batch — NICHT-Go-Live, priorisiert (2026-09-27)
+
+> **Anweisung Benutzer 2026-09-27:** Go-Live bleibt liegen; als Nächstes werden die
+> **Go-Live-freien** TODOs umgesetzt, in der Reihenfolge unten. Noch nichts gestartet —
+> das Board ist der Plan, die Umsetzung folgt in einer eigenen Session.
+> Jede Position ist §5-konform zu delegieren (Implementer ≠ Verifikator), mit
+> Test-Forderung nach §3 DoD.
+
+### Warum diese Reihenfolge
+
+Nicht nach Schweregrad, sondern nach **Vertrauens-Kosten**: eine Position, deren
+Verifikation fehlt, ist teurer als eine, deren *Umsetzung* fehlt. Deshalb steht
+ganz oben nicht der große Feature-Block, sondern der Spec, der nie gelaufen ist —
+solange `admin-venue.spec.ts` ungetestet ist, ist der Venue-Durchbruch eine
+Behauptung, kein Fakt.
+
+| # | Position | Aufwand | Warum hier |
+|---|---|---|---|
+| **1** | **Venue-E2E ausführen + promoten** | S1 | `frontend/tests/e2e/admin-venue.spec.ts` (2 Tests) ist **nie gelaufen** — weder lokal noch in CI. Belegt: beide Tests tragen nur `@feature:admin:venue`, `.github/workflows/ci.yml:8` fährt auf `push` **ausschließlich** `@smoke`. Der grüne Lauf `36317288916` hat das Spec also nicht berührt. Der Frontend-Agent hat es bewusst ohne `@smoke` gelassen (korrekt: ungeprüfter Spec darf den Push-Gate nicht anführen) — jetzt ist die Reihenfolge umgekehrt: einmal real fahren, dann promoten. Erfordert laufenden Stack. |
+| **2** | **Board-/SOLL-Korrektur Badge-Editor** | S1 | `features/badge-template-editor.md:7` zitiert als Anlass „User-Entscheidung **VOLL frei positionierbar**". Die tatsächliche Entscheidung (2026-09-27 interaktiv bestätigt) ist **Raster + konfigurierbare Labels**. §4 verlangt, dass `features/` den SOLL-Zustand hält — das Dokument ist derzeit **falsch** und die FE1–FE4-Commits wurden auf der alten Annahme gebaut. Muss vor Position 3 geklärt werden, sonst wird gegen die falsche Spec gebaut. |
+| **3** | **Badge-Editor auf Raster+Labels umstellen** | S2 | Betrifft `BadgeCanvas.tsx`, `BadgePropertiesPanel.tsx` + Phasing-Abschnitt in `features/badge-template-editor.md`. **Keine** DnD-Bibliothek nötig — im `package.json` ist keine, die alte SOLL hätte sie eingeführt. Zu klären bleibt, ob Schema v2 (`x/y/w/h` in mm) die geänderte UX trägt (Positionen werden ja weiterhin gebraucht, nur nicht per Maus gezogen) — das ist der eigentliche Entscheidungspunkt. |
+| **4** | **Venue-Schreibbreite `team_admin` (PRODUCT-DECISION)** | S1 | Steht als eigene Position, **nicht selbst entscheiden** (siehe Session 2026-09-19). |
+| **5** | **`{mandant}` 403/404-Unifikation** | S2 | Bewusst offen gelassen; die naive Route-Binding-Lösung entzieht `super_admin` den Zweck. Richtige Form ist die **403/404-Unifikation im Controller**, wie `TeamController`/`UserController` sie für ihre Ressourcen schon haben — als eigenes Ticket mit eigenen Tests. |
+| **6** | **P2c-F4 Multi-Domain-Admin-UX** | S2 | `super_admin` sieht auf einer Nicht-Primär-Domain die falschen Teams (Mandant-Detail `useAdminTeams`). Braucht eine Entscheidung (Primär-Mandant pinnen?), deshalb nach 1–5. |
+| **7** | **§2-Portabilitätsregeln ergänzen** | S1 | Zwei verifizierte Fakten, die in `AGENTS.md` §2 **fehlen** und dort hinzugehören: (a) Postgres bricht bei Unique-Verletzung die **ganze Transaktion** ab (SQLSTATE 25P02), SQLite nicht — „try insert → catch → continue" braucht für §2-Portabilität ein **SAVEPOINT**; heute schreibt kein Code so etwas, die Regel ist also präventiv. (b) `LIKE … ESCAPE '\'`: auf PG ein semantisches No-op, auf SQLite **zwingend** — ohne die Klausel fail-closed (0 statt Über-Match). |
+| **8** | **Board-Hygiene: `BE-R8`, `FE-R3`, `Dev-DB`** | S3 | Drei Kleinigkeiten aus dem Review: `BE-R8` (VIP/denied nicht per Bulk-Run reanimierbar) dokumentieren, `FE-R3` (`VerifyPage.tsx:71` img-src) schließen, einmalig `migrate:fresh --seed` (sort_order-Schema). |
+| **9** | **`PDF-VISION`-Pipeline** | S2 | dompdf malt keinen weißen Seitenhintergrund → transparente Pixel erscheinen im PNG **schwarz**. `magick` + Ghostscript 10.07.1 sind verifiziert installiert, die zweistufige Pipeline ist in Session 2026-08-26 beschrieben, wurde aber nie auf einem Badge-PDF durchlaufen. Gehört **inhaltlich zu Position 3**: ein Raster-/Labels-Editor verändert das Badge-Layout, und ohne visuelle Verifikation ist „sieht gut aus" nicht belegbar. |
+
+### Warte auf externe Schritte (nicht Go-Live, aber nicht von uns machbar)
+- **Google Wallet (P6):** API-Zugang/Issuer-Setup beim Google nötig.
+- **Nightly-E2E:** der `@regression`-Cron ist eingerichtet, war in dieser Session aber
+  nie gelaufen — der Flakiness-Detektor hat also noch nie gegen dieses Stand gearbeitet.
+- **Screenshot-/Vision-Loop (§7):** in dieser Session komplett ungelaufen.
+- **`EXPLAIN ANALYZE`:** Index-*Form* ist verifiziert, nicht die Geschwindigkeit.
+
+### Nicht in diesem Batch
+- **Go-Live** (~20 Positionen: Pre-Prod-Domain, DNS, Caddy, Secrets, Deploy, Backup,
+  Prod-Smoke) — liegt per Anweisung unten.
+- **`P5-F4` Queue-Integration** — braucht Queue-Worker, ist Go-Live-Infrastruktur.
 
 ---
 
@@ -48,6 +90,12 @@
 ### P7 — Polish + Deploy 🟡 **AUF HALT — Go-Live wartet auf Benutzer-Freigabe**
 > **Einziger verbleibender Block:** Alle Umsetzungsphasen P1–P6 + UI-Polish + P7-Hardening sind
 > abgeschlossen (verifiziert, APPROVED). P7 wird erst nach expliziter Freigabe des Benutzers umgesetzt.
+>
+> **Stand 2026-09-27:** Der Halt ist nicht mehr nur „wartet auf Freigabe", sondern eine
+> **ausdrückliche Anweisung**: Go-Live liegt, zuerst kommen die Go-Live-freien TODOs aus dem
+> Abschnitt „Nächster Batch" oben (9 Positionen, S1–S3, alle delegierbar ohne Server/DNS/Secrets).
+> Diese ~20 Positionen hier bleiben unangetastet, bis der Benutzer sie ausdrücklich wieder
+> freigibt.
 > Operativer Plan: siehe §🚀 Go-Live-Plan (unten). Caddy-SOLL: `features/03-caddy-brand-files.md`.
 
 - [ ] Go-Live gemäß §🚀 Go-Live-Plan (Pre-Prod → Prod → Long-running)
@@ -75,8 +123,16 @@
 - [ ] Frontend-Build für Pre-Prod (Vite `dist`) + Deploy-Pfad
 
 **Verifikation vor Prod (Gates)**
-- [ ] **Postgres-Portabilitäts-Gate:** Integration-/E2E-Lauf gegen echte Postgres (nicht nur SQLite-Testsuite), §2-Regel verifiziert
-- [ ] **Multi-Domain-UX-Gate (P2c-F4):** Admin-Zugriff auf Nicht-Primär-Domain prüfen (Teams-Anzeige super_admin)
+- [x] **Postgres-Portabilitäts-Gate — BESTANDEN 2026-09-27** (war fälschlich offen): alle
+  5 Prüfpositionen PASS auf echtem **PostgreSQL 17.10**, komplette PHPUnit-Suite dort grün.
+  Geprüft: `LIKE … ESCAPE '\'`, COALESCE-Ausdrucksindex, `NULLS LAST`,
+  `smtp_config` (text + `encrypted:json`), E-Mail-Index. **Was der Lauf zusätzlich gefunden
+  hat:** die SQLite-`->change()`-Falle bei Ausdrucksindizes (dokumentiert in
+  `features/02-domain-model.md`, Commit `ce2dfc6`) — auf macOS prinzipiell unsichtbar, weil
+  nur SQLite Ausdrucksspalten beim Table-Rebuild verliert. **Bewusst offen geblieben:**
+  E2E-Suite gegen Postgres (Baum war mitten im Venue-Umbau) und `EXPLAIN ANALYZE` (Index-*Form*
+  ist verifiziert, nicht die Geschwindigkeit) → Positionen 7/8 im „Nächster Batch".
+- [ ] **Multi-Domain-UX-Gate (P2c-F4):** Admin-Zugriff auf Nicht-Primär-Domain prüfen (Teams-Anzeige super_admin) — **doppelt geführt**, dieselbe Position steht auch unter „Open Follow-ups". Einmal umsetzen als **Position 6 im „Nächster Batch"**, nicht doppelt.
 - [ ] **Brand-Override-Gate:** `brand_overrides` live testen — Mandant A mit eigenem Logo, Mandant B auf React-Fallback; Austausch (Upload Self-Service `POST /api/mandant/logo` → Datei im Dist-Ordner ersetzen/ergänzen) ohne Reload nachvollziehen
 - [ ] Full E2E `@regression` grün gegen Pre-Prod (inkl. `@smoke`, Badge-PDF, QR-Verify, PKPASS)
 
@@ -145,7 +201,11 @@
 
 - [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt.
 - [x] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel §2 durchgesetzt (keine PG-spezifischen Features in Migrationen/Queries; SQLite-Testsuite läuft).
-- [ ] Feld-Editor „Luxus": genauer Umfang der frei positionierbaren Felder klären (P4) — **User-Input nötig**
+- [x] Feld-Editor-Umfang — **geklärt 2026-09-27** (war fälschlich als „User-Input nötig" offen):
+  Es gilt **Raster + konfigurierbare Labels**, **nicht** „voll frei positionierbar per Drag&Drop".
+  ⚠️ **`features/badge-template-editor.md:7` widerspricht dem und zitiert die alte Entscheidung
+  als Anlass** — das Dokument ist damit **veraltete SOLL** (§4), und die FE1–FE4-Commits wurden
+  auf der alten Annahme gebaut. Korrektur + Umbau sind Positionen 2 und 3 im „Nächster Batch".
 - [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)
 
 ---
@@ -324,7 +384,17 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
 - **W5** Venue-Analyse erledigt + entschieden (KEIN Geo) → Umsetzung als W12 · **W10** WebP-Planung in W11 gemündet · **W8** Doku-Paket committet.
 
 ### Offene Punkte
-- [ ] **W12 — Venue-Stammdaten** (nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD stehen (Backend, `venues.manage` an `mandant_admin` **und** `team_admin` — der Venue-Picker im Team-/Event-Formular darf für den Team-Admin nicht 403en, sonst dead-endet der von uns bestätigte Inline-Create). `events.venue_id` nullable **ersetzt** `events.venue` (Freitext-Spalte ist gedroppt — „ergänzend" wäre die superseded Variante, eine zweite Wahrheit ist genau das, was hier rausfällt). Offen: FE (`VenueCombobox`/`VenuesPage`) + **E2E-Spec** `admin-venue.spec.ts`; die E2E-Fixtures in `helpers/admin-data.ts` sind bereits auf `venue_id` umgestellt.
+- [x] **W12 — Venue-Stammdaten** — Backend + FE umgesetzt und verifiziert, **eine Position
+  offen: E2E nie ausgeführt** (siehe Ende des Eintrags + „Nächster Batch" Position 1)
+  (nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD stehen (Backend, `venues.manage` an `mandant_admin` **und** `team_admin` — der Venue-Picker im Team-/Event-Formular darf für den Team-Admin nicht 403en, sonst dead-endet der von uns bestätigte Inline-Create). `events.venue_id` nullable **ersetzt** `events.venue` (Freitext-Spalte ist gedroppt — „ergänzend" wäre die superseded Variante, eine zweite Wahrheit ist genau das, was hier rausfällt). Offen: ~~FE (`VenueCombobox`/`VenuesPage`)~~ **erledigt** (`6f5c449`) — Combobox mit
+Inline-Erstellung, `VenuesPage`/`VenueForm`, Team-/Event-Formular auf `venue_id`
+umgestellt, 27 i18n-Keys DE+EN, 304 Vitest grün. 18 Backend-Consumer mitgezogen
+(`a0511b6`), darunter `PortalController` + die Portal-Resources — Venue ist im
+**Portal-Kalender** sichtbar, dort bleibt es beim Namens-String (Ids werden nie öffentlich).
+**Offen bleibt genau eine Sache:** der **E2E-Spec `admin-venue.spec.ts` ist nie gelaufen** —
+weder lokal noch in CI (beide Tests tragen nur `@feature:admin:venue`, `ci.yml:8` fährt auf
+`push` ausschließlich `@smoke`). Das ist Position 1 im „Nächster Batch"; erst danach ist W12
+wirklich abgeschlossen.
 - [ ] **Venue-Schreibbreite für `team_admin` (PRODUCT-DECISION, 2026-09-27):** Ein
   `team_admin` darf heute **jeden** Ort seines Mandanten umbenennen, deaktivieren und
   löschen — auch einen, den ein Nachbarverein benutzt. Kategorien sind strenger: dort
@@ -337,7 +407,19 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
   sie dokumentiert und nicht zufällig ist. Der Hebel für die engere Variante wäre ein
   `assertOwnership`-Äquivalent auf der Venue-Oberfläche. **Nicht selbst entscheiden.**
 - [ ] **Dev-DB-Hinweis (W6-F3-Rest):** einmalig `migrate:fresh --seed` (sort_order-Schema).
-- [ ] **Lernpunkt Parallel-Tests:** Voll-Suite NICHT parallel in 2 Subagenten laufen lassen (`Storage::fake` teilt `storage/framework/testing/disks/*` → Cross-Prozess-Race, 3 flaky Failures beobachtet). Suite immer nur in EINEM Subagenten zur Zeit. *(Kandidat für dauerhafte Regel in `AGENTS.md` §7 — nicht verschoben.)*
+- [ ] **Lernpunkt Parallel-Tests —URSACHE KORRIGIERT 2026-09-27** (die alte Begründung war
+  falsch und perpetuierte einen behobenen Fehler): Die Formulierung „`Storage::fake` teilt
+  `storage/framework/testing/disks/*` → Cross-Prozess-Race" ist **überholt** — `0f9cf57` hat
+  die Kollisionsseite geschlossen (prozesseigener Storage-Root). Wer die Regel heute noch
+  mit diesem Grund befolgt, diszipliniert eine Ursache, die es nicht mehr gibt.
+  **Der aktuelle, reproduzierte Lernpunkt ist ein anderer:** Am 2026-09-27 liefen
+  `php artisan test` und `pnpm test:run` **parallel** auf einer 18-Kern-Maschine mit
+  Grundlast ~20. Der Vitest-Reserve-Test (`UsersPage`, bläht unter CPU-Überschreibung um
+  3–5× auf) riss dadurch das Budget und schlug fehl — Last 24.78, Timeout 10000 ms
+  überschritten. **Ursache: CPU-Überschreibung, nicht ein geteiltes Dateisystem.** Ich habe
+  also die Regel gelesen und beim eigenen Verifizieren gebrochen.
+  Für die Verifikation gilt künftig: **sequenziell, nie parallel** — und die Regel gehört
+  nach `AGENTS.md` §7 (*Kandidat für dauerhafte Regel — nicht verschoben*).
 
 ### Reihenfolge
 W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 → W9.
