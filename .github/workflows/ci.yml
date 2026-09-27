@@ -64,7 +64,13 @@ jobs:
           extensions: mbstring, pgsql, pdo_pgsql, pdo_sqlite, dom, gd, zip
           coverage: none
       - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+        # `post-autoload-dump` bootet die App via `package:discover`. Ohne `.env`
+        # (kommt erst im naechsten Schritt) ist `APP_ENV` der Laravel-Default
+        # `production`, und der A2-Boot-Guard verweigert dann den Start ohne
+        # brauchbaren `APP_KEY` — CI waere damit unmoeglich. Gleiche Loesung wie
+        # `deployment/Dockerfile:150`: ein Wegwerf-Key nur fuer diesen Schritt.
+        # Die Testsuite nutzt ohnehin den TEST-ONLY-APP_KEY aus `phpunit.xml`.
+        run: APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" composer install --no-interaction --prefer-dist --no-progress
       - name: Prepare environment
         run: cp .env.example .env
       # Die beiden Key-Schritte sind für die Testsuite NICHT mehr die Quelle der
@@ -200,7 +206,10 @@ jobs:
         working-directory: backend
         # Composer ist im Image (COPY --from=composer:2); PHP aus dem Test-Image
         # (accriditation-base) — kein setup-php auf dem Runner noetig.
-        run: composer install --no-interaction --prefer-dist --no-progress
+        # Der Wegwerf-APP_KEY ist aus demselben Grund noetig wie im
+        # Backend-Job: `package:discover` bootet die App, und ohne `.env` ist
+        # `APP_ENV` = `production`, wo der A2-Boot-Guard ohne Key hart abbricht.
+        run: APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" composer install --no-interaction --prefer-dist --no-progress
       - name: Prepare backend environment
         working-directory: backend
         run: |
