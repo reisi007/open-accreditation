@@ -113,7 +113,6 @@
   nur SQLite Ausdrucksspalten beim Table-Rebuild verliert. **Bewusst offen geblieben:**
   E2E-Suite gegen Postgres (Baum war mitten im Venue-Umbau) und `EXPLAIN ANALYZE` (Index-*Form*
   ist verifiziert, nicht die Geschwindigkeit) → Positionen 8/9 im „Nächster Batch".
-- [ ] **Multi-Domain-UX-Gate (P2c-F4):** Admin-Zugriff auf Nicht-Primär-Domain prüfen (Teams-Anzeige super_admin) — **doppelt geführt**, dieselbe Position steht auch unter „Open Follow-ups". Einmal umsetzen als **Position 7 im „Nächster Batch", nicht doppelt.
 - [ ] **Brand-Override-Gate:** `brand_overrides` live testen — Mandant A mit eigenem Logo, Mandant B auf React-Fallback; Austausch (Upload Self-Service `POST /api/mandant/logo` → Datei im Dist-Ordner ersetzen/ergänzen) ohne Reload nachvollziehen
 - [ ] Full E2E `@regression` grün gegen Pre-Prod (inkl. `@smoke`, Badge-PDF, QR-Verify, PKPASS)
 
@@ -154,7 +153,6 @@
 
 > Abgeschlossene Punkte entfernt: P3e-B5, P3b-F2, P2b-F5, P3e-B3, P1c, RV-U3, P5-F3, P6-B2, FE-R3, P3e-B4 (bereits umgesetzt), Vite-Proxy (Middleware), BE-R8 (Doku), P2c-F4 (useAdminTeams `2e35df1`), P4-F4 (QR z-order `431ec99`).
 
-- [ ] **P2c-F4 (info)** super_admin nähert „aktuellen Mandant" als Primär-Mandant an (Dev ok; Nicht-Primär-Domain zeigt falsche Teams) → Multi-Domain-Admin-UX in P3/P7.
 
 ---
 
@@ -211,7 +209,6 @@
 - [x] **BE-R5 · LOW · DONE (committed on master)** — apply-Rate-Limiter `user('api')` (AppServiceProvider.php:71).
 - [x] **BE-R6 · LOW · DONE (committed on master)** — JWT-Cookie `SameSite=None` in prod / `Lax` in dev (Controller.php).
 - [x] **BE-R7 · LOW · DONE (committed on master)** — negativer Host-Cache bei Domain-Anlage geleert (`MandantContext::forgetHost` in `MandantDomainController::store`).
-- [ ] **BE-R8 · INFO · DOKUMENTIEREN** — VIP/denied nicht durch Bulk-Run reanimierbar (design limitation).
 
 **Frontend**
 - [x] **FE-R1 · MEDIUM · DONE (committed on master ed73305)** — Pluralisierung `accreditationLabels.ts:31,48` → ICU + DE/EN-Kataloge (124 vitest grün).
@@ -402,7 +399,6 @@ wirklich abgeschlossen.
   sie dokumentiert und nicht zufällig ist. Der Hebel für die engere Variante wäre ein
   `assertOwnership`-Äquivalent auf der Venue-Oberfläche. **Nicht selbst entscheiden.**
 - [ ] **Dev-DB-Hinweis (W6-F3-Rest):** einmalig `migrate:fresh --seed` (sort_order-Schema).
-- [ ] **Lernpunkt Parallel-Tests —URSACHE KORRIGIERT 2026-09-27** (die alte Begründung war
   falsch und perpetuierte einen behobenen Fehler): Die Formulierung „`Storage::fake` teilt
   `storage/framework/testing/disks/*` → Cross-Prozess-Race" ist **überholt** — `0f9cf57` hat
   die Kollisionsseite geschlossen (prozesseigener Storage-Root). Wer die Regel heute noch
@@ -481,7 +477,6 @@ W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 �
 
 ### Offene Follow-ups
 
-- [ ] **403/404-Split auf `{mandant}` (low, bewusst offen):** `User` war auf
   `PUT /api/admin/users/{user}/roles` ohne Mandant-Scope gebunden — das ist seit
   `a761f4a` **behoben** (`User::resolveRouteBindingQuery()` scoped über genau die
   `isMemberOfMandant()`-Prädikat, beide über `constrainToMandantMembership()`),

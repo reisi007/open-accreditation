@@ -142,6 +142,17 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
   - **Safe Patching Policy (CRITICAL):** Alle `patch.mjs` Scripts MÜSSEN den Erfolg einer Ersetzung
     validieren (`includes()`/`indexOf()` vor `.replace()`, danach Diff prüfen, `console.error` + Abbruch
     bei Leerlauf). Blinde `.replace()` Aufrufe sind untersagt!
+- **Verifikationsläufe laufen SEQUENZIELL, nie parallel (STRICT, 2026-09-27):** Eine volle
+  Suite darf nie gleichzeitig mit einer anderen vollen Suite laufen — weder in zwei Subagenten noch
+  im selben Agenten, der nebenbei eine zweite Suite fährt. Grund ist **CPU-Überschreibung**, nicht
+  ein geteiltes Dateisystem: unter Last bläht jeder Test einer Datei um 3–5× auf (gemessen
+  14 → 56 ms bei 24 Spinnern auf 18 Kernen), und der Reserve-Test in
+  `frontend/src/pages/admin/UsersPage.test.tsx` riss dadurch ein 10-s-Budget, obwohl er intrinsisch
+  ~563 ms kostet. **Das ist keine theoretische Regel:** der Build-Agent hat sie beim eigenen
+  Verifizieren gebrochen (`php artisan test` neben `pnpm test:run` auf einer 18-Kern-Maschine mit
+  Grundlast ~20) und den Timeout danach auf 15 000 ms anheben müssen. Zwei volle Läufe **nacheinander**
+  kosten nur Zeit — parallel kosten sie eine grüne Ampel ohne Aussagekraft.
+  Gilt auch für gemischte Läufe (Postgres-Gate neben SQLite-Suite, Frontend neben Backend).
 - **User-Fragen immer interaktiv (STRICT):** Offene Klärungsfragen an den Benutzer werden
   IMMER sofort per interaktivem Frage-Tool gestellt — nie nur in `AGENTS.todo.md` geparkt.
   Ausnahme: Der Benutzer ist erkennbar abwesend oder hat async Bearbeitung angeordnet; dann
