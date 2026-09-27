@@ -74,7 +74,7 @@ export async function ensurePrimaryMandantHasTeam() {
             return teamsList[0];
         }
 
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const create = await api.post(`/api/admin/mandants/${primary.id}/teams`, {
             data: {
                 name: `E2E Heimverein ${suffix}`,
@@ -204,7 +204,7 @@ export async function ensurePrimaryMandantSubAccreditation() {
             throw new Error('No mandant found for sub-accreditation setup');
         }
 
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const categoryName = `E2E Sub Akkreditierung ${suffix}`;
         const category = await api.post('/api/admin/categories', {
             data: { name: categoryName, slug: `e2e-sub-akkreditierung-${suffix}` },
@@ -276,7 +276,8 @@ export async function ensurePrimaryMandantSubAccreditation() {
  * @returns {Promise<{ email: string; password: string }>}
  */
 export async function registerAndActivateUser() {
-    const email = `sub-${Date.now()}@example.test`;
+    const suffix = uniqueSuffix();
+    const email = `sub-${suffix}@example.test`;
     const password = 'SecurePassw0rd!';
     const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
     try {
@@ -725,7 +726,7 @@ export async function ensurePrimaryMandantActivePortalEvent() {
         const teamsList = teamsBody.data ?? [];
         let team = teamsList[0];
         if (!team) {
-            const suffix = Date.now();
+            const suffix = uniqueSuffix();
             const teamCreate = await api.post(`/api/admin/mandants/${primary.id}/teams`, {
                 data: {
                     name: `E2E Heimverein ${suffix}`,
