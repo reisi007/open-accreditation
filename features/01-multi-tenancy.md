@@ -360,9 +360,19 @@ gesondert prüfen.
   rendert der Trigger **nur** `location.hostname`. Begründung: `Verband: (
   host)` wäre eine Behauptung ohne Inhalt (welcher Verband?), und der Hostname ist
   genau das, was E1/E9 vom Trigger **nie** verlieren will — die Domain *ist* der
-  Kontext, der Name nur sein Etikett. Der Test sucht den Trigger im Fehlerfall
-  deshalb **über die Rolle**, nicht über den Namen
-  (`MandantSwitcher.test.tsx:349-350`). Beleg: `MandantSwitcher.tsx:250`.
+  Kontext, der Name nur sein Etikett. Beleg der Implementierung:
+  `MandantSwitcher.tsx:250`.
+  **Offen, benannte Lücke:** den `current_mandant_id === null`-Fall (Liste lädt
+  noch oder ist fehlgeschlagen → der Trigger zeigt **nur** den Hostnamen) deckt
+  **kein** Test ab — alle Fixtures der Datei setzen eine bekannte ID
+  (`current_mandant_id: CURRENT_MANDANT_ID`, `MandantSwitcher.test.tsx:34`).
+  Die Zusage ist am Code belegt, am Test nicht, und wird hier nicht als
+  abgesichert ausgegeben. Dass die anderen Switcher-Tests den Trigger **über
+  die Rolle** suchen und nicht über einen festen Namen, ist kein Zufall, sondern
+  der geteilte Helper `trigger()` (`MandantSwitcher.test.tsx:128-131`,
+  `findByRole('button', { name: /^Verband: / })`) — eine Umformulierung des
+  Labels darf keinen Testbogen auslösen. Für den Fehlerfall gilt diese
+  Absicht bisher nur für den Helper, nicht für einen eigenen Test.
 
 - **E13 — Nicht navigierbare Zeilen tragen `aria-current="false"`; daisyUIs
   `menu-disabled` ist dafür verworfen.** daisyUIs aktive-Zeilen-Regel verlangt
@@ -398,17 +408,24 @@ den `MandantListPage` für seine Liste benutzt: damit teilen Liste und Switcher
 einen Cache und das Öffnen des Switchers kostet keinen zweiten Request. Der
 `enabled`-Schalter ist E11, keine Optimierung.
 
-> **Offene, benannte Lücke — der geteilte Key ist noch nicht geteilt.**
-> `MANDANTS_KEY` ist exportiert, aber `MandantListPage.tsx:30` liest weiterhin
-> **sein eigenes Literal** `'/api/admin/mandants'` statt des Exports. Der
-> `useMandants`-Test beweist die gemeinsame Cache-Nutzung **zweier Hook-
-> Konsumenten** — nicht, dass die Mandantenliste und der Switcher dasselbe
-> Literal verwenden. Ein Auseinanderdriften bliebe für ihn unsichtbar: beide
-> Seiten läden ihre eigene Kopie, jede bliebe in sich korrekt, und der Schalter
-> kostete auf `/admin/mandants` genau den zweiten Request, den er einsparen
-> soll. Der Umzug ist ein **empfohlener** Follow-up (kein Refactor-Zwang für
-> diese Spec), aber eine Lücke, kein Erledigtes — bis er getan ist, ist der
-> „identische Key" eine Absichtserklärung und keine Tatsache.
+> **Geschlossen (2026-09-27): Der geteilte Key IST geteilt — und die
+> Invariante ist getestet.** `MandantListPage` importiert `MANDANTS_KEY` aus
+> `useMandants` und benutzt es als SWR-Key; das eigene Literal ist dort
+> entfernt. Das war die letzte stille Bruchstelle zwischen zwei Aussagen dieser
+> Spec („der Key ist absichtlich derselbe") — vorher wäre der Satz eine
+> Absichtserklärung gewesen, keine Tatsache.
+>
+> **Der Test schützt die Invariante, nicht nur den Hook.** Der `useMandants`-
+> Test beweist die gemeinsame Cache-Nutzung **zweier Hook-Konsumenten**; damit
+> bliebe genau das Drift-Szenario unsichtbar, das oben benannt war: ein
+> zurückgeholtes eigenes Literal in `MandantListPage` würde beide Seiten je für
+> sich korrekt laden, der Switcher kostete auf `/admin/mandants` wieder den
+> zweiten Request, und **kein** Test schläge fehl. Deshalb mountet
+> `MandantSwitcher.test.tsx` beide Komponenten **gemeinsam** unter einem
+> `SWRConfig` mit frischem Cache und **die Request-Anzahl ist die Assertion**
+> (genau ein `GET /api/admin/mandants`, während der Switcher auf derselben Seite
+> geöffnet wird). Damit ist „ein Cache-Eintrag" eine geprüfte Eigenschaft und
+> keine Absicht.
 
 **Sichtbarkeit im Header.** Trigger-Text ab `sm`: `{name} · {hostname}`; unter
 `sm` nur `{name}` mit `truncate` (der Header ist auf kleinen Viewports eng; die
