@@ -234,11 +234,21 @@ USER www-data
 # `docker run … php artisan …` und `docker exec` verhalten sich unverändert.
 # Beide Rollen laufen durch dasselbe Skript — `backend` ruft es als `serve`
 # auf, der einmalige `migrate`-Service als `migrate`. Nur so kann der
-# MEDIA_ROOT-Guard nicht umgangen werden: Er bricht den Start AB (Exit 78 =
-# EX_CONFIG), wenn MEDIA_ROOT fehlt oder nicht schreibbar ist — Docker legt
-# einen fehlenden Bind-Quellpfad als LEERES root-eigenes Verzeichnis an,
-# Upload/PDF/Wallet-Pässe scheitern dann still. Fail-fast ist besser als 500er
-# im Betrieb, und eine Migration gegen ein kaputtes Deployment wäre genau der
-# Moment, in dem man es am wenigsten bemerkt.
+# MEDIA_ROOT-Guard nicht umgangen werden. Er hat ZWEI unabhängige Auslöser,
+# beide mit Exit 78 = EX_CONFIG:
+#   1. MEDIA_ROOT fehlt oder ist nicht schreibbar — Docker legt einen fehlenden
+#      Bind-Quellpfad als LEERES root-eigenes Verzeichnis an, Upload/PDF/
+#      Wallet-Pässe scheitern dann still. Das ist IMMER ein Abbruch.
+#   2. MEDIA_ROOT liegt in KEINEM Mount (weder selbst noch über einen
+#      Vorfahren) — der Fall "gemountet, aber nie benutzt" ist von "gar nicht
+#      gemountet" am laufenden System nicht unterscheidbar, und der komplette
+#      Media-Baum wäre container-lokal, also mit dem nächsten `up -d --build`
+#      weg bzw. nach einem Remount ohne Referenz zurück.
+#      Dieser Auslöser ist per Default NUR EINE WARNUNG und wird erst mit
+#      `MEDIA_ROOT_REQUIRE_MOUNT=true` zum Abbruch; ohne gesetztes MEDIA_ROOT
+#      greift er gar nicht.
+# Fail-fast ist besser als 500er im Betrieb, und eine Migration gegen ein
+# kaputtes Deployment wäre genau der Moment, in dem man es am wenigsten
+# bemerkt — deshalb läuft der `migrate`-One-shot durch denselben Guard.
 # Für ein Debug-Shell: `docker run --entrypoint sh …`.
 CMD ["/usr/local/bin/entrypoint.sh", "serve"]

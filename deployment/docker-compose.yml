@@ -75,6 +75,17 @@
 #
 #   RUN_CACHE_WARMUP=true docker compose … up -d     # = config:cache
 #
+# MEDIA_ROOT-Mount-Guard (Standard ist AUS = nur Warnung, siehe `entrypoint.sh`):
+#
+#   MEDIA_ROOT_REQUIRE_MOUNT=true docker compose … up -d
+#
+# Der Guard vergleicht MEDIA_ROOT mit der Mount-Tabelle des Containers. Ohne
+# Volume liegt der komplette Media-Baum in der writable layer und ist mit dem
+# naechsten `up -d --build` weg bzw. kommt nach einem Remount zurueck, auf den
+# nichts mehr zeigt. Per Default warnt der Guard nur; `true` bricht BEIDE
+# Services hart ab (Exit 78 = EX_CONFIG) — `migrate` bewusst MIT, damit der
+# Abbruch vor `php artisan migrate` passiert.
+#
 # MANUEL als Escape-Hatch (Exit-Hatch, wenn z. B. ein Rollback noetig ist
 # oder der `migrate`-Container schon existiert):
 #
@@ -217,6 +228,18 @@ services:
       DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required (deployment/dev.env for local dev, the deploy env for prod)}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (deployment/dev.env for local dev, the deploy env for prod)}
       MEDIA_ROOT: /srv/media/accreditation
+      # MEDIA_ROOT-Mount-Guard (W6, `deployment/entrypoint.sh`) scharf schalten.
+      # Per Default `false` = der Guard WARNT nur, wenn MEDIA_ROOT in keinem
+      # Mount liegt (Uploads/PDFs wuerden in der Container-writable layer
+      # landen und beim naechsten `up -d --build` weg sein). `true` bricht
+      # stattdessen mit Exit 78 ab.
+      # Bewusst an BEIDEN Services (`migrate` UND `backend`): beide laufen durch
+      # denselben Entry-Point, und der One-shot ist der FRUEHESTE Punkt, an dem
+      # ein nicht gemounteter Media-Baum auffaellt. Der Abbruch wandert damit
+      # VOR `php artisan migrate` — gewollt: eine Migration gegen ein
+      # Deployment, dessen Uploads bei jedem Remount verschwinden, ist genau
+      # der Moment, in dem man es am wenigsten bemerkt.
+      MEDIA_ROOT_REQUIRE_MOUNT: ${MEDIA_ROOT_REQUIRE_MOUNT:-false}
       # Seeding ist per Default AUS. `DatabaseSeeder` legt in `production`
       # den globalen Super-Admin an, sobald ADMIN_EMAIL *und* ADMIN_PASSWORD
       # gesetzt sind — das darf niemals still bei jedem Deploy passieren.
@@ -316,6 +339,11 @@ services:
       DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required (deployment/dev.env for local dev, the deploy env for prod)}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (deployment/dev.env for local dev, the deploy env for prod)}
       MEDIA_ROOT: /srv/media/accreditation
+      # Identisch zum `migrate`-Service (siehe dort) — beide laufen durch
+      # denselben MEDIA_ROOT-Mount-Guard, also muss derselbe Schalter bei
+      # beiden ankommen. Per Default `false` = nur Warnung; `true` = harter
+      # Abbruch mit Exit 78, wenn MEDIA_ROOT in keinem Mount liegt.
+      MEDIA_ROOT_REQUIRE_MOUNT: ${MEDIA_ROOT_REQUIRE_MOUNT:-false}
     ports:
       # WP-5-b/R-D10: Caddy läuft auf dem HOST, Docker löst Container-Namen
       # nur INNERHALB seines Netzes auf — `accreditation_backend:9000` (so
