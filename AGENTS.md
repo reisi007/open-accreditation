@@ -83,6 +83,16 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 
 - Frontend: `pnpm lint:fix && pnpm build` (oder `tsc -b`) läuft fehlerfrei
 - Backend: `php artisan test` (alle bestehenden Tests grün)
+- **i18n: jede neue Nachricht braucht DE *und* EN.** `pnpm build` läuft über
+  `prebuild` → `check:i18n`, und das Gate **bricht mit exit 1 ab, wenn eine aktive
+  Nachricht in einer Locale ohne `msgstr` steht** — Lingui fällt sonst still auf
+  den deutschen Quelltext zurück, und ein englischer Nutzer sieht deutschen Text
+  (so war es bei `{name} neu anlegen` und `{name} reaktivieren` in
+  `VenueCombobox.tsx`). Nach neuen Strings: `pnpm lingui:extract && pnpm lingui:compile`
+  **und** die EN-`msgstr` ausfüllen. **Einzige Ausnahme:** obsolete `#~`-Einträge —
+  die behält Lingui als Historie und leert ihre `msgstr` selbst. **Kein Skip-Mechanismus**:
+  „msgid == msgstr" ist strukturell abgedeckt, eine handgepflegte Ausnahmeliste wäre
+  nur ein Ort, an dem sich die nächste echte Lücke versteckt.
 - Keine `eslint-disable`, `@ts-ignore` oder `any`
 - Keine blinden `.replace()`-Patches (Safe-Patching-Policy, §6)
 
