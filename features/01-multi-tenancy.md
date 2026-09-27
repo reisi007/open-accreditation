@@ -63,44 +63,66 @@ Admin-API ist dabei rein **abgeleitet**, kein DB-Feld:
   — Cross-Mandant-Lecks sind damit ausgeschlossen, die Isolationsgarantie darf
   nicht regredieren.
 
-## Bekannte Limitation: Multi-Domain-Admin-UX (Ist P2c, P2c-F4)
+## Multi-Domain-Admin-UX (Ist P2c, P2c-F4)
 
-**Bewusst akzeptierte Limitation** (Design-Entscheidung, kein Bug): Ein
-`super_admin` hat keinen mandant-scoped Rollenkontext (`mandant_id = NULL`,
-global). Die Admin-UX nähert den „aktuellen Mandant" daher im Frontend an:
-`useAdminTeams()` (`frontend/src/logic/useAdminTeams.ts`) wählt für ihn den
-**Primär-Mandant** (`is_primary = true`) als Quelle der Team-Listen und
-Team-Auswahlen (Kategorien, Events, Rollen-, Akkreditierungs-Formulare). Das
-Backend selbst löst korrekt host-basiert auf (`MandantContext::currentId()`
-in den Admin-Controllern, siehe Host-Resolution) — die Approximation liegt
-rein im SPA.
+Die Admin-Oberfläche skaliert ihre Listen auf **zwei** Arten. Die
+Unterscheidung ist der eigentlich interessante Punkt an dieser Stelle:
 
-**Folge:** Greift ein `super_admin` über eine **Nicht-Primär-Domain**
-(z. B. `bundesliga.test`) zu, zeigt die Team-Auflistung fälschlicherweise die
-Teams des **Primär-Mandanten** — nicht die des über die Domain adressierten
-Mandanten. In Dev/Local ist das unsichtbar: Der Loopback-Fallback der
-`MandantContextMiddleware` mapped `localhost`/`127.0.0.1`/`::1` ohnehin auf
-den Primär-Mandant, damit ist die Frontend-Approximation dort korrekt
-(Dev-ok). Die Mandant-Detail-Seite (`MandantDetailPage`) ist nicht betroffen
-— sie adressiert den Mandanten explizit über die URL
-(`/api/admin/mandants/{id}/teams`).
+- **Host-skaliert** (der Standard): `/admin/categories`, `/admin/events`,
+  `/admin/accreditations`, `/admin/users`. Diese Routen tragen **keine**
+  Mandant-ID in der URL — es gibt also nichts, was das SPA durchreichen
+  könnte. Das Backend löst über `MandantContext::currentId()` auf. Ein
+  `super_admin` hat keinen mandant-scoped Rollenkontext (`mandant_id = NULL`,
+  global); für ihn trägt `/me` das **host-abgeleitete** `current_mandant_id`,
+  und genau das nutzt `useAdminTeams()`
+  (`frontend/src/logic/useAdminTeams.ts:40-42`) als Quelle der Team-Listen
+  und Team-Auswahlen (Kategorien, Events, Rollen-, Akkreditierungs-Formulare).
+  Auf einer **Nicht-Primär-Domain** sind das damit die Teams des über die
+  Domain adressierten Mandanten — nicht die des primären Mandanten. Die
+  frühere Approximation über den primären Mandanten ist mit `2e35df1`
+  (P2c-F4) entfernt; das Szenario ist regressionsgesichert in
+  `useAdminTeams.test.tsx:107-127` und `AdminTeamTest.php:426-448`.
+- **URL-skaliert**: die Mandant-CRUD-Oberfläche. `/admin/mandants/{mandant}/teams`
+  ist eine Route mit `{mandant}`-Parameter und adressiert den Mandanten
+  explizit; sie ist vom Host-Kontext **unabhängig** — ein `super_admin` darf
+  jeden Mandanten von jedem Host aus verwalten
+  (`TeamController::assertMandantRouteParameter()`, Super-Admin-Carve-out).
 
-**Keine Isolationslücke:** Jeder Write wird backend-seitig gegen den
-host-abgeleiteten aktuellen Mandanten validiert
-(`ResolvesAdminTeamScope::assertTeamOfMandant()`, Cross-Mandant-IDs → 404).
-Eine falsche Team-Vorauswahl führt also zu verwirrender UX (404 beim Speichern
-gegen fremden Kontext), nie zu Daten in einem anderen Mandanten.
+Weil Team-Dropdowns und ihre Listen beide host-skaliert auflösen, sind sie
+untereinander **konsistent**: kein Falsch-Mandant in der Auswahl. Die alte
+Fehlschaltung (Teams des primären Mandanten auf einer Nicht-Primär-Domain)
+existiert nicht mehr.
 
-**Einordnung & Lösungspfad:** Kein Defekt, sondern eine dokumentierte
-Einschränkung bis zur späteren Multi-Domain-Admin-UX-Phase. Die saubere
-Lösung — Domain→Mandant-Auflösung auch für die Admin-Routen des SPA nutzen
-(der Host liegt vor, das Backend liefert die Auflösung bereits korrekt) —
-erfolgt in dieser späteren Phase. Bis dahin verwaltet ein `super_admin`
-Nicht-Primär-Mandanten über die Mandant-CRUD-Oberfläche
-(`/admin/mandants/{id}`), die den Mandanten ebenfalls explizit adressiert.
+### Offene Limitation: Venue-Auswahl auf der Mandant-Detail-Seite
 
-Gleiche Kategorie bewusst akzeptierter UI-Approximationen wie der
-`is_team_override`-Flag (siehe oben).
+Hier **kreuzen** sich die beiden Modelle. `MandantDetailPage` lädt die Teams
+über den **URL**-Mandanten (`MandantDetailPage.tsx:48-51`), die
+Heimstätte-Auswahl aber über `useVenues()` → `GET /api/admin/venues` — und
+das ist **host-skaliert**: `VenueController` hat anders als `TeamController`
+**keinen** `{mandant}`-Route-Parameter, `index` filtert
+`forMandant($this->currentMandantId())` und `store` setzt
+`'mandant_id' => $this->currentMandantId()`.
+
+**Folge bei abweichendem Host-Mandanten:** Die Heimstätte-Auswahl bietet die
+Orte des **Host**-Mandanten an, und ein **Inline-Create**
+(`VenueCombobox` → `POST /api/admin/venues`) schreibt still in den
+Host-Mandanten; der anschließende Team-Save auf denselben `venue_id`
+scheitert erst dann mit 404 (`TeamController::assertVenueOfMandant()`). Das
+ist ein **Datenintegritätsproblem** — die Fremd-venue existiert danach real
+im Host-Mandanten —, kein reiner Anzeigefehler.
+
+**Lösungspfad:** Es fehlt ein **mandant-adressierbarer Venue-Endpunkt**
+(`/api/admin/mandants/{id}/venues`), analog zur Team-Route; Venue und Team
+können dann dieselbe `{mandant}`-Quelle nutzen.
+
+**Keine Isolationslücke, aber eine Invariante mit zwei Skalen:** Jeder Write
+wird gegen **den Mandanten validiert, auf den seine Route skaliert** —
+host-abgeleitet (`ResolvesAdminTeamScope::assertTeamOfMandant()`) auf den
+host-skalierten Admin-Oberflächen, gegen den **URL**-`{mandant}` auf der
+Mandant-CRUD-Oberfläche. Cross-Mandant-IDs antworten in beiden Fällen mit
+404, ein falscher Kontext führt also nie zu einem Team, Event, einer
+Akkreditierung oder einem Konto im falschen Mandanten. Für `Venue` gilt das
+gerade **nicht** — siehe oben.
 
 ## Seed (Ist P1)
 
