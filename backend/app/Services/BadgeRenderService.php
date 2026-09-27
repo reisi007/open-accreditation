@@ -27,8 +27,11 @@ use Illuminate\Support\Facades\Storage;
  *   category    → accreditation.category.name
  *   event       → accreditation.event.title
  *   date        → event date (d.m.Y)
- *   photo       → the applicant's portrait from the private disk (base64 data URI;
- *                 an empty box when no portrait exists — the layout position stays)
+ *   photo       → the applicant's portrait from the private disk (base64 data URI);
+ *                 without a portrait the bundled person silhouette
+ *                 (`BadgePhotoPlaceholder`) is printed in the same box — see
+ *                 features/badge-template-editor.md, "Platzhalter für ein
+ *                 fehlendes Porträt"
  *   status      → human German status label
  *   team        → accreditation.team.name (empty string without a team)
  *   vest_number → user.vest_number (empty string when unset)
@@ -105,6 +108,7 @@ final class BadgeRenderService
         private readonly MandantMediaService $mandantMedia,
         private readonly MediaStorage $mediaStorage,
         private readonly MediaHostResolver $hosts,
+        private readonly BadgePhotoPlaceholder $placeholder,
     ) {}
 
     /**
@@ -262,40 +266,99 @@ final class BadgeRenderService
         }
 
         $name = (string) $field['field'];
+        $wMm = (float) ($field['w'] ?? 0);
+        $hMm = (float) ($field['h'] ?? 0);
         $style = sprintf(
             'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;font-size:%dpt;text-align:%s;',
             $this->mm((float) ($field['x'] ?? 0)),
             $this->mm((float) ($field['y'] ?? 0)),
-            $this->mm((float) ($field['w'] ?? 0)),
-            $this->mm((float) ($field['h'] ?? 0)),
+            $this->mm($wMm),
+            $this->mm($hMm),
             max(1, (int) ($field['size'] ?? 12)),
             in_array($field['align'] ?? null, ['center', 'right'], true) ? $field['align'] : 'left',
         );
 
         if ($name === 'photo') {
-            return $this->renderPhoto($style, $application);
+            return $this->renderPhoto($style, $application, $wMm, $hMm);
         }
 
         return sprintf('<div style="%s">%s</div>', $style, e((string) ($this->valueFor($application, $name) ?? '')));
     }
 
-    private function renderPhoto(string $style, Application $application): string
+    /**
+     * A `photo` entry: the applicant's portrait, or — when there is none — the
+     * bundled person silhouette (`BadgePhotoPlaceholder`, features/
+     * badge-template-editor.md, "Platzhalter für ein fehlendes Porträt").
+     *
+     * The real portrait keeps the historical `100 % × 100 %` markup with
+     * `object-fit: cover`. The placeholder instead gets its **contain geometry
+     * computed in mm**, because dompdf does not implement `object-fit` at all
+     * (measured: a PDF rendered with `object-fit: contain` and one without it are
+     * byte-identical), so the icon would otherwise be stretched into a wide flat
+     * blob in a non-square box. Centering it as a square keeps the printed badge
+     * in step with the editor preview, which honours `object-contain` natively.
+     *
+     * The box stays in the markup either way — a missing portrait must never
+     * remove the reserved space, and if the bundled asset itself is missing the
+     * historical empty box is printed (the card always prints).
+     */
+    private function renderPhoto(string $style, Application $application, float $wMm, float $hMm): string
     {
         $portrait = $application->user?->media->firstWhere('type', 'portrait');
 
-        if ($portrait === null || ! Storage::disk('private')->exists($portrait->path)) {
+        if ($portrait !== null && Storage::disk('private')->exists($portrait->path)) {
+            // `e()` hardening: the data URI is base64 today (escape-neutral), but
+            // escaping keeps the src attribute safe should the mime/source path
+            // ever change.
+            $dataUri = 'data:'.$portrait->mime.';base64,'.base64_encode((string) Storage::disk('private')->get($portrait->path));
+
+            return sprintf(
+                '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:cover;"></div>',
+                $style,
+                e($dataUri),
+            );
+        }
+
+        $placeholder = $this->placeholder->dataUri();
+
+        if ($placeholder === null) {
             return sprintf('<div style="%s"></div>', $style);
         }
 
-        // `e()` hardening: the data URI is base64 today (escape-neutral), but
-        // escaping keeps the src attribute safe should the mime/source path
-        // ever change.
-        $dataUri = 'data:'.$portrait->mime.';base64,'.base64_encode((string) Storage::disk('private')->get($portrait->path));
+        return $this->centeredSquareImage($style, $placeholder, $wMm, $hMm);
+    }
+
+    /**
+     * A square image scaled like `object-fit: contain` and centered in its
+     * absolutely positioned mm box — the part of `contain` dompdf would have to
+     * implement for us. `object-fit: contain` stays in the style: it documents the
+     * intent, and on a renderer that honours it the explicit geometry yields the
+     * same result (idempotent, not a second decision).
+     *
+     * A degenerate box (`≤ 0`, only reachable by bypassing the controller's
+     * minimum-size validation) falls back to the plain full-size image.
+     */
+    private function centeredSquareImage(string $style, string $dataUri, float $wMm, float $hMm): string
+    {
+        $side = min($wMm, $hMm);
+
+        if ($side <= 0.0) {
+            return sprintf(
+                '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:contain;"></div>',
+                $style,
+                e($dataUri),
+            );
+        }
 
         return sprintf(
-            '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:cover;"></div>',
+            '<div style="%soverflow:hidden;"><img src="%s" style="position:absolute;left:%smm;top:%smm;'
+            .'width:%smm;height:%smm;object-fit:contain;"></div>',
             $style,
             e($dataUri),
+            $this->mm(($wMm - $side) / 2),
+            $this->mm(($hMm - $side) / 2),
+            $this->mm($side),
+            $this->mm($side),
         );
     }
 

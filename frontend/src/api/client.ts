@@ -537,6 +537,21 @@ export interface BadgeImage {
 /** Auth-gated file URL of one badge image (editor thumbnails/previews). */
 export const badgeImageFileUrl = (id: number): string => `/api/admin/badge-images/${id}/file`;
 
+/**
+ * Auth-gated URL of the bundled person silhouette that stands in for a missing
+ * portrait in a `photo` entry (features/badge-template-editor.md, "Platzhalter
+ * für ein fehlendes Porträt").
+ *
+ * The editor must show the *same* icon the PDF prints, and that icon may exist
+ * in this repository exactly once: the bytes live in
+ * `backend/resources/img/badge/photo-placeholder.png` and the backend serves
+ * them from there. A second copy in the SPA (an `import`ed asset, an iconify
+ * class, a file in `public/`) would drift from what the badge prints — and
+ * `public/` is served without authentication, which AGENTS.md §11 does not allow
+ * for the editor's byte path.
+ */
+export const badgePhotoPlaceholderUrl = '/api/admin/badge-assets/photo-placeholder';
+
 export const listBadgeImages = (): Promise<BadgeImage[]> => request<BadgeImage[]>('/api/admin/badge-images');
 
 export const uploadBadgeImage = (file: File): Promise<BadgeImage> => {

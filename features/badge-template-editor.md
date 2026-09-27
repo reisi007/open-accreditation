@@ -56,7 +56,7 @@ Details im Abschnitt „Elementtyp `image`".
 | Baustein | Ort | Ist-Zustand |
 |---|---|---|
 | Schema/Validierung | `Api/Admin/BadgeTemplateController` (`layout`-Rules) | Schema v2: Whitelist inkl. `qr`/`team`/`vest_number`/`image`; A6-Bounds (`x+w ≤ 105`, `y+h ≤ 148`), Mindestgrößen (Text 5×3, Box 10×10 mm), max. ein `qr`-Entry; `image.src` Union-Validierung inkl. Existenz + Mandanten-Scoping der `image_id` (RV-S2) |
-| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
+| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`; **ohne Portrait das gebündelte Silhouett**, siehe „Platzhalter für ein fehlendes Porträt"); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
 | Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
 | API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
 | Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **Vorschau mit Auswahl + Pfeiltasten-Nudge** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die **absoluten** Koordinaten entstehen ausschließlich aus den Panel-Zahleneingaben, der Canvas verschiebt relativ um 1 mm (Shift = 5 mm) und sonst nichts (Maus-Drag, Eckgriffe und magnetische Guides wurden am 2026-09-27 zurückgebaut, das Nudge am selben Tag wiederhergestellt). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
@@ -139,7 +139,7 @@ Migration (`layout` bleibt `json`-Array):
 | `category` | `application.accreditation.category.name` |
 | `event` | `application.accreditation.event.title` |
 | `date` | Event-Datum (`d.m.Y`) |
-| `photo` | Portrait (`user.media`, `type='portrait'`, private Disk) |
+| `photo` | Portrait (`user.media`, `type='portrait'`, private Disk); ohne Portrait das gebündelte Personen-Silhouett (`BadgePhotoPlaceholder`) |
 | `status` | deutsche Status-Beschriftung |
 
 **SOLL-neu (Datenquellen heute bereits vorhanden, verifiziert):**
@@ -222,8 +222,10 @@ Upload-Flow) sind umgesetzt.
   `"fit": "cover"` ist das Opt-in für füllende Platzierung inkl. Beschnitt
   (Verhalten wie `photo` mit `object-fit: cover`).
 - **Fehlende Quelle** (Upload gelöscht, kein Logo hinterlegt) → leere Box an
-  der Layout-Position (konsistent zu `photo` ohne Portrait); die Karte druckt
-  trotzdem.
+  der Layout-Position; die Karte druckt trotzdem. Das ist der dokumentierte Weg
+  für einen **absichtlich** leeren Kasten — anders als `photo` ohne Portrait, das
+  den Platzhalter aus „Platzhalter für ein fehlendes Porträt" druckt. Wer dort
+  nichts möchte, nimmt `image` statt `photo` (kein Schalter, siehe dort).
 - **Brand-Auflösung zur Druckzeit:** `brand`-Refs werden logisch aufgelöst
   (kein Binär-Snapshot im Template) — ein Logo-Austausch wirkt auf künftige
   Exporte. Dokumentierte Entscheidung; historische Snapshots gibt es bewusst
@@ -239,6 +241,157 @@ Upload-Flow) sind umgesetzt.
   erfolgt ausschließlich serverseitig gegen mandantengescopete Quellen
   (verhindert SSRF/Path-Traversal/Cross-Mandant-Leak über das persistierte
   layout-JSON).
+
+## Platzhalter für ein fehlendes Porträt (User-Entscheidung 2026-09-28)
+
+**Status: SOLL — umgesetzt.** Ein `photo`-Entry, dessen Application kein
+Portrait hat, druckt ein neutrales Personen-Silhouett statt einer leeren Box
+(`BadgeRenderService::renderPhoto()` → `BadgePhotoPlaceholder`,
+`GET /api/admin/badge-assets/photo-placeholder`).
+
+### Zweck und Begründung
+
+- **Ein Ausweis ohne Bild ist eine Lücke auf Papier.** Die Box reserviert Platz,
+  sagt dem Betrachter aber nichts darüber, was dort fehlt. Ein neutrales
+  Silhouett ist in dieser Hinsicht eine **Aussage**: „hier wäre ein Porträt".
+- **Der Editor kann prinzipiell nie ein echtes Foto zeigen** — es gibt dort
+  keine Application, keine Person. Er zeigte bis hierher ebenfalls eine leere
+  Box. Ein Silhouett ist dort also **näher an der Wirklichkeit** als ein leerer
+  Kasten, nicht weiter weg: es ist genau das, was ein ausdruckender Ausweis ohne
+  Portrait zeigt.
+- **Nur der Inhalt der Box ändert sich.** Position, Größe, `overflow:hidden` und
+  das `layout`-Schema bleiben unangetastet; ein Bestandstemplate rendert
+  unverändert bis auf die Füllung dieser einen Box.
+
+### Bewusst KEINE Option zum Abschalten
+
+- Wer keinen Porträtplatz will, fügt schlicht **kein** `photo`-Element hinzu.
+- Einen absichtlich leeren Kasten erreicht man weiterhin über `image` mit
+  unauflösbarer Quelle — `renderImage()` liefert für eine fehlende Quelle genau
+  die leere Box (`BadgeRenderService::renderImage():333-335`). Das ist der
+  dokumentierte Weg für „dort soll nichts stehen".
+- Ein Schalter (`photo_fallback: none`) wäre eine **Achse ohne Bedarf**: er
+  müsste im `layout`-JSON persistiert, im zod-Schema gespiegelt, serverseitig
+  validiert und in der Vorschau bedienbar werden — für genau einen Fall, den
+  `image` bereits abdeckt.
+
+### Der Asset-Entscheid: 512-px-PNG **mit** Alpha-Kanal (gemessen)
+
+**Eine** Datei im Repo: `backend/resources/img/badge/photo-placeholder.png`
+(512 × 512, Graustufen + Alpha, Füllung `#8C8C8C` → **3.36:1** gegen Weiß, also
+auch im Graustufendruck sichtbar). Ihre Herkunft ist
+`scripts/render-badge-photo-placeholder.mjs`: das Skript liest genau das Glyph,
+das der Editor vorher anzeigte (`mdi account` aus `@iconify-json/mdi`), und
+rastet es. Damit liegt das Icon **einmal** im Repo statt zweimal, und der Editor
+zeigt exakt die Bytes, die der PDF-Renderer einbettet.
+
+Format und Größe sind **gemessen**, nicht aus dem Repertoire gewählt (dompdf,
+A6-Karte, 30 × 30-mm-Box, 200 dpi, Rasterung mit `scripts/pdf-to-png-vision.sh`;
+„Tinte" = Anteil der Pixel unter der 90-%-Schwelle in der Box):
+
+| Variante | Gemessenes Ergebnis |
+|---|---|
+| inline `<svg>` im HTML | **nichts.** Der Box-Crop ist **byte-identisch** zur leeren Kontrollbox (`min = max = 255`, `stddev = 0`, Tinte 0) |
+| `<img src="data:image/svg+xml;…">` | gezeichnet, aber **verzerrt**: der Kopf wird ein schräger Klumpen; Tinte 0.206 statt 0.311 der Quelle |
+| `<img>` 512-px-PNG **mit** Alpha | **korrekt**; Tinte 0.315 (Kanten-Antialiasing), Proportionen maßstabsgetreu |
+| `<img>` 512-px-PNG auf Weiß geflatet | ebenfalls korrekt, **malt aber einen weißen Kasten** über jeden anderen Hintergrund (gemessen: Eckpixel `#FFFFFF` dort, wo der Hintergrund `#000000` war; mit Alpha bleibt dort `#000000`) |
+| `<img>` 24-px-PNG | Form korrekt, auf 30 mm sichtbar blockig |
+
+→ **PNG mit Alpha-Kanal.** dompdf trägt kein SVG (inline gar nicht, als Bild
+verzerrt), der Alpha-Kanal ist der Unterschied zwischen „komponiert" und „malt
+einen weißen Kasten", und 512 px ist die kleinste der gemessenen Größen, die auf
+der maximal möglichen Box sauber bleibt.
+
+**Kein SVGO, kein Optimizer-Pfad.** Der Icon-Body ist ein einziger `<path>` — es
+gibt nichts zu optimieren. Das Skript fasst `svgo` nicht an: nicht zur Build-Zeit,
+nicht zur Laufzeit. Damit bleibt das akzeptierte Risiko **A4** (AGENTS.md §10)
+unberührt; es entsteht kein npm-Pfad, der untrusted SVG durch einen Sanitizer
+schickt.
+
+### Die Contain-Geometrie rechnet der Fallback selbst (dompdf kann `object-fit` nicht)
+
+**Befund:** dompdf implementiert `object-fit` überhaupt nicht. Eine mit
+`object-fit: contain` gerenderte Karte und dieselbe Karte ohne die Deklaration
+sind **byte-identische PDFs** (gemessen: 34 959 Bytes in beiden Fällen) — ein
+`<img>` wird immer auf seine Box gestreckt. Bei einer 25 × 30-mm-Box ergäbe das
+eine breite, flache Silhouette (gemessen: der Kopf wird zum 4:1-Ellipsoid).
+
+Der Fallback rechnet die Geometrie deshalb selbst in mm: Icon quadratisch mit
+Seitenlänge `min(w, h)`, mittig in der Box. `object-fit: contain` bleibt im Style
+stehen — es dokumentiert die Absicht und ist auf einem Renderer, der es
+beherrscht, idempotent. Am **echten** Render gemessen:
+
+| Box | Tinten-Bounding-Box im Render | Vergleich: das Asset selbst |
+|---|---|---|
+| 30 × 30 mm | 161 × 162 px bei (38, 38) → 68.2 % / 16.1 % | 68.2 % / 16.4 % |
+| 25 × 30 mm | **135 × 135** px bei (31, 51) → quadratisch, vertikal zentriert | — |
+
+Ein Stretch hätte in der 25 × 30-mm-Box 135 × **162** px geliefert. Die Rechnung
+gilt **nur** für den Fallback: der Portrait-Zweig behält sein historisches
+`width/height: 100 %` + `object-fit: cover`-Markup unangetastet (dort ändert sich
+gegenüber dem Bestand nichts).
+
+### Delivery: auth-gatet, mandantenunabhängig, eine Quelle mit dem PDF
+
+`GET /api/admin/badge-assets/photo-placeholder` (`BadgeAssetController`) — hinter
+`can:accreditations.manage`, im mandanten-skalierten `/api/admin/*`-Block,
+`Cache-Control: private, max-age=3600, must-revalidate`.
+
+- **Warum auth-gatet und nicht `public/`:** die Datei ist ein gebündeltes Asset
+  und damit per Konstruktion harmlos — aber der **Auslieferungsweg des Editors**
+  ist eine echte Entscheidung, und die bestehende Konvention sagt: Bytes, die der
+  Editor zeigt, kommen aus einer auth-gateten API-Route (`logo_url`,
+  `header_url`, `GET /api/admin/badge-images/{id}/file`). `frontend/public/` ist
+  laut dieser Spec ausdrücklich **keine** Bezugsquelle des Backends und wäre
+  ohne Authentifizierung erreichbar (AGENTS.md §11). Eine zweite, offene Route
+  für dasselbe Byte wäre die schlechtere Variante.
+- **Mandanten-Isolation:** das Asset enthält **keine** Mandantendaten, und das ist
+  gemessen statt behauptet — zwei Mandanten erhalten byte-identische Antworten.
+  Die Sicherheitswirkung liegt im Gate (ohne Anmeldung 401, ohne
+  `accreditations.manage` 403) und darin, dass die Datei über den Web-Root nicht
+  erreichbar ist; beides ist getestet.
+- **Eine Quelle:** die im Markup eingebettete Base64-Nutzlast und der HTTP-Body
+  der Route sind byte-gleich — im Test über die tatsächlichen Bytes verglichen,
+  nicht über zwei gleichlautende Literale.
+- **Export-Profil:** der Platzhalter wird **einmal pro Dokument** eingebettet,
+  nicht einmal pro Karte (gemessen: 20 Karten ohne Portrait = 51 KB bei 23
+  Bild-XObjects; pro Karte wären es rund 296 KB gewesen). Das in
+  `features/badges-qr.md` dokumentierte Speicherprofil bleibt gültig.
+
+### Warum das Icon **keine** dritte `src`-Art wurde
+
+`src` ist eine Union **auflösbarer, mandanteneigener** Quellen (`brand.ref` oder
+`upload.image_id`); für `upload` erzwingt die Validierung, dass die Zeile
+existiert **und** dem aktuellen Mandanten gehört (RV-S2). Ein Icon wäre eine
+Quelle, die **niemand wählen kann** — also ein Union-Zweig ohne validierbare
+Zeile, ohne Besitz und ohne Löschpfad, der genau die Tür öffnet, welche die Union
+schließt (client-kontrollierte Pfade/URLs im `layout`-JSON, SSRF/Traversal).
+Semantisch gehört sie auch nicht ins Layout: das Layout sagt „hier steht das
+Portrait der Application"; **was** der Renderer ohne Portrait zeichnet, ist eine
+Entscheidung zur Render-Zeit — genau wie die leere Box, die sie ersetzt. Ein
+`src`-Ast dafür änderte Schema, Migration, zod-Spiegel und
+Controller-Validierung, ohne einen einzigen neuen Ausdruck zu gewinnen.
+
+### Editor-Vorschau
+
+`BadgeCanvas` rendert in einem `photo`-Kasten
+`<img src={badgePhotoPlaceholderUrl} alt="" class="h-full w-full object-contain">`.
+Der Kasten ist **weiß** — die Karte ist weiß und der Platzhalter wird auf Weiß
+gedruckt; ein andersfarbiger Editor-Hintergrund wäre eine Lüge über den Druck.
+Das Bild ist dekorativ (`alt=""`), weil der Kasten seinen zugänglichen Namen
+schon trägt (`Feld Foto`).
+
+**Testfolge (AGENTS.md §3).** PHPUnit: beide Richtungen (kein Portrait → Icon,
+Portrait → **kein** Icon; die zweite ist die, die gern regressiert) plus die
+Mandanten-Isolation und die Gleichheit der Bytes zwischen PDF und HTTP;
+Nicht-Vakuosität per Mutation belegt (Fallback entfernt → 5 Fehlschläge;
+Fallback unbedingt gesetzt → genau der Portrait-Test fällt). Vitest: die
+Vorschau, gegen die ausgeschriebene Route (nicht gegen den importierten
+Konstante-Wert — der wäre mit jedem URL grün gewesen) und die Abwesenheit in
+`qr`/`image`-Kästen; per Mutation belegt. **Kein** E2E für den PDF selbst (kein
+PDF im E2E-Pfad); **ein** E2E für den Auslieferungsweg des Editors
+(`naturalWidth > 0` im echten Browser), weil nur dort das httpOnly-Cookie
+mitgeliefert wird — PHPUnit und Vitest laden das Bild nie.
 
 ## Editor-UX
 
@@ -357,15 +510,20 @@ die zod-Seite erhält die Werte als Props/Konstanten-Export, nicht hart codiert.
   (`?? 0` / Defaults) wie im Ist.
 - **Neue Datenfelder:** Erweiterung des `valueFor`-Match mit null-sicherer
   Auflösung (leerer String statt `null`-Ausgabe, konsistent zu `event`/`date`).
-  Escaping via `e()` bleibt für alle interpolierten Werte Pflicht; `photo`-
-  Sonderbehandlung (private Disk, Base64, `object-fit: cover`, leere Box bei
-  fehlendem Bild) bleibt unangetastet.
+  Escaping via `e()` bleibt für alle interpolierten Werte Pflicht; der
+  `photo`-Zweig **mit** Portrait (private Disk, Base64, `object-fit: cover`,
+  `width/height: 100 %`) bleibt unangetastet. Neu ist ausschließlich der
+  Fallback-Zweig: ohne Portrait druckt er das gebündelte Silhouett mit selbst
+  gerechneter Contain-Geometrie (siehe „Platzhalter für ein fehlendes
+  Porträt"); fehlt zusätzlich das gebündelte Asset, bleibt es bei der leeren
+  Box, damit ein Export nie an einem Deploy-Defekt stirbt.
 - **`image`-Entry (SOLL):** absolut positionierter, `overflow:hidden`-div mit
   Base64-`<img>` von der privaten Disk (`object-fit` je `fit`, Default
   `contain`). Die Quelle wird serverseitig aufgelöst (`brand` →
   `MandantMediaService`-Pfad des aktuellen Mandanten, `upload` →
-  mandantengescopete `badge_images`-Zeile); fehlende Quelle → leere Box wie
-  `photo` ohne Portrait. Der Mandanten-Scope des `upload`-Lookups ist
+  mandantengescopete `badge_images`-Zeile); fehlende Quelle → leere Box (der
+  dokumentierte Weg zu einem absichtlich leeren Kasten). Der Mandanten-Scope
+  des `upload`-Lookups ist
   **unbedingt** (`forMandant()`): ohne aufgelösten Mandanten rendert der Entry
   eine leere Box, statt den Filter zu fallen lassen (WP-2-d). Alt-Templates ohne
   `image`-Entries rendern unverändert.
@@ -619,3 +777,11 @@ Diese vier Punkte sind entschieden und damit **gültige Spec**:
   der `image_id` ist Pflicht (kein Cross-Mandant-Leak).
 - Bestandstemplates ohne `image`-Entries rendern unverändert — die
   Whitelist-Erweiterung bleibt strikt additiv.
+- **Das Silhouett erscheint nur dort, wo es hingehört:** bei `photo` ohne
+  Portrait, in derselben Box, aus derselben einen Datei, die auch der Editor
+  bekommt. Mit Portrait bleibt die Box unverändert portrait-gefüllt — und
+  fehlt das gebündelte Asset selbst, bleibt es bei der leeren Box.
+- Der `image`-Pfad behält seine Absicherung unverändert: `layout.src` führt
+  weiterhin **nie** client-kontrollierte Pfade oder URLs, und der
+  Platzhalter hat **keine** eigene `src`-Art bekommen (Begründung in
+  „Platzhalter für ein fehlendes Porträt").

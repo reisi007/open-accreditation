@@ -118,6 +118,41 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Skalierung')).toHaveValue('cover');
     });
 
+    test('shows the portrait placeholder in a photo box and really loads it (auth-gated bytes)', {
+        tag: ['@feature:badge-editor', '@regression'],
+    }, async ({ page }) => {
+        // The editor shows the very icon the PDF prints for an application
+        // without a portrait (features/badge-template-editor.md, "Platzhalter
+        // für ein fehlendes Porträt"). The bytes are served by the backend behind
+        // the admin gate — and ONLY a browser can prove that: PHPUnit proves the
+        // route answers, Vitest proves the markup, but neither ever fetches the
+        // image with the httpOnly session cookie. `naturalWidth > 0` is that
+        // proof; a 401/403 leaves it at 0 and the box empty.
+        await page.goto('/admin/badge-templates');
+        await expect(page).toHaveURL(/\/login$/);
+
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/badge-templates$/);
+
+        await page.getByRole('main').getByRole('button', { name: 'Neu', exact: true }).first().click();
+        const dialog = page.getByRole('dialog');
+        const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
+
+        await dialog.getByRole('button', { name: 'Foto', exact: true }).click();
+
+        const icon = canvas.getByRole('button', { name: 'Feld Foto' }).locator('img');
+        await expect(icon).toHaveAttribute('src', '/api/admin/badge-assets/photo-placeholder');
+        await expect
+            .poll(async () => icon.evaluate((node) => (node instanceof HTMLImageElement ? node.naturalWidth : 0)))
+            .toBeGreaterThan(0);
+
+        // Nothing is persisted here (the dialog is simply abandoned), so this
+        // test leaves no template for the afterAll purge.
+    });
+
     test('blocks saving a field outside the A6 bounds with a validation error', {
         tag: ['@feature:badge-editor', '@regression'],
     }, async ({ page }) => {

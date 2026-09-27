@@ -1,6 +1,7 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { badgePhotoPlaceholderUrl } from '../../api/client';
 import {
     A6_HEIGHT_MM,
     A6_WIDTH_MM,
@@ -78,9 +79,16 @@ function SampleContent({ field }: { field: BadgeRowValues['field'] }) {
         case 'vest_number':
             return <span className="text-neutral-900">{SAMPLE_TEXT.vest_number}</span>;
         case 'photo':
+            // The very icon the PDF prints for an application without a portrait
+            // (`backend/resources/img/badge/photo-placeholder.png`, served
+            // auth-gated). The editor has no person to show yet, so this is
+            // literally what a portrait-less badge looks like — closer to the
+            // truth than the empty box it replaced, and the only copy of the icon
+            // in the repository. Decorative: the box already carries its
+            // accessible name ("Feld Foto").
             return (
-                <span className="flex h-full w-full items-center justify-center rounded bg-neutral-200">
-                    <span className="iconify mdi--account text-3xl text-neutral-500"></span>
+                <span className="block h-full w-full bg-white">
+                    <img src={badgePhotoPlaceholderUrl} alt="" className="h-full w-full object-contain" />
                 </span>
             );
         case 'qr':

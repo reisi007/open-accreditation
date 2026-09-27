@@ -1,6 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { badgePhotoPlaceholderUrl } from '../../api/client';
 import { renderWithProviders } from '../../test-setup';
 import { BadgeCanvas } from './BadgeCanvas';
 import {
@@ -209,6 +210,51 @@ describe('BadgeCanvas has no drag interaction', () => {
  * `<button>`, so it is focusable without a `tabIndex` — that is the whole
  * keyboard entry point into the canvas.
  */
+/**
+ * A `photo` box shows the placeholder icon — the very bytes the PDF prints for
+ * an application without a portrait (features/badge-template-editor.md,
+ * "Platzhalter für ein fehlendes Porträt").
+ *
+ * The assertion is on the URL, not on "an image is there": editor and PDF must
+ * not drift apart, and the URL is where that contract lives. The negative
+ * direction is nailed too (a `qr`/`image` box shows no such image) so the test
+ * cannot pass by rendering the icon everywhere.
+ */
+describe('BadgeCanvas photo placeholder', () => {
+    it('shows the auth-gated placeholder in a photo box', () => {
+        renderCanvas([row({ field: 'photo', x: 5, y: 25, w: 30, h: 30 })]);
+
+        const icon = within(screen.getByRole('button', { name: 'Feld Foto' })).getByRole('presentation');
+
+        expect(icon).toHaveAttribute('src', badgePhotoPlaceholderUrl);
+        // Decorative: the box carries the accessible name, the icon none.
+        expect(icon).toHaveAttribute('alt', '');
+        // The badge card is white and the placeholder is printed on white — the
+        // sample must not fake a different paper colour than the print has.
+        expect(icon.parentElement).toHaveClass('bg-white');
+    });
+
+    it('renders no placeholder image for the other box entries', () => {
+        renderCanvas([row({ field: 'qr' }), row({ field: 'image', y: 60 })]);
+
+        for (const name of ['Feld QR-Code', 'Feld Bild']) {
+            expect(within(screen.getByRole('button', { name })).queryByRole('presentation')).toBeNull();
+        }
+
+        expect(document.querySelector(`img[src="${badgePhotoPlaceholderUrl}"]`)).toBeNull();
+    });
+
+    it('resolves to the auth-gated admin route, never a public asset path', () => {
+        // Spelled out as a literal on purpose. The test above compares the DOM
+        // against the imported constant, which passes for ANY url — measured: with
+        // the constant repointed at a public `/photo-placeholder.png` that test
+        // stayed green. This one is the nail for the delivery decision (AGENTS.md
+        // §11): the bytes come from the backend, behind the admin gate, because
+        // the same file is what the PDF embeds.
+        expect(badgePhotoPlaceholderUrl).toBe('/api/admin/badge-assets/photo-placeholder');
+    });
+});
+
 describe('BadgeCanvas keyboard nudge', () => {
     it('is reachable by keyboard alone: the box is a focusable button', async () => {
         const user = userEvent.setup();

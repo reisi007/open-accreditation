@@ -8,6 +8,7 @@ use App\Models\BadgeTemplate;
 use App\Models\Mandant;
 use App\Models\User;
 use App\Models\UserMedia;
+use App\Services\BadgePhotoPlaceholder;
 use App\Services\BadgeRenderService;
 use App\Support\MandantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -95,14 +96,18 @@ class BadgeRenderServiceTest extends TestCase
 
         $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
 
-        // No portrait stored: the photo stays an empty box at its position.
+        // No portrait stored: the photo box keeps its position and now carries the
+        // person silhouette. The empty box it replaced is the last resort only —
+        // for a missing bundled asset (see BadgePhotoPlaceholderTest).
+        $placeholder = app(BadgePhotoPlaceholder::class)->dataUri();
         $this->assertStringContainsString(
             '<div style="position:absolute;left:5.00mm;top:25.00mm;width:25.00mm;height:30.00mm;'
-            .'font-size:12pt;text-align:left;"></div>',
+            .'font-size:12pt;text-align:left;overflow:hidden;"><img src="'.$placeholder.'"'
+            .' style="position:absolute;left:0.00mm;top:2.50mm;width:25.00mm;height:25.00mm;object-fit:contain;"></div>',
             $html,
         );
 
-        $this->assertSame(1, substr_count($html, '<img src="data:image/png;base64,'));
+        $this->assertSame(1, $this->qrImageCount($html));
     }
 
     /* ---------------------------------------------------------------------
@@ -163,8 +168,9 @@ class BadgeRenderServiceTest extends TestCase
             'QR must render after overlapping fields (top z-order) so it stays scannable.',
         );
 
-        // Sanity: exactly one QR image on the card.
-        $this->assertSame(1, substr_count($html, '<img src="data:image/png;base64,'));
+        // Sanity: exactly one QR image on the card (counted by its 300 px
+        // intrinsic size, so the photo placeholder does not inflate the number).
+        $this->assertSame(1, $this->qrImageCount($html));
     }
 
     public function test_full_pdf_still_renders_with_a_coordinated_template(): void
@@ -743,6 +749,28 @@ class BadgeRenderServiceTest extends TestCase
         Storage::disk('media')->put($path, $bytes);
 
         return $bytes;
+    }
+
+    /**
+     * How many QR images the card carries. The QR is the only 300 × 300 PNG in
+     * the markup (the Endroid builder is pinned to `size: 300`); counting by
+     * intrinsic size instead of by `<img` keeps the assertion honest now that a
+     * portrait-less `photo` entry also emits an image (the placeholder).
+     */
+    private function qrImageCount(string $html): int
+    {
+        preg_match_all('/src="data:image\/png;base64,([A-Za-z0-9+\/=]+)"/', $html, $matches);
+
+        $count = 0;
+        foreach ($matches[1] as $payload) {
+            $size = @getimagesizefromstring((string) base64_decode($payload, true));
+
+            if ($size !== false && $size[0] === 300 && $size[1] === 300) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**

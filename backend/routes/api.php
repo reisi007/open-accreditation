@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AccreditationController as AdminAccreditation
 use App\Http\Controllers\Api\Admin\AdminApplicationController;
 use App\Http\Controllers\Api\Admin\AdminMediaController;
 use App\Http\Controllers\Api\Admin\AdminSubApplicationController;
+use App\Http\Controllers\Api\Admin\BadgeAssetController;
 use App\Http\Controllers\Api\Admin\BadgeExportController;
 use App\Http\Controllers\Api\Admin\BadgeImageController;
 use App\Http\Controllers\Api\Admin\BadgeTemplateController;
@@ -348,6 +349,13 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/badge-images', [BadgeImageController::class, 'store'])->middleware('throttle:admin')->name('badge-images.store');
         Route::get('/badge-images/{badgeImage}/file', [BadgeImageController::class, 'showFile'])->name('badge-images.show-file');
         Route::delete('/badge-images/{badgeImage}', [BadgeImageController::class, 'destroy'])->middleware('throttle:admin')->name('badge-images.destroy');
+
+        // The bundled badge assets (no mandant-owned data, but the same
+        // auth-gated surface as the badge templates): today only the person
+        // silhouette that stands in for a missing portrait in a `photo` entry.
+        // Read-only like the delivery route above, so the editor canvas loads it
+        // unthrottled.
+        Route::get('/badge-assets/photo-placeholder', [BadgeAssetController::class, 'photoPlaceholder'])->name('badge-assets.photo-placeholder');
 
         Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->middleware('throttle:admin')->name('accreditations.badges.export');
     });

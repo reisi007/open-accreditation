@@ -79,8 +79,14 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
   `overflow:hidden`. Ein mehrzeiliger Text in einem zu kleinen Kasten läuft in
   das Feld darunter (gemessen, siehe „Visuelle Verifikation“ unten).
 - **`photo`:** Portrait aus `user.media` (`type = 'portrait'`) auf der `private`-
-  Disk, als Base64-`data:`-URI eingebettet (`object-fit: cover`). Fehlt das
-  Portrait, bleibt eine leere Box an der Layout-Position.
+  Disk, als Base64-`data:`-URI eingebettet (`object-fit: cover`). **Fehlt das
+  Portrait, druckt die Box das gebündelte Personen-Silhouett** (User-Entscheidung
+  2026-09-28) statt nichts — Format, Größe, Alpha-Channel und die selbst
+  gerechnete Contain-Geometrie sind in
+  `badge-template-editor.md` → „Platzhalter für ein fehlendes Porträt"
+  **gemessen** begründet. Die leere Box bleibt der letzte Ausweg, wenn
+  zusätzlich das gebündelte Asset fehlt (Deploy-Defekt); sie ist damit nicht
+  mehr der Normalfall eines Ausweises ohne Bild.
 - **`status`:** deutsche Labels — `approved → Akkreditiert`, `requested →
   Beantragt`, `denied → Abgelehnt`, `blacklisted → Gesperrt`.
 
