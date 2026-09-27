@@ -62,8 +62,8 @@ Fachwissen her wie einen Senior Architekten. Die direkte Anrede „Senior Archit
   `SET CONSTRAINTS ALL DEFERRED` hebt den Check auf PG 17 nicht auf), dort jetzt ein dokumentierter
   **Skip**; `QrTokenV2Test` band seine Precondition an die feste Id 1, der Legacy-Schlüssel wird
   jetzt **für die tatsächlich erzeugte Id abgeleitet** (auf SQLite byte-identisch zur alten
-  Konstante). Stand beider Engines lokal gemessen: SQLite **1468 passed / 0 skipped**, PostgreSQL
-  **1467 passed / 1 skipped / 0 failed** — deckungsgleich, denn `1468 = 1467 + 1`.
+  Konstante). Stand beider Engines lokal gemessen: SQLite **1534 passed / 0 skipped**, PostgreSQL
+  **1533 passed / 1 skipped / 0 failed** — deckungsgleich, denn `1534 = 1533 + 1`.
 
 ## 3. Definition of Done (DoD)
 

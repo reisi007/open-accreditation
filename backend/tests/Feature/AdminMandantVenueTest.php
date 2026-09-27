@@ -266,6 +266,104 @@ class AdminMandantVenueTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | The team_admin write scope on the ADDRESSED surface
+     |
+     | The two surfaces share the private `updateVenue()` / `deleteVenue()`
+     | workers, so the team_admin write scope (only venues his own team uses)
+     | has to hold here EXACTLY as it holds on the host-scoped one. A scope
+     | that guards one surface and not the other is worse than none: the
+     | unguarded one is the bypass. Pinned on both below.
+     | ------------------------------------------------------------------- */
+
+    public function test_a_team_admin_may_rename_the_venue_his_own_team_uses(): void
+    {
+        MandantContext::set($this->mandantA);
+        [$teamAdmin, $team] = $this->teamAdminWithTeam($this->mandantA);
+
+        $venue = $this->mandantA->venues()->create(['name' => 'Vereinsheim']);
+        $team->update(['venue_id' => $venue->id]);
+
+        $this->actingAsApi($teamAdmin)
+            ->putJson('/api/admin/mandants/'.$this->mandantA->id.'/venues/'.$venue->id, [
+                'name' => 'Vereinsheim Süd',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Vereinsheim Süd');
+
+        $this->assertDatabaseHas('venues', ['id' => $venue->id, 'name' => 'Vereinsheim Süd']);
+    }
+
+    /**
+     * The bypass guard: the SAME defect, reached through the mandant-adressed
+     * route. Two clubs of mandant A, one venue row used by the neighbour only —
+     * renaming it here answered 200 before the write scope existed, and the
+     * host-scoped surface refusing it would not have closed anything.
+     */
+    public function test_a_team_admin_may_not_rename_or_delete_a_venue_only_another_team_uses(): void
+    {
+        MandantContext::set($this->mandantA);
+        [$teamAdmin] = $this->teamAdminWithTeam($this->mandantA);
+
+        $venue = $this->mandantA->venues()->create(['name' => 'Nachbarstadion']);
+        $this->mandantA->teams()->create([
+            'name' => 'FC Nachbar',
+            'slug' => 'fc-nachbar',
+            'venue_id' => $venue->id,
+        ]);
+
+        $base = '/api/admin/mandants/'.$this->mandantA->id.'/venues';
+        $client = $this->actingAsApi($teamAdmin);
+
+        $client->putJson($base.'/'.$venue->id, ['name' => 'Umbenannt'])->assertStatus(403);
+        $client->putJson($base.'/'.$venue->id, ['is_active' => false])->assertStatus(403);
+        $client->deleteJson($base.'/'.$venue->id)->assertStatus(403);
+
+        $this->assertDatabaseHas('venues', [
+            'id' => $venue->id,
+            'name' => 'Nachbarstadion',
+            'is_active' => true,
+        ]);
+    }
+
+    /**
+     * The addressed surface must not become a way AROUND the mandant axis
+     * either. `assertMandantRouteParameter()`'s super_admin carve-out is the
+     * reason a team_admin could ever name another mandant in the URL, so the
+     * WRITE verbs are pinned here on top of the read/create pair the test
+     * below already covers — a foreign venue of a foreign mandant is 404
+     * (mandant axis), never 403 (team axis) and never a write.
+     */
+    public function test_a_team_admin_addressing_a_foreign_mandant_cannot_write_through_it(): void
+    {
+        MandantContext::set($this->mandantA);
+        [$teamAdmin, $team] = $this->teamAdminWithTeam($this->mandantA);
+
+        // His own team's venue — the strongest case for him being allowed to
+        // write, so the 404 below can only come from the mandant axis.
+        $own = $this->mandantA->venues()->create(['name' => 'Vereinsheim']);
+        $team->update(['venue_id' => $own->id]);
+
+        $foreign = $this->mandantB->venues()->create(['name' => 'Fremde Halle']);
+        $this->mandantB->teams()->create([
+            'name' => 'FC B',
+            'slug' => 'fc-b',
+            'venue_id' => $foreign->id,
+        ]);
+
+        $base = '/api/admin/mandants/'.$this->mandantB->id.'/venues';
+        $client = $this->actingAsApi($teamAdmin);
+
+        $client->putJson($base.'/'.$foreign->id, ['name' => 'Gehackt'])->assertStatus(404);
+        $client->deleteJson($base.'/'.$foreign->id)->assertStatus(404);
+
+        $this->assertDatabaseHas('venues', ['id' => $foreign->id, 'name' => 'Fremde Halle']);
+        // …and the positive half on his OWN mandant, so the 404 cannot be a
+        // missing route or a broken grant.
+        $client->putJson('/api/admin/mandants/'.$this->mandantA->id.'/venues/'.$own->id, ['name' => 'Neu'])
+            ->assertOk();
+    }
+
+    /* ---------------------------------------------------------------------
      | Name uniqueness follows the ROUTE mandant
      | ------------------------------------------------------------------- */
 
@@ -452,9 +550,23 @@ class AdminMandantVenueTest extends TestCase
     /** A team_admin WITH a team assignment — without one the gate denies everything. */
     private function teamAdmin(Mandant $mandant): User
     {
+        return $this->teamAdminWithTeam($mandant)[0];
+    }
+
+    /**
+     * The same, plus his TEAM: the write-scope tests must decide whether a
+     * venue is one "his own team uses", which means pointing a team at it.
+     *
+     * @return array{0: User, 1: Team}
+     */
+    private function teamAdminWithTeam(Mandant $mandant): array
+    {
         $team = Team::factory()->create(['mandant_id' => $mandant->id]);
 
-        return $this->createUserWithRole(UserRole::TEAM_ADMIN, $mandant->id, $team->id);
+        return [
+            $this->createUserWithRole(UserRole::TEAM_ADMIN, $mandant->id, $team->id),
+            $team,
+        ];
     }
 
     private function createUserWithRole(UserRole $role, ?int $mandantId, ?int $teamId = null): User
