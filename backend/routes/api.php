@@ -248,6 +248,26 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::delete('/venues/{venue}', [VenueController::class, 'destroy'])->middleware('throttle:admin')->name('venues.destroy');
     });
 
+    // W12 (board 7b): the same surface ADDRESSED BY MANDANT, for the one admin
+    // page that addresses a mandant by URL (`/admin/mandants/{id}`) — its team
+    // form carries the venue combobox. The host-scoped routes above resolve
+    // their mandant from the request HOST, so on that page the picker offered
+    // the host mandant's venues and its inline create WROTE into the host
+    // mandant without an error (only the team save afterwards 404'd). The gate
+    // is identical (`venues.manage`); the difference is the scope, enforced in
+    // the controller via `assertMandantRouteParameter()`: super_admin may
+    // address ANY mandant from any host, everyone else only the mandant he is
+    // already on (else 404). So this grants no one new reach — it only makes
+    // the page read and write the mandant it is actually about. The host-scoped
+    // routes stay for the host-relative pages (categories, events,
+    // accreditations, VenuesPage).
+    Route::middleware('can:venues.manage')->group(function (): void {
+        Route::get('/mandants/{mandant}/venues', [VenueController::class, 'indexForMandant'])->name('mandants.venues.index');
+        Route::post('/mandants/{mandant}/venues', [VenueController::class, 'storeForMandant'])->middleware('throttle:admin')->name('mandants.venues.store');
+        Route::put('/mandants/{mandant}/venues/{venue}', [VenueController::class, 'updateForMandant'])->middleware('throttle:admin')->name('mandants.venues.update');
+        Route::delete('/mandants/{mandant}/venues/{venue}', [VenueController::class, 'destroyForMandant'])->middleware('throttle:admin')->name('mandants.venues.destroy');
+    });
+
     Route::middleware('can:events.manage')->group(function (): void {
         Route::get('/events', [EventController::class, 'index'])->name('events.index');
         Route::post('/events', [EventController::class, 'store'])->middleware('throttle:admin')->name('events.store');

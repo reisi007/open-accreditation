@@ -50,11 +50,13 @@ function ControlledCombobox({
     valueLabel,
     onChangeSpy,
     onBusyChangeSpy,
+    mandantId = null,
 }: {
     initial?: string;
     valueLabel?: string | null;
     onChangeSpy?: (value: string) => void;
     onBusyChangeSpy?: (busy: boolean) => void;
+    mandantId?: number | null;
 }) {
     const [value, setValue] = useState(initial);
     return (
@@ -63,6 +65,7 @@ function ControlledCombobox({
                 label="Spielort"
                 value={value}
                 valueLabel={valueLabel}
+                mandantId={mandantId}
                 onChange={(next) => {
                     setValue(next);
                     onChangeSpy?.(next);
@@ -79,6 +82,7 @@ function renderCombobox(
         valueLabel?: string | null;
         onChangeSpy?: (value: string) => void;
         onBusyChangeSpy?: (busy: boolean) => void;
+        mandantId?: number | null;
     } = {},
 ) {
     return renderWithProviders(<ControlledCombobox {...props} />);
@@ -278,7 +282,9 @@ describe('VenueCombobox — filtering and selection', () => {
         expect(combobox().getAttribute('aria-activedescendant')).not.toBeNull();
         await user.keyboard('{Enter}');
 
-        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena West' }));
+        // The host-scoped path addresses NO mandant — the second argument is the
+        // addressed id, and `null` means "the host mandant".
+        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena West' }, null));
         await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('9'));
     });
 
@@ -324,7 +330,9 @@ describe('VenueCombobox — inline create', () => {
         const createOption = screen.getByRole('option', { name: 'Arena West neu anlegen' });
         await user.click(createOption);
 
-        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena West' }));
+        // The host-scoped path addresses NO mandant — the second argument is the
+        // addressed id, and `null` means "the host mandant".
+        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena West' }, null));
         await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('9'));
         expect(combobox()).toHaveValue('Arena West');
         // The list is refetched so the new row is in the shared SWR cache.
@@ -359,7 +367,45 @@ describe('VenueCombobox — inline create', () => {
         await user.type(combobox(), '  Arena Ost  ');
         await user.click(screen.getByRole('option', { name: 'Arena Ost neu anlegen' }));
 
-        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena Ost' }));
+        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena Ost' }, null));
+    });
+});
+
+describe('VenueCombobox — the addressed mandant reaches the LIST and the WRITES', () => {
+    it('reads the list of the mandant the form belongs to', async () => {
+        setVenues([makeVenue({ id: 1, name: 'Zeppelin Arena' })]);
+        renderCombobox({ mandantId: 7 });
+
+        await waitFor(() => expect(listVenuesMock).toHaveBeenCalledWith(7));
+    });
+
+    it('creates the inline venue IN that mandant', async () => {
+        setVenues([]);
+        createVenueMock.mockImplementation(async (payload: { name: string }) => makeVenue({ id: 9, name: payload.name }));
+        const user = userEvent.setup();
+        const onChangeSpy = vi.fn<(value: string) => void>();
+        renderCombobox({ mandantId: 7, onChangeSpy });
+
+        await user.type(combobox(), 'Arena West');
+        await user.click(screen.getByRole('option', { name: 'Arena West neu anlegen' }));
+
+        // The regression this pins: a mandant-scoped LIST alone is not enough —
+        // the create has to address the mandant too, or the row lands in the
+        // host mandant while the form shows it as selected.
+        await waitFor(() => expect(createVenueMock).toHaveBeenCalledWith({ name: 'Arena West' }, 7));
+        await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('9'));
+    });
+
+    it('reactivates an inactive venue in that mandant', async () => {
+        setVenues([makeVenue({ id: 4, name: 'Alte Halle', is_active: false })]);
+        updateVenueMock.mockImplementation(async (id: number) => makeVenue({ id, name: 'Alte Halle' }));
+        const user = userEvent.setup();
+        renderCombobox({ mandantId: 7 });
+
+        await user.click(combobox());
+        await user.click(await screen.findByRole('button', { name: 'Alte Halle reaktivieren' }));
+
+        await waitFor(() => expect(updateVenueMock).toHaveBeenCalledWith(4, { is_active: true }, 7));
     });
 });
 
@@ -613,7 +659,7 @@ describe('VenueCombobox — inactive venues', () => {
         await user.type(combobox(), 'Stadion Ost');
         await user.click(screen.getByRole('button', { name: 'Stadion Ost reaktivieren' }));
 
-        await waitFor(() => expect(updateVenueMock).toHaveBeenCalledWith(2, { is_active: true }));
+        await waitFor(() => expect(updateVenueMock).toHaveBeenCalledWith(2, { is_active: true }, null));
         await waitFor(() => expect(onChangeSpy).toHaveBeenCalledWith('2'));
         expect(combobox()).toHaveValue('Stadion Ost');
     });

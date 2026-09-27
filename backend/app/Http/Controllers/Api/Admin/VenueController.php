@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Api\Admin\Concerns\ResolvesAdminTeamScope;
+use App\Http\Controllers\Api\Admin\Concerns\ResolvesMandantRouteParameter;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VenueResource;
+use App\Models\Mandant;
 use App\Models\Venue;
 use App\Rules\ValidUtf8;
 use Illuminate\Http\JsonResponse;
@@ -34,27 +36,116 @@ use Symfony\Component\HttpFoundation\Response;
  *   row is reactivated, never duplicated. Mirrored by the controller's
  *   `Rule::unique`, so a duplicate answers a 422 with a German message instead
  *   of surfacing a raw DB constraint violation.
+ *
+ * ## Two surfaces, one scope rule
+ *
+ * The host-scoped routes (`/api/admin/venues`) resolve their mandant from
+ * `MandantContext` — the request HOST. That is right for every page that lives
+ * *on* a mandant's domain (categories, events, accreditations, `VenuesPage`)
+ * and wrong for the one admin page that explicitly addresses a mandant by URL:
+ * `/admin/mandants/{id}` loads its teams through `{mandant}` but its venue
+ * combobox went through the host. The picker then offered the host mandant's
+ * venues and its inline create WROTE the row into the host mandant without an
+ * error — only the team save afterwards failed (404, `TeamController::
+ * assertVenueOfMandant`). A silent write into another tenant is the defect the
+ * `{mandant}`-addressed routes below close.
+ *
+ * The addressed surface changes the SCOPE, not the reach:
+ * - super_admin may address any mandant from any host (early return in
+ *   `assertMandantRouteParameter()`) — that branch is the reason the mandant
+ *   detail page works for him at all, and it must not be tightened.
+ * - everyone else may only address the mandant he is already on, else 404. So a
+ *   mandant_admin / team_admin gets exactly the venues the host-scoped route
+ *   already gave him, and the `venues.manage` gate keeps its meaning (it is
+ *   still held for the picker, see the class docblock).
+ *
+ * Both surfaces share the private `*ForMandantId()` workers below, so the
+ * derived counts, the unique rule and the 409 delete policy cannot drift apart
+ * between them.
  */
 class VenueController extends Controller
 {
     use ResolvesAdminTeamScope;
+    use ResolvesMandantRouteParameter;
 
     public function index(Request $request): AnonymousResourceCollection
     {
+        return $this->listForMandantId($this->currentMandantId());
+    }
+
+    public function indexForMandant(Request $request, Mandant $mandant): AnonymousResourceCollection
+    {
+        $this->assertMandantRouteParameter($request, $mandant);
+
+        return $this->listForMandantId((int) $mandant->id);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        return $this->createForMandantId($request, $this->currentMandantId());
+    }
+
+    public function storeForMandant(Request $request, Mandant $mandant): JsonResponse
+    {
+        $this->assertMandantRouteParameter($request, $mandant);
+
+        return $this->createForMandantId($request, (int) $mandant->id);
+    }
+
+    public function update(Request $request, Venue $venue): VenueResource
+    {
+        return $this->updateVenue($request, $this->assertMandantScope($venue, $this->currentMandantId()));
+    }
+
+    public function updateForMandant(Request $request, Mandant $mandant, string $venue): VenueResource
+    {
+        $this->assertMandantRouteParameter($request, $mandant);
+
+        // Resolved THROUGH the mandant, so a venue of another tenant is a 404
+        // by construction — not a check that could be forgotten.
+        return $this->updateVenue($request, $mandant->venues()->findOrFail((int) $venue));
+    }
+
+    public function destroy(Request $request, Venue $venue): Response
+    {
+        return $this->deleteVenue($this->assertMandantScope($venue, $this->currentMandantId()));
+    }
+
+    public function destroyForMandant(Request $request, Mandant $mandant, string $venue): Response
+    {
+        $this->assertMandantRouteParameter($request, $mandant);
+
+        return $this->deleteVenue($mandant->venues()->findOrFail((int) $venue));
+    }
+
+    /**
+     * The venues of one mandant, with the reference counts a delete would
+     * destroy. Ordered by name — the combobox filters client-side and the admin
+     * page paginates the same array.
+     */
+    private function listForMandantId(int $mandantId): AnonymousResourceCollection
+    {
         $query = Venue::query()
-            ->forMandant($this->currentMandantId())
+            ->forMandant($mandantId)
             ->withCount(['teams', 'events']);
 
         return VenueResource::collection($query->orderBy('name')->orderBy('id')->get());
     }
 
-    public function store(Request $request): JsonResponse
+    /**
+     * Creates a venue IN `$mandantId` — the host on the host-scoped route, the
+     * route parameter on the addressed one. A payload `mandant_id` is never
+     * fillable-visible here (only `name` / `is_active` are validated), and the
+     * unique rule is scoped to the same id, so a duplicate answers 422 instead
+     * of hitting the composite unique index.
+     */
+    private function createForMandantId(Request $request, int $mandantId): JsonResponse
     {
-        $validated = $request->validate($this->rules(forCreate: true));
+        $validated = $request->validate($this->rules($mandantId, forCreate: true));
 
         $venue = Venue::create([
             ...$validated,
-            'mandant_id' => $this->currentMandantId(),
+            'mandant_id' => $mandantId,
         ]);
 
         // `refresh()` so the resource serializes the *stored* row: `is_active`
@@ -66,19 +157,25 @@ class VenueController extends Controller
             ->setStatusCode(201);
     }
 
-    public function update(Request $request, Venue $venue): VenueResource
+    /**
+     * Rename / (de)activate an already mandant-scoped row. The unique rule
+     * reads the row's OWN mandant, so a rename can never be judged against
+     * another tenant's names.
+     */
+    private function updateVenue(Request $request, Venue $venue): VenueResource
     {
-        $venue = $this->assertMandantScope($venue, $this->currentMandantId());
-
-        $venue->update($request->validate($this->rules(venue: $venue)));
+        $venue->update($request->validate($this->rules((int) $venue->mandant_id, venue: $venue)));
 
         return new VenueResource($venue->fresh());
     }
 
-    public function destroy(Request $request, Venue $venue): Response
+    /**
+     * "Deactivate instead of delete" (see the class docblock): 409 with the
+     * reference counts while a team or an event points at the row, 204 once
+     * nothing does.
+     */
+    private function deleteVenue(Venue $venue): Response
     {
-        $venue = $this->assertMandantScope($venue, $this->currentMandantId());
-
         $teamsCount = $venue->teams()->count();
         $eventsCount = $venue->events()->count();
 
@@ -98,7 +195,7 @@ class VenueController extends Controller
     /**
      * @return array<string, array<int, mixed>>
      */
-    private function rules(bool $forCreate = false, ?Venue $venue = null): array
+    private function rules(int $mandantId, bool $forCreate = false, ?Venue $venue = null): array
     {
         $main = $forCreate ? 'required' : 'sometimes';
 
@@ -109,7 +206,7 @@ class VenueController extends Controller
                 'max:255',
                 new ValidUtf8,
                 Rule::unique('venues', 'name')
-                    ->where('mandant_id', $venue?->mandant_id ?? $this->currentMandantId())
+                    ->where('mandant_id', $venue?->mandant_id ?? $mandantId)
                     ->ignore($venue?->id),
             ],
             // `is_active: false` deactivates, `true` reactivates — the same row,

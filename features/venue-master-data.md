@@ -133,6 +133,48 @@ Index und alle Writes sind mandant-scoped (`forMandant()` /
 `MandantContext`); `{venue}` läuft über den mandant-scoped
 Route-Model-Binding, ein fremder `venue_id` ist deshalb **404**, nie 403.
 
+### Zusätzlich: die **mandant-adressierte** Fläche (Board 7b)
+
+```
+GET    /api/admin/mandants/{mandant}/venues            indexForMandant
+POST   /api/admin/mandants/{mandant}/venues            storeForMandant     + throttle:admin
+PUT    /api/admin/mandants/{mandant}/venues/{venue}    updateForMandant    + throttle:admin
+DELETE /api/admin/mandants/{mandant}/venues/{venue}    destroyForMandant   + throttle:admin
+```
+
+Dieselbe Permission (`venues.manage`), **anderer Scope**. Die host-skalierten
+Routen bleiben unangetastet — sie sind die richtige Wahl für jede Seite, die
+*auf* einer Verbands-Domain lebt (Kategorien, Events, Akkreditierungen,
+`VenuesPage`).
+
+**Warum es sie braucht:** `/admin/mandants/{id}` ist die einzige Admin-Seite,
+die einen Mandanten **explizit per URL adressiert**. Ihre Team-Liste lief über
+`{mandant}`, die Venue-Combobox darüber aber host-skaliert — der Picker bot
+deshalb die Orte des **Host**-Mandanten an, und der Inline-Create schrieb die
+Zeile **ohne jede Fehlermeldung** in den Host-Mandanten. Erst der anschließende
+Team-Save scheiterte mit 404 (`TeamController::assertVenueOfMandant`). Ein
+stiller Schreibvorgang in einen fremden Mandanten ist der Defekt; die
+Korrektheit ist unter jeder Ausgestaltung der Admin-Listen identisch, deshalb
+ist sie hier festgehalten.
+
+**Zugriffsregel** (`ResolvesMandantRouteParameter`):
+
+| Aufrufer | Adressierbarer Mandant |
+|---|---|
+| `super_admin` | **jeder**, von jedem Host — der Early-Return für ihn ist sein Zweck |
+| alle anderen | nur der aktuelle (`MandantContext`), sonst **404** |
+
+Die Fläche verschafft damit **niemandem** neuen Zugriff: ein `mandant_admin` /
+`team_admin` erhält exakt die Venues, die ihm die host-skalierten Routen schon
+geben. `{venue}` wird über `$mandant->venues()->findOrFail()` aufgelöst, ein
+fremder `venue_id` also konstruktionsbedingt 404. `mandant_id` beim Create kommt
+aus der **Route**, nie aus dem Payload; der mandant-scoped `Rule::unique` liest
+dieselbe Id.
+
+Bewusst **kein** `super_admin`-Zwang wie beim Team-CRUD: die Combobox samt
+Inline-Create ist für `mandant_admin` und `team_admin` Teil der Formulare, die
+sie bereits bearbeiten dürfen.
+
 `VenueResource`:
 
 ```json
@@ -203,9 +245,37 @@ Geänderte Alt-Tests: `AdminTeamTest`, `AdminEventTest`, `PortalTest`,
 `RolePermissionTest` (Matrix um `venues.manage` erweitert, `team_admin`-Zeile
 inklusive).
 
+`backend/tests/Feature/AdminMandantVenueTest.php` pinnt die mandant-adressierte
+Fläche (Board 7b), jeweils mit **Host-Mandant ≠ URL-Mandant**:
+Liste/Inline-Create landen im adressierten Mandanten (und der Folge-Team-Save
+404 nicht mehr), `super_admin` darf über jeden Host jeden Mandanten,
+`mandant_admin`/`team_admin` erreichen nur den eigenen (fremd → 404, ohne
+Namenleck), ein `venue_id`/`{venue}` eines fremden Mandanten ist 404 auf
+Update/Delete, die Namens-Uniqueness folgt der **Route**-Mandanten-Id, und die
+host-skalierten Routen antworten weiterhin ausschließlich mit dem Host-Mandanten.
+
 ## Portabilität (§2)
 
 Ausschließlich portable Konstrukte: `foreignId()->index()->constrained()`,
 `unique()`, `boolean()->default(true)`, `dropColumn` (SQLite ≥ 3.35, CI 3.45.2).
 Kein PG-spezifisches SQL, kein `jsonb`, kein partieller Index, keine
-Datumsarithmetik.
+Datumsarithmetik. Die mandant-adressierte Fläche ändert daran nichts: sie
+skaliert über `Venue::forMandant()` bzw. `$mandant->venues()` — dieselben
+portablen Query-Builder-Pfade wie die host-skalierten Routen. Gate: dieselbe
+Suite auf SQLite `:memory:` **und** auf echtem PostgreSQL 17
+(`bash scripts/test-pgsql.sh`), beide grün.
+
+## Frontend-Key (SWR)
+
+`useVenues(mandantId = null)` nutzt `venuesKey(mandantId)`: `null` →
+`/api/admin/venues` (host-skaliert), eine Id →
+`/api/admin/mandants/{id}/venues`. Die Combobox reicht `mandantId` an **Liste
+und** Schreibaufrufe weiter — eine mandant-skalierte Liste allein genügt nicht,
+der Inline-Create lief sonst weiter host-skaliert.
+
+Die Invalidation nach Team-/Event-Mutationen (`teams_count` / `events_count`)
+läuft über `refreshVenueLists(mandantId)`, das **alle** betroffenen Keys
+invalidiert (beide Flächen). Sie hängt bewusst nicht mehr an einer
+Key-Konstante: die Key-Ableitung steht neben `venuesKey()`, ein nicht
+gemounteter Key ist ein No-op, ein fehlender ein stale Count.
+

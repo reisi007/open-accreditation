@@ -38,6 +38,17 @@ interface VenueComboboxProps {
      * `getByLabel(...)` — never a CSS class.
      */
     inputId?: string;
+    /**
+     * The mandant this form WRITES to, for a page that addresses one by URL
+     * (`MandantDetailPage`). `null` (the default) keeps the host-scoped surface,
+     * which is what every host-relative page (categories, events,
+     * accreditations) wants.
+     *
+     * It has to reach the create/reactivate calls, not just the list: the
+     * mandant-scoped LIST alone would still let the inline create post to the
+     * host and place the row in the wrong tenant.
+     */
+    mandantId?: number | null;
 }
 
 /** One row of the listbox: either a mandant venue or the inline-create entry. */
@@ -122,9 +133,10 @@ export function VenueCombobox({
     disabled = false,
     onBusyChange,
     inputId,
+    mandantId = null,
 }: VenueComboboxProps) {
     const { i18n } = useLingui();
-    const { venues, isLoading, error: listError, mutate } = useVenues();
+    const { venues, isLoading, error: listError, mutate } = useVenues(mandantId);
     const generatedId = useId();
     const fieldId = inputId ?? `${generatedId}-venue`;
     const listboxId = `${fieldId}-listbox`;
@@ -229,7 +241,7 @@ export function VenueCombobox({
         setLocalError(null);
         setRaceNotice(null);
         try {
-            const created = await createVenue({ name });
+            const created = await createVenue({ name }, mandantId);
             // The selection is committed HERE, not after the refetch: the id
             // exists, and the refetch only refreshes the shared list. Awaiting
             // it first left the field showing the name while the form still held
@@ -265,7 +277,7 @@ export function VenueCombobox({
         setLocalError(null);
         setRaceNotice(null);
         try {
-            const reactivated = await updateVenue(venue.id, { is_active: true });
+            const reactivated = await updateVenue(venue.id, { is_active: true }, mandantId);
             // Same ordering rule as the create: the id is known, so it is
             // committed before the list refresh.
             selectVenue(reactivated);

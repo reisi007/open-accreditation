@@ -204,6 +204,14 @@ export const deleteTeam = (mandantId: number, teamId: number): Promise<void> =>
  * frontend: the combobox needs the whole mandant list to filter locally, and
  * the admin page paginates the same array client-side (the Categories/Events
  * page idiom).
+ *
+ * Two surfaces, one optional `mandantId`:
+ * - omitted → the HOST-scoped endpoints, whose mandant the backend resolves
+ *   from the request host (`MandantContext`). Correct for every page that lives
+ *   on a mandant's domain: categories, events, accreditations, `VenuesPage`.
+ * - given → the mandant-ADDRESSED endpoints. Required on `/admin/mandants/{id}`,
+ *   the one page that addresses a mandant by URL: the host-scoped create wrote
+ *   its inline venue into the host mandant while the page was about another one.
  */
 export interface VenuePayload {
     name: string;
@@ -214,13 +222,23 @@ export interface VenueUpdatePayload {
     is_active?: boolean;
 }
 
-export const listVenues = (): Promise<Venue[]> => request<Venue[]>('/api/admin/venues');
+/**
+ * The venue endpoint family: host-scoped without a `mandantId`, mandant-
+ * ADDRESSED with one. One place, so the three calls below cannot drift into
+ * addressing a different mandant than they read.
+ */
+const venuePath = (mandantId: number | null | undefined, suffix = ''): string =>
+    mandantId === null || mandantId === undefined
+        ? `/api/admin/venues${suffix}`
+        : `/api/admin/mandants/${mandantId}/venues${suffix}`;
 
-export const createVenue = (payload: VenuePayload): Promise<Venue> =>
-    request<Venue>('/api/admin/venues', { method: 'POST', body: JSON.stringify(payload) });
+export const listVenues = (mandantId?: number | null): Promise<Venue[]> => request<Venue[]>(venuePath(mandantId));
 
-export const updateVenue = (id: number, payload: VenueUpdatePayload): Promise<Venue> =>
-    request<Venue>(`/api/admin/venues/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+export const createVenue = (payload: VenuePayload, mandantId?: number | null): Promise<Venue> =>
+    request<Venue>(venuePath(mandantId), { method: 'POST', body: JSON.stringify(payload) });
+
+export const updateVenue = (id: number, payload: VenueUpdatePayload, mandantId?: number | null): Promise<Venue> =>
+    request<Venue>(venuePath(mandantId, `/${id}`), { method: 'PUT', body: JSON.stringify(payload) });
 
 /** 204 when unreferenced, 409 (with counts) while teams or events point at it. */
 export const deleteVenue = (id: number): Promise<void> =>

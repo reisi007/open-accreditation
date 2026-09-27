@@ -13,9 +13,15 @@ interface TeamFormProps {
     submitError: string | null;
     onSubmit: (values: TeamFormValues) => Promise<void>;
     onCancel: () => void;
+    /**
+     * The mandant the team (and therefore its home venue) belongs to, on a page
+     * that addresses one by URL. Passed straight to the venue combobox so an
+     * inline create cannot land in the host mandant instead.
+     */
+    mandantId?: number | null;
 }
 
-export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel }: TeamFormProps) {
+export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel, mandantId = null }: TeamFormProps) {
     const { i18n } = useLingui();
     const teamSchema = createTeamSchema();
     /**
@@ -90,6 +96,7 @@ export function TeamForm({ initial, submitLabel, submitError, onSubmit, onCancel
                         <VenueCombobox
                             label={i18n._(t`Heimstätte`)}
                             inputId="team-home-venue"
+                            mandantId={mandantId}
                             value={field.value}
                             onChange={field.onChange}
                             valueLabel={initial?.venue?.name ?? null}
