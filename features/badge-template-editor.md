@@ -537,11 +537,15 @@ mehr nötig.
   ist bewusst *nicht* mehr exportiert (kein zweiter öffentlicher Schreiber).
   `CANVAS_GRID_STEP_MM` bleibt (Raster-Overlay, `findFreePosition`-Scan und der
   grobe Shift-Schritt des Nudges).
-- Der Hinweistext unter der Vorschau zeigt weiterhin auf das Panel
+- Der Hinweistext unter der Vorschau nennt **beide** Schreiber: das Panel für
+  die absolute Geometrie **und** die Pfeiltasten für den relativen Feinschritt
   („Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im
-  Eigenschaften-Panel ein."). Er erwähnt das Nudge **nicht** — bewusst, um keine
-  neue i18n-Zeichenkette einzuführen; die Tastatursteuerung braucht keine
-  Beschriftung, weil das Panel den vollständigen zugänglichen Pfad abdeckt.
+  Eigenschaften-Panel ein. Feiner geht es mit den Pfeiltasten auf der Vorschau:
+  1 mm pro Tastendruck, mit Shift 5 mm."). Die Nennung ist **nicht** optional:
+  eine vorhandene, aber nicht beworbene Steuerung ist nicht auffindbar. Sie
+  enthält **keine** Maus-Anleitung — der Hinweis ist der Ort, an dem der
+  zurückgebaute Zieh-Hinweis am ehesten zurückkäme, und genau deshalb hängen
+  dort die Abwesenheitsnageln (siehe „Testfolge").
 - **Die `BadgePropertiesPanel` und das Raster-Overlay blieben unangetastet** — sie
   waren die Ersetzung, nicht der Gegenstand des Rückbaus.
 
@@ -560,6 +564,17 @@ Drag-/Resize-Abwesenheitsnageln sind **unverändert** und weiterhin aktiv —
 `BadgeCanvas.test.tsx` schärft den Drag-Test zusätzlich: seit die Canvas wieder
 einen Schreiber (`onMove`) hat, prüft er nicht mehr nur unveränderte Pixel,
 sondern explizit `expect(onMove).not.toHaveBeenCalled()`.
+
+**Der Hinweistext hat seine eigene Nagel** (Nennung der Tastatursteuerung,
+2026-09-27). Sie prüft **Bedingungen, nicht Zeichenketten**: verankert am
+Rastersatz, behauptet „Pfeiltasten" *und* „Eigenschaften-Panel" als Konzepte
+(zweisprachig) und verbietet Mause-Zieh-Vokabular (`ziehen`/`ziehbar`/`Maus`,
+`drag`/`drop`) — dialog- bzw. containerweit, nicht nur im genauen Satz. Eine
+sprachliche Umformulierung des Hinweises darf die Nagel nicht entwerten, und
+eine wiederkehrende Zieh-Anleitung muss auch mit **anderem Wortlaut** fallen
+(`entziehen`/`Zurückziehen` bleiben über Wortgrenzen außen vor). Sabotage
+gemessen: Satz entfernt → 1 Failure; „Ziehen verschiebt das Feld." in den
+Hinweis → 1 Failure.
 
 ## Am 2026-09-27 getroffene Entscheidungen (schließen die offenen Fragen)
 

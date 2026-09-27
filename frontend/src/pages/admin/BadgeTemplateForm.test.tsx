@@ -240,3 +240,40 @@ describe('BadgeTemplateForm nudges the selected field with the arrow keys', () =
         expect(mmInput('Y (mm)')).toHaveValue(1);
     });
 });
+
+/**
+ * Discoverability: the arrow-key nudge is useless to a user who does not know it
+ * exists, so the hint below the preview has to name BOTH writers — the panel for
+ * the absolute geometry, the arrow keys for the relative fine step. That is the
+ * condition pinned here, not a wording: the assertions match concepts
+ * (`Pfeiltasten`/`arrow keys`, `Eigenschaften-Panel`/`properties panel`) and the
+ * hint is anchored on its grid sentence, so rewriting either sentence keeps the
+ * guard alive.
+ *
+ * The negative half is the real regression guard and is deliberately *broader*
+ * than the sentence that was removed with the drag: any mouse-drag vocabulary
+ * (ziehen/ziehbar/Maus, drag/drop) anywhere in the editor copy is a failure, no
+ * matter how it is phrased. `entziehen`/`Zurückziehen` are safe — the word
+ * boundaries keep them out.
+ */
+const MOUSE_DRAG_WORDING = /\b(ziehen|ziehbar|maus|mouse|drag|drop)\b/i;
+
+/** The hint paragraph below the preview, found by its grid sentence. */
+function previewHint(): HTMLElement {
+    return screen.getByText(/\bRaster\b[^.]*\b5\s*mm/i);
+}
+
+describe('BadgeTemplateForm advertises the keyboard nudge in the preview hint', () => {
+    it('names the arrow keys next to the panel and teaches no mouse drag', () => {
+        const { container } = renderForm();
+        const hint = previewHint();
+
+        // (a) The keyboard control is discoverable…
+        expect(hint).toHaveTextContent(/\b(pfeiltasten|arrow keys?)\b/i);
+        // (b) …without losing the panel, the canonical writer for the geometry.
+        expect(hint).toHaveTextContent(/\b(eigenschaften-panel|properties panel)\b/i);
+        // (c) …and the superseded mouse-drag instruction stays gone.
+        expect(hint).not.toHaveTextContent(MOUSE_DRAG_WORDING);
+        expect(container.textContent).not.toMatch(MOUSE_DRAG_WORDING);
+    });
+});

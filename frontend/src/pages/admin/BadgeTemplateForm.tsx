@@ -161,7 +161,7 @@ export function BadgeTemplateForm({ initial, submitLabel, submitError, onSubmit,
                     </p>
                     <p className="text-center text-xs text-base-content/60">
                         {i18n._(
-                            t`Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein.`,
+                            t`Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein. Feiner geht es mit den Pfeiltasten auf der Vorschau: 1 mm pro Tastendruck, mit Shift 5 mm.`,
                         )}
                     </p>
 

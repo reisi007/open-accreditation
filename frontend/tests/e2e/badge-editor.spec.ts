@@ -503,12 +503,21 @@ test.describe('Badge-Template-Editor (FE2)', () => {
 
         await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor NoGuide ${uniqueSuffix()}`);
 
-        // The hint must point at the panel, and the superseded drag wording
-        // must be gone from the document.
-        await expect(
-            dialog.getByText('Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein.'),
-        ).toBeVisible();
-        await expect(dialog.getByText(/Ziehen verschiebt das Feld/)).toHaveCount(0);
+        // The hint must point at BOTH writers — the panel for the absolute
+        // geometry and the arrow keys for the relative fine step (the nudge is
+        // useless to a user who never learns it exists). Asserted by CONCEPT,
+        // anchored on the grid sentence, so a later rewording of either sentence
+        // keeps the guard alive instead of silently voiding it.
+        const hint = dialog.getByText(/\bRaster\b[^.]*\b5\s*mm/i);
+        await expect(hint).toBeVisible();
+        await expect(hint).toHaveText(/\b(pfeiltasten|arrow keys?)\b/i);
+        await expect(hint).toHaveText(/\b(eigenschaften-panel|properties panel)\b/i);
+
+        // …and the superseded mouse-drag wording must be gone from the document
+        // entirely. Matched on vocabulary rather than on the old sentence, so a
+        // reworded drag instruction still fails (`entziehen`/`Zurückziehen` are
+        // safe: the word boundaries keep them out).
+        await expect(dialog.getByText(/\b(ziehen|ziehbar|maus|mouse|drag|drop)\b/i)).toHaveCount(0);
 
         // No magnetic alignment guides, at rest or while the pointer sweeps.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });

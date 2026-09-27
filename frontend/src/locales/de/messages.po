@@ -495,8 +495,12 @@ msgid "Das Feld ragt über den unteren Rand hinaus."
 msgstr "Das Feld ragt über den unteren Rand hinaus."
 
 #: src/pages/admin/BadgeTemplateForm.tsx
-msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
-msgstr "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
+#~ msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
+#~ msgstr "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
+
+#: src/pages/admin/BadgeTemplateForm.tsx
+msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein. Feiner geht es mit den Pfeiltasten auf der Vorschau: 1 mm pro Tastendruck, mit Shift 5 mm."
+msgstr "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein. Feiner geht es mit den Pfeiltasten auf der Vorschau: 1 mm pro Tastendruck, mit Shift 5 mm."
 
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Datenfeld ist mehrfach vorhanden."
