@@ -75,7 +75,6 @@
 - [ ] Frontend-Build für Pre-Prod (Vite `dist`) + Deploy-Pfad
 
 **Verifikation vor Prod (Gates)**
-- [ ] **USER-DECISION BE-R1**: globale vs. Per-Mandant `email`-Unique (`AuthController.php:39`) — MUSS vor erstem echten User-Data entschieden sein
 - [ ] **Postgres-Portabilitäts-Gate:** Integration-/E2E-Lauf gegen echte Postgres (nicht nur SQLite-Testsuite), §2-Regel verifiziert
 - [ ] **Multi-Domain-UX-Gate (P2c-F4):** Admin-Zugriff auf Nicht-Primär-Domain prüfen (Teams-Anzeige super_admin)
 - [ ] **Brand-Override-Gate:** `brand_overrides` live testen — Mandant A mit eigenem Logo, Mandant B auf React-Fallback; Austausch (Upload Self-Service `POST /api/mandant/logo` → Datei im Dist-Ordner ersetzen/ergänzen) ohne Reload nachvollziehen
@@ -165,7 +164,6 @@
 
 ### Findings (neu) — Status
 **Backend**
-- [ ] **BE-R1 · MEDIUM · USER-DECISION** — `AuthController::register` globale `email`-Unique vs Per-Mandant (`AuthController.php:39`). Entscheidung ausstehend.
 - [x] **BE-R2 · MEDIUM · DONE (committed on master)** — Tenant-Isolation-Safety-Net via **Route-Model-Binding-Resolver** + `MandantContext::hasCurrent()` (`Support/MandantContext.php`, `Models/*`, neue `TenantIsolationBindingTest`). Global Scope bewusst nicht (24 legitime Tests mit Cross-Mandant-Rows).
 - [x] **BE-R3 · LOW · DONE (committed on master)** — `updateRoles` Mandant-Mitgliedschafts-Guard + 2 Tests.
 - [x] **BE-R4 · LOW · DONE (committed on master)** — UserController-Suche `escapeLike()` (CC-R1-Controller im selben Commit gebündelt).
