@@ -324,7 +324,18 @@ _(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–
 - **W5** Venue-Analyse erledigt + entschieden (KEIN Geo) → Umsetzung als W12 · **W10** WebP-Planung in W11 gemündet · **W8** Doku-Paket committet.
 
 ### Offene Punkte
-- [ ] **W12 — Venue-Stammdaten** (geparkt, nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD + Combobox mit Freitext-Fallback, `events.venue_id` nullable ergänzend zu `venue`; PHPUnit + E2E.
+- [ ] **W12 — Venue-Stammdaten** (nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD stehen (Backend, `venues.manage` an `mandant_admin` **und** `team_admin` — der Venue-Picker im Team-/Event-Formular darf für den Team-Admin nicht 403en, sonst dead-endet der von uns bestätigte Inline-Create). `events.venue_id` nullable **ersetzt** `events.venue` (Freitext-Spalte ist gedroppt — „ergänzend" wäre die superseded Variante, eine zweite Wahrheit ist genau das, was hier rausfällt). Offen: FE (`VenueCombobox`/`VenuesPage`) + **E2E-Spec** `admin-venue.spec.ts`; die E2E-Fixtures in `helpers/admin-data.ts` sind bereits auf `venue_id` umgestellt.
+- [ ] **Venue-Schreibbreite für `team_admin` (PRODUCT-DECISION, 2026-09-27):** Ein
+  `team_admin` darf heute **jeden** Ort seines Mandanten umbenennen, deaktivieren und
+  löschen — auch einen, den ein Nachbarverein benutzt. Kategorien sind strenger: dort
+  greift `assertOwnership` und ein Team-Admin darf nur *team-eigene* Zeilen
+  anfassen, mandantweite sind für ihn read-only. Beides ist vertretbar, es ist aber eine
+  **Fachentscheidung**: ein Verein, der einen Fremdort umbenennt, ärgert Nachbarn; ein
+  Verein, der einen Ort nicht umbenennen darf, kann seinen eigenen nicht pflegen. Der
+  Implementierer hat die breite Variante als korrekt *und* die Breite in
+  `test_a_team_admin_manages_the_venue_list_of_his_whole_mandant` festgeschrieben, damit
+  sie dokumentiert und nicht zufällig ist. Der Hebel für die engere Variante wäre ein
+  `assertOwnership`-Äquivalent auf der Venue-Oberfläche. **Nicht selbst entscheiden.**
 - [ ] **Dev-DB-Hinweis (W6-F3-Rest):** einmalig `migrate:fresh --seed` (sort_order-Schema).
 - [ ] **Lernpunkt Parallel-Tests:** Voll-Suite NICHT parallel in 2 Subagenten laufen lassen (`Storage::fake` teilt `storage/framework/testing/disks/*` → Cross-Prozess-Race, 3 flaky Failures beobachtet). Suite immer nur in EINEM Subagenten zur Zeit. *(Kandidat für dauerhafte Regel in `AGENTS.md` §7 — nicht verschoben.)*
 

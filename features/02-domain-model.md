@@ -28,9 +28,10 @@ Akkreditierung (Quota + Frist) → Application → Sub-Akkreditierung.**
 
 | Entity | Beschreibung |
 |---|---|
-| `teams` | Vereine (optional je Mandant, `teams_enabled`), Heimstätte (Default-Ort), Kategorie-Overrides; `role_user.team_id` bekommt dann den FK |
+| `teams` | Vereine (optional je Mandant, `teams_enabled`), Default-Ort über `venue_id` (→ `venues`, W12), Kategorie-Overrides; `role_user.team_id` bekommt dann den FK |
 | `categories` | z. B. Presse, Fotograf, Delegation; erbt vom Mandant, Team überschreibt |
-| `events` | Titel, Datum, Ort (Default = Heimstätte, überschreibbar), Wettbewerb, Frist (Default/Override); Ebene Mandant oder Team |
+| `venues` | **W12, im Ist umgesetzt.** Mandant-weite Stammdaten (Spielstätten/Austragungsorte), von `teams.venue_id` **und** `events.venue_id` referenziert; `unique(mandant_id, name)`, `is_active` statt Löschen, `restrict` auf beiden FKs — Details `features/venue-master-data.md` |
+| `events` | Titel, Datum, Ort über `venue_id` (Default = `teams.venue_id`, überschreibbar), Wettbewerb, Frist (Default/Override); Ebene Mandant oder Team |
 | `accreditations` | Kategorie + Event/Scope, Quota, Frist, VIP/Blacklist-Konfiguration |
 | `applications` | Antrag: Kategorie/Scope, Status `requested/approved/denied/blacklisted`, Foto/Anhänge. Status-Set dauerhaft: die Engine setzt **nie** `blacklisted` (nutzt `denied` + `reason`; der `blacklisted`-Status ist für die Blacklist-Verwaltung in P3e reserviert) — Details `accreditation/01-allocation-engine.md` |
 | `sub_accreditations` | Park-/Sitzkarte, nur bei Haupt-Akkreditierung, eigenes Kontingent, auto/manuell |
@@ -59,6 +60,20 @@ kein PG-only, also keine Service-Abstraktion nötig):
   Postgres verlangt je Ausdruck eine eigene Klammer, SQLite akzeptiert sie.
   Nur so ist eine Unique-Constraint über nullable Scope-Spalten auf BEIDEN
   Engines überhaupt scharf (siehe „WP-6-b").
+  **Falle bei `->change()` (verifiziert 2026-09-27, SQLite 3.45.2 / Postgres
+  17.10):** Laravel baut die Tabelle für eine Spaltenänderung neu und legt die
+  Indizes dabei aus `pragma index_info` neu an — für Ausdruckspalten liefert
+  das `name = NULL` / `cid = -2`, `SQLiteGrammar::compileIndexes()` also
+  `(user_id, role_id)` **ohne** die `COALESCE`-Spalten, **während der
+  Indexname erhalten bleibt**. Eine namensbasierte Assertion besteht deshalb
+  weiter, obwohl die Eindeutigkeit weg ist. Postgres ist nicht betroffen
+  (`compileChange()` = normales `ALTER TABLE`, kein `PRAGMA`) — die
+  Asymmetrie ist SQLite-only. Schweregrad low: es gibt heute kein solches
+  `->change()`, und die Fehlerrichtung ist **sicher**, weil der verengte Index
+  *strenger* ist — der erste Symptom ist ein lauter Testfehler auf SQLite,
+  während Postgres korrekt bleibt. Falls je nötig: Index im selben
+  Migration explizit droppen und neu anlegen statt auf den Rebuild zu
+  vertrauen. Betroffen ist `role_user_scope_unique_coalesced`.
 
 **Nicht-portabel und daher verboten bleibt** insbesondere alles, was die
 SQLite-Testsuite nicht gegen dieselbe Fehlerklasse absichert — das prominenteste

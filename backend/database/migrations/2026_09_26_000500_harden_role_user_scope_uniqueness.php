@@ -44,6 +44,28 @@ return new class extends Migration
      * NULL scopes folded together), so the old index is dropped instead of
      * kept — two identical-strength indexes on a write-hot pivot would only
      * add write amplification.
+     *
+     * ACHTUNG — `->change()` is a trap on SQLite, verified 2026-09-27 against
+     * SQLite 3.45.2 and Postgres 17.10. Laravel rebuilds the table for a column
+     * change and re-emits the indexes from `pragma index_info`, which reports
+     * `name = NULL` / `cid = -2` for expression columns
+     * (`SQLiteGrammar::compileIndexes()`). A `->change()` on `role_user`
+     * therefore re-creates this index as `(user_id, role_id)` — both COALESCE
+     * columns silently gone, WHILE THE NAME SURVIVES. A name-only assertion
+     * (`Schema::getIndexes()` contains `role_user_scope_unique_coalesced`)
+     * still passes, so the loss is invisible to the usual check.
+     *
+     * Postgres is NOT affected: `PostgresGrammar::compileChange()` issues a
+     * plain `ALTER TABLE` and never touches `PRAGMA`. The asymmetry is
+     * SQLite-only.
+     *
+     * Severity is low, for two reasons. No `->change()` on `role_user` exists
+     * today. And the failure direction is SAFE: the narrowed index is
+     * STRICTER, so the first symptom is a loud test failure on SQLite (one
+     * user, same role, two federations) while Postgres stays correct — CI
+     * catches it, production does not silently lose data. If such a change is
+     * ever needed, drop and re-create this index explicitly in the same
+     * migration rather than relying on the rebuild.
      */
     public function up(): void
     {
