@@ -289,14 +289,15 @@ Nicht reparierbar: `accreditation:backfill-qr-tokens` ist nicht das Problem, das
 Token ist gültig, nur die URL drumherum nicht.
 
 **Soll-Zustand:** `BadgeExportController` verweigert den Export (422,
-„Mandant hat keine Domain — QR-Codes können nicht generiert werden"), wenn der
-Mandant keine Domain hat **und** der `app.url`-Fallback-Host einem *anderen*
-Mandanten gehört (`MediaHostResolver::ownsFallbackHost()`). Ein Fallback-Host,
-der **niemandem** gehört, bleibt erlaubt — das ist die dokumentierte
-Single-Box-Entwicklerform (`APP_URL=http://localhost`, kein Tenant geroutet), die
-`MandantContextMiddleware` in Dev ohnehin auf den Default-Mandanten abbildet, und
-der auch alle Media-Services über `MediaPathService` teilen. Betroffen sind PDF
-**und** CSV, weil beide die Verify-URL ausgeben.
+„Mandant hat keine Domain — QR-Codes können nicht generiert werden"), sobald
+der Mandant **keine eigene Domain** hat — ohne Fallback-Ausnahme
+(`MediaHostResolver::hostFor()`). Der frühere Ausnahmefall „Fallback-Host
+gehört niemandem" (Single-Box-Entwicklung, `APP_URL=http://localhost`) ist
+**entfernt** (F2-Residual, 2026-09-27): Auch dort benennt die Verify-URL einen
+Host, der dem Mandanten nicht gehört; in dem Moment, in dem dieser Host
+geroutet wird, 404en die bereits gedruckten Badges. Single-Box-Dev muss eine
+`mandant_domains`-Zeile anlegen. Betroffen sind PDF **und** CSV, weil beide die
+Verify-URL ausgeben.
 
 ### Engine-Verifikationsstand (2026-09-26)
 

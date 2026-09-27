@@ -747,27 +747,29 @@ class QrTokenV2Test extends TestCase
     }
 
     /**
-     * A mandant with no domain whose verify host is NOT owned by anybody is the
-     * local-dev shape (`APP_URL=http://localhost`, no tenant routed to it). The
-     * export stays allowed there — that fallback is the documented
-     * `config('app.url')` behaviour every media service shares, and refusing it
-     * would break single-box development over a missing domain row.
+     * F2-Residual: the export guard is UNCONDITIONAL. A mandant without a
+     * domain cannot export, even when the `config('app.url')` verify host is
+     * routed to nobody (the local-dev shape, `APP_URL=http://localhost`).
+     *
+     * The earlier narrowing explicitly allowed exactly this shape (see the
+     * former docblock: "refusing it would break single-box development"). That
+     * left a real hole: the badge's verify URL names the fallback host, and the
+     * moment that host is routed to a mandant the already-printed badges 404 —
+     * the token is bound to THIS mandant, the URL around it is not. Single-box
+     * development now has to add a `mandant_domains` row, exactly like every
+     * other mandant that mints verifiable badges.
      */
-    public function test_badge_export_allows_a_domain_less_mandant_while_its_verify_host_is_unowned(): void
+    public function test_badge_export_refuses_a_domain_less_mandant_even_while_its_verify_host_is_unowned(): void
     {
         config(['app.url' => 'http://localhost']);
 
         $application = $this->approvedApplication($this->mandantA, 'Jane Doe');
         $this->createDefaultBadgeTemplate();
 
-        $response = $this->actingAsApi($this->superAdmin())
+        $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/accreditations/'.$application->accreditation_id.'/badges/export', ['format' => 'csv'])
-            ->assertOk();
-
-        $this->assertStringContainsString(
-            'http://localhost/verify/',
-            $response->streamedContent(),
-        );
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Mandant hat keine Domain — QR-Codes können nicht generiert werden.');
     }
 
     /* ---------------------------------------------------------------------

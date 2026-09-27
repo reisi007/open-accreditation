@@ -60,6 +60,14 @@ class BadgeTest extends TestCase
         $this->mandantA = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);
         $this->mandantB = Mandant::factory()->create(['slug' => 'verband-b', 'name' => 'Verband B']);
 
+        // F2: the badge export only mints verifiable badges for a mandant with
+        // a domain of its OWN (the verify URL host is the mandant's first
+        // domain). Give the exporting fixture the realistic onboarded shape —
+        // a `mandant_domains` row — instead of letting it borrow the
+        // `config('app.url')` fallback host. mandantB stays domain-less on
+        // purpose (see the F2-Residual guard test below).
+        $this->mandantA->domains()->create(['hostname' => 'a.test']);
+
         $this->teamA = $this->mandantA->teams()->create(['name' => 'Team A', 'slug' => 'team-a']);
         $this->teamB = $this->mandantA->teams()->create(['name' => 'Team B', 'slug' => 'team-b']);
 
@@ -392,6 +400,41 @@ class BadgeTest extends TestCase
             ->assertStatus(404);
     }
 
+    /**
+     * F2-Residual: the guard is UNCONDITIONAL — a domain-less mandant cannot
+     * export verifiable badges even when the `config('app.url')` fallback host
+     * is routed to nobody (the local single-box shape, this fixture's
+     * `accreditation.test`). The former narrowing asked
+     * `MediaHostResolver::ownsFallbackHost()` as a second chance, so a
+     * domain-less mandant on an unowned host still minted badges that would
+     * 404 the moment that host got routed.
+     *
+     * FAILS WITH THE NARROWED GUARD: the fallback host is unowned here, so
+     * `! ownsFallbackHost()` was false and the export answered 200 (a template
+     * is not even needed — the guard is reached before `resolveTemplate()`).
+     */
+    public function test_export_refuses_a_domainless_mandant_even_when_the_fallback_host_is_unowned(): void
+    {
+        $this->assertNull(
+            $this->mandantB->domains()->value('hostname'),
+            'precondition: mandant B has no domain of its own',
+        );
+
+        MandantContext::set($this->mandantB);
+
+        $category = $this->mandantB->categories()->create(['name' => 'Presse', 'slug' => 'presse-b']);
+        $accreditation = $this->mandantB->accreditations()->create([
+            'category_id' => $category->id,
+            'scope' => 'season',
+            'quota' => 5,
+        ]);
+
+        $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$accreditation->id.'/badges/export', ['format' => 'csv'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Mandant hat keine Domain — QR-Codes können nicht generiert werden.');
+    }
+
     public function test_export_rejects_invalid_format(): void
     {
         $accreditation = $this->createAccreditation(['quota' => 5]);
@@ -537,7 +580,7 @@ class BadgeTest extends TestCase
         $this->assertSame('Presse', $row[2]);
         $this->assertSame('Finale', $row[3]);
         $this->assertSame('Akkreditiert', $row[4]);
-        $this->assertStringStartsWith('https://accreditation.test/verify/', $row[5]);
+        $this->assertStringStartsWith('https://a.test/verify/', $row[5]);
     }
 
     public function test_export_csv_only_contains_approved_applications(): void
@@ -603,7 +646,7 @@ class BadgeTest extends TestCase
         $this->assertStringStartsWith("'-", $evilRow[3]);
 
         // The verify URL cell goes through the same helper (unchanged here).
-        $this->assertStringStartsWith('https://accreditation.test/verify/', $evilRow[5]);
+        $this->assertStringStartsWith('https://a.test/verify/', $evilRow[5]);
 
         // A normal name/email stays untouched; the shared category/event are
         // dangerous (`+`/`-`) and sanitized in every row.

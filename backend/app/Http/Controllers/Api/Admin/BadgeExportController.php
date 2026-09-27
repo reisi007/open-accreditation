@@ -31,17 +31,22 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * ## F2 — a domain-less mandant cannot produce verifiable badges
  *
  * Both formats embed the verify URL, and that URL's host is the mandant's own
- * domain or — without a domain — the host of `config('app.url')`. A v2 QR token
- * is TENANT-BOUND: it signs the issuing mandant id, and `VerifyController`
- * requires that claim to name the mandant the request host resolved to. So when
- * the fallback host routes to a different mandant (in production: the primary
- * Verband's host), every printed badge 404s on every scan — permanently, and
- * not repairable by `accreditation:backfill-qr-tokens`, because the token is
- * valid and only the URL around it is wrong.
+ * first domain; without a domain it falls back to the host of
+ * `config('app.url')`. A v2 QR token is TENANT-BOUND: it signs the issuing
+ * mandant id, and `VerifyController` requires that claim to name the mandant
+ * the request host resolved to. A badge minted on the fallback host is
+ * therefore only sound while that host routes back to the exporting mandant —
+ * which it may not (in production the app.url host is the primary Verband's own
+ * host), and which can change out from under already-printed badges the moment
+ * the host is routed. Either way a domain-less mandant has no host it can call
+ * its own.
  *
- * The export therefore refuses (422) instead of shipping dead badges. A mandant
- * whose app.url host is routed to nobody — the local single-box shape — is
- * unaffected; see `MediaHostResolver::ownsFallbackHost()`.
+ * The export therefore refuses (422) whenever the mandant has no domain, with
+ * NO fallback exception: every mandant that may mint verifiable badges must have
+ * a domain of its own. The earlier narrowing — `422` only when the fallback host
+ * belonged to ANOTHER mandant — left a domain-less mandant whose fallback host
+ * happened to be unowned (the local single-box shape) producing badges that
+ * would 404 the moment that host got routed.
  */
 class BadgeExportController extends Controller
 {
@@ -84,7 +89,7 @@ class BadgeExportController extends Controller
         abort_if($mandant === null, 404, 'No mandant context for this request.');
 
         abort_if(
-            $this->hosts->hostFor($mandant) === null && ! $this->hosts->ownsFallbackHost($mandant),
+            $this->hosts->hostFor($mandant) === null,
             422,
             'Mandant hat keine Domain — QR-Codes können nicht generiert werden.',
         );

@@ -658,6 +658,86 @@ class MandantMembershipTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | M2 — no 404-vs-403 existence oracle for non-members
+     -------------------------------------------------------------------- */
+
+    /**
+     * `SubstituteBindings` resolves the route model BEFORE
+     * `EnsureMandantMembership` runs. `user_media` was the one bound model
+     * WITHOUT a scoped `resolveRouteBindingQuery()` (it carries no
+     * `mandant_id` column), so a global `find` answered 403 for a row that
+     * exists in ANY mandant and 404 for an unknown id — a cross-tenant
+     * existence oracle a replayed cookie could mine id by id.
+     *
+     * The M2 fix scopes the `UserMedia` binding to the current mandant's
+     * storage-path prefix, so a FOREIGN row is now as invisible as an unknown
+     * id. Both answers must be identical.
+     *
+     * FAILS WITHOUT THE FIX: foreign row → 403 (binding succeeds, membership
+     * denies), unknown id → 404.
+     */
+    public function test_a_foreign_media_row_is_indistinguishable_from_an_unknown_id_for_a_non_member(): void
+    {
+        $attacker = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($attacker);
+
+        // A media row that EXISTS, but belongs to the attacker's own mandant A
+        // and is therefore foreign on B. Its `path` carries A's slug — the only
+        // stored tenant marker of `user_media`.
+        $foreign = UserMedia::create([
+            'user_id' => $this->memberOf($this->mandantA)->id,
+            'type' => 'portrait',
+            'path' => 'user-media/'.$this->mandantA->slug.'/1/portrait/portrait.jpg',
+            'mime' => 'image/jpeg',
+            'size' => 123,
+            'original_name' => 'portrait.jpg',
+        ]);
+
+        $existing = $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/user/media/'.$foreign->id);
+
+        $unknown = $this->withJwt($token)
+            ->getJson('http://'.self::HOST_B.'/api/user/media/'.($foreign->id + 100000));
+
+        $this->assertSame(404, $existing->getStatusCode());
+        $this->assertSame(
+            $unknown->getStatusCode(),
+            $existing->getStatusCode(),
+            'Ein Non-Member darf an der Antwort nicht erkennen, ob eine fremde Media-Zeile existiert.',
+        );
+    }
+
+    /**
+     * The same probe against an ALREADY-scoped model has no distinguishable
+     * case: `Accreditation::resolveRouteBindingQuery()` filters by
+     * `mandant_id`, so a foreign row fails to resolve exactly like an unknown
+     * id — both 404, before the membership check can answer 403. This pins the
+     * cross-tenant property (Option B is a no-op for scoped models) so a
+     * future change that un-scopes a binding or reorders the middleware is
+     * caught.
+     *
+     * PASSES BEFORE AND AFTER THE M2 FIX.
+     */
+    public function test_a_foreign_accreditation_is_indistinguishable_from_an_unknown_id_for_a_non_member(): void
+    {
+        $attacker = $this->memberOf($this->mandantA);
+        $token = $this->tokenFor($attacker);
+
+        $foreign = $this->accreditationOf($this->mandantA);
+
+        $existing = $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.$foreign->id.'/apply');
+
+        $unknown = $this->withJwt($token)
+            ->postJson('http://'.self::HOST_B.'/api/accreditations/'.($foreign->id + 100000).'/apply');
+
+        $existing->assertNotFound();
+        $unknown->assertNotFound();
+
+        $this->assertSame($unknown->getStatusCode(), $existing->getStatusCode());
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      -------------------------------------------------------------------- */
 

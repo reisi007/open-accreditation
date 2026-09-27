@@ -137,7 +137,7 @@ SOLL-Zustand des Auth-/Rollen- und Profil-/Media-Systems (P1). Umsetzung:
      ein abgelehnter Cross-Mandant-Request läuft also **innerhalb** des
      `throttle:apply`/`throttle:media`-Budgets, statt eine unbegrenzte 403-Schleife
      zu öffnen. Route-Model-Binding ist zu diesem Zeitpunkt bereits gelaufen —
-     es ist ein ungegatetes `find`, das nichts anlegt oder verändert.
+     es ist ein **mandanten-scoped** `find` (siehe M2), das nichts anlegt oder verändert.
    - **Kosten:** 1 Query pro authentifiziertem Request mit aufgelöstem
      Mandanten (Postgres: `Index Scan using role_user_scope_unique` auf
      `user_id`, `EXISTS`-Zweig auf `roles.slug` wird im Normalfall nicht
@@ -353,6 +353,13 @@ Endpoints (auth-gated):
 - `GET /api/user/media/{media}` — **auth-gated Delivery, Owner-only**
   (Fremde → 403, unbekannte IDs → 404 via Route-Model-Binding). Streamt
   Original-Bytes von Disk `private` mit `Content-Type` aus `user_media.mime`.
+  Das Route-Model-Binding ist seit **M2** auf den **aktuellen Mandanten**
+  eingegrenzt (`UserMedia::resolveRouteBindingQuery()`): `user_media` hat keine
+  `mandant_id`-Spalte, der einzige gespeicherte Mandanten-Marker ist der
+  Storage-Pfad `user-media/{mandantSlug}/…`. Eine fremde Zeile löst darum wie
+  eine unbekannte ID zu **404** auf; ohne diese Eingrenzung konnte ein
+  Cross-Tenant-Replay aus dem 403/404-Unterschied die Existenz fremder
+  Media-Zeilen ableiten (M2).
 - `DELETE /api/user/media/{media}` — Owner-only, Datei + Row.
 
 Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
@@ -452,6 +459,45 @@ Upload-Regeln (server-authoritativ, `UserMediaController` + `UserMediaService`):
   `…test_the_exemption_does_not_open_the_tenant_scoped_write_routes` (403 auf
   `apply`/`user/media`/`user/profile`/`applications`/`user/media`-Liste) und
   `…test_the_exemption_list_is_exactly_logout_and_me_with_their_methods`.
+- **M2 (erledigt 2026-09-27):** 404-vs-403-Existence-Oracle für Non-Members.
+  `SubstituteBindings` läuft vor `EnsureMandantMembership`, deshalb entscheidet
+  das Route-Model-Binding, ob eine Anfrage überhaupt zum Membership-Check
+  gelangt. Alle bereits mandant-gebundenen Modelle (`Accreditation`,
+  `Application`, `SubAccreditation`, `Blacklist`, `BadgeImage`, `Event`,
+  `Team`, …) tragen ein mandanten-scoped `resolveRouteBindingQuery()`: eine
+  **fremde** Zeile löst wie eine unbekannte ID zu **404** auf — kein
+  Cross-Tenant-Oracle, Option B ist dort ein No-op. Einzige Ausnahme war
+  `UserMedia` (keine `mandant_id`-Spalte) mit globalem `find`: eine in
+  **irgendeinem** Mandanten existierende Zeile ergab 403, eine unbekannte 404.
+  `UserMedia` bindet jetzt über den Storage-Pfad-Präfix
+  `user-media/{mandantSlug}/%` auf den aktuellen Mandanten. Bewusst **keine**
+  Änderung der globalen Middleware-Priority: eine Vorverlegung des
+  Membership-Checks vor das Binding bräche die per Test festgenagelte Position
+  (`MandantMembershipTest::test_the_check_is_positioned_after_auth_and_after_the_rate_limiters`)
+  und würde das dokumentierte 403-für-Non-Members-Muster aller Routen auf
+  404 verschieben. Festgenagelt in
+  `MandantMembershipTest::test_a_foreign_media_row_is_indistinguishable_from_an_unknown_id_for_a_non_member`
+  (pre-fix 403 vs. 404) und
+  `…test_a_foreign_accreditation_is_indistinguishable_from_an_unknown_id_for_a_non_member`
+  (scoped-Modell-Pin). **Rest-Hinweis:** Eine Ressource des **aktuellen**
+  Mandanten, die der Angreifer nicht besitzt, bleibt an der Antwort als
+  existent (403) von nicht-existent (404) unterscheidbar. Dieses Restrisiko ist
+  der bewusst gewählten Reihenfolge „Binding vor Membership" inhärent und wäre
+  nur durch deren Umkehr (verboten) zu schließen; offenbart werden weiterhin
+  nur sequenzielle Integer-IDs, keine Attribute.
+- **F2-Residual (erledigt 2026-09-27):** Der Badge-Export-Guard ist jetzt
+  **unconditional**: ein Mandant **ohne eigene Domain** erhält auf
+  `POST /api/admin/accreditations/{id}/badges/export` **422** — unabhängig
+  davon, ob der `config('app.url')`-Fallback-Host niemandem gehört. Die frühere
+  Verengung (422 nur, wenn der Fallback-Host einem **anderen** Mandanten
+  gehört) ließ einen domainlosen Mandanten auf einem unowned Host Badges
+  erzeugen, die in dem Moment 404-en, in dem dieser Host geroutet wird.
+  Festgenagelt in
+  `BadgeTest::test_export_refuses_a_domainless_mandant_even_when_the_fallback_host_is_unowned`;
+  `BadgeTest::setUp()` gibt `mandantA` jetzt eine echte `mandant_domains`-Zeile
+  (`a.test`), damit die übrigen Export-Tests die realistische onboarded-Form
+  prüfen. `MediaHostResolver::ownsFallbackHost()` ist damit ohne Aufrufer
+  (`fallbackHost()` bleibt für `BadgeRenderService`).
 
 Akzeptierte Rest-Risiken (neu bewertet 2026-09-26, WP-1):
 - **F6 (info, bleibt akzeptiert):** Die 403-Texte der Auth-Flows
