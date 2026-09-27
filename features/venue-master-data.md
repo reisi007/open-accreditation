@@ -4,9 +4,11 @@ Spielstätten / Austragungsorte als **mandant-weite Stammdaten**. Eine Tabelle,
 referenziert von **Teams und Events** — beide über `venue_id`. Ersetzt die
 zwei Freitext-Spalten `teams.home_venue` und `events.venue`.
 
-Entscheidung vom 2026-09-27 (user-bestätigt),-Präzedenz für alle
+Entscheidung vom 2026-09-27 (user-bestätigt), Präzedenz für alle
 Detailfragen: **Kategorien** (`categories.manage` = Kopier-Permission,
-`mandant_admin`; `CategoryController` + `CategoryResource` als Form).
+`mandant_admin`; `CategoryController` + `CategoryResource` als Form) — für
+Flächen-Form, Rollenliste und Lese-Umfang. Für das **Besitz-Prädikat auf dem
+Schreibweg** ist die Vorlage nur zur Hälfte kopierbar, siehe §5.
 
 ## Die vier Entscheidungen
 
@@ -132,6 +134,9 @@ DELETE /api/admin/venues/{venue}  destroy  can:venues.manage  + throttle:admin
 Index und alle Writes sind mandant-scoped (`forMandant()` /
 `MandantContext`); `{venue}` läuft über den mandant-scoped
 Route-Model-Binding, ein fremder `venue_id` ist deshalb **404**, nie 403.
+Mandant-skaliert heißt aber nicht team-skaliert: auf `update` / `destroy` kommt
+eine Team-Achse **obendrauf**, die erst nach der Mandanten-Achse geprüft wird
+und **403** antwortet (§5).
 
 ### Zusätzlich: die **mandant-adressierte** Fläche (Board 7b)
 
@@ -166,7 +171,8 @@ ist sie hier festgehalten.
 
 Die Fläche verschafft damit **niemandem** neuen Zugriff: ein `mandant_admin` /
 `team_admin` erhält exakt die Venues, die ihm die host-skalierten Routen schon
-geben. `{venue}` wird über `$mandant->venues()->findOrFail()` aufgelöst, ein
+geben — und er schreibt auf dieser Fläche auch nicht weiter als dort (§5).
+`{venue}` wird über `$mandant->venues()->findOrFail()` aufgelöst, ein
 fremder `venue_id` also konstruktionsbedingt 404. `mandant_id` beim Create kommt
 aus der **Route**, nie aus dem Payload; der mandant-scoped `Rule::unique` liest
 dieselbe Id.
@@ -202,8 +208,9 @@ team_admin** vergeben — exakt dieselbe Rolle wie bei `categories.manage`, und
 aus demselben Grund:
 
 - Eine Venue-Zeile ist **nie** team-eigen. Es gibt keine Team-Ebene, also ist
-  die Fläche **mandant-scoped**, nicht team-scoped — der Team-Admin schreibt in
-  die Master-Liste *seines* Verbands, nicht in die eines fremden.
+  die Fläche **mandant-scoped**, nicht team-scoped — der `team_admin` schreibt
+  in die Master-Liste *seines* Verbands, nicht in die eines fremden. *Wie weit*
+  er darin schreiben darf, ist davon getrennt geregelt — siehe unten.
 - Der Grant ist trotzdem nötig, weil die Venue **Vorbedingung** der Formulare
   ist, die der `team_admin` bereits bearbeiten darf: `teams.manage` und
   `events.manage`. Die Venue-Combobox im Team-Formular **und** im Event-Formular
@@ -213,14 +220,82 @@ aus demselben Grund:
   zuweisen, aber nie einen anlegen. Genau das ist der Grund, aus dem der
   `team_admin` `categories.manage` für den Kategorie-Picker derselben Formulare
   hält.
-- Der `team_admin` braucht dafür **keine** Team-Zuweisung-spezifische
-  Venue-Schranke: das Gate läuft ohne `team_id`-Argument, also mandant-weit.
-  Eine `team_admin`-Rolle ganz **ohne** Team-Zuweisung bleibt trotzdem abgelehnt
-  (generische Gate-Semantik, `RolePermissionTest`).
+- Das **Gate** selbst kennt keine `team_id`: es prüft `venues.manage` und läuft
+  damit mandant-weit. Auf dem **Schreibweg** gibt es sehr wohl eine
+  Team-Zuweisungs-Schranke — sie sitzt im Controller, nicht im Gate (siehe
+  unten). Eine `team_admin`-Rolle ganz **ohne** Team-Zuweisung fällt deshalb
+  schon beim Ermitteln der Team-Menge durch (`teamIds()`, `VenueTest`).
 
 `user` und `verifier` halten die Permission nicht (Route-Gate 403). Die
 Mandanten-Isolation ist von dem Grant unberührt: `MandantContext` + mandant-
 scoped Route-Binding bleiben die Grenze, ein fremder `venue_id` ist 404.
+
+### Schreibbreite des `team_admin`: nur Orte, die sein eigenes Team benutzt
+
+Der Grant gilt für den `team_admin` beim **Lesen und Anlegen mandantweit**, beim
+**Ändern nur teambezogen**. `PUT` und `DELETE` auf einen Ort, den keines der
+Teams des Aufrufers benutzt, sind **403**:
+
+| Fläche | `team_admin` | `mandant_admin`, `super_admin` |
+|---|---|---|
+| `index` | mandantweit | mandantweit |
+| `store` | mandantweit | mandantweit |
+| `update` / `destroy` | **nur Orte, die ein eigenes Team benutzt** | mandantweit |
+
+`mandant_admin` und `super_admin` sind unberührt: für sie ist die Team-Menge
+leer, der Guard ist ein No-op. Die Grenze gilt für `PUT` **und** `DELETE`, also
+auch für das Umbenennen, das Deaktivieren/Reaktivieren und das Löschen.
+
+**Warum Lesen und Anlegen mandantweit bleiben.** Der bestätigte Inline-Create im
+Team-Formular würde sonst dead-enden — ein Verband mit null Orten käme gar erst
+nicht an das Formular, in dem der erste Ort entsteht. Und `venues.manage` folgt
+`categories.manage` **zeilengleich**: derselbe Picker, dieselben Formulare,
+dieselbe Rollenliste.
+
+**Warum Ändern getrennt davon ist.** Umbenennen und (De)aktivieren/Löschen sind
+keine Eingabe in ein eigenes Formular, sondern eine Korrektur an geteilten
+Stammdaten. Ein Verein, der den Ort des Nachbarvereins umbenennt, ärgert den
+Nachbarn, ohne ihn zu fragen. Deaktivieren ist erst recht nicht folgenlos: weil
+`unique(mandant_id, name)` bewusst **nicht** über `is_active` filtert
+(Entscheidung 4), nimmt ein deaktivierter Name den Namen **dauerhaft** aus dem
+Umlauf. Ein unreferenzierter Ort wird deshalb nicht als „harmlos"
+durchgelassen — die Macht, Namen mandantweit zu besetzen, bleibt auf
+Mandanten-Ebene. Dasselbe gilt für einen Ort, den nur ein **Event** benutzt: eine
+Spielzuweisung ist keine Eigentumsanzeige.
+
+**Warum das Prädikat nicht dem der Kategorien entspricht.** `assertOwnership()`
+(`Concerns/ResolvesAdminTeamScope.php:161`) liest
+`$model->getAttribute('team_id')`. **`Venue` hat keine `team_id`-Spalte**
+(`#[Fillable(['mandant_id', 'name', 'is_active'])`, `Venue.php:33`) — die
+Tabelle kennt bewusst keine Team-Ebene. Das Prädikat hätte `null` geliefert und
+**jeden** Schreibversuch verweigert, auch den auf einem Ort, den der Aufrufer
+wirklich benutzt. Die Form ist also übernommen, das Prädikat ist ein eigenes
+(`VenueController::assertWritableBy()`, `VenueController.php:269`): leeres
+`teamIds()` bedeutet unbeschränkt, die Mandanten-Achse ist vorher geklärt, und
+„mein Ort" ist die **Schnittmenge** der Team-Menge des Ortes mit den Teams des
+Aufrufers. Gezählt wird dabei ausschließlich `teams.venue_id` — die stehende
+Heimstätte eines Vereins. `events.venue_id` ist die Zuweisung eines einzelnen
+Spiels und gibt ihrem Admin kein Umbenennungs- oder Deaktivierungsrecht auf die
+Stätte des ganzen Verbands.
+
+**`index` ist bewusst nicht wie bei Kategorien gefiltert.** Kategorien haben
+eine echte Mandant-/Team-Trennung, Venues nicht; der `team_admin` liest die Liste
+seines **ganzen** Verbands, weil der Picker auch das Derby-Stadion des Nachbarn
+anbieten muss. Der Guard gilt ausschließlich auf den schreibenden Wegen.
+
+**Beide Flächen durch Konstruktion, nicht durch Ablesen.** Der Guard sitzt in
+den geteilten Workern `updateVenue` / `deleteVenue`, an die **alle vier**
+schreibenden Actions delegieren (host-skaliert **und** mandant-adressiert). Ein
+Guard pro Action könnte zwischen den Flächen auseinanderlaufen, einer im Worker
+nicht.
+
+**Fehlercodierung: 403 auf der Team-Achse, 404 auf der Mandanten-Achse.** Die
+Mandanten-Achse ist vorher geklärt und antwortet 404 (Binding-Scope
+`assertMandantScope()` bzw. `findOrFail()` über `$mandant->venues()`). 404 wäre
+hier zusätzlich eine **Lüge**: der Aufrufer sieht den Ort im mandantweiten Index
+— das ist der Zweck des breiten Lesens. 403 ist der ehrliche Code und der
+konsistente, weil die Codebase 404 der Mandanten-Achse und 403 der Rollen-/Team-
+Achse vorbehält.
 
 ## Erster Datensatz
 
@@ -241,6 +316,19 @@ Negativkontrollen: `team_admin` **ohne** Team-Zuweisung = 403, `team_admin`
 eines fremden Mandants = 403, `team_admin` auf fremde Venue = 404) sowie die
 Fabriken.
 
+Dieselbe Datei pinnt die **Schreibbreite des `team_admin`** (§5) in beide
+Richtungen: Lesen und Anlegen mandantweit (derselbe Nutzer, `index` 200 /
+`store` 201), Umbenennen und Deaktivieren des Ortes, den ein eigenes Team
+benutzt, erlaubt; 403 dagegen bei einem Ort, den nur ein Nachbarverein, den
+**niemand**, oder nur ein Event benutzt. Eigener Test dafür, dass der 403 der
+Schreibbreite und **nicht** das `venues.manage`-Gate ist (derselbe Nutzer
+passiert das Gate) — sonst wäre ein verweigertes Grant von einer Enge nicht zu
+unterscheiden. Die Mandanten-Ebene behält die breite Macht: `mandant_admin`
+benennt und löscht weiter einen unbenutzten Ort. Der 409-Pfad bleibt für den
+`team_admin` erreichbar — auf einem Ort, den sein eigenes Team noch
+referenziert; dort wird auch die kombinierte Meldung „1 Verein und 1 Event"
+erstmals für diese Rolle erreichbar.
+
 Geänderte Alt-Tests: `AdminTeamTest`, `AdminEventTest`, `PortalTest`,
 `RolePermissionTest` (Matrix um `venues.manage` erweitert, `team_admin`-Zeile
 inklusive).
@@ -253,6 +341,9 @@ Liste/Inline-Create landen im adressierten Mandanten (und der Folge-Team-Save
 Namenleck), ein `venue_id`/`{venue}` eines fremden Mandanten ist 404 auf
 Update/Delete, die Namens-Uniqueness folgt der **Route**-Mandanten-Id, und die
 host-skalierten Routen antworten weiterhin ausschließlich mit dem Host-Mandanten.
+Die Schreibbreite des `team_admin` gilt hier **genauso** wie auf der
+host-skalierten Fläche — eigener Ort umbenennen ja, Nachbarverein-Nein — weil
+beide Actions an denselben Worker delegieren.
 
 ## Portabilität (§2)
 
@@ -261,9 +352,13 @@ Ausschließlich portable Konstrukte: `foreignId()->index()->constrained()`,
 Kein PG-spezifisches SQL, kein `jsonb`, kein partieller Index, keine
 Datumsarithmetik. Die mandant-adressierte Fläche ändert daran nichts: sie
 skaliert über `Venue::forMandant()` bzw. `$mandant->venues()` — dieselben
-portablen Query-Builder-Pfade wie die host-skalierten Routen. Gate: dieselbe
-Suite auf SQLite `:memory:` **und** auf echtem PostgreSQL 17
-(`bash scripts/test-pgsql.sh`), beide grün.
+portablen Query-Builder-Pfade wie die host-skalierten Routen. Auch die
+Team-Achse des Schreib-Guards ist eine gewöhnliche `exists()`-Abfrage auf
+`Team::forMandant()->whereIn('id', …)->where('venue_id', …)` und damit auf
+beiden Engines gleich. Gate: dieselbe Suite auf SQLite `:memory:` **und** auf
+echtem PostgreSQL 17 (`bash scripts/test-pgsql.sh`), beide grün — zuletzt
+gemessen SQLite **1534 passed / 0 skipped**, PostgreSQL **1533 passed / 1
+skipped / 0 failed** (deckungsgleich, denn `1534 = 1533 + 1`).
 
 ## Frontend-Key (SWR)
 
