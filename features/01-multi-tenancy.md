@@ -69,8 +69,8 @@ Die Admin-Oberfläche skaliert ihre Listen auf **zwei** Arten. Die
 Unterscheidung ist der eigentlich interessante Punkt an dieser Stelle:
 
 - **Host-skaliert** (der Standard): `/admin/categories`, `/admin/events`,
-  `/admin/accreditations`, `/admin/users`. Diese Routen tragen **keine**
-  Mandant-ID in der URL — es gibt also nichts, was das SPA durchreichen
+  `/admin/accreditations`, `/admin/users`, `/admin/venues`. Diese Routen tragen
+  **keine** Mandant-ID in der URL — es gibt also nichts, was das SPA durchreichen
   könnte. Das Backend löst über `MandantContext::currentId()` auf. Ein
   `super_admin` hat keinen mandant-scoped Rollenkontext (`mandant_id = NULL`,
   global); für ihn trägt `/me` das **host-abgeleitete** `current_mandant_id`,
@@ -93,36 +93,69 @@ untereinander **konsistent**: kein Falsch-Mandant in der Auswahl. Die alte
 Fehlschaltung (Teams des primären Mandanten auf einer Nicht-Primär-Domain)
 existiert nicht mehr.
 
-### Offene Limitation: Venue-Auswahl auf der Mandant-Detail-Seite
+### Venue auf der Mandant-Detail-Seite: zwei Skalen, eine Scope-Regel
 
-Hier **kreuzen** sich die beiden Modelle. `MandantDetailPage` lädt die Teams
-über den **URL**-Mandanten (`MandantDetailPage.tsx:48-51`), die
-Heimstätte-Auswahl aber über `useVenues()` → `GET /api/admin/venues` — und
-das ist **host-skaliert**: `VenueController` hat anders als `TeamController`
-**keinen** `{mandant}`-Route-Parameter, `index` filtert
-`forMandant($this->currentMandantId())` und `store` setzt
-`'mandant_id' => $this->currentMandantId()`.
+Hier **kreuzen** sich die beiden Modelle, und `Venue` ist die einzige Fläche,
+die **beide** Skalen wirklich braucht: host-relative Seiten (Kategorien,
+Events, Akkreditierungen, `VenuesPage`) und die eine mandant-adressierte
+Admin-Seite (`/admin/mandants/{id}`) liegen auf derselben Oberfläche. Beide
+Varianten existieren deshalb **nebeneinander**, mit **identischem** Gate
+(`venues.manage`) und ausschließlich unterschiedlichem Scope:
 
-**Folge bei abweichendem Host-Mandanten:** Die Heimstätte-Auswahl bietet die
-Orte des **Host**-Mandanten an, und ein **Inline-Create**
-(`VenueCombobox` → `POST /api/admin/venues`) schreibt still in den
-Host-Mandanten; der anschließende Team-Save auf denselben `venue_id`
-scheitert erst dann mit 404 (`TeamController::assertVenueOfMandant()`). Das
-ist ein **Datenintegritätsproblem** — die Fremd-venue existiert danach real
-im Host-Mandanten —, kein reiner Anzeigefehler.
+| Route | Mandant aus … | Für wen |
+|---|---|---|
+| `GET/POST/PUT/DELETE /api/admin/venues` | dem **Host** (`currentMandantId()`) | host-relative Seiten (`VenuesPage`, die Formulare auf Kategorien-/Event-/Akkreditierungs-Seiten) |
+| `GET/POST/PUT/DELETE /api/admin/mandants/{mandant}/venues` | der **URL**-`{mandant}` | `MandantDetailPage` — Teams und Heimstätte aus derselben Quelle |
 
-**Lösungspfad:** Es fehlt ein **mandant-adressierbarer Venue-Endpunkt**
-(`/api/admin/mandants/{id}/venues`), analog zur Team-Route; Venue und Team
-können dann dieselbe `{mandant}`-Quelle nutzen.
+Beide sind **vollständig** (alle vier Methoden, nicht nur Lesen und Anlegen) und
+teilen sich die privaten `*ForMandantId()`-Arbeiter, damit abgeleitete
+`teams_count`/`events_count`, die Unique-Regel und die 409-Delete-Politik nicht
+auseinanderdriften können. Beleg: `backend/routes/api.php:244-249` (host-skaliert)
+und `:264-269` (adressiert).
 
-**Keine Isolationslücke, aber eine Invariante mit zwei Skalen:** Jeder Write
-wird gegen **den Mandanten validiert, auf den seine Route skaliert** —
-host-abgeleitet (`ResolvesAdminTeamScope::assertTeamOfMandant()`) auf den
-host-skalierten Admin-Oberflächen, gegen den **URL**-`{mandant}` auf der
-Mandant-CRUD-Oberfläche. Cross-Mandant-IDs antworten in beiden Fällen mit
-404, ein falscher Kontext führt also nie zu einem Team, Event, einer
-Akkreditierung oder einem Konto im falschen Mandanten. Für `Venue` gilt das
-gerade **nicht** — siehe oben.
+**Die adressierte Fläche ändert den Scope, nicht die Reichweite.** Das Gate
+bleibt `venues.manage`, und `assertMandantRouteParameter()` gibt dem
+`super_admin` jeden Mandanten von jedem Host frei, allen anderen nur den, auf
+dem sie ohnehin sind (sonst 404). Ein `mandant_admin`/`team_admin` bekommt über
+den adressierten Pfad also exakt die Venues, die ihm der host-skalierte Pfad
+schon gab: es entsteht **keine** neue Reichweite, die Seite liest und schreibt
+nur endlich den Mandanten, um den es geht.
+
+**Im Frontend ist der Unterschied ein Argument, kein Duplikat.** `useVenues()`
+nimmt eine optionale `mandantId`; `null` ⇒ host-skaliert, eine ID ⇒
+mandant-adressiert (`venuesKey()`, `useVenues.ts:20-21`). `MandantDetailPage`
+reicht seine `{mandant}`-ID durch `TeamForm` bis in den `VenueCombobox`, dessen
+**Inline-Create** damit in denselben Mandanten schreibt wie die Auswahl davor.
+Ohne das wäre die Anzeige richtig, der Create aber ein stiller
+Cross-Mandant-Write — und der fällt erst beim anschließenden Team-Save auf
+(`TeamController::assertVenueOfMandant()`, 404), also **nach** dem Schaden.
+
+**Ein Team-/Event-Write invalidiert beide Listen.** Die Venue-Liste trägt
+abgeleitete `teams_count`/`events_count`, und beide Flächen zeigen sie an;
+`refreshVenueLists(mandantId)` invalidiert deshalb **beide** Keys
+(`useVenues.ts:32-33`, `:44-45`), damit keine Seite einen veralteten Zähler
+zeigt, nur weil sie die jeweils andere Fläche liest. `MandantDetailPage` ruft
+das nach Team-Save und Team-Delete (`MandantDetailPage.tsx:158`, `:178`).
+
+**Invariante mit zwei Skalen — und sie gilt für `Venue` auf beiden:** Jeder
+Write wird gegen **den Mandanten validiert, auf den seine Route skaliert** —
+host-abgeleitet (`ResolvesAdminTeamScope::assertMandantScope()`,
+`ResolvesAdminTeamScope.php:149-151`) auf den host-skalierten
+Admin-Oberflächen, gegen den **URL**-`{mandant}` auf der
+Mandant-CRUD-Oberfläche, wo die Auflösung **strukturell** durch die Mandant
+läuft (`$mandant->venues()->findOrFail()`, `VenueController.php:130`, `:142`) —
+also per Konstruktion ein 404 und keine Prüfung, die man irgendwann vergessen
+könnte. Cross-Mandant-IDs antworten in beiden Fällen mit 404, ein falscher
+Kontext führt also nie zu einem Team, Event, einer Akkreditierung, einer **Venue**
+oder einem Konto im falschen Mandanten.
+
+Die beiden Achsen bleiben dabei unterscheidbar, und das ist beabsichtigt: **404
+ist der Mandanten-Achse vorbehalten, 403 der Team-/Rollen-Achse**
+(`assertOwnership()`, `assertMayWrite()`, das `team_admin`-Schreibrecht auf
+geteilte Venues, `ResolvesAdminTeamScope.php:187`). Ein 403 würde eine
+Beziehung behaupten, die es nicht gibt („du darfst das nicht"), während 404 die
+Wahrheit sagt und weniger preisgibt — der Mandant ist von diesem Host aus nicht
+erreichbar.
 
 ## Domainwechsel-Dropdown für `super_admin` (SOLL, D21)
 
@@ -148,8 +181,8 @@ die Begründung dort widerlegen, nicht umgehen.
 |---|---|---|
 | Wie kommt der Admin an alle Mandanten? | `GET /api/admin/mandants` in der `can:mandants.manage`-Gruppe. `index()` lädt **alle** Mandanten (kein `active()`-Filter) mit `with('domains')` + `withCount('teams')`, sortiert nach `name`. | `backend/routes/api.php:188-189`; `backend/app/Http/Controllers/Api/Admin/MandantController.php:76-85` |
 | **Enthält die Ressource die Domains?** | **Ja.** `MandantResource` serialisiert `domains` als `[{id, hostname}]` (lazy nachgeladen, falls die Relation nicht eager geladen ist), außerdem `is_primary`, `is_active`, `slug`, `teams_count`. | `backend/app/Http/Resources/MandantResource.php:32-47` (`domains` → :45), `domainsList()` :112-123; `frontend/src/api/types.ts:29-49` |
-| Wie erfährt der Store den aktuellen Mandanten? | `/api/auth/me` → `UserResource.current_mandant_id = MandantContext::currentId()` (host-abgeleitet, `null` ohne Kontext). Im Frontend über `useAuth()` (`useSWR('session')`) verfügbar. | `backend/routes/api.php:98`; `backend/app/Http/Resources/UserResource.php:47`; `frontend/src/logic/useAuth.ts:20-22`; `frontend/src/api/types.ts:9-19`; einziger aktueller Verbraucher: `frontend/src/logic/useAdminTeams.ts:40-42` |
-| Wo käme das Dropdown hin? | `AdminLayout` rendert einen `<header className="navbar">` mit `navbar-start` (Logo-Link) und `navbar-end` (Menü-Button, E-Mail, Abmelden, `LanguageSwitcher`). `AdminNav` ist eine **lokal definierte Komponente derselben Datei** und wird **zweimal** instanziiert (Desktop-`aside` + Mobile-Drawer-`aside`). | `frontend/src/pages/admin/AdminLayout.tsx:117` (`AdminLayout`), Header :206-237, `navbar-end` :213-236, `LanguageSwitcher` :235; `AdminNav` :18-113, zweimal :244-253 und :267-276 |
+| Wie erfährt der Store den aktuellen Mandanten? | `/api/auth/me` → `UserResource.current_mandant_id = MandantContext::currentId()` (host-abgeleitet, `null` ohne Kontext). Im Frontend über `useAuth()` (`useSWR('session')`) verfügbar. | `backend/routes/api.php:98`; `backend/app/Http/Resources/UserResource.php:47`; `frontend/src/logic/useAuth.ts:20-22`; `frontend/src/api/types.ts:9-19`; die zwei aktuellen Verbraucher: `frontend/src/logic/useAdminTeams.ts:40-42` (Team-Quellen) und `frontend/src/components/MandantSwitcher.tsx:122` (die „Du bist hier"-Zeile) |
+| Wo käme das Dropdown hin? | `AdminLayout` rendert einen `<header className="navbar">` mit `navbar-start` (Logo-Link) und `navbar-end` (Menü-Button, **Domainwechsel**, E-Mail, Abmelden, `LanguageSwitcher`). `AdminNav` ist eine **lokal definierte Komponente derselben Datei** und wird **zweimal** instanziiert (Desktop-`aside` + Mobile-Drawer-`aside`). | `frontend/src/pages/admin/AdminLayout.tsx:118` (`AdminLayout`), Header :207-247, `navbar-end` :214-247, `MandantSwitcher` :235 (vor dem E-Mail-Span :236), `LanguageSwitcher` :246; `AdminNav` :19-116, zweimal :256 und :279 |
 | Wie ist der Host im Frontend repräsentiert? | **Gar nicht — und das ist korrekt.** Alle API-Calls sind **relative** Pfade (`fetch(path, …, {credentials:'include'})`); es gibt kein `VITE_API_*`, kein `import.meta.env` in `src/`, kein Config-Flag für den Host. Die einzige `window.location`-Nutzung im ganzen `src/` ist `new URL(photo_url, window.location.origin)` in der VerifyPage. Die **Window-Origin ist die einzige Wahrheit** — SPA und API teilen sich eine Origin. | `frontend/src/api/client.ts:56-65`; `frontend/vite.config.ts:9-26` (Proxy mit `changeOrigin: true`, kein Bundle-Env); `frontend/src/pages/VerifyPage.tsx:82` |
 | Wie löst der Server den Host auf, und was bei mehreren Mandanten pro Host? | `MandantContext::resolve($host)` → Cache `mandant.domain.{host}` → `MandantDomain::where('hostname',$host)->value('mandant_id')` → `Mandant::active()->find($id)`. Die Middleware setzt das in den Container; unbekannter Host → 404 (außer Console/Testing). | `backend/app/Support/MandantContext.php:103-134` (:123 das `->value()`); `backend/app/Http/Middleware/MandantContextMiddleware.php:39-68`, `resolveHost()` :83-99, `isLoopback()` :125-135 |
 
@@ -307,20 +340,82 @@ gesondert prüfen.
   kehrt nach dem Login auf `from` **zurück** — man landet also auf der
   Zieldomain direkt auf derselben Admin-Route.
 
+- **E11 — `useMandants(enabled)`: der Hook fragt nur, wenn er etwas anzeigen
+  darf.** Signatur `useMandants(enabled = true)`, `enabled: false` ⇒ `null` als
+  SWR-Key (SWRs „noch nicht laden"). `MandantSwitcher` ruft
+  `useMandants(isSuperAdmin)`. Begründung: Die Datenquelle liegt hinter
+  `can:mandants.manage` und ist damit super_admin-only (E1) — für jeden
+  Rollen-`user` ohne dieses Recht wäre der Request ein **garantierter 403**, und
+  der Trigger hängt in `navbar-end`, also auf *jeder* Admin-Seite (E2). Das ist
+  **keine** Access-Control-Entscheidung: die API verweigert ohnehin, es wird nur
+  kein Request gestellt, der ausschließlich scheitern kann. Der Parameter ist
+  damit Teil des Vertrags — ohne ihn sähe der nächste Refactor hier eine
+  Begründung, die es nicht gibt. Beleg: `useMandants.ts:36-37`,
+  `MandantSwitcher.tsx:110`.
+
+- **E12 — Der Trigger-`aria-label` fällt auf den Hostnamen allein zurück, nicht
+  auf eine leere Klammer.** Solange ein Mandant bekannt ist:
+  `Verband: {name} ({hostname})` — Assistive Technik verliert die Domain nie.
+  Ist `current_mandant_id` `null` (Liste lädt noch, oder sie ist fehlgeschlagen),
+  rendert der Trigger **nur** `location.hostname`. Begründung: `Verband: (
+  host)` wäre eine Behauptung ohne Inhalt (welcher Verband?), und der Hostname ist
+  genau das, was E1/E9 vom Trigger **nie** verlieren will — die Domain *ist* der
+  Kontext, der Name nur sein Etikett. Der Test sucht den Trigger im Fehlerfall
+  deshalb **über die Rolle**, nicht über den Namen
+  (`MandantSwitcher.test.tsx:349-350`). Beleg: `MandantSwitcher.tsx:250`.
+
+- **E13 — Nicht navigierbare Zeilen tragen `aria-current="false"`; daisyUIs
+  `menu-disabled` ist dafür verworfen.** daisyUIs aktive-Zeilen-Regel verlangt
+  `[aria-current]:not([aria-current=false],[aria-current=""])`, und ihre
+  Hover-Regel trifft jedes direkte `<li>`-Kind (außer `.menu-disabled`).
+  `="false"` ist damit der eine Wert, der in **beiden** Sprachen dasselbe sagt —
+  „**nicht** der aktuelle Mandant" — statt die Zeile stillschweigend zu lassen;
+  ein klickbares Link-Ziel trägt entsprechend gar kein `aria-current`.
+  `menu-disabled` — daisyUIs eigener „nicht klickbar"-Marker — ist doppelt
+  unbrauchbar: es setzt `color: color-mix(in oklab, base-content 20%, transparent)`,
+  gemessen **1.54:1** gegen `base-100` (bei 12–14 px weit unter WCAG AA), und
+  `pointer-events: none`, was dem Klick auf die aktuelle Zeile (schließt nur das
+  Panel) die Zeiger-Bedienung genommen hätte. Ehrliche Grenze: die **Hover**-
+  Hinterlegung der `menu`-Regel trifft weiterhin auch eine Zeile mit
+  `aria-current="false"` — Kosmetik, kein Linkversprechen, weil kein `href`
+  existiert und die Tastatur über sie springt.
+
+- **E14 — Außenklick über `document`-`pointerdown`, nicht `onBlur` auf dem
+  Wrapper.** `VenueCombobox` schließt per `blur`; das deckt den Fall nicht, den
+  man am häufigsten trifft: ein Klick auf den Seitenhintergrund bewegt den Fokus
+  **nirgends** hin, es feuert also **kein** `blur`, und das Panel bliebe über dem
+  Inhalt offen. Gemessen im Test: `user.click(document.body)` löst genau das aus.
+  Ein `pointerdown`-Listener auf `document` feuert für jeden Klick; der
+  `contains()`-Test hält die Klicks im Panel offen. Beleg:
+  `MandantSwitcher.tsx:174-188`.
+
 ### Vertrag im Detail
 
-**Datenquelle.** `useMandants()` (neu in `frontend/src/logic/`) mit
-`useSWR<Mandant[]>('/api/admin/mandants', listMandants)` — **identischer
-SWR-Key** wie `MandantListPage.tsx:30`, damit Liste und Switcher einen
-Cache teilen und das Öffnen des Switchers keinen zweiten Request kostet. Der
-Umzug von `MandantListPage` auf denselben Hook ist ein **empfohlener**
-Follow-up, kein Pflichtbestandteil — diese Spec erzwingt keinen Refactor, um
-ihren eigenen Umfang nicht zu sprengen.
+**Datenquelle.** `useMandants(enabled)` (in `frontend/src/logic/`) mit
+`useSWR<Mandant[]>(enabled ? MANDANTS_KEY : null, () => listMandants())` und
+`MANDANTS_KEY = '/api/admin/mandants'`. Der Key ist **absichtlich derselbe**,
+den `MandantListPage` für seine Liste benutzt: damit teilen Liste und Switcher
+einen Cache und das Öffnen des Switchers kostet keinen zweiten Request. Der
+`enabled`-Schalter ist E11, keine Optimierung.
+
+> **Offene, benannte Lücke — der geteilte Key ist noch nicht geteilt.**
+> `MANDANTS_KEY` ist exportiert, aber `MandantListPage.tsx:30` liest weiterhin
+> **sein eigenes Literal** `'/api/admin/mandants'` statt des Exports. Der
+> `useMandants`-Test beweist die gemeinsame Cache-Nutzung **zweier Hook-
+> Konsumenten** — nicht, dass die Mandantenliste und der Switcher dasselbe
+> Literal verwenden. Ein Auseinanderdriften bliebe für ihn unsichtbar: beide
+> Seiten läden ihre eigene Kopie, jede bliebe in sich korrekt, und der Schalter
+> kostete auf `/admin/mandants` genau den zweiten Request, den er einsparen
+> soll. Der Umzug ist ein **empfohlener** Follow-up (kein Refactor-Zwang für
+> diese Spec), aber eine Lücke, kein Erledigtes — bis er getan ist, ist der
+> „identische Key" eine Absichtserklärung und keine Tatsache.
 
 **Sichtbarkeit im Header.** Trigger-Text ab `sm`: `{name} · {hostname}`; unter
 `sm` nur `{name}` mit `truncate` (der Header ist auf kleinen Viewports eng; die
-E-Mail ist dort schon `hidden sm:inline`). `aria-label` **immer**
-`Verband: {name} ({hostname})` — Assistive Technik verliert die Domain nie.
+E-Mail ist dort schon `hidden sm:inline`). In **beiden** Lagen gilt: solange
+kein Mandant bekannt ist, steht statt des Namens der Hostname. `aria-label` ist
+`Verband: {name} ({hostname})` und sonst der **reine Hostname** (E12) — in
+keinem Fall eine leere Klammer; Assistive Technik verliert die Domain nie.
 Chevron-Icon `aria-hidden` (dieselbe Begründung wie in `VenueCombobox`:
 der Trigger selbst trägt die Semantik).
 
@@ -338,14 +433,37 @@ die erste **aktive** — ein Fokus auf eine tote Zeile ist eine Sackgasse);
 nötig, weil der Fokus real ist), `Home`/`End` an den Rand, `Escape` schließt und
 gibt den Fokus **an den Trigger** zurück, `Tab` schließt und lässt den Fokus
 weiterlaufen (kein Fokusfalle — der Drawer hat dafür schon das Muster in
-`AdminLayout.tsx:152-177`). Außenklick schließt. `mousedown` auf dem Panel wird
-verhindert, damit der Klick die Zeile trifft statt sie zu fokussieren und
-danach wegzuklicken (das Muster aus `VenueCombobox.tsx:402`).
+`AdminLayout.tsx:152-177`). Außenklick schließt über einen
+`document`-`pointerdown` (E14, **nicht** `onBlur` — der gemessen fehlende Fall).
+`mousedown` auf dem Panel wird verhindert, damit der Klick die Zeile trifft statt
+sie zu fokussieren und danach wegzuklicken (das Muster aus
+`VenueCombobox.tsx:402`).
 
-**Warum kein Fokusfalle-/Kontrast-Sonderfall:** daisyUIs `dropdown` ist reines
-CSS; das Panel ist nur gerendert, wenn es offen ist, und `btn-ghost`/`menu-active`
-sind die Standard-Token. Der Design-QA-Loop (§7) ist nach der Umsetzung
-verpflichtend — für diesen Schalter gibt es bisher **keinen** Baseline-Screenshot.
+**Kein Fokusfalle-Sonderfall:** daisyUIs `dropdown` ist reines CSS, das Panel ist
+nur gerendert, wenn es offen ist, und `btn-ghost`/`menu-active` sind die
+Standard-Token. Der Design-QA-Loop (§7) bleibt verpflichtend.
+
+**Kontrast — gemessen, nicht gerechnet.** Tailwind v4 und daisyUI 5 emittieren
+`oklch()` bzw. `color-mix(in oklab, …)`; die einzige ehrliche Lesart ist der vom
+Browser selbst erzeugte sRGB-Wert, gelesen aus einem Canvas und gegengeprüft am
+Screenshot-Pixel. Werte für das Theme `accr-light`, Panel-Hintergrund
+`base-100` (Name 14 px, Domainzeile 12 px):
+
+| Zeile | Textfarbe | gemessen |
+|---|---|---|
+| Link-Ziel (`<a href>`) | `base-content` | **18.10:1** |
+| Link-Ziel, Domainzeile | `text-base-content/70` | **6.79:1** |
+| aktuelle Zeile (`menu-active`) | `neutral-content` auf `neutral` | **6.99:1** |
+| inaktiv / ohne Domain | `text-base-content/70` | **6.79:1** |
+
+Der Zeilentext des Panels liegt damit über WCAG AA (4.5:1 für 12–14 px
+Normaltext). Die **Domainzeile der aktuellen Zeile** bekommt dafür bewusst
+**keine** eigene Muted-Stufe: Sie erbt die Farbe der Zeile, weil ein hart
+gesetztes Muted-Grau auf `menu-active` (hell auf neutral) dunkel-auf-dunkel
+wäre. Der muted-Step des Panels ist `/70` — **nicht** `/60`: `/60` misst 4.74:1
+und würde AA noch gerade schaffen, aber ohne Reserve. Wer hier „aufräumt" und
+eine Stufe heruntergeht, verliert die Reserve ausgerechnet für die 12-px-Zeile,
+die am ehesten dran ist. `menu-disabled` dagegen bricht ein (E13, 1.54:1).
 
 **Datenschutz-Randnotiz (kein Security-Blocker):** Der Trigger zeigt in der
 Geschlossenen Darstellung Name **und** Domain an. Für einen `super_admin` ist das
@@ -389,23 +507,59 @@ eröffnen, deren Invalidierung man parallel zur Host-Auflösung pflegen müsste.
 
 DoD §3: Frontend-Logik → Vitest, UI → Playwright E2E, Backend → PHPUnit.
 
-- **Vitest (neu, Pflicht)** — `MandantSwitcher.test.tsx`:
-  1. rendert **nur** für `super_admin` (für `mandant_admin` kein Trigger);
-  2. blendet einen Mandanten **ohne** Domain als nicht klickbar ein (kein `href`)
-     und einen **inaktiven** mit `inaktiv`-Badge;
-  3. markiert den aktuellen Mandanten mit `aria-current="true"` und ohne `href`;
-  4. baut die Ziel-URL als `` `${location.protocol}//${hostname}${pfad}?<search>` ``
-     und **ohne** Port;
-  5. Tastatur: `ArrowDown`/`ArrowUp`/`Home`/`End` bewegen den Fokus,
-     `Escape` schließt und legt den Fokus auf den Trigger zurück;
-  6. Fehlerzustand der Liste ⇒ Panel zeigt eine übersetzbare Meldung statt
-     einer leeren Liste (kein `page`-Leerbild).
+- **Vitest (Pflicht)** — `MandantSwitcher.test.tsx`, **11 Fälle**. Die ersten
+  sechs sind der hier beabsichtigte Kern (Sichtbarkeit, Zeilen, Ziel-URL,
+  Tastatur, Fehlerbild); die weiteren fünf fixieren Entscheidungen, die erst die
+  Umsetzung unterwegs treffen musste und die ohne Test stillschweigend kippen
+  könnten:
+  1. kein Trigger **und kein** Request an `/api/admin/mandants` für einen
+     `mandant_admin` (E1, E11);
+  2. Trigger für `super_admin`: `aria-label` = `Verband: {name} ({host})`,
+     Text `{name} · {host}`, `aria-expanded="false"` — der Host ist **Anzeige**,
+     die Identität kommt aus `current_mandant_id` (E12);
+  3. domainlose und inaktive Zeile: beide **ohne** `href`, mit **ihrem** Marker,
+     unabhängig voneinander; eine aktive Zeile mit Domain ist ein echter Link und
+     zeigt **alle** Domains des Mandanten (E3, E4, E5);
+  4. `aria-current="true"` **genau einmal** und dort ohne `href`; **kein**
+     `listbox`/`option`; jede andere nicht navigierbare Zeile mit
+     `aria-current="false"`; ein Link-Ziel **ohne** `aria-current` (E8, E13) —
+     die Unterscheidung, die ein „`aria-current` überall hin" erledigen würde;
+  5. Klick auf die **aktuelle** Zeile schließt das Panel, **ohne** zu navigieren;
+  6. Ziel-URL = Schema der laufenden Origin + Pfad + Query, **ohne** Port, und
+     das Ziel ist die **erste Domain nach aufsteigender `id`**, nicht die
+     Reihenfolge des API-Arrays (E3, E7, E9). Die Fixture-Origin läuft dafür auf
+     einem Port, damit ein Port-Leak sichtbar würde, und die **Anzahl** der Links
+     beweist, dass nichts zu viel angeboten wurde;
+  7. `Enter` öffnet und legt den Fokus auf die erste **Link**-Zeile (tote Zeilen
+     werden übersprungen); `aria-controls` am Trigger **nur** im offenen Zustand,
+     weil die Referenz sonst ins Leere zeigt (E8);
+  8. Pfeile und `Home`/`End` bewegen den Fokus **ohne Wrap**;
+  9. `Escape` schließt und gibt den Fokus an den Trigger zurück;
+  10. **Außenklick** schließt — ausgelöst auf `document.body`, also genau der
+      Fall, an dem ein `onBlur`-Ansatz scheitert (E14);
+  11. fehlgeschlagene Liste ⇒ übersetzbare Meldung **in der aktiven Locale**
+      statt einer leeren Liste, und das `aria-label` des Triggers fällt auf den
+      **Hostnamen** zurück (E12).
 
-- **Vitest (Kleinigkeit, Pflicht)** — ein Fall für `useMandants`, dass der
-  SWR-Key exakt `'/api/admin/mandants'` ist (Cache-Teilung mit
-  `MandantListPage`).
+  **Nicht abgedeckt:** der Fall aus *Fehlerfälle* „Aktuelle Domain ist im Panel
+  nicht die erste des Mandanten". Er ist implementiert (die Zeile wird über die
+  **Mandant-ID** markiert, nicht über den Host), aber **kein** Vitest- und
+  **kein** E2E-Test stellt einen Host her, der nicht die erste Domain seines
+  Mandanten ist — beide Fixtures (Unit `hauptseite.test` = Domain-Id 1, E2E
+  `localhost` = erste Seed-Domain) sind genau der *einfache* Fall. Wer die
+  Markierung je umbaut, muss den Fall erst bauen.
 
-- **Playwright (neu, Pflicht)** — `frontend/tests/e2e/admin-mandant-switch.spec.ts`,
+- **Vitest (Pflicht)** — `useMandants.test.tsx`, **4 Fälle** (nicht einer):
+  1. liest von **exakt** `'/api/admin/mandants'` und meldet Lade- und Fehlerzustand;
+  2. **zwei** Konsumenten desselben Keys ⇒ **genau ein** Request — der Nachweis
+     der geteilten Cache-Nutzung. Achtung: er beweist *zwei Hook-Konsumenten*,
+     nicht dass `MandantListPage` dasselbe Literal verwendet (siehe die offene
+     Lücke unter *Datenquelle*);
+  3. eine fehlgeschlagene Liste erscheint als **Fehler**, nicht als leere Liste
+     (sonst meldet ein 403 „diese Verbände gibt es nicht");
+  4. `enabled: false` ⇒ **kein** Request (E11).
+
+- **Playwright (Pflicht)** — `frontend/tests/e2e/admin-mandant-switch.spec.ts`,
   Tags `{ tag: ['@regression', '@feature:admin:mandant'] }`, **Desktop-Chrome-only**
   (`test.skip` auf dem Mobile-Projekt, Muster aus `admin-mandant.spec.ts`/`a11y.spec.ts`:
   das geteilte Login-Limit soll nicht doppelt verbraucht werden):
@@ -423,16 +577,22 @@ DoD §3: Frontend-Logik → Vitest, UI → Playwright E2E, Backend → PHPUnit.
      unzuverlässig erweist, auf Variante 2 zurückfallen (nur `href`) — und das
      im Verifikationsbericht **sagen**, nicht stillschweigend tauschen.
 
-- **PHPUnit (ein neuer Test, gezielt):** Der Switch setzt **Host**-auflösung
-  voraus, und diese Kette ist bisher nur zur Hälfte gemessen: `MandantContextTest`
-  prüft die Auflösung (`test_middleware_sets_current_mandant_for_known_host`
-  nutzt `$this->get('http://bundesliga.test/')`), und `AdminTeamTest.php:426-448`
-  prüft den Host-Kontext, setzt ihn aber **manuell** über `MandantContext::set()`.
-  **Neu:** ein `super_admin` ruft `GET http://<host-b>/api/auth/me` **über die
-  echte Middleware** und erhält `data.current_mandant_id === mandantB.id`
-  (nicht A, nicht den primären). Genau diese Aussage ist die Grundlage von E10
-  und der einzige Ort, an dem ein Fehler nicht sichtbar würde, sondern nur
-  "falsche Daten" liefert.
+- **PHPUnit (Pflicht)** — Der Switch setzt **Host**-auflösung voraus, und diese
+  Kette ist nur zur Hälfte messbar, wenn der Kontext von Hand gesetzt wird:
+  `MandantContextTest` prüft die Auflösung
+  (`test_middleware_sets_current_mandant_for_known_host` nutzt
+  `$this->get('http://bundesliga.test/')`), und `AdminTeamTest.php:426-448` prüft
+  den Host-Kontext, setzt ihn aber **manuell** über `MandantContext::set()`.
+  **Gebaut:** `backend/tests/Feature/MandantHostHeaderResolutionTest.php` (17
+  Tests) — der Kontext wird **nirgends** von Hand gesetzt, und ein `super_admin`
+  ruft `GET http://<host-b>/api/auth/me` **über die echte Middleware** und
+  erhält `data.current_mandant_id === mandantB.id` (nicht A, nicht den
+  primären). Genau diese Aussage ist die Grundlage von E10 und der einzige Ort,
+  an dem ein Fehler nicht sichtbar würde, sondern nur "falsche Daten" liefert.
+  Der Test muss dabei zusätzlich den Durchlass der Middleware für
+  Console-Requests unterbinden, damit ein unbekannter Host auch wirklich 404
+  liefert: `MandantContextMiddleware` lässt Console- und Testing-Requests
+  bewusst durch, und PHPUnit ist ein Konsolenprozess.
 
 - **PHPUnit (bestehende Deckung genügt, keine Neuschreibung):**
   `AdminMandantTest::test_rejects_duplicate_hostname_globally` (die 1:1-Invariante),
@@ -456,11 +616,16 @@ DoD §3: Frontend-Logik → Vitest, UI → Playwright E2E, Backend → PHPUnit.
   verdoppelt die Routen-Oberfläche, braucht je Controller eine zweite
   Scope-Variante und macht den Host zum Optional-Parameter — mit allen
   Fehlerklassen, die daraus folgen (vergessene `assertMandantScope`,
-  gemischte Hosts, Caching). Dass heute **zwei** Ausnahmen existieren
-  (`/api/admin/mandants/{mandant}/teams`, `/api/admin/mandants/{mandant}/venues`
-  — beide wegen genau *einer* mandant-adressierten Seite) ist **kein Argument
-  für die große Variante**, sondern der Grund, warum sie abgelehnt wurde. Wer
-  sie will, muss begründen, warum die zwei Einzelfälle nicht reichen.
+  gemischte Hosts, Caching). Dass heute **fünf** Subressourcen mandant-adressiert
+  neben ihren host-skalierten Zwillingen existieren
+  (`/api/admin/mandants/{mandant}/` + `domains`, `logo`, `header`, `teams`,
+  `venues` — alle fünf wegen genau *einer* mandant-adressierten Seite,
+  `/admin/mandants/{id}`) ist **kein Argument für die große Variante**, sondern
+  der Grund, warum sie abgelehnt wurde: Der Einzelfall ist billig (er teilt sich
+  Controller und `assertMandantRouteParameter()` mit der jeweils
+  host-skalierten Route), die große Variante vervielfacht die Stellen, an denen
+  ein `assertMandantScope` fehlen kann. Wer sie will, muss begründen, warum die
+  fünf Einzelfälle nicht reichen.
 - **Ein „Switch-Ticket"** (Einmal-Token, `POST /api/auth/switch`, Token im URL
   Fragment) für einen nahtlosen Wechsel ohne erneuten Login. Trägt ein
   Bearer-Token in einer URL (Referrer-Logs, History, Screenshots) und eine
@@ -488,9 +653,9 @@ versehentliche Lücke mitimplementiert wird:
    Trust-/Cookie-Folgearbeit.
 3. **Session über die Domaingrenze hinweg** — E10, siehe *Verworfene
    Alternativen*.
-4. **Der stille Cross-Mandant-Write** auf der Mandanten-Detailseite ist mit
-   `a2c8e5f` behoben; die Venue-Liste oben („Lösungspfad") ist der
-   Reststand der Dokumentation und wird durch dieses Feature **nicht** berührt.
+4. **Mandant-Parametrisierung des Schalters selbst** (etwa ein
+   `?mandant=`-Parameter, der die Ziel-URL statt des Hosts adressiert) — genau
+   die D21-Absage, siehe *Verworfene Alternativen*.
 
 ## Seed (Ist P1)
 
