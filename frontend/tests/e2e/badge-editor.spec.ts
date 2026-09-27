@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loginAdminApi } from './helpers/admin-data';
+import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
 
 /**
  * Badge template editor basis UI (FE2, features/badge-template-editor.md):
@@ -68,7 +68,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByRole('heading', { name: 'Neues Template' })).toBeVisible();
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Roundtrip');
+        const templateName = `E2E Editor Roundtrip ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // The default name row: select it on the canvas, edit it in the panel.
         await canvas.getByRole('button', { name: 'Feld Name' }).click();
@@ -90,7 +91,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByLabel('Skalierung').selectOption({ label: 'Füllen' });
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Editor Roundtrip/ });
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
         await expect(templateRow.getByText('3 Felder')).toBeVisible();
 
@@ -129,7 +130,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Bounds');
+        const templateName = `E2E Editor Bounds ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // x + w = 110 > 105: the client-side mirror of the server rule must
         // block the submit BEFORE any network call.
@@ -144,7 +146,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         // Fixing the geometry lets the save go through.
         await dialog.getByLabel('X (mm)').fill('40');
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        await expect(main.getByRole('row', { name: /E2E Editor Bounds/ })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 
     test('drags a field onto the grid and persists the snapped position', {
@@ -164,7 +166,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Drag');
+        const templateName = `E2E Editor Drag ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // The default name row starts at the origin (x=0, y=0, w=40 mm).
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
@@ -191,7 +194,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Y (mm)')).toHaveValue(String(expectedY));
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Editor Drag/ });
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
         // Roundtrip: the dragged position survives save + reopen.
@@ -219,7 +222,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
         const dialog = page.getByRole('dialog');
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Overlap');
+        const templateName = `E2E Editor Overlap ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // A new image element is placed at a FREE position first (no warning).
         await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
@@ -240,7 +244,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         // rejects hard rules like bounds/min sizes).
         await dialog.getByLabel('Quelle').selectOption('brand');
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        await expect(main.getByRole('row', { name: /E2E Editor Overlap/ })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 
     test('uploads a badge image and persists it as a layout source across reopen', {
@@ -259,7 +263,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
         const dialog = page.getByRole('dialog');
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Upload');
+        const templateName = `E2E Editor Upload ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
         await dialog.getByLabel('Quelle').selectOption('upload');
@@ -288,7 +293,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByLabel('Skalierung').selectOption({ label: 'Einpassen' });
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Editor Upload/ });
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
         // The uploaded image id survives storage + serialization.
@@ -317,7 +322,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Resize');
+        const templateName = `E2E Editor Resize ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // Default name row: x=0, y=0, 40×8 mm. Selecting it shows the four
         // corner resize handles.
@@ -349,7 +355,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('Y (mm)')).toHaveValue('0');
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Editor Resize/ });
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
         // Roundtrip: the resized geometry survives save + reopen.
@@ -380,7 +386,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Nudge');
+        const templateName = `E2E Editor Nudge ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // Deterministic base position via the panel, then focus the box again.
         const nameBox = canvas.getByRole('button', { name: 'Feld Name' });
@@ -399,7 +406,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await expect(dialog.getByLabel('X (mm)')).toHaveValue('10');
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Editor Nudge/ });
+        const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
         await templateRow.getByRole('button', { name: 'Bearbeiten' }).click();
@@ -429,7 +436,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Guides');
+        await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor Guides ${uniqueSuffix()}`);
 
         await dialog.getByRole('button', { name: 'Bild', exact: true }).click();
         await dialog.getByLabel('Quelle').selectOption('brand');
@@ -475,7 +482,7 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         const dialog = page.getByRole('dialog');
         const canvas = dialog.getByRole('group', { name: 'Ausweis-Vorschau' });
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Autofit');
+        await dialog.getByLabel('Name', { exact: true }).fill(`E2E Editor Autofit ${uniqueSuffix()}`);
 
         // The FE3-F1 bug: 16 pt sample text in a 4 mm tall box was clipped.
         // Regression setup: an authored size of 10 px in a WIDE (60 mm) box.
@@ -530,7 +537,8 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await main.getByRole('button', { name: 'Neu', exact: true }).first().click();
         const dialog = page.getByRole('dialog');
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Editor Duplicate');
+        const templateName = `E2E Editor Duplicate ${uniqueSuffix()}`;
+        await dialog.getByLabel('Name', { exact: true }).fill(templateName);
 
         // Two Foto fields raise the soft duplicate warning (FE2-F1)…
         await dialog.getByRole('button', { name: 'Foto', exact: true }).click();
@@ -539,6 +547,6 @@ test.describe('Badge-Template-Editor (FE2)', () => {
 
         // …which must NOT block saving (soft warning, server stays authoritative).
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        await expect(main.getByRole('row', { name: /E2E Editor Duplicate/ })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 });

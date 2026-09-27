@@ -1,7 +1,6 @@
 import { expect, request, test } from '@playwright/test';
+import { FRONTEND_BASE_URL } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
-
-const FRONTEND_BASE_URL = 'http://localhost:5173';
 
 // Realistic head-and-shoulders portrait fixture (96×120 PNG, ~0.7 KB) —
 // programmatically drawn placeholder shared by every media test so each

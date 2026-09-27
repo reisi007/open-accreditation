@@ -134,7 +134,7 @@ export async function ensurePrimaryMandantAccreditation() {
             throw new Error('No mandant found for accreditation setup');
         }
 
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const categoryName = `E2E Akkreditierung ${suffix}`;
         const categorySlug = `e2e-akkreditierung-${suffix}`;
         const category = await api.post('/api/admin/categories', {
@@ -625,6 +625,25 @@ const PORTAL_FIXTURE_KEY = (() => {
         ? `p${process.pid}`
         : `w${workerIndex}-p${process.pid}`;
 })();
+
+/**
+ * Worker- AND process-scoped uniqueness stamp for E2E fixture names/slugs.
+ *
+ * `PORTAL_FIXTURE_KEY` pins the stamp to one worker of one host process
+ * (`w<i>-p<pid>`, or `p<pid>` where Playwright exposes no worker index);
+ * appending `Date.now()` separates repeated invocations over time. Two
+ * concurrent `playwright test` runs, the two browser projects and the
+ * `--repeat-each` amplification of a single spec therefore all mint DISTINCT
+ * suffixes, so a name/slug built from this value can never collide into a
+ * backend 422 or a Playwright strict-mode shared-row violation.
+ *
+ * Each call site mints the suffix once per test and reuses that single value
+ * for its name/slug, so there are no two same-millisecond calls inside one
+ * worker to worry about.
+ */
+export function uniqueSuffix() {
+    return `${PORTAL_FIXTURE_KEY}-${Date.now()}`;
+}
 
 /**
  * Removes THIS worker's own leftover portal fixtures (title

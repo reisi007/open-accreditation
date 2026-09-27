@@ -1,5 +1,5 @@
 import type { APIRequestContext } from '@playwright/test';
-import { loginAdminApi } from '../../e2e/helpers/admin-data';
+import { FRONTEND_BASE_URL, loginAdminApi } from '../../e2e/helpers/admin-data';
 
 /**
  * Fixture tenant for the "empty" screenshot states: a secondary mandant
@@ -17,7 +17,21 @@ import { loginAdminApi } from '../../e2e/helpers/admin-data';
 export const EMPTY_MANDANT_SLUG = 'empty';
 export const EMPTY_MANDANT_NAME = 'Leerer Mandant';
 export const EMPTY_MANDANT_DOMAIN = 'empty.localhost';
-export const EMPTY_MANDANT_ORIGIN = 'http://empty.localhost:5173';
+
+/**
+ * Same scheme + port as `FRONTEND_BASE_URL`, but on the RFC-6761 loopback
+ * subdomain that resolves to the fixture mandant instead of the primary one.
+ * Deriving the port (rather than pinning 5173) keeps the `empty` captures on
+ * the SAME stack as the primary captures when a screenshot run sets
+ * `E2E_BASE_URL` (e.g. a preview server on 4173). The HOST stays deliberately
+ * different (`empty.localhost`); only the stack follows the environment, so a
+ * screenshot run never splits primary and empty across two servers. The
+ * backend's mandant resolution strips the port, so `empty.localhost:4173`
+ * still resolves to the fixture mandant's `empty.localhost` domain row.
+ */
+const baseOrigin = new URL(FRONTEND_BASE_URL);
+const basePort = baseOrigin.port ? `:${baseOrigin.port}` : '';
+export const EMPTY_MANDANT_ORIGIN = `${baseOrigin.protocol}//${EMPTY_MANDANT_DOMAIN}${basePort}`;
 
 /** Per-worker cache so the fixture setup logs in once per worker, not per test. */
 let emptyMandantEnsured = false;

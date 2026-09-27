@@ -1,7 +1,6 @@
 import { expect, request, test } from '@playwright/test';
+import { FRONTEND_BASE_URL } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
-
-const FRONTEND_BASE_URL = 'http://localhost:5173';
 
 test.describe('Auth flow (P1b)', () => {
     // Pure-API spec: run once (Desktop Chrome) instead of in both browser

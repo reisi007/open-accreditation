@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { acquirePrimaryMandantLogoLock, loginAdminApi } from './helpers/admin-data';
+import { acquirePrimaryMandantLogoLock, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
 
 // 1×1 transparent PNG — the same fixture bytes used for the portrait upload
 // in helpers/admin-data.ts.
@@ -14,7 +14,7 @@ test.describe('Admin: Mandanten (P2a)', () => {
     });
 
     test('create mandant with domain and team', { tag: ['@smoke', '@feature:admin:mandant'] }, async ({ page }) => {
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const uniqueName = `E2E Mandant ${suffix}`;
         const uniqueSlug = `e2e-mandant-${suffix}`;
         const domainHostname = `${uniqueSlug}.test`;
@@ -121,7 +121,7 @@ test.describe('Admin: Mandanten (P2a)', () => {
     });
 
     test('mandant list shows logo column and portal link', { tag: ['@smoke', '@feature:admin:mandant'] }, async ({ page }) => {
-        const suffix = Date.now();
+        const suffix = uniqueSuffix();
         const uniqueSlug = `e2e-liste-${suffix}`;
         const domainHostname = `${uniqueSlug}.test`;
 

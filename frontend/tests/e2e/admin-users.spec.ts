@@ -1,8 +1,6 @@
 import { expect, request, test } from '@playwright/test';
-import { ensurePrimaryMandantHasTeam } from './helpers/admin-data';
+import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
-
-const FRONTEND_BASE_URL = 'http://localhost:5173';
 
 test.describe('Admin: Benutzer (P2c)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate

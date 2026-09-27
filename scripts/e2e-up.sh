@@ -34,18 +34,17 @@
 # The seeder reads ADMIN_EMAIL/ADMIN_PASSWORD from the real environment
 # (takes precedence over .env) or falls back to the .env values.
 #
-# Rate-Limiter-Determinismus (P3e-B5):
-# Named rate-limiter counters (login/register/apply/...) persist in the DB
-# cache store (config/cache.php, default CACHE_STORE=database) — observed
-# persistence up to 7 days. Back-to-back local E2E / screenshot runs against
-# the persistent dev Postgres can therefore hit login-throttle 429s although
-# each suite run starts "fresh". For deterministic runs, clear the cache
-# BEFORE launching the E2E suite:
-#
-#   cd backend && php artisan cache:clear
-#
-# The CI e2e job is unaffected: it migrates a fresh database per job (empty
-# cache table), so no limiter state carries over.
+# Rate-Limiter-Determinismus (P3e-B5 / WP-9-D5):
+# Der Cache-Store wird hier auf `array` gesetzt (weiter unten per sed, exakt
+# wie im CI-e2e-Job). Named rate-limiter counters (login/register/apply/...)
+# leben sonst im DB-Cache-Store (config/cache.php, Default
+# CACHE_STORE=database) und persistieren ueber Runs hinweg (beobachtet: bis zu
+# 7 Tage). Back-to-back-E2E-/Screenshot-Laeufe gegen dasselbe persistente
+# dev-Postgres laufen dann trotz "frischem" Suite-Start in Login-Throttle-429s.
+# Mit `array` ist der RateLimiter pro Request zustandslos — es gibt also
+# KEINEN Limiter-State, der zwischen Runs erhalten bleibt, und das manuelle
+# `php artisan cache:clear` vor jedem Lauf entfaellt. Der CI-e2e-Job macht
+# genau dasselbe (`sed` setzt CACHE_STORE=array in .env), aus demselben Grund.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -125,6 +124,12 @@ if [ ! -f .env ]; then
     cp .env.example .env
     echo "    Created .env from .env.example."
 fi
+
+# Rate-Limiter-Determinismus (siehe Kopfkommentar): CACHE_STORE=array,
+# gespiegelt vom CI-e2e-Job. Unkonditional, damit auch ein bereits vorhandenes
+# .env aus einem frueheren `database`-Lauf korrigiert wird.
+sed -i.bak -E -e 's|^CACHE_STORE=.*|CACHE_STORE=array|' .env && rm -f .env.bak
+grep -q '^CACHE_STORE=array$' .env
 
 # The app talks to the same database the `db` container was seeded with. Warn
 # (without aborting) when a local `deployment/.env` makes the two disagree —

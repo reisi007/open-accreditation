@@ -34,7 +34,7 @@ import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandan
  * - Locators are scoped to landmarks (`banner` / `complementary` / `main`).
  */
 
-const PRIMARY_ORIGIN = 'http://localhost:5173';
+const PRIMARY_ORIGIN = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'admin';
 
