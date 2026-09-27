@@ -833,6 +833,64 @@ export async function resetPrimaryMandantLogo() {
 }
 
 /**
+ * Clears the primary mandant's logo at the START of a run, i.e. the setup-side
+ * counterpart of `resetPrimaryMandantLogo()` and the crash insurance for the
+ * teardown.
+ *
+ * M1-Residual: the teardown only runs when the run ends *cleanly*. A hard kill
+ * (SIGKILL, CI timeout, closed laptop) between `admin-mandant.spec.ts`'s upload
+ * and its removal skips the teardown, and the primary mandant keeps the logo —
+ * so the NEXT run inherits it and `portal.spec.ts`'s "static fallback logo"
+ * assertion (plus `admin-mandant.spec.ts`'s "Kein Bild hinterlegt." empty state
+ * and the screenshot suite's documented baseline) fail until somebody clears
+ * the column by hand. Resetting once in `globalSetup` — a fixture step, not part
+ * of any assertion — closes that hole without making the assertion
+ * self-fulfilling: within a run the mutex
+ * (`acquirePrimaryMandantLogoLock()`) still serialises the only two writers, so
+ * the assertion keeps testing "the upload window was not active".
+ *
+ * Strict `is_primary` resolution, deliberately WITHOUT the `mandants[0]`
+ * fallback the fixture helpers use: this is a destructive pre-run step, and
+ * guessing "the first mandant" when no primary is flagged would delete the
+ * logo of an arbitrary OTHER mandant. "No primary mandant" is therefore a
+ * logged no-op, never a guess and never an error.
+ *
+ * Idempotent: `logo_url` is `null` exactly when no file is referenced
+ * (`MandantResource`), so a mandant that already has no logo costs a single
+ * GET and returns false — calling this on every run is free of noise.
+ *
+ * @returns {Promise<boolean>} true when a stranded logo was removed.
+ */
+export async function resetPrimaryMandantLogoForRun() {
+    const api = await loginAdminApi();
+    try {
+        const mandantsBody = await (await api.get('/api/admin/mandants')).json();
+        const mandants = mandantsBody.data ?? [];
+        let primary = null;
+        for (const mandant of mandants) {
+            if (mandant.is_primary) {
+                primary = mandant;
+                break;
+            }
+        }
+        if (primary === null) {
+            console.warn('[e2e-hygiene] no primary mandant — no logo to reset before the run');
+            return false;
+        }
+        if (primary.logo_url === null || primary.logo_url === undefined) {
+            return false;
+        }
+        const remove = await api.delete(`/api/admin/mandants/${primary.id}/logo`);
+        if (remove.status() !== 204) {
+            throw new Error(`Removing the primary mandant logo failed with status ${remove.status()}`);
+        }
+        return true;
+    } finally {
+        await api.dispose();
+    }
+}
+
+/**
  * Best-effort global purge of every E2E artifact left in the dev database.
  * Intended to run from Playwright's `globalTeardown` so each full run starts
  * from a clean slate, but exported so it can also be invoked manually. Never

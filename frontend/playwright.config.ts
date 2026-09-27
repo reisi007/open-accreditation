@@ -4,6 +4,12 @@ import process from 'node:process';
 export default defineConfig({
     testDir: './tests/e2e',
     testMatch: '**/*.spec.ts',
+    // Paired on purpose. The teardown restores what the run borrowed, but only
+    // if the run ends cleanly — a hard kill in the middle strands the primary
+    // mandant's logo and the NEXT run's portal/logo-empty assertions inherit
+    // it. The setup clears such stranded state once, before any test of this
+    // run, so no spec has to reset state in the same place it asserts on it.
+    globalSetup: './tests/e2e/global-setup.ts',
     globalTeardown: './tests/e2e/global-teardown.ts',
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
