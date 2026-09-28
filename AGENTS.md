@@ -236,8 +236,10 @@ funktionalen Playwright-E2E-Tests: eigener Ordner `frontend/tests/screenshots/` 
 `tests/screenshots/ui-review.config.ts` — **nicht** im Frontend-Wurzelverzeichnis;
 Quelle der Wahrheit für Routes × States × Viewports; generischer Spec
 `ui-screenshots.spec.ts`, alle Tests mit Tag `@screenshot`), eigene Config
-`playwright.screenshots.config.ts` (outputDir `test-results/ui-screenshots`; Desktop Chrome 1920×950 +
-Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle). Ausführen NUR via
+`playwright.screenshots.config.ts` (outputDir `test-results/ui-screenshots` = **Scratch**, das
+Playwright leert; die Captures liegen in `test-results/ui-review/` daneben, siehe Schritt 1;
+Desktop Chrome 1920×950 + Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle).
+Ausführen NUR via
 `cd frontend && pnpm test:screenshots` (= `playwright test -c playwright.screenshots.config.ts`) — läuft
 **nicht** in der Standard-E2E-Suite (`playwright.config.ts` / `tests/e2e`) und **nicht** im CI-E2E-Job.
 
@@ -247,9 +249,24 @@ Loop (Schritte 1–4):
    hat **kein** `webServer` und nutzt `baseURL` aus `E2E_BASE_URL` (Default 5173) →
    `cd frontend && pnpm test:screenshots`. Pro Route × State
    (`filled`/`empty`) × Viewport entstehen ein **Full-Page-PNG** plus **Section-Captures**
-   (`<name>-secN.png`, Scroll in 80-%-Schritten, damit unterhalb des Folds nichts unlesbar skaliert):
-   `frontend/test-results/ui-screenshots/<state>/<viewport>/<name>.png`. Schlägt ein Screenshot-Test fehl,
-   ist Harness oder Seite kaputt — zuerst fixen.
+   (`<name>-sec-N.png`, Scroll in 80-%-Schritten, damit unterhalb des Folds nichts unlesbar
+   skaliert) — zusammen die „Bänder". **Und** für die Ausweis-Route zusätzlich das **gerenderte
+   PDF** (siehe unten).
+
+   **Ablage — `test-results/ui-review/`, ein Sibling von Playwrights `outputDir`, nicht darin.**
+   Playwright leert `outputDir` **rekursiv vor dem ersten Test**; die Captures lagen genau dort
+   und sind bei `-g <route>` mit verschwunden (gemessen **126 → 11 → 4** PNG, inklusive der
+   *nicht* betroffenen Routen). `test-results/ui-review/` überlebt das; **nur** so ist
+   Schritt 4 durchführbar. Layout: `<state>/<viewport>/<name>.png` (Vollseite), `-sec-N.png`
+   (Bänder, eine einheitliche Serie), **`<name>.meta.json`** mit `bands` / `scrollHeightPx` /
+   `dataset` / `runKey`, und **`prev/<datei>`** — **eine** Generation, die das Bild vor dem
+   Überschreiben sichert (unbegrenzte Historie ließe den Review-Batch mit jedem Lauf wachsen).
+   `node scripts/ui-review-captures.mjs` liefert den Sammelbericht inkl. Δ zur Vorergeneration.
+
+   **Bandzahl:** die „Bänder" umfassen Sections **und** gedruckte Seiten. **Bandzahl im
+   Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird.
+
+   Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
 2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
    immer via vision-Subagent). Max. **10 Bilder pro Batch**; Batching-Reihenfolge: erst nach State
    (`filled` → `empty`), dann Viewport (desktop → mobile). Geprüft wird gegen die Checklist des
@@ -274,6 +291,10 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    diesen Lauf**, nicht über das System. **Abnahme:** drei Läufe in Folge ergeben dieselbe
    Section-Anzahl, und die Bandzahl steht als **Zahl** neben den Bildern — sonst ist ein Batch
    später nicht mehr nachvollziehbar.
+   **Bekannte Grenze:** stabil ist die **Bandzahl**, nicht der **Datenbestand** — `users` wächst
+   über E2E-Läufe hinweg weiter (gemessen 216 → 279), weil es **keine DELETE-Route für User**
+   gibt. Über aufeinanderfolgende Screenshot-Läufe ist der Fingerprint dagegen identisch. Die
+   Bandzahl ist das abnahmefähige Mass, der `users`-Zähler nicht.
 2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
    gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
    gerade neu aufgenommene. **Abnahme:** ein `-g`-Lauf lässt die unbetroffenen Routen
@@ -306,11 +327,46 @@ bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-st
 ```
 
 Es prüft seine Werkzeuge namentlich, kündigt jeden Fallback **laut** an, verifiziert das Ergebnis
-(kein Alpha-Kanal, weisser Eckpixel, Seitenzahl) und beendet sich ungleich 0, wenn etwas fehlt oder
-das Bild nicht vertrauenswürdig ist (u. a. Exit 3, wenn nur `sips` verfügbar ist — das kann keinen
+und beendet sich ungleich 0, wenn etwas fehlt oder das Bild nicht vertrauenswürdig ist
+(u. a. Exit 3, wenn nur `sips` verfügbar ist — das kann keinen
 Alpha entfernen). Danach die PNGs wie oben an den `vision`-Subagenten, Checkliste: QR-Position,
 Feld-Überlappung, Abschneiden, Kontrast, Font-Skalierung. Messwerte, Render-Vertrag und die
 Stolperfallen: `features/badges-qr.md` → „Visuelle Verifikation des gerenderten PDF".
+
+**Drei Postconditions, und warum gerade diese.** (1) **Kein Alpha-Kanal** — der Konsument
+entscheidet, wie das aussieht. (2) **Eckpixel opak** statt „weiss": eine
+**Transparenz**-Postcondition hätte Graustufen als Weiss missverstanden; Opazität ist die
+Eigenschaft, die tatsächlich gebraucht wird. (3) **Tinte vorhanden** (`INK_SIGMA_MIN=0.001`,
+Graustufen-σ im 1-%-Rand) — eine **leere oder schwarze** Seite gilt nicht mehr als erfüllt. Der
+Wert ist **„genau ein dunkler Pixel auf der ganzen A6-Seite"**, also vom Leser nachrechenbar; die
+Leerseite misst **exakt 0** (4 Füllfarben × 6 Dichten, auf einer zweiten Toolchain bit-gleich
+bestätigt), und der 1-%-Rand ist **tragend**, weil die antialiaste Seitenkante sonst **0,0202**
+liefert — **mehr** als ein legitimes 1-pt-Wort. **Grenze, die bleibt:** σ misst Tinte, **nicht**
+Lesbarkeit; ein Kontrast-Verdikt wäre eine zweite Postcondition und ist es nicht. **Nicht
+abschwächen**, um eine gültige, sehr leere Seite durchzulassen — sie zu blockieren wäre schlimmer,
+aber die Schwelle steht aus **gemessenen** Zahlen, nicht aus Bequemlichkeit.
+
+**Das gerenderte PDF gehört in den Loop (NUTZERENTSCHEIDUNG 2026-09-28).** Der Editor-Screenshot
+prüft HTML/CSS im Browser; der Druck entsteht in dompdf. **dompdf kennt `object-fit` nicht** —
+`width:100%;height:100%` bedeutet dort STRECK, und ein gestreckter QR-Code **wird nicht
+gescannt**. Zwei Fehler dieser Sitzung (die `object-fit`-Streckung, die QR-Verzerrung) waren im
+Editor **unsichtbar**. **Ein Editor-Screenshot kann einen dompdf-Fehler prinzipiell nicht zeigen.**
+
+- **Über den echten Export-Weg**, nie ein direkt aufgerufenes `renderPdf()` im Test: sonst prüft
+  man einen **anderen** Pfad als die Produktion und schliesst genau den Unterschied aus, den man
+  prüft. Route: `POST /api/admin/accreditations/{id}/badges/export` (**POST mit Body**, nicht GET)
+  mit `{format:'pdf', template_id}` via `page.request` aus dem Browser-Kontext, also mit der
+  httpOnly-Cookie der echten Anmeldung. **Beleg, dass es diese Session ist:** dieselbe Route
+  **vor** dem Login → **401** (gemessen; `GET` → 405, falscher Pfad → 404 — die Diskriminierung
+  trägt).
+- **Postcondition, die dem Backend fehlt:** Seiten == freigegebene Anträge. `BadgeExportService`
+  rendert eine A6-Karte pro Antrag ohne jede Prüfung; ein Verband exportiert 500 Ausweise, und
+  **niemand schaut auf jedes einzelne**.
+- **Der Auftrag an `vision` lautet ausdrücklich: „zwei Ansichten derselben Vorlage, Editor gegen
+  Druck."** **Ein Defekt in genau einer Ansicht ist der Befund.** Die PNGs liegen **neben** den
+  Editor-Aufnahmen, damit beide in **einem** Batch liegen.
+- **Grenze, die nicht zu schönreden ist:** der Loop prüft **eine** Vorlage, der Export **viele** —
+  er findet **Fehlerklassen**, keine Einzelfälle im Massenlauf.
 
 ## 8. Domain-Modell (Kurzreferenz)
 
