@@ -253,18 +253,24 @@ Loop (Schritte 1–4):
    skaliert) — zusammen die „Bänder". **Und** für die Ausweis-Route zusätzlich das **gerenderte
    PDF** (siehe unten).
 
-   **Ablage — `test-results/ui-review/`, ein Sibling von Playwrights `outputDir`, nicht darin.**
-   Playwright leert `outputDir` **rekursiv vor dem ersten Test**; die Captures lagen genau dort
-   und sind bei `-g <route>` mit verschwunden (gemessen **126 → 11 → 4** PNG, inklusive der
-   *nicht* betroffenen Routen). `test-results/ui-review/` überlebt das; **nur** so ist
-   Schritt 4 durchführbar. Layout: `<state>/<viewport>/<name>.png` (Vollseite), `-sec-N.png`
-   (Bänder, eine einheitliche Serie), **`<name>.meta.json`** mit `bands` / `scrollHeightPx` /
-   `dataset` / `runKey`, und **`prev/<datei>`** — **eine** Generation, die das Bild vor dem
-   Überschreiben sichert (unbegrenzte Historie ließe den Review-Batch mit jedem Lauf wachsen).
+   **Ablage — `test-artifacts/ui-review/`, ausserhalb von `test-results/` überhaupt.** Playwright
+   leert `outputDir` **rekursiv vor dem ersten Test**, und `--output` ist **konfigurierbar** —
+   auf `test-results/` gemessen **192 → 0 PNG**. Auch ein Wächter in `globalSetup` löst das
+   **nicht**: er läuft **nach** dem Löschen. Ein Sibling *innerhalb* von `test-results/` ist damit
+   nur gegen den **Standard** geschützt, nicht gegen die **Möglichkeit** — der Store gehört
+   **ganz** aus Playwrights Verzeichnis heraus. Layout: `<state>/<viewport>/<name>.png`
+   (Vollseite), `-sec-N.png` (Bänder, eine einheitliche Serie), **`<name>.meta.json`** mit
+   `bands` / `scrollHeightPx` / `dataset` / `runKey` / `entityIds`, und **`prev/<datei>`** — **eine**
+   Generation, die das Bild vor dem Überschreiben sichert (unbegrenzte Historie ließe den
+   Review-Batch mit jedem Lauf wachsen).
    `node scripts/ui-review-captures.mjs` liefert den Sammelbericht inkl. Δ zur Vorergeneration.
 
    **Bandzahl:** die „Bänder" umfassen Sections **und** gedruckte Seiten. **Bandzahl im
-   Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird.
+   Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird. **Und sie ist
+   an den Datenbestand gekoppelt, nicht nur an die Seeds** — gemessen: `admin-users` **4** Bänder
+   bei **620** Usern, `admin-mandant-detail` **23** Bänder bei **50** Teams. Ein Lauf gegen eine
+   gewachsene Datenbank liefert **mehr** Bänder, und zwar für Routen, die der Review gar nicht
+   ansteuert.
 
    Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
 2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
@@ -291,10 +297,15 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    diesen Lauf**, nicht über das System. **Abnahme:** drei Läufe in Folge ergeben dieselbe
    Section-Anzahl, und die Bandzahl steht als **Zahl** neben den Bildern — sonst ist ein Batch
    später nicht mehr nachvollziehbar.
-   **Bekannte Grenze:** stabil ist die **Bandzahl**, nicht der **Datenbestand** — `users` wächst
-   über E2E-Läufe hinweg weiter (gemessen 216 → 279), weil es **keine DELETE-Route für User**
-   gibt. Über aufeinanderfolgende Screenshot-Läufe ist der Fingerprint dagegen identisch. Die
-   Bandzahl ist das abnahmefähige Mass, der `users`-Zähler nicht.
+   **Bekannte Kopplung, und sie ist stärker als zunächst gemessen.** Eine Abnahme ist nur so
+   stark wie ihre schwächste Annahme: **drei Läufe _ohne_ E2E-Lauf dazwischen** sind der Test,
+   ein Screenshot-Lauf **nach** einem E2E-Lauf ist ein **anderer** Test. Gemessen: die Bandzahl
+   stieg **36 → 48**, weil die E2E-Suite ihre Rückstände **nicht** abräumt (es gibt **keine
+   DELETE-Route für User**) und damit eine bereits geprüfte Liste **länger** wird — `admin-users`
+   **4** Bänder bei **620** Usern, `admin-mandant-detail` **23** Bänder bei **50** Teams.
+   **Solange die Bandzahl an Fremddaten hängt, ist sie ein Messwert des Datenbestands, nicht des
+   Verfahrens.** Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop
+   ist der Betroffene, nicht die Ursache.
 2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
    gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
    gerade neu aufgenommene. **Abnahme:** ein `-g`-Lauf lässt die unbetroffenen Routen
