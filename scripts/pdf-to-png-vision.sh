@@ -2,10 +2,10 @@
 #
 # PDF → PNG für die visuelle Verifikation (PDF-VISION-Pipeline).
 #
-# Warum es dieses Skript gibt: ein Badge-PDF (dompdf) hat **keinen** gemalten
-# Seitenhintergrund — der Hintergrund ist transparent. Ein Rasterer liefert
-# deshalb eine PNG mit Alpha-Kanal, und wie die transparenten Pixel am Ende
-# aussehen, entscheidet der **Konsument**, nicht der Rasterer:
+# Warum es dieses Skript gibt: ein **PDF ohne gemalten Seitenhintergrund**
+# (dompdf, wenn niemand `background-color` auf `@page`/`body` setzt) rastern
+# mit Alpha-Kanal, und wie die transparenten Pixel am Ende aussehen,
+# entscheidet der **Konsument**, nicht der Rasterer:
 #
 #   * Ghostscript-via-`magick` legt sie als `#FFFFFF00` ab (weiss, alpha 0).
 #     Wer die Alpha ignoriert, sieht weiss; wer auf schwarz komponiert, sieht
@@ -14,6 +14,28 @@
 #   * `sips` legt sie als `#00000000` ab (schwarz, alpha 0). Wer die Alpha
 #     ignoriert, sieht eine **literalschwarze** Seite (gemessen: 91 % der
 #     Pixel exakt #000000) — ebenfalls ohne Badgeschrift.
+#
+# **Beide Fälle sind ausdrücklich zu nennen, sie verhalten sich verschieden:**
+#
+#   * **Fremde** PDFs — der Regelfall dieses Skripts. Sie malen den
+#     Seitenhintergrund nicht, rastern mit Alpha, und Stufe 2 **repariert**
+#     genau diesen Defekt. Ohne Stufe 2 bekommen sie drei mögliche
+#     Konsumenten drei verschiedene Bilder (siehe oben).
+#   * **Unsere eigenen** Badge-PDFs — seit der Nutzerentscheidung **D22**
+#     (2026-09-28) ist der Fall umgedreht: `BadgeRenderService` setzt
+#     `background-color: #ffffff` auf den Karten-Wurzelcontainer, die Seite ist
+#     also an der Quelle gemalt. Sie rastern als `srgb` mit Eckalpha **1**,
+#     gemessen in **allen drei** Bildzuständen (Porträt vorhanden, Platzhalter,
+#     kein Bild). Stufe 2 hat dort **nichts** zu entfernen — das Skript ist
+#     für unsere Ausweise vom Reparierenden zum **Prüfenden** geworden.
+#
+# Die Postcondition gilt deshalb **fremden** PDFs, und Stufe 2 bleibt trotzdem
+# Pflicht, weil das Skript jedes PDF rasterbar machen muss. **Wer hier „unser
+# Renderer malt keinen Hintergrund" liest und daraus die Postcondition oder
+# Stufe 2 abbaut, liest veraltet:** die Aussage galt für dompdf im Allgemeinen,
+# nicht mehr für unser Rendering. Umgekehrt ist die Postcondition **keine**
+# Erlaubnis, Stufe 2 aus unseren Ausweisen heraus zu streichen — wer sie
+# abbauen will, baut die Robustheit des Verifikationswerkzeugs ab.
 #
 # Deshalb ist der zweite Schritt **kein Kosmetik**, sondern das, was das Ergebnis
 # überhaupt erst konsumentenunabhängig macht:
@@ -35,8 +57,8 @@
 # ein Skript, das ohne `magick` grün durchläuft, ist schlimmer als keines.
 #
 # **Was "deckend" prüft — und was nicht.** Geprüft wird die *Alphakomponente* des
-# Eckpixels (2,2), nicht dessen Farbe. Beabsichtigt ist die Wirkung, die der
-# transparente dompdf-Hintergrund sonst hätte: die Darstellung darf nicht vom
+# Eckpixels (2,2), nicht dessen Farbe. Beabsichtigt ist die Wirkung, die ein
+# transparenter Seitenhintergrund sonst hätte: die Darstellung darf nicht vom
 # Betrachter abhängen. Die Farbe ist bewusst **nicht** Teil der Postcondition,
 # weil ein deckendes Volldruck-Badge ein gültiges Ergebnis ist.
 #
@@ -234,7 +256,7 @@ pixel_at() {
 #
 # Das ist die entscheidende Unterscheidung. Die Postcondition will keinen
 # Farbwert, sie will ein **deterministisch** gerastertes Bild: der ursprüngliche
-# Zweck war, dass der vom dompdf-Hintergrund gelassene transparente Bereich
+# Zweck war, dass ein vom Renderer gelassener transparenter Bereich
 # (`#FFFFFF00`) die Darstellung nicht dem Betrachter überlässt. "Weiss" war dafür
 # die falsche Eigenschaft — sie verwechselte den *Farbwert* mit der *Deckung* und
 # produzierte beide Fehlerrichtungen gleichzeitig:
@@ -279,6 +301,49 @@ corner_alpha() {
     0) return 0 ;;
     1) return 1 ;;
     *) return 2 ;;
+  esac
+}
+
+# **Einzige** Aufrufstelle von `corner_alpha` im ganzen Skript. Sie kapselt den
+# Aufruf **und** das Sichern des Rückgabewerts und setzt beide Ergebnisse als
+# Globals:
+#
+#   CORNER_ALPHA_VALUE   der Messwert (bei Status 2 ist er leer bzw. unbrauchbar)
+#   CORNER_ALPHA_RC      0 = opak, 1 = nicht opak, 2 = nicht feststellbar
+#
+# Warum es diese Hülle gibt — der gemessene Fehler, nicht der befürchtete:
+# die beiden Aufrufstellen (Stufe 1 und Stufe 2) behandelten den Rückgabewert
+# **unterschiedlich**. Stufe 2 speicherte ihn (`|| corner_rc=$?`), Stufe 1
+# **verwarf** ihn (`|| src_a="(nicht lesbar)"`). Damit fiel der Wert **1**
+# (nicht opak) in denselben Zweig wie 2, und die Spalte ECKALPHA wies den
+# entscheidenden Nachweis — "Stufe 1 hat einen Alpha-Kanal, Stufe 2 nicht" — als
+# **"(nicht lesbar)"** aus. Gemessen: Eckpixel `#FFFFFF00`, Eckalpha `0`, in der
+# Tabelle "(nicht lesbar)". Ein Aufrufer kann den Status hier nicht mehr
+# versehentlich wegwerfen, weil es nur diesen einen gibt.
+corner_alpha_measure() {
+  CORNER_ALPHA_VALUE=""
+  CORNER_ALPHA_RC=0
+  # `|| …` fängt den Status, ohne dass `set -e` den Lauf abbricht.
+  CORNER_ALPHA_VALUE="$(corner_alpha "$1")" || CORNER_ALPHA_RC=$?
+}
+
+# Formatiert (Messwert, Rückgabewert) **einheitlich** für die Spalte ECKALPHA.
+# Beide Aufrufstellen benutzen diese eine Formatierung, damit die Fälle nicht
+# wieder auseinanderlaufen können:
+#
+#   0  opak               ->  "1 (opak)"
+#   1  nicht opak         ->  "0 (NICHT opak)"     <- der Fall, der gemessen war
+#   2  nicht feststellbar ->  "(nicht feststellbar)"
+#
+# **1 und 2 müssen sich unterscheiden**, und 1 muss den **Wert** mitzeigen: der
+# Unterschied zwischen Stufe 1 und Stufe 2 ist genau dieser Wert. Bei Status 2
+# wird der Wert bewusst **nicht** mitgedruckt — er ist dann leer oder
+# unbrauchbar, und ihn als Zahl auszugeben wäre geraten.
+alpha_cell() {
+  case "$2" in
+    0) printf '%s (opak)' "$1" ;;
+    1) printf '%s (NICHT opak)' "$1" ;;
+    *) printf '%s' '(nicht feststellbar)' ;;
   esac
 }
 
@@ -473,31 +538,38 @@ for out in $STEP2_FILES; do
   fi
 
   # Die Eckpixel-Opazität wird **einmal** gemessen und für Tabelle *und* Urteil
-  # benutzt, damit beide nie auseinanderlaufen können. `|| …` fängt den Status,
-  # ohne dass `set -e` den Lauf abbricht.
+  # benutzt, damit beide nie auseinanderlaufen können. Gemessen wird über
+  # `corner_alpha_measure` (einzige Aufrufstelle von `corner_alpha`); die Zelle
+  # der Tabelle kommt aus `alpha_cell`, derselben Formatierung wie in Stufe 1.
   out_a="(nicht geprüft: kein magick)"
+  out_cell="$out_a"
   corner_rc=0
   if [ "$PIXELCHECK" -eq 1 ]; then
-    out_a=""
-    corner_rc=0
-    out_a="$(corner_alpha "$out")" || corner_rc=$?
+    corner_alpha_measure "$out"
+    out_a="$CORNER_ALPHA_VALUE"
+    corner_rc="$CORNER_ALPHA_RC"
+    out_cell="$(alpha_cell "$out_a" "$corner_rc")"
   fi
 
   if [ -n "$src" ] && [ "$PIXELCHECK" -eq 1 ]; then
     src_dim="$(magick identify -format '%wx%h' "$src")"
     src_ch="$(magick identify -format '%[channels]' "$src")"
     src_px="$(pixel_at "$src" 2 2)"
-    # Stufe 1 ist bei einem dompdf-PDF bewusst transparent (`#FFFFFF00`); der
-    # Wert steht in der Tabelle, damit der Unterschied zu Stufe 2 ablesbar ist.
-    src_a="$(corner_alpha "$src")" || src_a="(nicht lesbar)"
-    printf '%-36s %-12s %-10s %-34s %s\n' "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px" "$src_a"
-    printf '  %-34s %-12s %-10s %-34s %s\n' "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_a"
+    # Stufe 1 ist bei einem PDF **ohne gemalten Seitenhintergrund** bewusst
+    # transparent (`#FFFFFF00`) — genau der Nachweis, den diese Zeile liefern
+    # soll. Der Wert steht deshalb **mit** dem Status in der Tabelle, damit der
+    # Unterschied zu Stufe 2 ablesbar ist und nicht als "nicht lesbar"
+    # untergeht (der gemessene Fehler, siehe `corner_alpha_measure`).
+    corner_alpha_measure "$src"
+    src_cell="$(alpha_cell "$CORNER_ALPHA_VALUE" "$CORNER_ALPHA_RC")"
+    printf '%-36s %-12s %-10s %-34s %s\n' "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px" "$src_cell"
+    printf '  %-34s %-12s %-10s %-34s %s\n' "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell"
     if [ "$src_dim" != "$out_dim" ]; then
       printf '  FEHLER: die Auflösung hat sich geändert (%s -> %s).\n' "$src_dim" "$out_dim" >&2
       FAILED=1
     fi
   else
-    printf '%-36s %-12s %-10s %-34s %s\n' "$(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_a"
+    printf '%-36s %-12s %-10s %-34s %s\n' "$(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell"
   fi
 
   # `has_alpha` liefert 0/1/2; `&& … || …` fängt den Status, ohne dass `set -e`
