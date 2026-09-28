@@ -486,6 +486,23 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   (b) Protokolle in ein externes System wandern, oder (c) die Nachweispflicht aus einer
   Vertrags- oder Zertifizierungsanforderung folgt.
 
+- **A6 (accepted 2026-09-28, medium):** `JWTGuard::logout()` (`vendor/php-open-source-saver/jwt-auth/src/JWTGuard.php:219-223`)
+  hat `catch (JWTException $e) {}` mit dem Kommentar *„Proceed with the logout as normal if we can't
+  invalidate the token"*. Wirft der Cache-Storage beim Sperren eine `JWTException`, antwortet
+  `POST /api/auth/logout` mit **200 „Erfolgreich abgemeldet."**, obwohl **nichts** gesperrt wurde —
+  gemessen mit einem Storage, der gezielt wirft. **Vendor-Verhalten, im Repo nicht zu ändern**: die
+  Datei liegt unter `vendor/` und jede Änderung wäre beim nächsten `composer install` weg; stattdessen
+  ist der **Docblock** `AuthController:246` („Invalidates the current JWT (blacklist)") zu relativ und
+  beschreibt einen Pfad, der im Fehlerfall schweigt. **Der normale Weg hält** (401 nach Logout,
+  gegengeprüft durch `MandantMembershipTest::test_a_just_revoked_user_can_still_read_itself_and_log_out`),
+  und wirft der Storage statt dessen eine `QueryException` — was eine fehlende Tabelle erzeugen
+  würde —, ist es **laut** (500), nicht still. **Entscheidend für die Architektur:** die Konto-Löschung
+  stützt sich **nicht** auf diesen Weg, sondern auf den **DB-Treffer** in
+  `JWTGuard::user():107` (`retrieveById($payload['sub'])`) — fehlt die Zeile, ist `$this->user` null
+  → **401 sofort**. **Weg A (Konto gelöscht) ist deshalb nicht von Weg B (`logout`) abhängig**, und
+  ein Vertragstest nagelt das fest. Re-evaluieren, wenn das Paket aktualisiert wird oder wir von der
+  Cache-Blacklist auf einen persistenteren Store wechseln.
+
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 
 - Mandanten-Isolation (`MandantContext`-Middleware + `forCurrentMandant()`-Scopes) — wie Brand im Portal.
