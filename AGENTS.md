@@ -211,8 +211,9 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 E2E-Namens-Sweep räumte nur auf, was er **zufällig** wiederfand — `teamNames: ['E2E Heimverein ']`
 traf **keinen** der 54 Teams und **keine** der 53 Venues, die tatsächlich liegen geblieben waren. Der
 `DELETE` **409te** (das Team referenzierte die Venue noch), der Status wurde **nicht** geprüft, und
-`admin-data.ts` steckte in `try{…}catch{console.warn}` — der Status-Check steht heute bei **`:1405-1421`**, das harte Scheitern bei **`:1438-1444`** (`PurgeReclamationFailure`). Der eigentliche Schaden war nicht
-der Müll, sondern eine **Messzahl, die fremde Daten zählte**: die Bandzahl des UI-Reviews stieg mit
+`admin-data.ts` steckte in `try{…}catch{console.warn}` — der Status-Check steht heute bei
+**`:1405-1421`**, das harte Scheitern bei **`:1438-1444`** (`PurgeReclamationFailure`). Der eigentliche
+Schaden war nicht der Müll, sondern eine **Messzahl, die fremde Daten zählte**: die Bandzahl des UI-Reviews stieg mit
 jeder E2E-Suite (`36 → 48 → 51 → 52`), und `home filled/mobile` lag **6 px** von einer Bandgrenze
 entfernt — die Abnahme „drei Läufe ergeben dieselbe Zahl" hing damit an Daten, die der Harness nicht
 besitzt.
@@ -330,8 +331,9 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    die Zahl bei **24**. **Offen bleibt exakt ein Treiber: `users`** — **4** Bänder bei **759** Usern,
    keine DELETE-Route, also weiter ~15 pro Lauf.
    **Solange die Bandzahl an Fremddaten hängt, ist sie ein Messwert des Datenbestands, nicht des
-   Verfahrens** — und das ist jetzt für **eine** Route noch true, für die andere gemessen **falsch**. Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop
-   ist der Betroffene, nicht die Ursache.
+   Verfahrens** — und das gilt jetzt für **eine** Route noch, für die andere ist es gemessen
+   **falsch**. Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop ist
+   der Betroffene, nicht die Ursache.
 2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
    gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
    gerade neu aufgenommene. **Abnahme:** ein `-g`-Lauf lässt die unbetroffenen Routen
