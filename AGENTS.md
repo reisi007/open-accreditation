@@ -287,10 +287,13 @@ Loop (Schritte 1–4):
 
    **Bandzahl:** die „Bänder" umfassen Sections **und** gedruckte Seiten. **Bandzahl im
    Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird. **Und sie ist
-   an den Datenbestand gekoppelt, nicht nur an die Seeds** — gemessen: `admin-users` **4** Bänder
-   bei **620** Usern, `admin-mandant-detail` **23** Bänder bei **50** Teams. Ein Lauf gegen eine
-   gewachsene Datenbank liefert **mehr** Bänder, und zwar für Routen, die der Review gar nicht
-   ansteuert.
+   an den Datenbestand gekoppelt, nicht nur an die Seeds** — und **gemessen trennbar in zwei Treiber**.
+   Der Team-Treiber ist **weg**: nach dem Zurückholen von 54 geleakten Teams und 53 Venues fiel
+   `admin-mandant-detail` von **23** Bändern auf **4**, `home` von 5/8 auf 0/2, die Gesamtzahl von
+   **51/52 auf 24**. Der **User**-Treiber besteht fort: `admin-users` **4** Bänder bei inzwischen
+   **759** Usern, ~15 pro E2E-Lauf, **keine DELETE-Route** (Position 10). Ein Lauf gegen eine
+   gewachsene Datenbank liefert also **für diese eine Route** mehr Bänder — und zwar für eine, die
+   der Review durchaus ansteuert.
 
    Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
 2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
@@ -320,11 +323,14 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    **Bekannte Kopplung, und sie ist stärker als zunächst gemessen.** Eine Abnahme ist nur so
    stark wie ihre schwächste Annahme: **drei Läufe _ohne_ E2E-Lauf dazwischen** sind der Test,
    ein Screenshot-Lauf **nach** einem E2E-Lauf ist ein **anderer** Test. Gemessen: die Bandzahl
-   stieg **36 → 48**, weil die E2E-Suite ihre Rückstände **nicht** abräumt (es gibt **keine
-   DELETE-Route für User**) und damit eine bereits geprüfte Liste **länger** wird — `admin-users`
-   **4** Bänder bei **620** Usern, `admin-mandant-detail` **23** Bänder bei **50** Teams.
+   stieg **36 → 48**, weil die E2E-Suite ihre Rückstände **nicht** abräumt und damit eine bereits
+   geprüfte Liste **länger** wird. **Seit dem Zurückholen der 54 Teams + 53 Venues ist dieser
+   Treiber für `admin-mandant-detail` gemessen weg** (**23 → 4** Bänder bei **1** statt **50**
+   Teams), und die Gegenrichtung hält: ein E2E-Lauf hat früher **51 → 52** gekippt, jetzt bleibt
+   die Zahl bei **24**. **Offen bleibt exakt ein Treiber: `users`** — **4** Bänder bei **759** Usern,
+   keine DELETE-Route, also weiter ~15 pro Lauf.
    **Solange die Bandzahl an Fremddaten hängt, ist sie ein Messwert des Datenbestands, nicht des
-   Verfahrens.** Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop
+   Verfahrens** — und das ist jetzt für **eine** Route noch true, für die andere gemessen **falsch**. Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop
    ist der Betroffene, nicht die Ursache.
 2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
    gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
