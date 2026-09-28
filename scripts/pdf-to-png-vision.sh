@@ -212,6 +212,48 @@ pixel_at() {
     | tail -1 | sed -e 's/^[0-9]*,[0-9]*: //' -e 's/ *$//'
 }
 
+# Ist der von `txt:` gemeldete Pixel weiss? `magick … txt:` schreibt ihn als
+#
+#   0,0: (255)                 #FFFFFF            gray(255)     ← 8 bit, gray
+#   0,0: (255,255,255)         #FFFFFF            white         ← 8 bit, srgb
+#   0,0: (255,255,255,255)     #FFFFFFFF          white         ← 8 bit, srgba
+#   0,0: (65535)               #FFFFFFFFFFFF      gray(255)     ← 16 bit, gray
+#   0,0: (65535,65535,65535)   #FFFFFFFFFFFF      white         ← 16 bit, srgb
+#
+# Die **Komponentenzahl** des Tupels hängt von Farbraum und Bittiefe ab, der
+# Wert nicht: das Hex-Feld ist in allen Formen `#FFFFFF`, gefolgt von
+# Alpha- bzw. 16-Bit-Anteilen. Deshalb wird das Hex-Feld geprüft und nicht das
+# Tupel — die alte Prüfung auf `*255,255,255*` kannte nur den 8-Bit-RGB-Fall
+# und meldete eine Graustufen-Rasterung (Tupel `(255)`) fälschlich als
+# "Hintergrund nicht erzwungen", obwohl der Pixel literal `#FFFFFF` war.
+#
+# `#FFFFFF00` (weiss mit Alpha 0) ist damit **nicht** weiss: der durchsichtige
+# Hintergrund fällt durch, statt durch ein Muster durchgewinkt zu werden.
+pixel_is_white() {
+  # 0 = weiss, 1 = nicht weiss (fail-closed)
+  local line="$1" hex tuple comp oldifs
+  hex="$(printf '%s\n' "$line" \
+    | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^#[[:xdigit:]]+$/) {print $i; exit}}' \
+    | tr 'a-f' 'A-F')"
+  case "$hex" in
+    '#FFFFFF' | '#FFFFFFFF' | '#FFFFFFFFFFFF' | '#FFFFFFFFFFFFFFFF') return 0 ;;
+  esac
+  # Ohne Hex-Feld: **jede** Komponente muss der Maximalwert sein. Ein Muster
+  # wäre hier genau der Fehler, den die Kanalliste oben gerade abgeschafft hat.
+  tuple="$(printf '%s\n' "$line" | sed -n 's/^[^(]*(\([^)]*\)).*$/\1/p' | tr -d ' ')"
+  [ -n "$tuple" ] || return 1
+  oldifs="$IFS"
+  IFS=','
+  for comp in $tuple; do
+    case "$comp" in
+      255 | 65535) ;;
+      *) IFS="$oldifs"; return 1 ;;
+    esac
+  done
+  IFS="$oldifs"
+  return 0
+}
+
 case "$METHOD" in
   magick)
     magick -density "$DENSITY" "$PDF" "${STEP1_GLOB}.png" \
@@ -299,6 +341,18 @@ fi
 #                  geprüft** ausgewiesen und nicht als bestanden behauptet
 #   * Seiten     — `gs` (echte `pdfpagecount`), soweit gs vorhanden
 # Ist die Alpha-Prüfung nicht durchführbar, endet der Lauf mit 3 — nicht mit 0.
+#
+# **Farbraum, nicht Kanalanzahl:** „kein Alpha-Kanal" und „weisser Eckpixel" sind
+# Eigenschaften, die unabhängig davon gelten, ob die Rasterung `srgb` oder
+# `gray` ist. Ein PDF **mit** Bild-XObject rastern als `srgb` (das setzt den
+# Farbraum), ein PDF **ohne** Bild — eine Textseite — rastern als `gray`. Beide
+# Prüfungen entscheiden deshalb über **Listen** (Kanalkennung bzw. Hex-Wert), nie
+# über ein Muster: das frühere `*a*` traf das `a` in "**g**r**a**y", und die alte
+# Eckpixel-Prüfung `*255,255,255*` kannte nur ein RGB-Tripel — eine Graustufen-
+# Rasterung liefert `(255)`. Gemessen an `gray-text.pdf` (schwarzer Text auf
+# weiss, kein Bild, keine Farbfläche): alter Lauf Exit 3 mit „hat noch einen
+# Alpha-Kanal" **und** „Eckpixel ist nicht weiss", obwohl der Pixel literal
+# `#FFFFFF` war. Nach der Korrektur: Exit 0, ohne die Prüfung abzuschwächen.
 # ---------------------------------------------------------------------------
 FAILED=0
 PIXELCHECK=0
@@ -307,9 +361,38 @@ PIXELCHECK=0
 has_alpha() {
   # 0 = kein Alpha, 1 = Alpha vorhanden, 2 = nicht feststellbar
   if [ "$HAVE_MAGICK" -eq 1 ]; then
-    case "$(magick identify -format '%[channels]' "$1")" in
-      *a*) return 1 ;;
-      *) return 0 ;;
+    local file="$1" raw name
+    raw="$(magick identify -format '%[channels]' "$file" 2>/dev/null)" || raw=""
+    # Eine leere Kanalkennung ist **kein** "kein Alpha": das wäre ein
+    # durchgewinkter Befund, weil das `identify` gerade fehlschlug.
+    [ -n "$raw" ] || return 2
+    # `%[channels]` liefert "gray  2.0" / "srgba  4.0" — der Name steht vorn.
+    set -- $raw
+    name="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+    # **Explizite Listen, kein Muster.** Das frühere `*a*` war ein Muster und
+    # traf den Buchstaben `a` in "**g**r**a**y" — eine reine Graustufen-Rasterung
+    # wurde dadurch als "hat Alpha" gemeldet (gemessen: `magick … txt:` liefert
+    # für eine Textseite ohne Bild-XObject `gray  2.0`, Exit 3 bei literal
+    # weissem Hintergrund `#FFFFFF`). Alpha-tragend wurde abgemessen: `graya`
+    # (gray+alpha, auch Bilevel-mit-Alpha), `srgba` (auch PaletteAlpha),
+    # `lineargraya` (`-colorspace RGB`); alpha-frei: `gray`, `srgb`, `rgb`,
+    # `lineargray`. Die übrigen Namen stammen aus ImageMagicks Channel-
+    # Vokabular (CMYKA, BGR, ABGR, …) und sind nicht je einzeln reproduziert —
+    # sie stehen hier, damit ein unerwarteter Farbraum **nicht** stillschweigend
+    # als "kein Alpha" durchgeht: er landet im `*)`-Zweig und wird gemeldet.
+    case "$name" in
+      srgba | rgba | abgr | argb | bgra | graya | lineargraya | cmyka | \
+        alpha | indexalpha | palettealpha)
+        return 1 ;;
+      gray | lineargray | srgb | linearsrgb | rgb | bgr | cmyk | cmy | \
+        ycbcr | xyz | lab | lch | hsl | hsb | index | palette | \
+        bilevel | mono | rec601luma | rec709luma)
+        return 0 ;;
+      *)
+        # Unbekannte Kanalkennung: **fail-closed**. Sie wird nicht als
+        # "kein Alpha" durchgewinkt, sondern als nicht feststellbar gemeldet —
+        # derselbe Ausgang, den der Lauf ohne magick/sips ohnehin nimmt.
+        return 2 ;;
     esac
   fi
   if [ "$HAVE_SIPS" -eq 1 ]; then
@@ -373,16 +456,15 @@ for out in $STEP2_FILES; do
     0) : ;;
     1) printf '  FEHLER: %s hat noch einen Alpha-Kanal — der Hintergrund ist NICHT erzwungen.\n' "$(basename "$out")" >&2
        FAILED=1 ;;
-    *) printf '  FEHLER: der Alpha-Kanal von %s war nicht feststellbar (kein magick, kein sips).\n' "$(basename "$out")" >&2
+    *) printf '  FEHLER: der Alpha-Zustand von %s war nicht feststellbar (unbekannte Kanalkennung, oder weder magick noch sips im PATH).\n' "$(basename "$out")" >&2
        FAILED=1 ;;
   esac
 
   if [ "$PIXELCHECK" -eq 1 ]; then
-    case "$out_px" in
-      *255,255,255*|*65535,65535,65535*) : ;;
-      *) printf '  FEHLER: Eckpixel in %s ist nicht weiss (%s) — der Hintergrund ist nicht erzwungen.\n' "$(basename "$out")" "$out_px" >&2
-         FAILED=1 ;;
-    esac
+    if pixel_is_white "$out_px"; then :; else
+      printf '  FEHLER: Eckpixel in %s ist nicht weiss (%s) — der Hintergrund ist nicht erzwungen.\n' "$(basename "$out")" "$out_px" >&2
+      FAILED=1
+    fi
   fi
 done
 
