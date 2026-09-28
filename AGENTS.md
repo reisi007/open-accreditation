@@ -218,7 +218,8 @@ zurückgeben mit einer Analyse. Keine Endlos-Fix-Loops.
 **Visuelle Verifikation / UI-Review (Design-QA, STRICT):** Permanent verpflichtender Workflow nach jeder
 UI-Änderung (FE-Etappen, neue Seiten, Layout-/daisyUI-Anpassungen). Er ist **explizit getrennt** von den
 funktionalen Playwright-E2E-Tests: eigener Ordner `frontend/tests/screenshots/` (Route-Manifest =
-`ui-review.config.ts`, Quelle der Wahrheit für Routes × States × Viewports; generischer Spec
+`tests/screenshots/ui-review.config.ts` — **nicht** im Frontend-Wurzelverzeichnis;
+Quelle der Wahrheit für Routes × States × Viewports; generischer Spec
 `ui-screenshots.spec.ts`, alle Tests mit Tag `@screenshot`), eigene Config
 `playwright.screenshots.config.ts` (outputDir `test-results/ui-screenshots`; Desktop Chrome 1920×950 +
 Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle). Ausführen NUR via
@@ -227,7 +228,9 @@ Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle). Ausführen
 
 Loop (Schritte 1–4):
 
-1. **Capture:** Dev-Server + Backend starten → `cd frontend && pnpm test:screenshots`. Pro Route × State
+1. **Capture:** Dev-Server (Vite 5173) + Backend (8000) laufen lassen — die Screenshot-Config
+   hat **kein** `webServer` und nutzt `baseURL` aus `E2E_BASE_URL` (Default 5173) →
+   `cd frontend && pnpm test:screenshots`. Pro Route × State
    (`filled`/`empty`) × Viewport entstehen ein **Full-Page-PNG** plus **Section-Captures**
    (`<name>-secN.png`, Scroll in 80-%-Schritten, damit unterhalb des Folds nichts unlesbar skaliert):
    `frontend/test-results/ui-screenshots/<state>/<viewport>/<name>.png`. Schlägt ein Screenshot-Test fehl,
