@@ -59,20 +59,104 @@
 # **Was "deckend" prüft — und was nicht.** Geprüft wird die *Alphakomponente* des
 # Eckpixels (2,2), nicht dessen Farbe. Beabsichtigt ist die Wirkung, die ein
 # transparenter Seitenhintergrund sonst hätte: die Darstellung darf nicht vom
-# Betrachter abhängen. Die Farbe ist bewusst **nicht** Teil der Postcondition,
-# weil ein deckendes Volldruck-Badge ein gültiges Ergebnis ist.
+# Betrachter abhängen. Die Farbe ist bewusst **nicht** Teil **dieser**
+# Postcondition, weil ein deckendes Volldruck-Badge ein gültiges Ergebnis ist.
 #
-# Die damit unvermeidbare Grenze: eine **deckende, aber unbrauchbare** Seite
-# besteht diese Prüfung. Eine komplett schwarze oder einfarbig grüne Seite ist
-# opak und wäre "grün". Das ist kein Loch im Auftrag, sondern eine bewusste
-# Abgrenzung — die Weiss-Prüfung konnte einendeckenden schwarzen Hintergrund
-# immerhin melden, und der Unterschied ist ehrlich nicht mehr rekonstruierbar:
-# "der Hintergrund ist eine deckende Farbe" und "der Hintergrund ist Papier"
-# sehen am Eckpixel gleich aus. Wer das braucht, muss es woanders prüfen: die
-# Tabelle gibt zu jeder Seite Kanal, Pixelwert und Eckalpha aus, und die
-# Vision-Analyse beurteilt die gerenderte Seite ohnehin. Eine *farbliche*
-# Mindestanforderung wäre eine andere, strengere Postcondition — und müsste
-# dann auch einen Volldruck-Badge als gültig zulassen.
+# **Deckung allein ist aber zu wenig, und das war ein gemessener Fehler.** Eine
+# Seite ist opak **und** leer; eine Seite ist opak **und** schwarz. Beides
+# bestand die reine Deckungsprüfung mit **Exit 0**, während die frühere
+# Weiss-Prüfung eine komplett schwarze Seite mit **Exit 3** gemeldet hatte
+# (Mittelwert = min = max = 0). Für `BadgeExportService` heisst das konkret:
+# ein Verband exportiert 500 Ausweise, **eine A6-Karte pro Antrag**, und niemand
+# sieht auf jede einzelne. Ein Template mit dunklem Volldruck-Hintergrund,
+# dessen Inhalt nicht gerendert wurde, liefert dann 500 unbrauchbare Seiten
+# **ohne jede Reaktion**. Es gibt deshalb eine **zweite** Postcondition: die
+# **Tinte**. Sie ist additiv daneben, hat eine eigene Schwelle und eigene drei
+# Ausgänge, und sie fasst die Deckungsprüfung nicht an.
+#
+# **Warum die Tinte nicht am Eckpixel hängt.** Der Eckpixel ist per Konstruktion
+# die Ecke und damit die am wenigsten repräsentative Stelle der Seite, und
+# "der Hintergrund ist eine deckende Farbe" gegen "der Hintergrund ist Papier"
+# ist dort nicht unterscheidbar. Gemessen wird deshalb die **Verteilung über die
+# ganze Seite**: die Graustufen-Standardabweichung, Spalte `TINTE` der Tabelle.
+#
+# **Die Schwelle `INK_SIGMA_MIN` = 0.001 — und ihre Herkunft.** Alle Zahlen
+# unten sind selbst gemessen (A6, dompdf, `magick`-Pipeline, Graustufen-σ nach
+# dem Beschnitt um 1 %, 72…400 dpi):
+#
+#   Seite                                Graustufen-σ
+#   ------------------------------------------------------------------
+#   leer, weiss #ffffff                       exakt 0
+#   leer, schwarz #000000                     exakt 0
+#   leer, dunkel #1b2a3c                      exakt 0
+#   leer, creme #f2e9d8                       exakt 0
+#   ein Wort, 1pt, ohne QR              0.00086 … 0.00163
+#   ein Wort, 4pt, ohne QR              0.00553 … 0.00742
+#   nur der QR, 10 × 10 mm               0.05099 … 0.05272
+#   echtes Badge (3 Felder + QR)         0.11862 … 0.12065
+#
+# **Die Leerseite ist nicht "fast 0", sie ist exakt 0** — 24 Messungen, vier
+# Füllfarben über sechs Dichten. Die Schwelle muss deshalb **nicht knapp**
+# getunt werden; sie muss nur begründet sein. Sie ist es, weil σ für vollschwarze
+# Tinte exakt `sqrt(Tintenpixel / Seitenpixel)` ist (gemessen: 1 px → 0.00103,
+# 4 px → 0.00206, 9 px → 0.00309, 25 px → 0.00515, 400 px → 0.02058, Abweichung
+# ≤ 0.02 %). **0.001 ist damit "ein einziges dunkles Pixel auf einer A6-Seite"**
+# — ein Vertrag, den ein Leser nachrechnen kann, und 4 Grössenordnungen über dem
+# exakten 0 der Leerseite (jede Float-Rundungsresiduum liegt bei ≤ 1e-7).
+#
+# **Was die Schwelle bewusst unter sich durchlässt — und was sie nicht.** Sie
+# liegt 1.9 × unter dem Boden eines einzelnen 2pt-Worts (0.00194), 5.5 × unter
+# einem 4pt-Wort und 51 × unter dem **strukturellen** Boden: `cardHtml()` ruft
+# `renderQr()` **unbedingt** auf, jede Karte trägt also einen QR, und dessen
+# gesetzliche Kleinstbox von 10 × 10 mm allein ergibt 0.0509. Der 1pt-Fall der
+# Tabelle ist damit ausdrücklich **kein** Boden, den diese Schwelle tragen
+# muss: 2.8 px Schrifthöhe bei 200 dpi, und der Renderer kann ihn ohne QR gar
+# nicht erzeugen.
+#
+# **Die eine Stelle, an der die Schwelle nicht monoton ist, offen benannt.** Der
+# 1pt-Fall **überstreicht** 0.001 (0.00086 bei 150 dpi, 0.00163 bei 200 dpi), und
+# sein Urteil wechselt damit mit der Dichte. Das ist die ehrliche Grenze der
+# Stufe: unterhalb einer gut sichtbaren Textgrösse ist σ selbst dichteabhängig,
+# weil dasselbe Wort bei verschiedenen Pixelrastern verschieden viel antialiasierte
+# Tinte ergibt. Zwei Argumente halten diese Stelle trotzdem:
+#   * betroffen ist **nur** eine Seite, die *keinen* QR trägt — und die erzeugt
+#     `cardHtml()` nicht (siehe oben);
+#   * die Alternative wäre eine Schwelle unter 0.00086, und σ = 0.0005
+#     entspräche **einem Viertel** eines Pixels. Ein Vertrag, der auf
+#     Bruchteile von Pixeln zeigt, ist keiner.
+# Wer die Stufe strenger braucht, muss die QR-Mindestgrösse erzwingen (eine
+# Layout-Regel, keine Postcondition) — nicht die Schwelle tiefer legen.
+#
+# **Der Beschnitt um 1 % ist nicht Kosmetik, er ist die Voraussetzung.** Ohne
+# ihn ist die Leerseite **nicht** 0: die Rasterkante des Seitenhintergrunds ist
+# antialiasiert, und je nach Dichte fällt sie auf Pixelraster oder daneben. Eine
+# komplett schwarze Seite misst so bei 72 dpi **0.0202**, bei 100 dpi 0.0110 und
+# bei 400 dpi 0.0086 — also **mehr als ein 1pt-Wort** (0.0015) und auf demselben
+# Blatt, das der 4pt-Fall mit 0.0055 belegt. Ohne Beschnitt wäre die Schwelle
+# nicht nur zu lax, sie wäre gar nicht wählbar. Der Beschnitt ist relativ
+# (1 %), damit er bei jeder Dichte greift; er kostet 0.5 mm je Seite (A6, 200
+# dpi) und damit nichts, was ein Layout-Eintrag legal platzieren kann.
+#
+# **Graustufen, nicht Farbe — gemessen, nicht begründet.** Auf allen vier
+# Leerseiten-Füllfarben sind Graustufen-σ **und** Farb-σ **exakt 0**: die
+# Farbe trennt hier nichts, was die Graustufen nicht auch trennen. Umgekehrt
+# reagiert σ_farbe auf den *Farbton* einer Fläche, nicht darauf, ob gezeichnet
+# wurde: eine vollflächig zweifarbige Seite (0.108 grau gegen 0.397 farbig)
+# unterscheidet sich um Faktor 3.7, obwohl auf beiden **nichts** steht. Ein
+# Farbmass hiesse damit: der Wert hängt davon ab, welche Farbe der Verband
+# gewählt hat. Genau das ist die Abgrenzung, die hier gilt: gleichförmig schwarz
+# und gleichförmig weiss fallen in Graustufen auf **denselben** exakten Nullwert,
+# und deshalb genügt **eine** Schwelle für beide.
+#
+# **Die verbleibende Grenze ist der Kontrast, nicht die Leere.** σ misst Tinte,
+# nicht Lesbarkeit: eine Seite mit 9771 Tintenpixeln in 0.06 % Kontrast
+# (Text #1e2d3f auf #1b2a3c) misst 0.00109, dieselbe Seite auf weiss mit
+# #fdfdfd misst 0.00063 — beides **um** die Schwelle. Solche Seiten sind
+# unbrauchbar, und das Skript meldet sie (unter der Schwelle) oder weist sie
+# durch ("Inhalt vorhanden") und überlässt das Urteil der Vision-Analyse, die
+# die gerenderte Seite ohnehin beurteilt. **Ein Kontrast-Urteil ist eine andere
+# Postcondition** und wird hier bewusst nicht erfunden: es braucht eine
+# Farbregel, und die hat der Eckpixel nicht her.
 #
 # Usage:
 #   bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
@@ -89,8 +173,17 @@
 #                               Exit 3, die Ausgabe ist nicht vertrauenswürdig
 #   Fehlt alles    Abbruch     — nennt die fehlenden Werkzeuge
 #
+# **Die Tinte braucht zwingend `magick`, die Deckung nicht** — und das ist der
+# einzige Fall, in dem Fallback A (gs allein) jetzt **Exit 3** liefert, obwohl
+# seine Rasterung in Ordnung ist: ohne magick ist die Tintenmenge nicht messbar
+# (sips kann keine Statistik), und sie wird nicht durchgewinkt. Gemessene
+# Begründung und die Abgrenzung zur Deckung stehen bei `ink_sigma`. Auf macOS
+# ist das nicht erreichbar, weil dort immer ein magick im PATH steht oder
+# ausdrücklich keiner — ein Linux-Feld ohne ImageMagick installiert magick.
+#
 # Exit-Codes:
-#   0  Pipeline durchgelaufen, Ausgabe verifiziert (kein Alpha, Hintergrund opak)
+#   0  Pipeline durchgelaufen, Ausgabe verifiziert (kein Alpha, Hintergrund opak,
+#      Tinte über der Schwelle)
 #   1  kein Rasterpfad verfügbar (meldet WHICH, nicht nur "command not found")
 #   2  Aufruffehler (kein PDF angegeben / Datei fehlt / PDF unlesbar)
 #   3  Rasterung oder Postcondition fehlgeschlagen
@@ -347,6 +440,101 @@ alpha_cell() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# Zweite Postcondition: **Tinte**. Die Deckung sagt, ob der Hintergrund erzwungen
+# wurde; sie sagt nichts darüber, ob auf der Seite **etwas steht**. Die beiden
+# Eigenschaften sind orthogonal, und der gemessene Fehlerfall ist genau ihre
+# Kombination: opak **und** leer (Exit 0, 500 unbrauchbare Ausweise).
+#
+# Gemessen wird die **Graustufen-Standardabweichung** der Seite, nicht ein
+# Farbwert und nicht der Eckpixel. Begründung und Messwerte im Kopfkommentar
+# (Tabelle, `INK_SIGMA_MIN`, der 1-%-Beschnitt und seine Begründung); hier nur
+# die drei Punkte, die man beim Lesen des Aufrufs braucht:
+#
+#   * `-colorspace Gray`  — der Messkanal. Farbe ist nicht die Grundlage, weil
+#     sie auf den Farbton einer Fläche reagiert statt darauf, ob gezeichnet
+#     wurde (gemessen: Faktor 3.7 auf einer zweifarbigen Leerseite).
+#   * `-crop 99%x99%`     — **kein Kosmetik.** Ohne den Beschnitt ist die
+#     Leerseite nicht 0: die antialiasierte Rasterkante misst bis 0.0202
+#     (schwarze Seite, 72 dpi) und läge damit **über** einem legitimen 1pt-Wort
+#     (0.0015). Relativ, damit er bei jeder Dichte greift.
+#   * `standard_deviation` — `sqrt(Varianz)`, für vollschwarze Tinte exakt
+#     `sqrt(Tintenpixel / Seitenpixel)`. Die Schwelle 0.001 ist damit
+#     "ein einziges dunkles Pixel auf der Seite".
+#
+# Gibt den Messwert auf stdout aus und liefert als Status
+#   0 = Inhalt vorhanden, 1 = LEER, 2 = nicht feststellbar.
+# ---------------------------------------------------------------------------
+
+# Die Mindeststreuung, ab der eine Seite als "Inhalt vorhanden" gilt. Begründet
+# im Kopfkommentar; der Wert ist **keine** Rundungsgrenze, sondern die
+# Streuung eines einzelnen volldunklen Pixels (gemessen 0.00103 bei A6/200 dpi).
+INK_SIGMA_MIN=0.001
+
+ink_sigma() {
+  local file="$1" wh w h value rc
+  # Dieselbe Mindestgrösse wie `corner_alpha`, und aus demselben Grund: unter
+  # 3 × 3 Pixeln ist **keine** Pixel-Eigenschaft dieser Seite sinnvoll
+  # feststellbar. Gemessen: ein 1x1-Bild liefert sigma = 0 und würde sonst als
+  # "leer" gemeldet — die richtige Richtung (Exit 3), aber aus dem **falschen**
+  # Grund, und der Diagnose fehlte der eigentliche Befund.
+  wh="$(magick identify -format '%w %h' "$file" 2>/dev/null)" || return 2
+  # `|| return 2` ist hier **keine** Pedanterie: `read` gibt 1 zurück, wenn die
+  # Here-Zeichenkette leer ist, und ein 1 unter `set -e` bricht den ganzen Lauf
+  # ab — aus "nicht messbar" würde ein stiller Abbruch ohne Befund. Genau vor
+  # diesem Fall schützt sich `has_alpha` ausdrücklich ("Eine leere
+  # Kanalkennung ist **kein** 'kein Alpha'").
+  read -r w h <<< "$wh" || return 2
+  [ "${w:-0}" -ge 3 ] 2>/dev/null && [ "${h:-0}" -ge 3 ] 2>/dev/null || return 2
+  value="$(magick "$file" -colorspace Gray -gravity center \
+    -crop '99%x99%+0+0' +repage -format '%[fx:standard_deviation]' info: 2>/dev/null)" \
+    || return 2
+  printf '%s\n' "$value"
+  # Die Entscheidung ist **eine** — dieselbe Form wie in `corner_alpha`, aus
+  # demselben Grund: der Vergleich ist numerisch in `awk`, nicht `case` auf
+  # Strings, und die Gültigkeit der Zahl wird **am selben Ort** geprüft, damit ein
+  # unlesbarer Wert nicht als "0" durchgeht. `+0` allein wäre genau das
+  # fail-open: awk macht aus "nonsense" die Zahl 0, und 0 < Schwelle hiesse
+  # "leer" — ein gemessener Befund, den es nicht gibt. Also zuerst die Form:
+  # `magick` druckt fx sprachneutral und ohne Exponent (gemessen: `0.000764092`),
+  # alles andere ist ein Defekt und wird "nicht feststellbar".
+  awk -v s="$value" -v m="$INK_SIGMA_MIN" '
+    BEGIN {
+      if (s !~ /^[0-9]+(\.[0-9]+)?$/) exit 2
+      if (s + 0 < m + 0) exit 1
+      exit 0
+    }' || rc=$?
+  case "${rc:-0}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# **Einzige** Aufrufstelle von `ink_sigma`, aus demselben Grund wie bei
+# `corner_alpha`: Messwert **und** Status gehören untrennbar zusammen, und der
+# Status darf nicht versehentlich weggeworfen werden. Beide landen als Globals:
+#
+#   INK_SIGMA_VALUE   der Messwert (bei Status 2 leer bzw. unbrauchbar)
+#   INK_SIGMA_RC      0 = Inhalt vorhanden, 1 = LEER, 2 = nicht feststellbar
+ink_sigma_measure() {
+  INK_SIGMA_VALUE=""
+  INK_SIGMA_RC=0
+  INK_SIGMA_VALUE="$(ink_sigma "$1")" || INK_SIGMA_RC=$?
+}
+
+# Formatiert (Messwert, Rückgabewert) **einheitlich** für die Spalte TINTE.
+# Die drei Ausgänge sind auch hier drei **verschiedene** Zellen, und 1 muss den
+# **Wert** mitzeigen: "0" und "0.0009" sind derselbe Ausgang, aber nur einer von
+# beiden ist der gemessene Befund, den man nachschlagen muss.
+ink_cell() {
+  case "$2" in
+    0) printf '%s (Inhalt)' "$1" ;;
+    1) printf '%s (LEER)' "$1" ;;
+    *) printf '%s' '(nicht feststellbar)' ;;
+  esac
+}
+
 case "$METHOD" in
   magick)
     magick -density "$DENSITY" "$PDF" "${STEP1_GLOB}.png" \
@@ -452,9 +640,13 @@ fi
 # Der Preis dieser zweiten Korrektur, offen benannt: sie kann nicht mehr
 # unterscheiden, ob der Hintergrund *weisses Papier* oder *eine deckende Farbe*
 # ist. Beides ist ein gültiges Ergebnis — ein Volldruck-Badge soll nicht als
-# Fehler enden. Was sie dafür nicht mehr erkennt, ist ein **undurchsichtiger,
-# unbrauchbarer** Hintergrund (etwa eine deckend schwarze Seite); siehe die
-# Einschränkung im Kopfkommentar.
+# Fehler enden. Was dafür zunächst **nicht** erkannt wurde, war ein
+# **undurchsichtiger, unbrauchbarer** Hintergrund (etwa eine deckend schwarze
+# Seite, gemessen mit der alten Weiss-Prüfung Exit 3 und mit der reinen
+# Deckungsprüfung Exit 0). Genau dafür steht jetzt die **Tinte**-Prüfung daneben
+# (`ink_sigma`): sie misst die Graustufen-Streuung der ganzen Seite und ist
+# damit unabhängig vom Farbwert des Hintergrunds. Herkunft der Schwelle, der
+# Beschnitt und die bewusst nicht gebaute Kontrastprüfung: siehe Kopfkommentar.
 # ---------------------------------------------------------------------------
 FAILED=0
 PIXELCHECK=0
@@ -506,9 +698,11 @@ has_alpha() {
   return 2
 }
 
-printf '\n%-36s %-12s %-10s %-34s %s\n' "DATEI" "GRÖSSE" "KANÄLE/ALPHA" "PIXEL (2,2)" "ECKALPHA"
-printf '%-36s %-12s %-10s %-34s %s\n' \
-  "------------------------------------" "------------" "----------" "----------------------------------" "--------"
+printf '\n%-36s %-12s %-10s %-34s %-10s %s\n' \
+  "DATEI" "GRÖSSE" "KANÄLE/ALPHA" "PIXEL (2,2)" "ECKALPHA" "TINTE (GRAU-σ)"
+printf '%-36s %-12s %-10s %-34s %-10s %s\n' \
+  "------------------------------------" "------------" "----------" \
+  "----------------------------------" "----------" "---------------------"
 
 N=0
 for out in $STEP2_FILES; do
@@ -551,6 +745,31 @@ for out in $STEP2_FILES; do
     out_cell="$(alpha_cell "$out_a" "$corner_rc")"
   fi
 
+  # Die Tinte wird **einmal** gemessen und für Tabelle *und* Urteil benutzt,
+  # damit beide nie aueinanderlaufen können — dieselbe Begründung, dieselbe
+  # Hülle: `ink_sigma_measure` ist die einzige Aufrufstelle von `ink_sigma`, die
+  # Zelle kommt aus `ink_cell`. **Nur auf Stufe 2**: σ ist die Eigenschaft des
+  # fertigen Bildes, und eine zweite Messung auf Stufe 1 wäre genau die zweite
+  # Aufrufstelle, an der `corner_alpha` einmal auseinandergelaufen ist. In der
+  # Stufe-1-Zeile steht deshalb `-` — dort steht der Nachweis der Deckung, nicht
+  # der Tinte.
+  out_s="-"
+  out_ink_cell="$out_s"
+  # **Vorgabe ist 2, nicht 0.** Ohne magick wurde nicht gemessen, und "nicht
+  # gemessen" ist nicht "Inhalt vorhanden": der Status 0 als Anfangswert liest
+  # das Fehlen einer Messung als ein positives Ergebnis. Genau dieser Fehler
+  # wäre hier passiert — `ink_rc=0` hätte auf der gs-only-Route eine schwarze
+  # Leerseite mit Exit 0 durchgewinkt.
+  ink_rc=2
+  if [ "$PIXELCHECK" -eq 1 ]; then
+    ink_sigma_measure "$out"
+    out_s="$INK_SIGMA_VALUE"
+    ink_rc="$INK_SIGMA_RC"
+    out_ink_cell="$(ink_cell "$out_s" "$ink_rc")"
+  else
+    out_ink_cell="(nicht messbar: kein magick)"
+  fi
+
   if [ -n "$src" ] && [ "$PIXELCHECK" -eq 1 ]; then
     src_dim="$(magick identify -format '%wx%h' "$src")"
     src_ch="$(magick identify -format '%[channels]' "$src")"
@@ -562,14 +781,17 @@ for out in $STEP2_FILES; do
     # untergeht (der gemessene Fehler, siehe `corner_alpha_measure`).
     corner_alpha_measure "$src"
     src_cell="$(alpha_cell "$CORNER_ALPHA_VALUE" "$CORNER_ALPHA_RC")"
-    printf '%-36s %-12s %-10s %-34s %s\n' "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px" "$src_cell"
-    printf '  %-34s %-12s %-10s %-34s %s\n' "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell"
+    printf '%-36s %-12s %-10s %-34s %-10s %s\n' \
+      "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px" "$src_cell" '-'
+    printf '  %-34s %-12s %-10s %-34s %-10s %s\n' \
+      "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell" "$out_ink_cell"
     if [ "$src_dim" != "$out_dim" ]; then
       printf '  FEHLER: die Auflösung hat sich geändert (%s -> %s).\n' "$src_dim" "$out_dim" >&2
       FAILED=1
     fi
   else
-    printf '%-36s %-12s %-10s %-34s %s\n' "$(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell"
+    printf '%-36s %-12s %-10s %-34s %-10s %s\n' \
+      "$(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_cell" "$out_ink_cell"
   fi
 
   # `has_alpha` liefert 0/1/2; `&& … || …` fängt den Status, ohne dass `set -e`
@@ -598,11 +820,62 @@ for out in $STEP2_FILES; do
          FAILED=1
        fi ;;
   esac
+
+  # Zweite Postcondition: die Seite muss **Tinte** tragen. Additiv neben der
+  # Deckung und ohne sie anzufassen — beide messen verschiedene Eigenschaften,
+  # und nur die Kombination fängt den gemessenen Fehler (opak **und** leer).
+  #
+  # Drei Ausgänge, drei Meldungen, wie bei `corner_alpha`:
+  #   0  Inhalt vorhanden  — der Wert steht in der Tabelle, hier ist nichts zu sagen
+  #   1  LEER              — **Fehler**, der Lauf bricht ab
+  #   2  nicht messbar     — **fail-closed**, kein Durchwinken
+  #
+  # **Ausgang 2 endet hier anders als bei der Deckung, und der Unterschied ist
+  # gemessen.** Ohne magick wird die Deckung weiterhin nur übersprungen (das ist
+  # der bestehende Stand und wird nicht angefasst) — sie prüft einen Defekt, den
+  # der Rasterweg **selbst** erzeugt, und der `gs`-Weg hat nachweislich keinen
+  # Alpha-Kanal zum Entfernen. Die Tinte ist anders: sie ist eine Eigenschaft der
+  # **Quelldatei**, und kein Rasterweg verändert daran etwas. Gemessen auf der
+  # gs-only-Route: eine komplett schwarze Leerseite lief mit Exit **0** durch,
+  # weil `sips` keine Statistik kann und der Lauf das als "geprüft" behandelte.
+  # Genau der Fall, den diese Postcondition verhindern soll, wäre damit
+  # stummschweigend wieder zugelassen — und zwar **nur** auf der Route, auf der
+  # niemand ein Werkzeug nachinstalliert hat. Deshalb gilt hier ausnahmslos:
+  # nicht messbar heisst Abbruch.
+  case "$ink_rc" in
+    0) : ;;
+    1) printf '  FEHLER: %s ist LEER — die Graustufen-Streuung der Seite ist %s, unter der Schwelle %s.\n' \
+         "$(basename "$out")" "$out_s" "$INK_SIGMA_MIN" >&2
+       printf '         Die Seite ist deckend, aber es steht nichts darauf: bei vollschwarzer\n' >&2
+       printf '         Tinte entspricht %s einem einzigen dunklen Pixel auf der ganzen Seite.\n' "$INK_SIGMA_MIN" >&2
+       printf '         Ein gleichförmiger Hintergrund — weiss, schwarz oder ein Volldruck-\n' >&2
+       printf '         Farbton — ergibt exakt 0 und wird hier gemeldet. Das ist der Fall, an\n' >&2
+       printf '         dem ein Export 500 unbrauchbare Ausweise liefert, ohne dass jemand\n' >&2
+       printf '         eine einzelne Seite ansieht. Werte zum Vergleich: nur der QR auf\n' >&2
+       printf '         10 x 10 mm ergibt 0.051, ein einzelnes 4pt-Wort 0.0055.\n' >&2
+       FAILED=1 ;;
+    2) if [ "$PIXELCHECK" -eq 1 ]; then
+         printf '  FEHLER: die Tintenmenge in %s war nicht feststellbar (Bild kleiner als 3x3, unlesbarer Messwert, oder magick konnte die Seite nicht auswerten).\n' "$(basename "$out")" >&2
+         printf '         Ohne diesen Wert ist nicht entscheidbar, ob die Seite Inhalt traegt;\n' >&2
+         printf '         das wird nicht durchgewinkt.\n' >&2
+       else
+         printf '  FEHLER: die Tintenmenge in %s war nicht messbar — es gibt kein magick im PATH.\n' "$(basename "$out")" >&2
+         printf '         sips kann keine Statistik auswerten, und die Tinte ist eine Eigenschaft\n' >&2
+         printf '         der Quelldatei: im Gegensatz zur Deckung kann kein Rasterweg sie\n' >&2
+         printf '         einbauen oder umgehen. Ohne diesen Wert bleibt offen, ob die Seite\n' >&2
+         printf '         Inhalt traegt, und das wird nicht durchgewinkt.\n' >&2
+       fi
+       FAILED=1 ;;
+  esac
 done
 
 if [ "$PIXELCHECK" -ne 1 ]; then
-  printf '\nHINWEIS: die Opazität des Hintergrunds wurde **nicht** geprüft (kein magick im PATH).\n' >&2
-  printf 'Geprüft wurde nur das Fehlen des Alpha-Kanals. Für die volle Prüfung:\n' >&2
+  # Dieser Block wird auch dann gedruckt, wenn der Lauf gleich abbricht (er
+  # steht vor dem `die`). Er muss deshalb in **beiden** Fällen wahr sein:
+  # ohne magick ist die Deckung nicht geprüft **und** die Tinte nicht messbar.
+  printf '\nHINWEIS: die Opazität des Hintergrunds wurde **nicht** geprüft (kein magick im PATH),\n' >&2
+  printf 'und die Tintenmenge war nicht messbar — das hat den Lauf oben bereits zum Abbruch\n' >&2
+  printf 'gebracht. Geprüft wurde nur das Fehlen des Alpha-Kanals. Für die volle Prüfung:\n' >&2
   printf '  brew install imagemagick\n' >&2
 fi
 
@@ -621,9 +894,11 @@ else
 fi
 
 if [ "$PIXELCHECK" -eq 1 ]; then
-  printf '\nOK: %s Seite(n), kein Alpha-Kanal, Hintergrund opak (Eckpixel-Alpha 1).\n' "$PAGES"
+  printf '\nOK: %s Seite(n), kein Alpha-Kanal, Hintergrund opak (Eckpixel-Alpha 1),\n' "$PAGES"
+  printf '     Tinte auf jeder Seite über der Schwelle %s.\n' "$INK_SIGMA_MIN"
 else
-  printf '\nOK: %s Seite(n), kein Alpha-Kanal. Die Opazität wurde nicht geprüft (kein magick).\n' "$PAGES"
+  printf '\nOK: %s Seite(n), kein Alpha-Kanal. Opazität und Tintenmenge wurden nicht\n' "$PAGES"
+  printf '     geprüft (kein magick).\n'
 fi
 printf 'PNG(s) für die Vision-Analyse:\n'
 for f in $STEP2_FILES; do

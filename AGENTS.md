@@ -493,15 +493,43 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   gemessen mit einem Storage, der gezielt wirft. **Vendor-Verhalten, im Repo nicht zu ändern**: die
   Datei liegt unter `vendor/` und jede Änderung wäre beim nächsten `composer install` weg; stattdessen
   ist der **Docblock** `AuthController:246` („Invalidates the current JWT (blacklist)") zu relativ und
-  beschreibt einen Pfad, der im Fehlerfall schweigt. **Der normale Weg hält** (401 nach Logout,
-  gegengeprüft durch `MandantMembershipTest::test_a_just_revoked_user_can_still_read_itself_and_log_out`),
-  und wirft der Storage statt dessen eine `QueryException` — was eine fehlende Tabelle erzeugen
-  würde —, ist es **laut** (500), nicht still. **Entscheidend für die Architektur:** die Konto-Löschung
+  beschreibt einen Pfad, der im Fehlerfall schweigt.
+  **WICHTIG, Korrektur vom 2026-09-28:** der Beleg, mit dem dieser Eintrag anfing („logout
+  widerruft, danach 401"), war ein **Falsch-Positiv** — die Messung lief in einem Harness, in dem der
+  **Cookie-Transport nicht funktionierte** (`withCookie()` verwirft still, Board-Position 13), der
+  401 kam also aus dem geleerten `JWT::$token`-Singleton und **nicht** aus der Blacklist. Die
+  Kontrollmessung lautet: **401 bei leerer Blacklist.** **Weg B ist also noch nicht gültig bewiesen**,
+  und der `MandantMembershipTest`, der ihn stützen sollte, benutzt denselben Kanal und ist damit
+  **kein** unabhängiger Beleg. Wirft der Storage statt dessen eine `QueryException` — was eine
+  fehlende Tabelle erzeugen würde —, ist es **laut** (500), nicht still.
+  **Entscheidend für die Architektur:** die Konto-Löschung
   stützt sich **nicht** auf diesen Weg, sondern auf den **DB-Treffer** in
   `JWTGuard::user():107` (`retrieveById($payload['sub'])`) — fehlt die Zeile, ist `$this->user` null
-  → **401 sofort**. **Weg A (Konto gelöscht) ist deshalb nicht von Weg B (`logout`) abhängig**, und
-  ein Vertragstest nagelt das fest. Re-evaluieren, wenn das Paket aktualisiert wird oder wir von der
+  → **401 sofort**, und das gilt **auch nach einem vollständigen `Cache::flush()`** (gemessen mit
+  zwei Prämissen, die eine Fehldeutung ausschliessen: Cache nachweislich leer, Token nachweislich
+  unexpired — die Ablehnung kann nur aus der fehlenden Zeile kommen). **Weg B scheitert an genau
+  derselben Probe** (nach dem Flush wieder 200). **Weg A ist also nicht von Weg B abhängig**, und
+  `AccountDeletionRevokesAccessImmediatelyTest` nagelt das fest — mit der Gegenprobe, dass dasselbe
+  Token **vor** dem Löschen 200 liefert, und der Mutation (Löschen → Zeile behalten), die **alle
+  vier** Tests rot macht. Re-evaluieren, wenn das Paket aktualisiert wird oder wir von der
   Cache-Blacklist auf einen persistenteren Store wechseln.
+
+  **Korrigierte Zahlen (2026-09-28, gemessen statt gerechnet):** Die Blacklist-Einträge leben
+  **~10081 Minuten (~7 Tage)**, nicht ~61 — `Blacklist::getMinutesUntilExpired()` nimmt
+  `$exp->**max**($iat->addMinutes($refreshTTL))`, den **späteren** der beiden Zeitpunkte. Die
+  **sicherheitsrelevante** Grenze bleibt trotzdem `JWT_TTL` = 60 min, gemessen von der **Ausgabe**
+  (`iat+59min` → 200, `iat+62min` → 401), denn `exp` greift, sobald der Eintrag fehlt. **Und die
+  Ursache ist unkritisch:** `deployment/entrypoint.sh` führt `migrate → storage:link → seed →
+  config:cache|config:clear` aus, **kein** `cache:clear`/`optimize:clear`; ein Test nagelt das fest
+  (eine Zeile `cache:clear` in den Entrypoint einfügen → rot). Ein **Container-Neustart beim
+  Deploy** ändert daran **nichts**: `CACHE_STORE=database`, die Blacklist ist eine Zeile in der
+  `cache`-Tabelle im Volume `db_data`, nicht im Dateisystem des Containers. Das Risiko ist damit
+  **konditional** — es entsteht erst, wenn jemand ein Cache-Leeren einbaut.
+
+  **Und die Schärfe dieser Silhouette ist höher als zunächst notiert:** wirft der Storage eine
+  `JWTException`, antwortet die Route mit **200 „Erfolgreich abgemeldet."**, der Store ist **leer**
+  — **und das Token funktioniert weiter** (gemessen, nicht behauptet). Fail-open in einem
+  **Auth**-Pfad: Erfolg gemeldet, Wirkung ausgeblieben.
 
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 

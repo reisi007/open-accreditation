@@ -361,9 +361,9 @@ Routen, alle gemessen (siehe unten):
 
 | Route | Werkzeuge | Seiten | DPI | Ergebnis |
 |---|---|---|---|---|
-| **Primär** (zweistufig) | `magick` + `gs` | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1) |
-| **Fallback A** (einstufig) | `gs` allein | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1) |
-| **Fallback B** | `sips` | **nur 1** | ~72 | **Alpha bleibt → Exit 3** |
+| **Primär** (zweistufig) | `magick` + `gs` | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1), Tinte gemessen |
+| **Fallback A** (einstufig) | `gs` allein | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1) — aber **Tinte nicht messbar → Exit 3** |
+| **Fallback B** | `sips` | **nur 1** | ~72 | **Alpha bleibt → Exit 3** (plus: Tinte nicht messbar) |
 | keines | — | — | — | Exit 1, nennt die fehlenden Werkzeuge |
 
 Jede Fallback-Route wird **laut** angekündigt (stderr, `>>> FALLBACK <<<`).
@@ -371,12 +371,30 @@ Fallback B endet mit Exit 3, weil `sips` keinen Alpha-Kanal entfernen kann —
 ein grüner Lauf auf genau dem Bild, das diese Pipeline beseitigen soll, wäre
 schlimmer als gar keiner.
 
+**Fallback A endet seit der Tinte-Prüfung ebenfalls mit Exit 3, und das ist
+eine absichtliche Verschärfung.** Ohne `magick` ist die *Deckung* weiterhin nur
+zu überspringen (sie prüft einen Defekt, den der `gs`-Weg nicht erzeugt — `png16m`
+ist ein deckendes Device), die *Tinte* dagegen nicht: sie ist eine Eigenschaft der
+Quelldatei, die kein Rasterweg einbauen oder umgehen kann, und `sips` kann keine
+Statistik. „Nicht messbar“ heisst dort deshalb **Abbruch, nicht Durchwinken**.
+Gemessen (macOS, PATH ohne `magick`, aber mit `gs`): ein **gültiges** Badge
+(QR + zwei Textzeilen) endet mit Exit 3 und der Meldung *„die Tintenmenge in
+badgefix-step2-01.png war nicht messbar — es gibt kein magick im PATH“*. Die
+Meldung nennt den Grund und den Unterschied zum Bild-Befund, sie ist also von
+einem echten Postcondition-Fehler zu unterscheiden. Vor der Tinte-Prüfung lief
+derselbe Fall mit Exit 0 durch.
+
 ### Was die Postcondition prüft — und was ausdrücklich nicht
 
-Die Postcondition ist **„kein Alpha-Kanal + deckender Hintergrund“**. Sie prüft
-damit die *Deckung* des Hintergrunds und **nicht** dessen Farbe. Das ist eine
-bewusste Entscheidung, keine Vereinfachung — und sie hat einen Preis, der hier
-stehen muss, weil er eine echte Grenze des Verfahrens ist.
+Es sind **zwei** Postconditionen, und sie prüfen verschiedene Eigenschaften:
+
+1. **Deckung** — kein Alpha-Kanal und ein **deckender** Hintergrund. Sie prüft
+   die *Deckung* und **nicht** dessen Farbe. Bewusste Entscheidung, keine
+   Vereinfachung — und sie hat einen Preis, der hier stehen muss, weil er eine
+   echte Grenze des Verfahrens ist.
+2. **Tinte** — die Graustufen-Standardabweichung der Seite muss über
+   `INK_SIGMA_MIN = 0.001` liegen. Sie beantwortet die Frage, die die Deckung
+   nicht beantworten kann: **steht auf der Seite überhaupt etwas?**
 
 **Gemessen an zwei Leerseiten** (`magick`-Pipeline, 827 × 1165 px, eine Seite,
 200 dpi; erzeugt mit `magick -size 827x1165 xc:<farbe>`), gegen die drei
@@ -388,16 +406,27 @@ Skript-Stände dieser Woche:
 | komplett **schwarz** | alt | **3** | dito |
 | komplett weiss | Graustufen-Fix (`e402412`) | **0** | — |
 | komplett schwarz | Graustufen-Fix | **3** | „Eckpixel ist nicht weiss“ |
-| komplett weiss | **heute** (Opazität, `caf6bed`) | **0** | — |
-| komplett schwarz | **heute** | **0** | — |
+| komplett weiss | **nur Deckung** (Opazität, `caf6bed`) | **0** | — |
+| komplett schwarz | **nur Deckung** | **0** | — |
+| komplett weiss | **heute** (Deckung **+** Tinte) | **3** | „ist LEER — die Graustufen-Streuung der Seite ist 0“ |
+| komplett schwarz | **heute** | **3** | dito |
+| gültiges Badge (QR + Text) | **heute** | **0** | — |
 
 Drei Dinge sind daraus abzulesen, und alle drei sind Folgen *derselben*
 Entscheidung:
 
-1. **Eine opake, aber leere oder schwarze Seite gilt heute als erfüllt**
-   (Exit 0). Das ist die Kehrseite von „Farbe ist nicht Teil der Postcondition“:
-   eine deckende Farbe ist gültig, also ist eine deckende Leere es auch. Wer
-   nach einem leeren Ausweis sucht, bekommt ihn sichergestellt, nicht gemeldet.
+1. **Eine opake, aber leere Seite galt bis zur Tinte-Prüfung als erfüllt**
+   (Exit 0) — die Kehrseite von „Farbe ist nicht Teil der Postcondition“: eine
+   deckende Farbe ist gültig, also war eine deckende Leere es auch. **Das ist
+   behoben**: heute endet die Leerseite mit Exit 3, und zwar unabhängig von der
+   Hintergrundfarbe (weiss, schwarz, `#1b2a3c`, `#f2e9d8` — alle vier gemessen
+   mit σ **exakt 0**). Für `BadgeExportService` heisst das konkret: ein Verband
+   exportiert 500 Ausweise, **eine A6-Karte pro Antrag** (`html()` loopt über
+   `$applications` und ruft je Antrag `cardHtml()`, `BadgeRenderService.php:242-248`;
+   `renderPdf()` setzt A6 porträt, `:215-223`), und niemand sieht auf
+   jede einzelne. Ein Template mit dunklem Volldruck-Hintergrund, dessen Inhalt
+   nicht gerendert wurde, lieferte 500 unbrauchbare Seiten **ohne jede
+   Reaktion**.
 2. **Der alte Stand hätte eine Leerseite nie durchgelassen** — und zwar mit
    der *falschen* Begründung. Er meldete „hat noch einen Alpha-Kanal“, weil sein
    Muster `*a*` den Buchstaben `a` in „**g**r**a**y“ traf (eine Seite ganz ohne
@@ -413,35 +442,145 @@ Entscheidung:
    einen Fail-open: eine unbekannte Kanalkennung gilt jetzt als **nicht
    feststellbar** (Exit 3) statt als „kein Alpha“.
 
-**Die verbleibende Grenze, und was sie zurückholen würde.** „Der Hintergrund ist
+**Die zweite Postcondition ist implementiert — die Tinte.** „Der Hintergrund ist
 eine deckende Farbe“ und „der Hintergrund ist weisses Papier“ sehen am Eckpixel
 identisch aus — der Unterschied ist am Rand schlicht nicht mehr rekonstruierbar.
-Das ist keine Lücke im Auftrag, sondern eine Grenze des Messpunkts. Die
-Weiss-Prüfung konnte wenigstens einen deckenden schwarzen Hintergrund *melden*,
-und diese eine Fähigkeit ist mit der Umstellung bewusst weggefallen. Wer sie
-zurückholen will, braucht eine **eigene** Postcondition und ausdrücklich **keine
-Farbregel im Eckpixel** — der Eckpixel ist per Konstruktion die Ecke und damit
-die am wenigsten repräsentative Stelle der Seite. Der geeignete Messpunkt ist
-die **Verteilung** der Pixel über die ganze Seite, und der ist billig (gemessen
-mit `magick -colorspace Gray -format '%[fx:standard_deviation]' info:` auf den
-Stufe-2-PNGs):
+Die Weiss-Prüfung konnte wenigstens einen deckenden schwarzen Hintergrund
+*melden*; diese Fähigkeit ging mit der Umstellung auf Opazität verloren, und
+genau dafür steht jetzt `ink_sigma` daneben: es misst die **Verteilung** der
+Pixel über die ganze Seite und ist damit unabhängig vom Farbwert des
+Hintergrunds. Ausdrücklich **keine** Farbregel im Eckpixel — der Eckpixel ist
+per Konstruktion die Ecke und damit die am wenigsten repräsentative Stelle der
+Seite.
 
-| Seite | eindeutige Farben | Graustufen-Standardabweichung |
-|---|---|---|
-| echtes Badge-PDF, Seite 1 | 3 | **0,110716** |
-| echtes Badge-PDF, Seite 2 | 3 | **0,111768** |
-| Leerseite weiss | 1 | **0** |
-| Leerseite schwarz | 1 | **0** |
+**Was gemessen wird, und warum der Beschnitt um 1 % dazugehört.** Gemessen wird
+`magick <datei> -colorspace Gray -gravity center -crop '99%x99%+0+0' +repage
+-format '%[fx:standard_deviation]' info:` auf den Stufe-2-PNGs, **nach** dem
+Beschnitt. Der Beschnitt ist **keine Kosmetik, er ist die Voraussetzung**: die
+antialiasierte Rasterkante des gemalten Seitenhintergrunds ist sonst Teil der
+Messung. Gemessen auf dem **Primärweg des Skripts** (`magick -density N` →
+`-alpha remove -alpha off`), σ **ohne** Beschnitt für eine komplett schwarze
+Leerseite:
 
-Eine unbeschriebene Seite ist damit **exakt 0**, eine echte Badge-Seite
-**> 0,11** — drei Grössenordnungen Abstand, mit jedem vernünftigen Schwellwert
-zu trennen. (Das Probe-Template trug nur zwei Textfelder plus QR; das
-ausführlichere Fixture aus der Tabelle unten hat 26 Farben.) Diese
-Leerseiten-Postcondition ist **nicht implementiert** — der Skript-Stand prüft
-weiterhin nur Alpha-Kanal, Eckpixel-Opazität und Seitenzahl. Der Contract für
-eine Vision-Analyse bleibt davon unberührt: die Befundtabelle gibt zu jeder Seite
-Kanal, Pixelwert und Eckalpha aus, und die Vision-Analyse beurteilt die
-gerenderte Seite ohnehin.
+| Dichte | 72 | 100 | 150 | 200 | 300 | 400 |
+|---|---|---|---|---|---|---|
+| σ ohne Beschnitt (schwarz) | 0,01300 | 0,01103 | **0** | 0,00655 | **0** | 0,00552 |
+| σ ohne Beschnitt (`#1b2a3c`) | 0,01095 | 0,00930 | **0** | 0,00552 | **0** | 0,00465 |
+| σ ohne Beschnitt (`#f2e9d8`) | 0,00109 | 0,00092 | **0** | 0,00055 | **0** | 0,00046 |
+| σ **mit** Beschnitt (alle drei) | **0** | **0** | **0** | **0** | **0** | **0** |
+
+Ohne den Beschnitt passieren die schwarze und die dunkelblaue Leerseite bei
+**72, 100, 200 und 400 dpi** die Schwelle (Exit 0) — und die cremefarbene bei
+72 dpi. An **150 und 300 dpi** landet die Kante genau auf dem Pixelraster und σ
+ist exakt 0: **die Dichte entscheidet mit, nicht die Farbe** — dieselbe
+Leerseite ist bei der einen Dichte unauffällig und bei der anderen ein Befund.
+Eine Seite, auf der **nichts** gemalt wurde,
+zeigt das Messartefakt nie (σ = 0 mit und ohne Beschnitt) — es braucht einen
+**gemalten** Seitenhintergrund, damit die Kante überhaupt entsteht. Der Beschnitt
+ist relativ (1 %), damit er bei jeder Dichte greift; **was er kostet, ist
+gemessen**: bei A6 / 200 dpi (827 × 1165 px, Beschnitt auf 819 × 1153) sind es
+**4 Pixel links/rechts = 0,51 mm** und **6 Pixel oben/unten = 0,76 mm** — nach
+gemessen, indem ein einzelnes schwarzes Pixel zeilen- und spaltenweise von der
+Kante nach innen geschoben wurde (Zeile 5 unsichtbar, Zeile 6 sichtbar; Spalte 3
+unsichtbar, Spalte 4 sichtbar). Die vier Eckpixel eines A6-Blatts sind für die
+Tinte also **nachweislich unsichtbar** (σ_crop = 0 gegen σ_ohne = 0,00204).
+
+**Die Schwelle ist eine rechenbare Zusage, keine gesetzte Zahl.** Für vollschwarze
+Tinte gilt σ = `sqrt(k·(n−k))/n`, mit `k` = dunkle Pixel und `n` = Pixel im
+beschnittenen Bild — nachgerechnet an eigenen Fixtures mit *exakt* bekannter
+Pixelzahl (`magick -size 827x1165 xc:white -fill black -draw "point …"`), A6 /
+200 dpi, n = 944 307:
+
+| dunkle Pixel `k` | 1 | 4 | 9 | 25 | 400 |
+|---|---|---|---|---|---|
+| σ gemessen | 0,00102907 | 0,00205813 | 0,00308719 | 0,00514527 | 0,0205770 |
+| `sqrt(k(n−k))/n` | 0,00102907 | 0,00205813 | 0,00308719 | 0,00514527 | 0,0205770 |
+
+Abweichung ≤ 3,2 · 10⁻⁸ absolut bzw. ≤ 0,0004 % relativ — und die ist kleiner
+als die Ausgabegenauigkeit der Messung selbst (`%[fx:…]` druckt 8
+Nachkommastellen). **`INK_SIGMA_MIN = 0.001` ist damit auf A6/200 dpi genau „ein
+einziges schwarzes Pixel auf der Seite“**, und ein Leser kann es nachrechnen.
+Wichtiger ist aber, wo die Schwelle relativ zum *Problem* liegt — und das ist
+**nicht** die Rundungsgrenze:
+
+| Dichte | 72 | 100 | 150 | 200 | 300 | 400 |
+|---|---|---|---|---|---|---|
+| σ eines **einzigen** schwarzen Pixels | 0,002855 | 0,002058 | 0,001372 | **0,001029** | 0,000686 | 0,000514 |
+| Verhältnis Schwelle / 1-Pixel-Linie | 0,35× | 0,49× | 0,73× | **0,97×** | 1,46× | 1,94× |
+
+Die Schwelle liegt also **auf** der Ein-Pixel-Linie, nicht 10⁴ darüber: bei
+200 dpi 2,8 % darunter, bei 300 und 400 dpi 1,5- bzw. 1,9-fach darüber (dort
+sind ~2 bzw. ~4 dunkle Pixel nötig). Das ist die richtige Stelle — sie ist der
+kleinste darstellbare Inhalt — und sie ist **fail-closed**: bei hoher Dichte
+wird ein Ein-Pixel-Artefakt *abgelehnt*, nicht durchgewinkt. Der Abstand zum
+realen Inhalt ist der eigentliche Puffer: `renderQr()` läuft **unbedingt**
+(`cardHtml()`, `BadgeRenderService.php:296`), und die kleinste erlaubte QR-Box
+sind 10 × 10 mm (`MIN_BOX_W_MM`/`MIN_BOX_H_MM`,
+`BadgeTemplateController.php:84,86`). Gemessen: eine Seite mit **nur** dem QR
+liest σ = **0,041** (Primärweg) bzw. **0,051** (`gs -sDEVICE=png16m`) — das ist
+der strukturelle Boden, 41- bis 51-fach über der Schwelle.
+
+**Farbraum-Stabilität, gemessen statt behauptet.** Die Graustufen-Konvertierung
+ist hier die **gamma-kodierte** Rec709-Luma ohne Linearisierung (gemessen:
+`#3e5d8e` → 89,94, exakt `0,2126·62 + 0,7152·93 + 0,0722·142`). Für die
+Ein-Pixel-Linie ist das **irrelevant**, weil Schwarz und Weiss unter jeder
+Luminanzgewichtung exakt auf 0 und 1 fallen: gemessen **0,00102907** bei
+`-colorspace Gray`, `-grayscale Rec709Luminance`, `-depth 8` und
+`-type TrueColor`. Bei *farbiger* Tinte unterscheiden sich die Operatoren
+allerdings um bis zu 16 % (`#1b2a3c`: 0,0294 gegen 0,0341) — das ist erst dann
+entscheidend, wenn eine Seite ohnehin innerhalb von 16 % der Schwelle liegt.
+
+**Die Leerseite ist nicht „fast 0", sie ist exakt 0.** 24 Messungen, vier
+Füllfarben (`#ffffff`, `#000000`, `#1b2a3c`, `#f2e9d8`) über sechs Dichten
+(72…400 dpi), **und** dieselben Fixtures auf einer zweiten Toolchain: Linux,
+bash 5.2.37, ImageMagick **7.1.2-15**, Ghostscript 10.05.1 gegen macOS,
+ImageMagick 7.1.2-31, Ghostscript 10.08.0 — **32 von 32 Messwerten bit-gleich**
+(inklusive der ungleichen Werte 0,0513544 / 0,0664243 / 0,00992347). Die
+Grenze dieser Aussage: beide Läufe waren aarch64, die Gleichheit über
+Prozessorarchitekturen ist damit **nicht** gemessen.
+
+**Graustufen, nicht Farbe.** Ein gleichförmig schwarzer und ein gleichförmig
+weisser Hintergrund fallen in Graustufen auf **denselben** exakten Nullwert —
+darum genügt **eine** Schwelle für beide. Farb-σ reagiert dagegen auf den
+*Farbton* einer Fläche statt darauf, ob gezeichnet wurde (eine vollflächig
+zweifarbige Leerseite: 0,108 grau gegen 0,397 farbig, Faktor 3,7, obwohl auf
+beiden nichts steht).
+
+**Zwei Grenzen, die bleiben — beide gemessen, keine davon ausgelassen.**
+
+* **σ ist eine Stufenfunktion der Pixelzahl, keine kontinuierliche Tintenmenge.**
+  Unterhalb einer gut sichtbaren Textgrösse entscheidet das Pixelraster, nicht
+  die Schriftgrösse. Ein einzelnes 0,5-pt-Zeichen liest 0 bei 72 und 100 dpi,
+  0,00137 bei 150, 0,00103 bei 200, **0,00069 bei 300** (→ LEER) und 0,00089 bei
+  400 (→ LEER). Dasselbe Zeichen bei 1 pt liest dagegen 0,00126…0,00285 und
+  besteht überall, ein ganzes 1-pt-Wort (`Presse`, Helvetica) 0,0027…0,0041.
+  **Die Zone, in der das Urteil mit der Dichte kippt, liegt also bei einem
+  einzelnen Halbpunkt-Glyphen, nicht bei einem 1-pt-Wort** — und sie ist für
+  unsere Ausweise gegenstandslos, weil `renderQr()` unbedingt läuft. Wer die
+  Stufe strenger braucht, muss die QR-Mindestgrösse erzwingen (Layout-Regel,
+  `MIN_BOX_*`), nicht die Schwelle tiefer legen: σ = 0,0005 entspräche **einem
+  Viertel** eines Pixels, und ein Vertrag auf Bruchteile von Pixeln ist keiner.
+* **σ misst Tinte, nicht Lesbarkeit.** Der Kontrast ist eine **zweite**
+  Postcondition und wird hier bewusst nicht erfunden — sie braucht eine
+  Farbregel, und die hat der Eckpixel nicht her. Ein Kontrast-Urteil im
+  Auftragsgang dieser Pipeline wäre eine eigene Entscheidung; die
+  Vision-Analyse beurteilt die gerenderte Seite ohnehin.
+
+**Und eine dritte, die erst diese Messung gefunden hat: der Beschnitt ist kein
+Freiraum für Dekoration.** σ misst Tinte **irgendwo** in der mittleren Zone,
+nicht den Ausweis. Eine Seite, auf der **nur** ein 1 pt dicker Dekorrahmen
+steht — 1 pt vom Blattrand eingerückt, **kein Text, kein QR** — misst σ =
+0,049 (Rahmen ab 1 pt) bis 0,111 (ab 3 pt) und gilt damit als „Inhalt“
+(Exit 0). Der Rahmen maskiert genau den Fall, den die Postcondition fangen soll,
+wenn der Karteninhalt fehlschlägt und die Vorlage ein Rahmenmotiv mitbringt.
+Umgekehrt gilt: **ein gültiger Ausweis kann seinen Inhalt nicht im verworfenen
+Band verstecken** — das Band ist 0,51 mm × 0,76 mm tief, und das kleinste legal
+platzierbare Element ist ein 3 mm hohes Textfeld (`MIN_TEXT_H_MM`,
+`BadgeTemplateController.php:82`) bzw. die 10-mm-QR-Box.
+
+Der Contract für eine Vision-Analyse bleibt davon unberührt: die Befundtabelle
+gibt zu jeder Seite Kanal, Pixelwert, Eckalpha **und** den σ-Wert aus, und die
+Vision-Analyse beurteilt die gerenderte Seite ohnehin.
 
 **Gemessene Zahlen, Stand VOR der Hintergrund-Entscheidung** (A6,
 2-Karten-Badge-PDF aus `BadgeRenderService::renderPdf`, 13 970 Byte, 2 Seiten;
