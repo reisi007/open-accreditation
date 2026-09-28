@@ -30,9 +30,27 @@
 # gemalt, einstufig. Sie wird als Fallback A benutzt, wenn `magick` fehlt.
 #
 # Das Skript prüft seine Werkzeuge, benennt den genommenen Pfad, verifiziert das
-# Ergebnis (kein Alpha, Eckpixel weiss, Seitenzahl stimmt) und **beendet sich
-# ungleich 0**, wenn etwas fehlt. Es gibt bewusst kein `|| true`: ein Skript,
-# das ohne `magick` grün durchläuft, ist schlimmer als keines.
+# Ergebnis (kein Alpha-Kanal, Hintergrund **deckend**, Seitenzahl stimmt) und
+# **beendet sich ungleich 0**, wenn etwas fehlt. Es gibt bewusst kein `|| true`:
+# ein Skript, das ohne `magick` grün durchläuft, ist schlimmer als keines.
+#
+# **Was "deckend" prüft — und was nicht.** Geprüft wird die *Alphakomponente* des
+# Eckpixels (2,2), nicht dessen Farbe. Beabsichtigt ist die Wirkung, die der
+# transparente dompdf-Hintergrund sonst hätte: die Darstellung darf nicht vom
+# Betrachter abhängen. Die Farbe ist bewusst **nicht** Teil der Postcondition,
+# weil ein deckendes Volldruck-Badge ein gültiges Ergebnis ist.
+#
+# Die damit unvermeidbare Grenze: eine **deckende, aber unbrauchbare** Seite
+# besteht diese Prüfung. Eine komplett schwarze oder einfarbig grüne Seite ist
+# opak und wäre "grün". Das ist kein Loch im Auftrag, sondern eine bewusste
+# Abgrenzung — die Weiss-Prüfung konnte einendeckenden schwarzen Hintergrund
+# immerhin melden, und der Unterschied ist ehrlich nicht mehr rekonstruierbar:
+# "der Hintergrund ist eine deckende Farbe" und "der Hintergrund ist Papier"
+# sehen am Eckpixel gleich aus. Wer das braucht, muss es woanders prüfen: die
+# Tabelle gibt zu jeder Seite Kanal, Pixelwert und Eckalpha aus, und die
+# Vision-Analyse beurteilt die gerenderte Seite ohnehin. Eine *farbliche*
+# Mindestanforderung wäre eine andere, strengere Postcondition — und müsste
+# dann auch einen Volldruck-Badge als gültig zulassen.
 #
 # Usage:
 #   bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
@@ -50,7 +68,7 @@
 #   Fehlt alles    Abbruch     — nennt die fehlenden Werkzeuge
 #
 # Exit-Codes:
-#   0  Pipeline durchgelaufen, Ausgabe verifiziert (kein Alpha, Eckpixel weiss)
+#   0  Pipeline durchgelaufen, Ausgabe verifiziert (kein Alpha, Hintergrund opak)
 #   1  kein Rasterpfad verfügbar (meldet WHICH, nicht nur "command not found")
 #   2  Aufruffehler (kein PDF angegeben / Datei fehlt / PDF unlesbar)
 #   3  Rasterung oder Postcondition fehlgeschlagen
@@ -212,46 +230,56 @@ pixel_at() {
     | tail -1 | sed -e 's/^[0-9]*,[0-9]*: //' -e 's/ *$//'
 }
 
-# Ist der von `txt:` gemeldete Pixel weiss? `magick … txt:` schreibt ihn als
+# Ist der gemeldete Pixel **opak**? Nicht: ist er weiss?
 #
-#   0,0: (255)                 #FFFFFF            gray(255)     ← 8 bit, gray
-#   0,0: (255,255,255)         #FFFFFF            white         ← 8 bit, srgb
-#   0,0: (255,255,255,255)     #FFFFFFFF          white         ← 8 bit, srgba
-#   0,0: (65535)               #FFFFFFFFFFFF      gray(255)     ← 16 bit, gray
-#   0,0: (65535,65535,65535)   #FFFFFFFFFFFF      white         ← 16 bit, srgb
+# Das ist die entscheidende Unterscheidung. Die Postcondition will keinen
+# Farbwert, sie will ein **deterministisch** gerastertes Bild: der ursprüngliche
+# Zweck war, dass der vom dompdf-Hintergrund gelassene transparente Bereich
+# (`#FFFFFF00`) die Darstellung nicht dem Betrachter überlässt. "Weiss" war dafür
+# die falsche Eigenschaft — sie verwechselte den *Farbwert* mit der *Deckung* und
+# produzierte beide Fehlerrichtungen gleichzeitig:
 #
-# Die **Komponentenzahl** des Tupels hängt von Farbraum und Bittiefe ab, der
-# Wert nicht: das Hex-Feld ist in allen Formen `#FFFFFF`, gefolgt von
-# Alpha- bzw. 16-Bit-Anteilen. Deshalb wird das Hex-Feld geprüft und nicht das
-# Tupel — die alte Prüfung auf `*255,255,255*` kannte nur den 8-Bit-RGB-Fall
-# und meldete eine Graustufen-Rasterung (Tupel `(255)`) fälschlich als
-# "Hintergrund nicht erzwungen", obwohl der Pixel literal `#FFFFFF` war.
+#   #FFFFFF00   weiss, aber transparent  →  von `*255,255,255*` durchgewinkt
+#   #3E5D8E     deckend, aber nicht weiss →  Fehlalarm auf ein Volldruck-Badge
 #
-# `#FFFFFF00` (weiss mit Alpha 0) ist damit **nicht** weiss: der durchsichtige
-# Hintergrund fällt durch, statt durch ein Muster durchgewinkt zu werden.
-pixel_is_white() {
-  # 0 = weiss, 1 = nicht weiss (fail-closed)
-  local line="$1" hex tuple comp oldifs
-  hex="$(printf '%s\n' "$line" \
-    | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^#[[:xdigit:]]+$/) {print $i; exit}}' \
-    | tr 'a-f' 'A-F')"
-  case "$hex" in
-    '#FFFFFF' | '#FFFFFFFF' | '#FFFFFFFFFFFF' | '#FFFFFFFFFFFFFFFF') return 0 ;;
+# Deshalb fragt die Prüfung ImageMagick selbst nach dem Alphakanal dieses
+# Pixels, statt die `txt:`-Zeile zu deuten:
+#
+#   magick <datei> -crop 1x1+2+2 +repage -alpha extract -format '%[fx:maxima]' info:
+#
+# `-alpha extract` legt den Alphakanal als Graustufenbild frei, `%[fx:maxima]`
+# liefert dessen Maximum als 0.0…1.0. Damit ist die Frage **ohne** Farbwert und
+# **ohne** Bittiefen-Annahme zu beantworten:
+#
+#   Bild ohne Alpha-Kanal (gray, srgb)        -> 1        opak per Definition
+#   deckendes Volldruck-Badge  #3E5D8E       -> 1        opak, erlaubt
+#   weiss mit Alpha 0           #FFFFFF00     -> 0        verletzt
+#   teilweise transparent       (127,128)     -> 0.501961 verletzt
+#
+# Gibt den gemessenen Wert auf stdout aus (für die Befundtabelle) und liefert
+# als Status 0 = opak, 1 = nicht opak, 2 = nicht feststellbar.
+corner_alpha() {
+  local file="$1" wh w h value rc
+  # (2,2) muss überhaupt im Bild liegen. Sonst liefert `-crop` stillschweigend
+  # eine leere Fläche und maxima=1 — ein fail-open auf ein nicht vorhandenes
+  # Pixel (gemessen: 2x2-Bild, Crop 2,2 -> 1, ohne Fehler).
+  wh="$(magick identify -format '%w %h' "$file" 2>/dev/null)" || return 2
+  # `read` statt `set -- $wh`: die Funktion wird in Test-Harnesses per `eval`
+  # aus dieser Datei extrahiert, und `set --` splittet nur unter bash.
+  read -r w h <<< "$wh"
+  [ "${w:-0}" -ge 3 ] 2>/dev/null && [ "${h:-0}" -ge 3 ] 2>/dev/null || return 2
+  value="$(magick "$file" -crop '1x1+2+2' +repage -alpha extract \
+    -format '%[fx:maxima]' info: 2>/dev/null)" || return 2
+  # Die Entscheidung trifft `awk` numerisch, nicht `case` auf Strings: so ist
+  # "0", "0.0" und "0.000001" derselbe Fall und ein unlesbarer Wert ist 2.
+  printf '%s\n' "$value"
+  awk -v a="$value" 'BEGIN { if (a == "") exit 2; if (a + 0 < 1) exit 1; exit 0 }' \
+    || rc=$?
+  case "${rc:-0}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
   esac
-  # Ohne Hex-Feld: **jede** Komponente muss der Maximalwert sein. Ein Muster
-  # wäre hier genau der Fehler, den die Kanalliste oben gerade abgeschafft hat.
-  tuple="$(printf '%s\n' "$line" | sed -n 's/^[^(]*(\([^)]*\)).*$/\1/p' | tr -d ' ')"
-  [ -n "$tuple" ] || return 1
-  oldifs="$IFS"
-  IFS=','
-  for comp in $tuple; do
-    case "$comp" in
-      255 | 65535) ;;
-      *) IFS="$oldifs"; return 1 ;;
-    esac
-  done
-  IFS="$oldifs"
-  return 0
 }
 
 case "$METHOD" in
@@ -330,29 +358,38 @@ fi
 # ---------------------------------------------------------------------------
 # Postcondition + Befund.
 #
-# Die Postcondition ist: **kein Alpha-Kanal** (der Seitenhintergrund ist dann
-# zwangsläufig literal weiss). Ohne diese Prüfung wäre ein fehlgeschlagenes
-# `-alpha remove` ein grüner Lauf mit genau dem Defekt, den die Pipeline
-# beseitigen soll.
+# Die Postcondition ist: **kein Alpha-Kanal** und ein **deckender** Hintergrund.
+# Ohne diese Prüfung wäre ein fehlgeschlagenes `-alpha remove` ein grüner Lauf
+# mit genau dem Defekt, den die Pipeline beseitigen soll.
 #
 # Geprüft wird mit dem, was da ist:
 #   * Alpha      — `magick` (%[channels]) oder, ohne magick, `sips -g hasAlpha`
-#   * Eckpixel   — nur mit `magick`; ohne magick wird das **laut als nicht
-#                  geprüft** ausgewiesen und nicht als bestanden behauptet
+#   * Eckpixel   — nur mit `magick` (dessen **Opazität**, nicht dessen Farbe);
+#                  ohne magick wird das **laut als nicht geprüft** ausgewiesen
+#                  und nicht als bestanden behauptet
 #   * Seiten     — `gs` (echte `pdfpagecount`), soweit gs vorhanden
 # Ist die Alpha-Prüfung nicht durchführbar, endet der Lauf mit 3 — nicht mit 0.
 #
-# **Farbraum, nicht Kanalanzahl:** „kein Alpha-Kanal" und „weisser Eckpixel" sind
-# Eigenschaften, die unabhängig davon gelten, ob die Rasterung `srgb` oder
-# `gray` ist. Ein PDF **mit** Bild-XObject rastern als `srgb` (das setzt den
-# Farbraum), ein PDF **ohne** Bild — eine Textseite — rastern als `gray`. Beide
-# Prüfungen entscheiden deshalb über **Listen** (Kanalkennung bzw. Hex-Wert), nie
-# über ein Muster: das frühere `*a*` traf das `a` in "**g**r**a**y", und die alte
-# Eckpixel-Prüfung `*255,255,255*` kannte nur ein RGB-Tripel — eine Graustufen-
-# Rasterung liefert `(255)`. Gemessen an `gray-text.pdf` (schwarzer Text auf
-# weiss, kein Bild, keine Farbfläche): alter Lauf Exit 3 mit „hat noch einen
-# Alpha-Kanal" **und** „Eckpixel ist nicht weiss", obwohl der Pixel literal
-# `#FFFFFF` war. Nach der Korrektur: Exit 0, ohne die Prüfung abzuschwächen.
+# **Zwei Korrekturen an derselben Prüflogik, beide gemessen:**
+#
+# 1. „kein Alpha-Kanal" war über das Muster `*a*` entschieden. Das traf den
+#    Buchstaben `a` in "**g**r**a**y": eine Textseite **ohne** Bild-XObject
+#    rastern als `gray` (mit Bild rastern sie als `srgb`), wurde also als
+#    „hat Alpha" gemeldet. Jetzt: explizite Listen der Kanalkennungen, und eine
+#    unbekannte Kennung ist **nicht feststellbar** statt „kein Alpha".
+#
+# 2. Der Eckpixel war auf **Weissheit** geprüft (`*255,255,255*`). Das war die
+#    falsche Eigenschaft in beiden Richtungen: es verwechselte Farbwert mit
+#    Deckung, winkte also `#FFFFFF00` (weiss, aber transparent) durch und
+#    feuerte auf jedem deckenden Volldruck-Badge. Jetzt wird die **Alphakomponente**
+#    des Eckpixels gemessen (`corner_alpha`), unabhängig vom Farbwert.
+#
+# Der Preis dieser zweiten Korrektur, offen benannt: sie kann nicht mehr
+# unterscheiden, ob der Hintergrund *weisses Papier* oder *eine deckende Farbe*
+# ist. Beides ist ein gültiges Ergebnis — ein Volldruck-Badge soll nicht als
+# Fehler enden. Was sie dafür nicht mehr erkennt, ist ein **undurchsichtiger,
+# unbrauchbarer** Hintergrund (etwa eine deckend schwarze Seite); siehe die
+# Einschränkung im Kopfkommentar.
 # ---------------------------------------------------------------------------
 FAILED=0
 PIXELCHECK=0
@@ -404,8 +441,9 @@ has_alpha() {
   return 2
 }
 
-printf '\n%-36s %-12s %-10s %s\n' "DATEI" "GRÖSSE" "KANÄLE/ALPHA" "PIXEL (2,2)"
-printf '%-36s %-12s %-10s %s\n' "------------------------------------" "------------" "----------" "----------"
+printf '\n%-36s %-12s %-10s %-34s %s\n' "DATEI" "GRÖSSE" "KANÄLE/ALPHA" "PIXEL (2,2)" "ECKALPHA"
+printf '%-36s %-12s %-10s %-34s %s\n' \
+  "------------------------------------" "------------" "----------" "----------------------------------" "--------"
 
 N=0
 for out in $STEP2_FILES; do
@@ -434,18 +472,32 @@ for out in $STEP2_FILES; do
     out_dim="?"; out_ch="?"; out_px="(nicht geprüft: kein magick)"
   fi
 
+  # Die Eckpixel-Opazität wird **einmal** gemessen und für Tabelle *und* Urteil
+  # benutzt, damit beide nie auseinanderlaufen können. `|| …` fängt den Status,
+  # ohne dass `set -e` den Lauf abbricht.
+  out_a="(nicht geprüft: kein magick)"
+  corner_rc=0
+  if [ "$PIXELCHECK" -eq 1 ]; then
+    out_a=""
+    corner_rc=0
+    out_a="$(corner_alpha "$out")" || corner_rc=$?
+  fi
+
   if [ -n "$src" ] && [ "$PIXELCHECK" -eq 1 ]; then
     src_dim="$(magick identify -format '%wx%h' "$src")"
     src_ch="$(magick identify -format '%[channels]' "$src")"
     src_px="$(pixel_at "$src" 2 2)"
-    printf '%-36s %-12s %-10s %s\n' "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px"
-    printf '  %-34s %-12s %-10s %s\n' "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px"
+    # Stufe 1 ist bei einem dompdf-PDF bewusst transparent (`#FFFFFF00`); der
+    # Wert steht in der Tabelle, damit der Unterschied zu Stufe 2 ablesbar ist.
+    src_a="$(corner_alpha "$src")" || src_a="(nicht lesbar)"
+    printf '%-36s %-12s %-10s %-34s %s\n' "  $(basename "$src")" "$src_dim" "$src_ch" "$src_px" "$src_a"
+    printf '  %-34s %-12s %-10s %-34s %s\n' "-> $(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_a"
     if [ "$src_dim" != "$out_dim" ]; then
       printf '  FEHLER: die Auflösung hat sich geändert (%s -> %s).\n' "$src_dim" "$out_dim" >&2
       FAILED=1
     fi
   else
-    printf '%-36s %-12s %-10s %s\n' "$(basename "$out")" "$out_dim" "$out_ch" "$out_px"
+    printf '%-36s %-12s %-10s %-34s %s\n' "$(basename "$out")" "$out_dim" "$out_ch" "$out_px" "$out_a"
   fi
 
   # `has_alpha` liefert 0/1/2; `&& … || …` fängt den Status, ohne dass `set -e`
@@ -460,16 +512,24 @@ for out in $STEP2_FILES; do
        FAILED=1 ;;
   esac
 
-  if [ "$PIXELCHECK" -eq 1 ]; then
-    if pixel_is_white "$out_px"; then :; else
-      printf '  FEHLER: Eckpixel in %s ist nicht weiss (%s) — der Hintergrund ist nicht erzwungen.\n' "$(basename "$out")" "$out_px" >&2
-      FAILED=1
-    fi
-  fi
+  # Postcondition: der Hintergrund muss **deckend** sein. Sein Farbwert ist
+  # unerheblich — ein deckendes Volldruck-Badge ist ein gültiges Ergebnis.
+  case "$corner_rc" in
+    0) : ;;
+    1) printf '  FEHLER: der Hintergrund in %s ist NICHT opak — der Eckpixel (2,2) hat Alpha %s (%s).\n' \
+         "$(basename "$out")" "$out_a" "$out_px" >&2
+       printf '         Der Seitenbereich ist teilweise oder ganz transparent; wie er später\n' >&2
+       printf '         aussieht, entscheidet dann der Betrachter, nicht dieser Lauf.\n' >&2
+       FAILED=1 ;;
+    2) if [ "$PIXELCHECK" -eq 1 ]; then
+         printf '  FEHLER: die Opazität des Hintergrunds in %s war nicht feststellbar (Bild kleiner als 3x3, oder magick konnte den Eckpixel nicht lesen).\n' "$(basename "$out")" >&2
+         FAILED=1
+       fi ;;
+  esac
 done
 
 if [ "$PIXELCHECK" -ne 1 ]; then
-  printf '\nHINWEIS: der weisse Eckpixel wurde **nicht** geprüft (kein magick im PATH).\n' >&2
+  printf '\nHINWEIS: die Opazität des Hintergrunds wurde **nicht** geprüft (kein magick im PATH).\n' >&2
   printf 'Geprüft wurde nur das Fehlen des Alpha-Kanals. Für die volle Prüfung:\n' >&2
   printf '  brew install imagemagick\n' >&2
 fi
@@ -489,9 +549,9 @@ else
 fi
 
 if [ "$PIXELCHECK" -eq 1 ]; then
-  printf '\nOK: %s Seite(n), kein Alpha-Kanal, Eckpixel weiss.\n' "$PAGES"
+  printf '\nOK: %s Seite(n), kein Alpha-Kanal, Hintergrund opak (Eckpixel-Alpha 1).\n' "$PAGES"
 else
-  printf '\nOK: %s Seite(n), kein Alpha-Kanal. Der Eckpixel wurde nicht geprüft (kein magick).\n' "$PAGES"
+  printf '\nOK: %s Seite(n), kein Alpha-Kanal. Die Opazität wurde nicht geprüft (kein magick).\n' "$PAGES"
 fi
 printf 'PNG(s) für die Vision-Analyse:\n'
 for f in $STEP2_FILES; do
