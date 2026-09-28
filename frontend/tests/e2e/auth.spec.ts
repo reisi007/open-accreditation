@@ -1,8 +1,30 @@
 import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
+import { reclaimOwnedRows, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 test.describe('Auth flow (P1b)', () => {
+
     // Pure-API spec: run once (Desktop Chrome) instead of in both browser
     // projects — avoids redundant execution and keeps register/login calls
     // within the backend's `throttle:5,1` window even across CI retries.
@@ -24,6 +46,11 @@ test.describe('Auth flow (P1b)', () => {
                 data: { name: 'E2E Auth User', email, password, password_confirmation: password },
             });
             expect(register.status()).toBe(201);
+            // No user DELETE route exists (MEASURED: the admin surface answers
+            // 405), so this is registered as the measured gap — counted and named
+            // by the teardown rather than silently accumulating. See
+            // `E2E_OWNED_TEARDOWN`'s `users` entry.
+            rememberUnreclaimableUser(email);
 
             const mailpit = new MailpitHelper();
             const activationPath = await mailpit.extractActivationPath(email);

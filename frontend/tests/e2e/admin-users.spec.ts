@@ -1,8 +1,30 @@
 import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
+import { reclaimOwnedRows, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 test.describe('Admin: Benutzer (P2c)', () => {
+
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
     // login/register calls and redundant DOM interaction on the mobile project.
     test.beforeEach(async ({}, testInfo) => {
@@ -23,6 +45,11 @@ test.describe('Admin: Benutzer (P2c)', () => {
                 data: { name: 'E2E Benutzerverwaltung', email, password, password_confirmation: password },
             });
             expect(register.status()).toBe(201);
+            // The one kind with no delete route, registered so the teardown
+            // COUNTS and NAMES it instead of the row being invisible. The role
+            // assignments this test then makes hang off the same user, so there
+            // is nothing else to register.
+            rememberUnreclaimableUser(email);
 
             const mailpit = new MailpitHelper();
             const activationPath = await mailpit.extractActivationPath(email);

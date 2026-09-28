@@ -1,6 +1,27 @@
 import { expect, test } from '@playwright/test';
 import { acquirePrimaryMandantLogoLock, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
 import { pngFixture } from '../screenshots/helpers/png-fixtures';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 // 1×1 transparent PNG, taken from the shared, CRC-VERIFIED fixture registry
 // (`tests/screenshots/helpers/png-fixtures.ts`). It used to be a literal in this
@@ -10,6 +31,7 @@ import { pngFixture } from '../screenshots/helpers/png-fixtures';
 const PNG_1PX_BASE64 = pngFixture('tiny-logo-image').toString('base64');
 
 test.describe('Admin: Mandanten (P2a)', () => {
+
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
     // login calls and redundant DOM interaction on the mobile project.
     test.beforeEach(async ({}, testInfo) => {
@@ -145,10 +167,14 @@ test.describe('Admin: Mandanten (P2a)', () => {
             });
             expect(create.status()).toBe(201);
             const mandant = (await create.json()).data;
+            // Registered before the domain POST — see the note in
+            // `admin-mandant-switch.spec.ts` for why the order is the guarantee.
+            rememberOwnedRow('mandants', mandant.id);
             const domain = await api.post(`/api/admin/mandants/${mandant.id}/domains`, {
                 data: { hostname: domainHostname },
             });
             expect(domain.status()).toBe(201);
+            rememberOwnedRow('mandantDomains', (await domain.json()).data.id, mandant.id);
         } finally {
             await api.dispose();
         }

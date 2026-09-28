@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 /**
  * Domain switcher for the super_admin (features/01-multi-tenancy.md, D21).
@@ -48,17 +69,27 @@ async function createSwitcherFixtures() {
             throw new Error(`Creating the inactive switcher mandant failed with status ${inactive.status()}`);
         }
         const inactiveId = (await inactive.json()).data.id;
+        // Registered BEFORE the domain POST, so a failure there still leaves this
+        // mandant owned and reclaimable — the half-failure case, in the place
+        // where it can actually happen.
+        rememberOwnedRow('mandants', inactiveId);
+
         const domain = await api.post(`/api/admin/mandants/${inactiveId}/domains`, {
             data: { hostname: `${inactiveSlug}.test` },
         });
         if (domain.status() !== 201) {
             throw new Error(`Adding the domain failed with status ${domain.status()}`);
         }
+        // `mandant_domains` is one of the six kinds the serial name sweep cannot
+        // see on its own — it has no name column, and its mandant is only matched
+        // after the fact. Registering it here is what makes it per-test.
+        rememberOwnedRow('mandantDomains', (await domain.json()).data.id, inactiveId);
 
         const domainless = await api.post('/api/admin/mandants', { data: { name: domainlessName, slug: domainlessSlug } });
         if (domainless.status() !== 201) {
             throw new Error(`Creating the domainless switcher mandant failed with status ${domainless.status()}`);
         }
+        rememberOwnedRow('mandants', (await domainless.json()).data.id);
 
         fixture = { inactiveName, inactiveHost: `${inactiveSlug}.test`, domainlessName };
 
@@ -80,6 +111,7 @@ async function createSwitcherFixtures() {
 }
 
 test.describe('Admin: Domainwechsel-Dropdown (D21)', () => {
+
     // UI-heavy spec: run once (Desktop Chrome) — the shared per-IP login
     // throttle (15/min) budget must stay available for the parallel feature
     // specs, exactly as in admin-mandant.spec.ts / a11y.spec.ts.

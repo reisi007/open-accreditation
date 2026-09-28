@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { ensurePrimaryMandantApprovedApplication, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 /**
  * P4: badge template creation, the PDF export over the production route, and
@@ -40,13 +61,14 @@ import { ensurePrimaryMandantApprovedApplication, loginAdminApi, uniqueSuffix } 
  * end of the NEXT run.
  */
 
-/** Names of the templates THIS run created, cleaned up in the `afterAll` below. */
+/** Names of the templates THIS run created, cleaned up in the `afterEach` below. */
 const ownedTemplateNames = new Set();
 
 /** The row this run created. Unique per run, so the lookup cannot be ambiguous. */
 const TEMPLATE_NAME = `E2E Ausweis ${uniqueSuffix()}`;
 
 test.describe('Badge-Templates, Export & Verify (P4)', () => {
+
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
     // login/register calls. Deliberately NOT @smoke — the shared per-IP login
     // throttle budget stays available for the parallel @feature:accreditation
@@ -61,7 +83,16 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
     // which is exactly what stops the Mobile Chrome worker from reaching into
     // the Desktop Chrome worker's fixture. Idempotent on purpose: the serial
     // teardown may already have reclaimed the row.
-    test.afterAll(async () => {
+    //
+    // `afterEach`, not `afterAll` — the file's own docblock records the measured
+    // reason (`afterAll` fires once per WORKER that touched the file, at an
+    // arbitrary moment, which is what deleted another worker's in-flight
+    // template and turned a green run red). This file has a single test, so the
+    // two are equivalent in reach and only the per-test one is safe by
+    // construction. The template itself is created through the UI, so its id is
+    // not in a create response and the lookup is by exact name — see
+    // `helpers/ownership.ts` for why that is the one place a name lookup survives.
+    test.afterEach(async () => {
         if (ownedTemplateNames.size === 0) {
             return;
         }

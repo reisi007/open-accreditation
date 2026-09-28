@@ -7,6 +7,7 @@ import {
     E2E_PURGE_MARKER_ENTRIES,
     E2E_PURGE_SWEEPS,
 } from './helpers/admin-data';
+import { E2E_OWNED_FK_EDGES, E2E_OWNED_TEARDOWN } from './helpers/ownership';
 import {
     ALL_REVIEW_NAMES,
     ALL_REVIEW_SLUGS,
@@ -720,5 +721,331 @@ test.describe('every writer of the primary mandant logo takes the logo mutex', (
                     'reclaimed after the stale window, so the other suite waits instead of proceeding.',
             ).toBeGreaterThan(acquireIndex);
         }
+    });
+});
+
+/**
+ * ## The order the per-test teardown gives rows back, checked against the schema
+ *
+ * `helpers/ownership.ts` reclaims each test's own rows in the order of
+ * `E2E_OWNED_TEARDOWN`. That order is a correctness requirement, not a style
+ * choice — and F1 is the proof: the serial name sweep's order was never checked
+ * against the constraints it has to satisfy, so 53 venue deletes were refused
+ * with 409 and nobody looked at the status.
+ *
+ * So the order is DATA (`E2E_OWNED_TEARDOWN`) and the CONSTRAINT GRAPH is data
+ * (`E2E_OWNED_FK_EDGES`), and the test below walks both. That is the shape the
+ * serial sweep already uses for its own table, and the reason it can be checked
+ * at all.
+ *
+ * ### The rule, and why only two of the three onDelete modes constrain it
+ *
+ * - `cascade`: deleting the parent takes the child, so the order between them is
+ *   free. Constraining it would be noise.
+ * - `null` (`nullOnDelete`): the child SURVIVES its parent. Order matters — the
+ *   child has to be dealt with on its own terms, or it is orphaned. This is
+ *   `accreditations.event_id`, and it is why **categories come before events**:
+ *   `accreditations.category_id` cascades, so a category delete takes its
+ *   accreditations with it, whereas an event delete only nulls the pointer.
+ * - `restrict`: the parent's delete is REFUSED (409) while the child exists.
+ *   Order matters absolutely. This is `venues`, referenced by teams and events.
+ */
+test.describe('the per-test ownership teardown gives rows back in a constraint-legal order', () => {
+    /** The teardown plan's kinds, in the order they are reclaimed. */
+    const ORDER = E2E_OWNED_TEARDOWN.map((step) => step.kind);
+
+    test('every teardown step is a known kind, and no kind is listed twice', () => {
+        const duplicates = [];
+        const seen = new Set();
+        for (const kind of ORDER) {
+            if (seen.has(kind)) {
+                duplicates.push(kind);
+            }
+            seen.add(kind);
+        }
+        expect(duplicates, 'a kind listed twice is deleted twice — the second delete is a silent 404').toEqual([]);
+    });
+
+    test('every reclaimable step has a route, and only the known gap has none', () => {
+        // `users` is the one kind with NO delete route (MEASURED: the admin
+        // surface answers 405). It is declared `reclaimable: false` on purpose —
+        // the teardown counts and names it instead of pretending to delete it.
+        // When the account DELETE route lands (board position 10), THIS test goes
+        // red and names the one-line change, instead of the gap quietly closing
+        // while the ledger still believed the row was gone.
+        const wrong = [];
+        for (const step of E2E_OWNED_TEARDOWN) {
+            if (step.reclaimable && typeof step.route !== 'string') {
+                wrong.push(`${step.kind} is reclaimable but has no route`);
+            }
+            if (!step.reclaimable && step.kind !== 'users') {
+                wrong.push(`${step.kind} is marked unreclaimable, but users is the only measured gap`);
+            }
+        }
+        expect(wrong, wrong.join('\n')).toEqual([]);
+    });
+
+    test('every step declares the success status ITS route answers', () => {
+        // The destroy routes are NOT uniform, and a hard-coded 204 was caught the
+        // only way it could be: by failing a PASSING `profile.spec.ts` with
+        // "DELETE answered 200 (expected 204/404) — the row stays", a false
+        // accusation about a delete that had in fact worked.
+        //
+        // So the expectation is data next to the route it describes, and the kinds
+        // whose contract differs from the admin destroy convention are pinned here
+        // by name. `userMedia` answers 200 with a `{message}` body
+        // (`UserMediaController::destroy` returns a `JsonResponse`); every other
+        // route answers 204 (`response()->noContent()`), MEASURED row by row.
+        //
+        // A new kind with a different contract therefore has to be added to this
+        // list in the same commit that adds its route, and the failure says
+        // "this table is out of date" — which is the right thing to be told.
+        const nonDefault = [];
+        for (const step of E2E_OWNED_TEARDOWN) {
+            if (step.okStatus !== 204) {
+                nonDefault.push(`${step.kind}=${step.okStatus}`);
+            }
+        }
+        expect(
+            nonDefault,
+            'these kinds do not answer 204 on delete. If that is still true, the contract is pinned here on ' +
+                'purpose — add it, do not widen the tolerance',
+        ).toEqual(['userMedia=200']);
+    });
+
+    test('a restrict or nullOnDelete parent is reclaimed AFTER its child', () => {
+        // The whole point of the table. Walk the real constraint graph and assert
+        // the order the teardown actually uses satisfies it — not a restatement
+        // of the order, which would agree with a broken teardown for the wrong
+        // reason.
+        const violations = [];
+        for (const edge of E2E_OWNED_FK_EDGES) {
+            if (edge.onDelete === 'cascade') {
+                // Free: the parent's delete takes the child with it.
+                continue;
+            }
+            const childAt = ORDER.indexOf(edge.child);
+            const parentAt = ORDER.indexOf(edge.parent);
+            if (childAt < 0 || parentAt < 0) {
+                continue;
+            }
+            const why =
+                edge.onDelete === 'restrict'
+                    ? 'the backend refuses to delete the parent with 409 while the child references it'
+                    : 'the child survives the parent delete (nullOnDelete) and would be orphaned';
+            if (!(childAt < parentAt)) {
+                violations.push(
+                    `${edge.child} (index ${childAt}) must be reclaimed BEFORE ${edge.parent} (index ${parentAt}): ${why}`,
+                );
+            }
+        }
+        expect(
+            violations,
+            'E2E_OWNED_TEARDOWN violates the FK constraints in E2E_OWNED_FK_EDGES. Reorder it:\n' +
+                violations.join('\n'),
+        ).toEqual([]);
+    });
+
+    test('the scan is not vacuous: the order is long and the two decisive edges are in it', () => {
+        // A test that iterates an empty graph proves nothing. Pin both ends: the
+        // order must be substantial, and it must contain the two pairs whose
+        // violation is the measured failure — `events` before `venues` (409) and
+        // `categories` before `events` (nullOnDelete).
+        expect(ORDER.length).toBeGreaterThanOrEqual(12);
+        // A defaulted parameter, because this directory may not ANNOTATE one
+        // (plain-JS parser) and may not leave one un-annotated (strict `tsc`) —
+        // see `helpers/ownership.ts`, where the same rule is measured in a table.
+        const at = (kind = '') => ORDER.indexOf(kind);
+        expect(at('categories'), 'categories must precede events').toBeLessThan(at('events'));
+        expect(at('events'), 'events must precede venues (restrictOnDelete)').toBeLessThan(at('venues'));
+        expect(at('teams'), 'teams must precede venues (restrictOnDelete)').toBeLessThan(at('venues'));
+        // And the constraint table itself must not be a stub: if someone emptied
+        // it, the order test above would pass vacuously.
+        expect(E2E_OWNED_FK_EDGES.length).toBeGreaterThanOrEqual(20);
+    });
+});
+
+/**
+ * ## The rule the portal enforces by hand and we enforce by test
+ *
+ * In `portal.reisinger.pictures` the "each test cleans up its own fixtures"
+ * rule is a CONVENTION: `E2ESessionHelper` has a `teardown()`, ~35 specs call
+ * it in an `afterEach`, and **nothing checks that a fixture-creating spec has
+ * one at all** — nine exceptions, verified by hand. A convention with no gate is
+ * a convention that decays silently, and the decay is invisible: the spec keeps
+ * passing while its rows walk into the next run.
+ *
+ * So this is the gate. The scan is the same technique the marker-coverage guard
+ * above already uses (walk every spec, comment-stripped, and ask one question),
+ * and the question here is the one nothing was asking: **does this spec create
+ * rows, and if so does it give them back?**
+ *
+ * ### What counts as "creates rows"
+ *
+ * A call to a helper in `E2E_FIXTURE_CREATORS` (the table below), or a
+ * registration into the ownership ledger. The creator list is DATA next to the
+ * question rather than a regex over every `create*` name, so a helper that stops
+ * creating rows cannot keep a spec flagged, and a new helper is one table entry
+ * away from being covered.
+ */
+test.describe('every spec that creates fixtures gives them back itself', () => {
+    /**
+     * The spec-facing fixture helpers: calling one of these means the spec has
+     * created rows the database now holds.
+     *
+     * ## Why this list and not "every `create*` in the helpers"
+     *
+     * Three helpers create rows and are deliberately NOT here, each for a reason
+     * worth stating rather than hiding:
+     *
+     * - `ensurePrimaryMandantHasVenues()` — shared bootstrap master data. Every
+     *   spec in the run may be reading it at the same moment, so it is not a
+     *   per-test fixture at all; the serial teardown reclaims it under its stable
+     *   names. It is reached through `ensurePrimaryMandantHasTeam()` and
+     *   `ensurePrimaryMandantActivePortalEvent()`, both of which ARE listed.
+     * - `registerUploadPortraitAndApply()` — no spec calls it; it is the inner
+     *   step of `ensurePrimaryMandantApprovedApplication()`, which is listed and
+     *   therefore already gated.
+     * - `createBlacklistEntryApi()` — **no caller at all**, not even from a
+     *   listed helper: `approvals.spec.ts` creates its blacklist entry through the
+     *   UI instead. That makes it dead code. It is left in place (removing a
+     *   helper is not this file's business) but named here so the next person is
+     *   not left guessing whether it is covered. It is covered regardless — it
+     *   registers its own row.
+     *
+     * A spec that creates a row some OTHER way (a raw `api.post` in its body) is
+     * caught by the second half of the check below, which also looks for a ledger
+     * registration.
+     */
+    const FIXTURE_CREATORS = [
+        'ensurePrimaryMandantHasTeam',
+        'ensurePrimaryMandantAccreditation',
+        'ensurePrimaryMandantSubAccreditation',
+        'ensurePrimaryMandantApprovedApplication',
+        'ensurePrimaryMandantWalletSetup',
+        'ensurePrimaryMandantActivePortalEvent',
+        'registerAndActivateUser',
+        'registerAndApplyForAccreditation',
+    ];
+
+    /** Every `.spec.ts` with its comment-stripped CODE, read once. */
+    const SPECS = fs
+        .readdirSync(path.resolve(process.cwd(), 'tests/e2e'))
+        .filter((file) => file.endsWith('.spec.ts'))
+        .map((file) => ({
+            file: `tests/e2e/${file}`,
+            code: fs
+                .readFileSync(path.resolve(process.cwd(), 'tests/e2e', file), 'utf8')
+                .replace(BLOCK_COMMENT, '')
+                .replace(LINE_COMMENT, ''),
+        }));
+
+    test('THE GUARD: a fixture-creating spec has an afterEach that reclaims', () => {
+        const offenders = [];
+        for (const spec of SPECS) {
+            let creates = false;
+            for (const creator of FIXTURE_CREATORS) {
+                if (spec.code.includes(`${creator}(`)) {
+                    creates = true;
+                }
+            }
+            // A spec that registers into the ledger itself (a raw `api.post`
+            // whose id it pushes) is equally a creator — and the registration is
+            // what makes it findable without guessing at the create shape.
+            if (spec.code.includes('rememberOwnedRow(') || spec.code.includes('rememberOwnedByUser(')) {
+                creates = true;
+            }
+            if (!creates) {
+                continue;
+            }
+            // The teardown must run for EVERY test of the file, and in a PER-TEST
+            // hook. `afterAll` runs once per worker that touched the file, not
+            // once per test — the measured badge-editor bug (6–10 firings per
+            // run) — so it never counts.
+            //
+            // "Every test" has two acceptable shapes, and both are checked here
+            // rather than assumed:
+            //   a) the hook is at FILE scope (indentation-free), which is the
+            //      shape every fixture-creating spec now uses; or
+            //   b) the file has exactly ONE `test.describe`, in which case a
+            //      hook inside it covers the whole file.
+            // (b) exists because `badge.spec.ts` predates the ledger and cleans
+            // its UI-created template by exact name from a describe-scoped
+            // `afterEach`; demanding a rewrite of a correct cleanup would make
+            // this gate a nuisance rather than a guard. What it must never accept
+            // is a hook inside ONE of SEVERAL describes — that is the measured
+            // `admin-mobile-layout.spec.ts` shape, where a second describe's
+            // fixtures had no teardown at all.
+            const hasPerTestHook = /test\.afterEach\(/.test(spec.code) && spec.code.includes('reclaimOwnedRows(');
+            const atFileScope = !/^\s+test\.afterEach\(/m.test(spec.code);
+            const describeCount = (spec.code.match(/^test\.describe\(/gm) ?? []).length;
+            const coversWholeFile = atFileScope || describeCount <= 1;
+            const hasTeardown = hasPerTestHook && coversWholeFile;
+            if (!hasTeardown) {
+                offenders.push(
+                    `  ${spec.file}  creates fixtures but has no per-test teardown covering the whole file ` +
+                        `(${describeCount} describe(s), hook ${atFileScope ? 'nested inside one' : 'at file scope'})`,
+                );
+            }
+        }
+        expect(
+            offenders,
+            'These specs create rows and never give them back. Every row a test creates must be ' +
+                'registered with the ownership ledger and reclaimed in a PER-TEST hook that covers the whole ' +
+                "file — at file scope, or inside the file's only describe:\n" +
+                '    test.beforeEach(async () => { resetOwnedRows(); });\n' +
+                '    test.afterEach(async () => { await reclaimOwnedRows(); });\n' +
+                'Add them to the spec — do not rely on the serial globalTeardown, which only runs when ' +
+                'a run ends cleanly and then reclaims by name prefix, not by id.\n' +
+                offenders.join('\n'),
+        ).toEqual([]);
+    });
+
+    test('the scan is not vacuous: it flags the specs that really do create fixtures', () => {
+        // If the creator list ever stopped matching, or a spec's call were
+        // renamed, the guard above would pass for the wrong reason — the F2 shape
+        // ("a comment asserting a guarantee no code provides"). Pin the count from
+        // the other side: the distinct spec files the scan must recognise as
+        // creators, named explicitly so a rename is a visible edit here.
+        const creatorSpecs = new Set();
+        for (const spec of SPECS) {
+            for (const creator of FIXTURE_CREATORS) {
+                if (spec.code.includes(`${creator}(`)) {
+                    creatorSpecs.add(spec.file);
+                }
+            }
+        }
+        expect(
+            [...creatorSpecs].sort(),
+            'these specs call a fixture creator and must be listed explicitly, so that renaming a ' +
+                'helper or a spec cannot silently empty the guard',
+        ).toEqual([
+            'tests/e2e/a11y.spec.ts',
+            'tests/e2e/accreditation.spec.ts',
+            'tests/e2e/admin-category.spec.ts',
+            'tests/e2e/admin-event.spec.ts',
+            'tests/e2e/admin-users.spec.ts',
+            'tests/e2e/approvals.spec.ts',
+            'tests/e2e/badge.spec.ts',
+            'tests/e2e/portal.spec.ts',
+            'tests/e2e/sub-accreditation.spec.ts',
+            'tests/e2e/wallet.spec.ts',
+        ]);
+
+        // And no table entry that no spec calls — a dead entry is the "looks like
+        // coverage" edit the marker table was guilty of.
+        const unused = [];
+        for (const creator of FIXTURE_CREATORS) {
+            let called = false;
+            for (const spec of SPECS) {
+                if (spec.code.includes(`${creator}(`)) {
+                    called = true;
+                }
+            }
+            if (!called) {
+                unused.push(creator);
+            }
+        }
+        expect(unused, 'FIXTURE_CREATORS entries that no spec calls — dead coverage').toEqual([]);
     });
 });

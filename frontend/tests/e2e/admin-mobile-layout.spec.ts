@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, loginAdminApi } from './helpers/admin-data';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 /**
  * The two findings of the first Vision-Loop (2026-09-28) that are only
@@ -36,6 +57,7 @@ const ADMIN_ROUTES = [
 ];
 
 test.describe('Admin header fits the mobile viewport (P5)', () => {
+
     test.beforeEach(async ({}, testInfo) => {
         test.skip(testInfo.project.name !== 'Desktop Chrome');
     });
@@ -205,6 +227,12 @@ test.describe('Badge template actions are reachable on mobile (P6)', () => {
                 throw new Error(`Creating the badge template failed with status ${created.status()}`);
             }
             createdId = (await created.json()).data.id;
+            // Registered rather than deleted by hand below. The hand-rolled
+            // `finally` issued `await cleanup.delete(...)` and THREW THE ANSWER
+            // AWAY — the measured F1 shape: a template that outlived the test (a
+            // 409, a 500) left no trace and the run reported success. The ledger
+            // checks the status and fails the test when the row is still there.
+            rememberOwnedRow('badgeTemplates', createdId);
         } finally {
             await api.dispose();
         }
@@ -266,14 +294,9 @@ test.describe('Badge template actions are reachable on mobile (P6)', () => {
             await expect(dialog.getByRole('textbox', { name: /^Name/ })).toHaveValue(templateName);
         } finally {
             await context.close();
-            if (createdId !== null) {
-                const cleanup = await loginAdminApi();
-                try {
-                    await cleanup.delete(`/api/admin/badge-templates/${createdId}`);
-                } finally {
-                    await cleanup.dispose();
-                }
-            }
+            // The template is given back by the file-scope `afterEach` (the
+            // ownership ledger), not here: a delete whose status nobody reads is
+            // indistinguishable from a delete that worked.
         }
     });
 

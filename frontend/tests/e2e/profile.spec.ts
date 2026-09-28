@@ -2,6 +2,27 @@ import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { pngFixture } from '../screenshots/helpers/png-fixtures';
+import { reclaimOwnedRows, rememberOwnedByUser, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 // The portrait is the shared, CRC-verified PROBE from
 // `tests/screenshots/helpers/png-fixtures.ts` (100x100, asymmetric colour
@@ -44,6 +65,12 @@ async function createActivatedSession(prefix = 'profile') {
         if (register.status() !== 201) {
             throw new Error(`register failed with ${register.status()}`);
         }
+        // No user DELETE route exists, so the account itself is the measured gap
+        // — registered so the teardown counts and names it. Its MEDIA is a
+        // different story and IS reclaimable: that route is owner-scoped and
+        // this helper holds the credentials, so the upload sites below register
+        // their own rows.
+        rememberUnreclaimableUser(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -64,10 +91,11 @@ async function createActivatedSession(prefix = 'profile') {
         throw error;
     }
 
-    return { api, email }; // email available if needed
+    return { api, email, password }; // credentials let a caller register its media for reclamation
 }
 
 test.describe('Profile flow (P1c)', () => {
+
     // Pure-API spec: run once (Desktop Chrome) instead of in both browser
     // projects — avoids redundant execution and keeps register/login calls
     // within the backend's named throttle windows even across CI retries.
@@ -193,7 +221,7 @@ test.describe('Profile flow (P1c)', () => {
     // Vite proxy, mirroring the pure-API pattern used above.
 
     test('uploads a portrait, lists it, and delivers it inline', { tag: ['@feature:profile'] }, async () => {
-        const { api } = await createActivatedSession('profile-media');
+        const { api, email, password } = await createActivatedSession('profile-media');
         try {
             const upload = await api.post('/api/user/media', {
                 multipart: {
@@ -210,6 +238,13 @@ test.describe('Profile flow (P1c)', () => {
             expect(uploadBody.data.type).toBe('portrait');
             expect(uploadBody.data.mime).toBe('image/png');
             expect(uploadBody.data.id).toBeGreaterThan(0);
+            // Registered with the OWNER's credentials, because the media delete
+            // route answers only for the owning account (`UserMediaController::
+            // destroy` compares `auth('api')->id()` with the row's `user_id`) —
+            // an admin session gets a 403, not a 404, so the wrong session here
+            // would look like a missing route. This is the ONE row kind in this
+            // spec that a test can genuinely give back.
+            rememberOwnedByUser('userMedia', uploadBody.data.id, email, password);
             // The resource exposes the authenticated delivery URL, never the
             // private storage path.
             expect(uploadBody.data.url).toContain(`/api/user/media/${uploadBody.data.id}`);
@@ -248,6 +283,9 @@ test.describe('Profile flow (P1c)', () => {
             });
             expect(upload.status()).toBe(201);
             const mediaId = (await upload.json()).data.id;
+            // Deliberately NOT registered: this test deletes the row itself
+            // (the "Owner can delete" step below is what it is testing), so a
+            // ledger entry would only buy a second owner login to reach a 404.
 
             // Foreign authenticated user must not deliver or delete the file.
             const foreign = await createActivatedSession('profile-foreign');

@@ -30,6 +30,24 @@ import { PurgeReclamationFailure, purgeAllE2EArtifacts } from './helpers/admin-d
  * refusing to fail a run for a down backend — is preserved exactly, and no louder.
  */
 async function globalTeardown() {
+    // The measurement escape hatch, and it is LOUD on purpose.
+    //
+    // `scripts/e2e-per-spec-leaks.mjs` has to measure what a SPEC leaves, not what
+    // a RUN leaves. This sweep reclaims every `E2E %` row by name prefix at the end
+    // of the run, so with it on both arms of that measurement read zero and the
+    // difference between "the spec cleaned up" and "the sweep cleaned up
+    // afterwards" is invisible — which is the whole attribution the exercise is
+    // for. `E2E_PURGE=off` switches the serial net OFF so the delta is the spec's
+    // own, and says so in the log rather than passing for a clean run.
+    //
+    // Never set in CI. The default is ON, and a sweep that could be switched off
+    // without a trace would be the very invisibility this file's own F1 notes
+    // are about.
+    if (process.env.E2E_PURGE === 'off') {
+        console.warn('[e2e-hygiene] E2E_PURGE=off — MEASUREMENT ARM, the serial purge did NOT run');
+        return;
+    }
+
     try {
         await purgeAllE2EArtifacts();
         console.log('[e2e-hygiene] purged all E2E artifacts');

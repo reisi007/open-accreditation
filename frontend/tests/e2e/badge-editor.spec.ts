@@ -1,6 +1,27 @@
 import { expect, test } from '@playwright/test';
 import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
 import { TINY_BADGE_IMAGE_PNG } from '../screenshots/helpers/png-fixtures';
+import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+// Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
+// the first create and drained AFTER every test, so a spec that dies half-way
+// still gives back what it managed to build — three fixtures created, the fourth
+// throws, the three go back. The serial globalTeardown stays as the net for a run
+// that was KILLED before this hook could run: a different failure, needing a
+// different net.
+//
+// At FILE scope, not inside a describe, on purpose: admin-mobile-layout.spec.ts
+// has two describes, and a describe-scoped hook would have covered only the
+// first — the exact "the teardown exists somewhere in this file" illusion the
+// gate in namespace-isolation.spec.ts is meant to end. The teardown exits before
+// its admin login when the ledger is empty, so a test that creates nothing pays
+// nothing.
+test.beforeEach(async () => {
+    resetOwnedRows();
+});
+test.afterEach(async () => {
+    await reclaimOwnedRows();
+});
+
 
 /**
  * Badge template editor basis UI (FE2, features/badge-template-editor.md):
@@ -39,6 +60,7 @@ const TINY_PNG_BASE64 = TINY_BADGE_IMAGE_PNG;
 const ownedTemplateNames = new Set();
 
 test.describe('Badge-Template-Editor (FE2)', () => {
+
     // UI-heavy spec: run once (Desktop Chrome) to spare the shared per-IP
     // login throttle budget (same reasoning as badge.spec.ts).
     test.beforeEach(async ({}, testInfo) => {

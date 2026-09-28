@@ -3,38 +3,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MailpitHelper } from './mailpit';
+import { rememberOwnedByUser, rememberOwnedRow, rememberUnreclaimableUser } from './ownership';
+import { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
+import { PurgeReclamationFailure } from './purge-failure';
 import { pngFixture } from '../../screenshots/helpers/png-fixtures';
 
 /**
- * Single source of truth for the origin the E2E **API helpers** drive.
- *
- * The browser navigates via `use.baseURL` in `playwright.config.ts`, which reads
- * the same `E2E_BASE_URL` with the same default. These two MUST agree: a helper
- * that hardcoded `http://localhost:5173` while the browser ran against
- * `E2E_BASE_URL=http://localhost:4173` would drive the browser against one stack
- * and set up its fixtures against ANOTHER — the symptom is a suite that fails
- * with "element not found" for reasons no assertion can explain.
- *
- * `playwright.config.ts` deliberately does NOT import this module (a Playwright
- * config must not pull in test helpers), so the expression is mirrored there.
- * Change one side, change the other.
+ * Re-exported so the specs' existing imports keep working unchanged. The
+ * definitions live in `api-session.ts` / `purge-failure.ts` to keep the module
+ * graph acyclic — see that file's docblock. Moving a symbol and re-exporting it
+ * is invisible to every caller, which is why this is the shape rather than a
+ * flag-day rename of twenty import lines.
  */
-export const FRONTEND_BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
-
-/**
- * Logs the bootstrap admin in via the API and returns a request context that
- * carries the session cookie for subsequent admin API calls.
- *
- * @returns {Promise<import('@playwright/test').APIRequestContext>}
- */
-export async function loginAdminApi() {
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
-    const login = await api.post('/api/auth/login', { data: { email: 'admin@example.com', password: 'admin' } });
-    if (login.status() !== 200) {
-        throw new Error(`Admin API login failed with status ${login.status()}`);
-    }
-    return api;
-}
+export { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
+export { PurgeReclamationFailure } from './purge-failure';
 
 /**
  * Home venue of the shared `E2E Heimverein *` teams, and the venue the portal
@@ -107,7 +89,25 @@ const PORTAL_VENUE_NAME = 'E2E Portal Arena';
  * Rule 1 + 2 is what that same file pins, together with the separation the
  * ui-review harness needs against this suite.
  */
-export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E Badge Mobile'];
+export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E Badge Mobile', 'E2E Ledger'];
+
+/**
+ * The one entity kind the serial name sweep CANNOT reach, and why that is stated
+ * here rather than left to be discovered.
+ *
+ * `blacklists` has no name column — it is `email` / `domain` / `note` — so there
+ * is no marker to match and no sweep entry that would not also match a
+ * hand-made row. The ownership ledger covers the per-test case (the spec holds
+ * the id), but a run KILLED before its `afterEach` leaves the row behind and
+ * nothing reclaims it.
+ *
+ * That is a measured, accepted gap rather than an oversight: exactly ONE helper
+ * creates a blacklist row (`createBlacklistEntryApi`, which the coverage guard
+ * reports as DEAD — no spec calls it), so the exposure is one row per crash, not
+ * one per run. The moment a spec starts creating blacklists through the UI, this
+ * paragraph is the thing to revisit — a `note` prefix would be the available
+ * lever, at the cost of a human-readable field carrying test markers.
+ */
 
 /**
  * EVERY name marker the serial teardown reclaims, in one object.
@@ -158,12 +158,21 @@ export const E2E_PURGE_MARKERS = {
      * `E2E Kategorie ${suffix}` (mandant-level) and `E2E Team Kategorie
      * ${suffix}` — which despite the name is a CATEGORY name, typed into the
      * category form for the team-level override, not a team.
+     *
+     * `E2E Halbfehlschlag ` and `E2E Ledger ` belong to the ownership harness's
+     * own rows: the deliberately-failing probe
+     * (`ownership-probe/half-failure.fixture.ts`) and the ledger walk in
+     * `ownership.spec.ts`. Those are reclaimed per test BY ID; the markers are
+     * here so a run KILLED before its `afterEach` still gets them back at the
+     * next run's teardown — precisely the failure the per-test net cannot cover.
      */
     categoryNames: [
         'E2E Akkreditierung ',
         'E2E Sub Akkreditierung ',
         'E2E Kategorie ',
         'E2E Team Kategorie ',
+        'E2E Halbfehlschlag ',
+        'E2E Ledger ',
     ],
     /**
      * `events.title` and `events.competition`.
@@ -171,13 +180,14 @@ export const E2E_PURGE_MARKERS = {
      * `E2E Event ` is `admin-event.spec.ts`'s own event; the portal and
      * accreditation fixtures are the others. The competition column is matched
      * separately, because a row can carry an E2E competition with a title that
-     * says nothing E2E-ish.
+     * says nothing E2E-ish. `E2E Ledger ` is the ownership harness's own.
      */
     eventTitles: [
         'Portal-Test ',
         'E2E Akkreditierung Event ',
         'E2E Sub Akkreditierung Event ',
         'E2E Event ',
+        'E2E Ledger ',
     ],
     eventCompetitions: ['E2E Wettbewerb '],
     /**
@@ -425,6 +435,22 @@ function isoDateInDays(days = 0) {
  * flow have deterministic content. The deadline window is open (past start,
  * future end), quota 5.
  *
+ * ## Why this registers its own three rows
+ *
+ * The three ids used to be thrown away: the return value carried
+ * `categoryName` and `eventTitle` — the STRINGS — and not the rows. That is
+ * unaddressable by construction (a name with `uniqueSuffix()` in it cannot be
+ * looked up later without knowing the suffix), so every call leaked three rows
+ * into the serial sweep's name-based net, and a run that died before that sweep
+ * leaked them into the next run. Measured: 12 categories + 12 events per full
+ * run, none of them attributable to a spec.
+ *
+ * Each id is now pushed into the ownership ledger IMMEDIATELY after its create
+ * response and before the next create — so a failure in the second create
+ * still leaves the first row owned and reclaimable. The names stay in the
+ * return value: existing callers destructure them and the marker table's
+ * name-sweep still needs them.
+ *
  * @returns {Promise<{ accreditation: object; categoryName: string; eventTitle: string }>}
  */
 export async function ensurePrimaryMandantAccreditation() {
@@ -456,6 +482,9 @@ export async function ensurePrimaryMandantAccreditation() {
             throw new Error(`Creating the setup category failed with status ${category.status()}`);
         }
         const categoryData = (await category.json()).data;
+        // Push BEFORE the next create. If the event POST below throws, this row
+        // is already owned and the test's `afterEach` gives it back.
+        rememberOwnedRow('categories', categoryData.id);
 
         const eventTitle = `E2E Akkreditierung Event ${suffix}`;
         const event = await api.post('/api/admin/events', {
@@ -465,6 +494,7 @@ export async function ensurePrimaryMandantAccreditation() {
             throw new Error(`Creating the setup event failed with status ${event.status()}`);
         }
         const eventData = (await event.json()).data;
+        rememberOwnedRow('events', eventData.id);
 
         const accreditation = await api.post('/api/admin/accreditations', {
             data: {
@@ -482,6 +512,7 @@ export async function ensurePrimaryMandantAccreditation() {
             throw new Error(`Creating the setup accreditation failed with status ${accreditation.status()}`);
         }
         const accreditationData = (await accreditation.json()).data;
+        rememberOwnedRow('accreditations', accreditationData.id);
 
         return { accreditation: accreditationData, categoryName, eventTitle };
     } finally {
@@ -494,6 +525,12 @@ export async function ensurePrimaryMandantAccreditation() {
  * an active park sub-accreditation (Parkkarte, quota 1, open deadline window)
  * so the "Meine Akkreditierungen" sub-accreditation flow has deterministic
  * content. Returns the main accreditation and the sub-accreditation.
+ *
+ * Four rows, four registrations, each pushed immediately after its create —
+ * the same rule and the same reason as `ensurePrimaryMandantAccreditation`
+ * above. The sub-accreditation rides its parent's cascade as well, but it is
+ * registered so a partial failure (accreditation created, sub POST throws) is
+ * still attributable.
  *
  * @returns {Promise<{ accreditation: object; subAccreditation: object; categoryName: string; eventTitle: string }>}
  */
@@ -525,6 +562,7 @@ export async function ensurePrimaryMandantSubAccreditation() {
             throw new Error(`Creating the setup category failed with status ${category.status()}`);
         }
         const categoryData = (await category.json()).data;
+        rememberOwnedRow('categories', categoryData.id);
 
         const eventTitle = `E2E Sub Akkreditierung Event ${suffix}`;
         const event = await api.post('/api/admin/events', {
@@ -534,6 +572,7 @@ export async function ensurePrimaryMandantSubAccreditation() {
             throw new Error(`Creating the setup event failed with status ${event.status()}`);
         }
         const eventData = (await event.json()).data;
+        rememberOwnedRow('events', eventData.id);
 
         const accreditation = await api.post('/api/admin/accreditations', {
             data: {
@@ -551,6 +590,7 @@ export async function ensurePrimaryMandantSubAccreditation() {
             throw new Error(`Creating the setup accreditation failed with status ${accreditation.status()}`);
         }
         const accreditationData = (await accreditation.json()).data;
+        rememberOwnedRow('accreditations', accreditationData.id);
 
         const subAccreditation = await api.post(
             `/api/admin/accreditations/${accreditationData.id}/sub-accreditations`,
@@ -569,6 +609,7 @@ export async function ensurePrimaryMandantSubAccreditation() {
             throw new Error(`Creating the setup sub-accreditation failed with status ${subAccreditation.status()}`);
         }
         const subAccreditationData = (await subAccreditation.json()).data;
+        rememberOwnedRow('subAccreditations', subAccreditationData.id);
 
         return {
             accreditation: accreditationData,
@@ -585,6 +626,15 @@ export async function ensurePrimaryMandantSubAccreditation() {
  * Registers a throwaway user via the API and activates it through the Mailpit
  * activation link. Returns the credentials for the subsequent UI logins.
  *
+ * ## The user itself cannot be given back — and that is registered, not ignored
+ *
+ * There is no `DELETE` route for a user (MEASURED: the admin surface answers
+ * 405; the only user-scoped DELETE is `/api/user/media/{id}`). So this helper
+ * registers the row under the `users` kind, which the teardown reports as an
+ * unreclaimable gap rather than pretending to delete it. The MEDIA a later
+ * helper uploads for this user IS reclaimable, because that route is
+ * owner-scoped and this helper is the one that knows the credentials.
+ *
  * @returns {Promise<{ email: string; password: string }>}
  */
 export async function registerAndActivateUser() {
@@ -599,6 +649,11 @@ export async function registerAndActivateUser() {
         if (register.status() !== 201) {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
+        // No id to register: `POST /api/auth/register` answers a bare
+        // `{message}` (MEASURED, `AuthController::register`), and there is no
+        // user DELETE route to address it with anyway. The email is the only
+        // handle that exists, and it is what the gap report names.
+        rememberUnreclaimableUser(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -642,6 +697,7 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
         if (register.status() !== 201) {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
+        rememberUnreclaimableUser(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -658,6 +714,18 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
         const apply = await api.post(`/api/accreditations/${accreditationId}/apply`);
         if (apply.status() !== 200 && apply.status() !== 201) {
             throw new Error(`Apply failed with status ${apply.status()}`);
+        }
+        // The application is owner-scoped: it can only be withdrawn by its own
+        // applicant, and only while it is still `requested` (an approved one
+        // answers 422 — MEASURED). An approved one therefore rides the CASCADE
+        // from the accreditation; this registration covers the `requested` case
+        // and makes the row attributable either way. `id` comes from the
+        // applicant's own list, because `apply` answers `{message}` only.
+        const ownApplications = (await (await api.get('/api/applications')).json()).data ?? [];
+        for (const own of ownApplications) {
+            if (own.accreditation_id === accreditationId) {
+                rememberOwnedByUser('applications', own.id, email, password);
+            }
         }
 
         const logout = await api.post('/api/auth/logout');
@@ -690,6 +758,7 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
         if (register.status() !== 201) {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
+        rememberUnreclaimableUser(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -723,10 +792,24 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
         if (portrait.status() !== 201) {
             throw new Error(`Portrait upload failed with status ${portrait.status()}`);
         }
+        // The only row of this helper that a test CAN give back: the media
+        // delete route is owner-scoped (`UserMediaController::destroy` compares
+        // `auth('api')->id()` with the row's `user_id`, so an admin session
+        // gets 403), and this helper is the one that holds the credentials.
+        // MEASURED residue before this: 116 `user_media` rows.
+        rememberOwnedByUser('userMedia', (await portrait.json()).data.id, email, password);
 
         const apply = await api.post(`/api/accreditations/${accreditationId}/apply`);
         if (apply.status() !== 200 && apply.status() !== 201) {
             throw new Error(`Apply failed with status ${apply.status()}`);
+        }
+        // Same rule as in `registerAndApplyForAccreditation`: the applicant is
+        // the only one who can withdraw it, and only while it is `requested`.
+        const ownApplications = (await (await api.get('/api/applications')).json()).data ?? [];
+        for (const own of ownApplications) {
+            if (own.accreditation_id === accreditationId) {
+                rememberOwnedByUser('applications', own.id, email, password);
+            }
         }
 
         const logout = await api.post('/api/auth/logout');
@@ -794,6 +877,16 @@ export async function ensurePrimaryMandantWalletSetup() {
         if (apply.status() !== 200 && apply.status() !== 201) {
             throw new Error(`Wallet setup main apply failed with status ${apply.status()}`);
         }
+        // This one is `requested` at the moment of the push, so it IS withdrawable
+        // by its owner — the registration is real work, not a placeholder. (It is
+        // approved two steps below, after which only the cascade from the
+        // accreditation can take it, and the teardown reads 404 there.)
+        const ownMain = (await (await userApi.get('/api/applications')).json()).data ?? [];
+        for (const own of ownMain) {
+            if (own.accreditation_id === accreditation.id) {
+                rememberOwnedByUser('applications', own.id, user.email, password);
+            }
+        }
         await userApi.post('/api/auth/logout');
     } finally {
         await userApi.dispose();
@@ -815,6 +908,14 @@ export async function ensurePrimaryMandantWalletSetup() {
         const apply = await subApi.post(`/api/sub-accreditations/${subAccreditation.id}/apply`);
         if (apply.status() !== 201) {
             throw new Error(`Wallet setup sub apply failed with status ${apply.status()}`);
+        }
+        // `requested` at push time, so the owner route can really withdraw it —
+        // see `SubApplicationController::destroy`, which 422s once it is decided.
+        const ownSubs = (await (await subApi.get('/api/sub-applications')).json()).data ?? [];
+        for (const own of ownSubs) {
+            if (own.sub_accreditation_id === subAccreditation.id) {
+                rememberOwnedByUser('subApplications', own.id, user.email, password);
+            }
         }
         await subApi.post('/api/auth/logout');
     } finally {
@@ -871,6 +972,11 @@ export async function ensurePrimaryMandantWalletSetup() {
  * Creates a mandant-scoped blacklist entry via the admin API (super admin /
  * mandant_admin only). Returns the created entry.
  *
+ * Registered immediately, like every other creator here. A blacklist row is the
+ * one entity the name sweep cannot address at all — it has no name column
+ * (`email`/`domain`/`note` only), so an id-less fixture would be a PERMANENT
+ * leak, one row per run, invisible to every marker in `E2E_PURGE_MARKERS`.
+ *
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function createBlacklistEntryApi(payload = {}) {
@@ -881,7 +987,9 @@ export async function createBlacklistEntryApi(payload = {}) {
             throw new Error(`Blacklist create failed with status ${response.status()}`);
         }
 
-        return (await response.json()).data;
+        const created = (await response.json()).data;
+        rememberOwnedRow('blacklists', created.id);
+        return created;
     } finally {
         await api.dispose();
     }
@@ -1049,6 +1157,12 @@ export async function ensurePrimaryMandantActivePortalEvent() {
                 throw new Error(`Creating the setup team failed with status ${teamCreate.status()}`);
             }
             team = (await teamCreate.json()).data;
+            // Conditional ownership, and that is the point: this branch creates a
+            // SHARED bootstrap team that other specs read in parallel, so it must
+            // only be given back when THIS call is the one that made it. The
+            // `else` branch above adopts a team somebody else created, and
+            // deleting that would break a concurrent test — the F2 shape.
+            rememberOwnedRow('teams', team.id, primary.id);
         }
 
         // Self-cleaning: drop THIS worker's leftover portal event before creating
@@ -1081,6 +1195,11 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             throw new Error(`Creating the portal event failed with status ${create.status()}`);
         }
         const createdBody = await create.json();
+        // Per-worker unique, so this row is this test's alone. (The team above is
+        // shared bootstrap data and is NOT registered unless this call created
+        // it; the venues are shared too and are reclaimed by the serial teardown
+        // under their stable names.)
+        rememberOwnedRow('events', createdBody.data.id, primary.id);
 
         return { event: createdBody.data, team, mandantName: primary.name };
     } finally {
@@ -1207,26 +1326,12 @@ export async function resetPrimaryMandantLogoForRun() {
 /**
  * A row the purge MATCHED and could not reclaim.
  *
- * A separate class from a plain `Error` because the two must be treated
- * differently by the caller, and conflating them is what made F1 invisible:
- * `purgeAllE2EArtifacts` wrapped its whole body in one
- * `try { … } catch { console.warn }`, so a **409 on 53 venue deletes** and a
- * backend that is simply not running produced the same shrug. They are not the
- * same event. A backend that is down must not fail a run that would otherwise
- * report on its own merits; a matched row that survives its own delete means the
- * next run inherits it, and that is the bug this whole mechanism exists to
- * prevent — so it fails the run loudly, with every failed row listed.
+ * The class itself now lives in `purge-failure.ts` so the per-test ownership
+ * teardown can throw the SAME class without importing this module (which imports
+ * that one — see `api-session.ts` for the cycle this avoids). Semantics are
+ * unchanged: a matched/created row that did not go back is a run-level failure,
+ * never a warning.
  */
-class PurgeReclamationFailure extends Error {}
-
-/**
- * Exported so `global-teardown.ts` can tell the two failure classes apart with
- * `instanceof` rather than by calling a predicate helper — a helper would need a
- * parameter, and this directory allows none. `instanceof` is also the more honest
- * form of the test: the class IS the distinction, rather than a function that
- * re-derives it.
- */
-export { PurgeReclamationFailure };
 
 
 /**
