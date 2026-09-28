@@ -102,16 +102,21 @@ class AuthLoginTest extends TestCase
 
         $token = $login->getCookie(config('jwt.cookie_key_name'), false)->getValue();
 
-        $this->withCookie(config('jwt.cookie_key_name'), $token)
+        $this->withJwtCookie($token)
             ->getJson('/api/auth/me')
             ->assertOk();
 
-        $this->withCookie(config('jwt.cookie_key_name'), $token)
+        $this->withJwtCookie($token)
             ->postJson('/api/auth/logout')
             ->assertOk()
             ->assertCookieExpired(config('jwt.cookie_key_name'));
 
-        $this->withCookie(config('jwt.cookie_key_name'), $token)
+        // The 401 below is the blacklist's doing, not the absence of a token:
+        // `logout()` also empties the `JWT::$token` singleton, so a request
+        // that fell back to memory would be rejected for the wrong reason.
+        // The counter-probe above (200 with the very same cookie) is what makes
+        // the difference between the two causes visible.
+        $this->withJwtCookie($token)
             ->getJson('/api/auth/me')
             ->assertStatus(401);
     }
@@ -307,7 +312,7 @@ class AuthLoginTest extends TestCase
 
         $token = $login->getCookie(config('jwt.cookie_key_name'), false)->getValue();
 
-        $this->withCookie(config('jwt.cookie_key_name'), $token)
+        $this->withJwtCookie($token)
             ->getJson('/api/auth/me')
             ->assertOk()
             ->assertJsonPath('data.id', $localUser->id);

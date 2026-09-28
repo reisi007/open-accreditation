@@ -964,7 +964,7 @@ class MandantMembershipTest extends TestCase
 
     private function withJwt(string $token): static
     {
-        return $this->withCookie(config('jwt.cookie_key_name'), $token);
+        return $this->withJwtCookie($token);
     }
 
     private function roleUserQueryCount(): int

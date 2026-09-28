@@ -35,12 +35,12 @@ class JwtParserCookieOnlyTest extends TestCase
     {
         $token = $this->token();
 
-        // `withCredentials()` mirrors the SPA's `credentials: include` (JSON
-        // test requests drop cookies otherwise); `withUnencryptedCookie` sends
-        // the raw token — `decrypt_cookies` is false, so the real browser
-        // cookie is plain too.
-        $this->withCredentials()
-            ->withUnencryptedCookie(config('jwt.cookie_key_name'), $token)
+        // `withJwtCookie()` is the only supported channel: it mirrors the SPA's
+        // `credentials: include` AND sends the raw token. `decrypt_cookies` is
+        // false and no `EncryptCookies` runs on the `api` group, so the real
+        // browser cookie is plain too — an encrypted value would be 401 here
+        // for the same reason it never reaches a route in production.
+        $this->withJwtCookie($token)
             ->getJson('/api/auth/me')
             ->assertOk();
     }

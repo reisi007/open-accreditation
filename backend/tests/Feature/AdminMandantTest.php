@@ -29,6 +29,16 @@ use Tests\TestCase;
  *
  * Access matrix: only the global super admin may reach the /api/admin/*
  * surface; mandant_admin, team_admin, user and guests are rejected.
+ *
+ * The denied matrix runs through `callAsApi()`, not `MakesHttpRequests::call()`.
+ * `call()` takes `$cookies` as its THIRD PARAMETER and defaults it to `[]`, so a
+ * direct `->call($method, $uri)` transports NO cookie at all, whatever
+ * `withCookie()`/`withJwtCookie()` configured — the thirteen verb helpers are
+ * the ones that fill that argument in. MEASURED on this file: with the cookie
+ * actually on the wire, `->call('get', '/api/admin/mandants')` as a
+ * mandant_admin answers 401 "Unauthenticated." while the identical request
+ * through `getJson()` answers 403. The 403 is the real production answer, and
+ * `callAsApi()` is what makes this test measure it.
  */
 class AdminMandantTest extends TestCase
 {
@@ -92,7 +102,7 @@ class AdminMandantTest extends TestCase
 
         foreach ($deniedUsers as $label => $user) {
             $this->actingAsApi($user)
-                ->call($method, $url)
+                ->callAsApi($method, $url)
                 ->assertStatus(403, "expected 403 for {$label} on {$method} {$url}");
         }
     }

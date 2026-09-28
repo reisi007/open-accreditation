@@ -494,14 +494,23 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   Datei liegt unter `vendor/` und jede Änderung wäre beim nächsten `composer install` weg; stattdessen
   ist der **Docblock** `AuthController:246` („Invalidates the current JWT (blacklist)") zu relativ und
   beschreibt einen Pfad, der im Fehlerfall schweigt.
-  **WICHTIG, Korrektur vom 2026-09-28:** der Beleg, mit dem dieser Eintrag anfing („logout
-  widerruft, danach 401"), war ein **Falsch-Positiv** — die Messung lief in einem Harness, in dem der
-  **Cookie-Transport nicht funktionierte** (`withCookie()` verwirft still, Board-Position 13), der
-  401 kam also aus dem geleerten `JWT::$token`-Singleton und **nicht** aus der Blacklist. Die
-  Kontrollmessung lautet: **401 bei leerer Blacklist.** **Weg B ist also noch nicht gültig bewiesen**,
-  und der `MandantMembershipTest`, der ihn stützen sollte, benutzt denselben Kanal und ist damit
-  **kein** unabhängiger Beleg. Wirft der Storage statt dessen eine `QueryException` — was eine
-  fehlende Tabelle erzeugen würde —, ist es **laut** (500), nicht still.
+  **WICHTIG, zwei Korrekturen vom 2026-09-28, und die zweite heisst die erste nicht zurücknehmen:**
+  Der ursprüngliche Beleg („logout widerruft, danach 401") war ein **Falsch-Positiv** — der Harness
+  transportierte das Cookie **nicht** (`withCookie()` verwirft still, Board-Position 13), der 401 kam
+  aus dem geleerten `JWT::$token`-Singleton. **Die Korrektur dieses Falsch-Positivs ist aber kein
+  Beweis gegen Weg B, sondern endlich ein gültiger Beweis dafür**, gemessen über den einzigen
+  funktionierenden Kanal (`TestCase::withJwtCookie()`):
+
+  | Messung (Konto **besteht** durchgehend) | Ergebnis |
+  |---|---|
+  | Replay bei vorhandenem Blacklist-Eintrag | **401** — der Widerruf hält |
+  | Replay nach `Cache::flush()` | **200** — Eintrag weg, Token gilt wieder |
+
+  **Damit ist die Schwachstelle, die dieser Eintrag als *konditional* führte, gemessen statt vermutet:**
+  sie entsteht genau dann, wenn jemand den Cache leert. Der Deploy tut es nicht
+  (`entrypoint.sh`, per Test festgenagelt), also ist sie **nicht aktiv** — aber sie ist auch nicht
+  weg, und ihre Obergrenze ist `JWT_TTL`. Wirft der Storage statt dessen eine `QueryException` —
+  was eine fehlende Tabelle erzeugen würde —, ist es **laut** (500), nicht still.
   **Entscheidend für die Architektur:** die Konto-Löschung
   stützt sich **nicht** auf diesen Weg, sondern auf den **DB-Treffer** in
   `JWTGuard::user():107` (`retrieveById($payload['sub'])`) — fehlt die Zeile, ist `$this->user` null

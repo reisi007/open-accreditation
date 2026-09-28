@@ -7,6 +7,9 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\ParallelTesting;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
+use InvalidArgumentException;
+use ReflectionProperty;
 use Symfony\Component\HttpFoundation\Request;
 
 abstract class TestCase extends BaseTestCase
@@ -404,13 +407,151 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * Log a user in via the JWT guard and attach the token to the httpOnly
-     * cookie for subsequent requests — mirrors how the SPA authenticates.
+     * Log a user in via the JWT guard and put the token on the wire the way
+     * production does — as the httpOnly cookie.
+     *
+     * The in-memory token and the guard's memoised user are dropped
+     * afterwards, so the next request is genuinely validated from the cookie
+     * rather than answered out of process-global state. `login()` had to run
+     * first because it is the only way to MINT a token; that is a fixture
+     * step, not the authentication under test.
      */
     protected function actingAsApi(User $user): static
     {
         $token = auth('api')->login($user);
 
-        return $this->withCookie(config('jwt.cookie_key_name'), $token);
+        $this->withJwtCookie($token);
+
+        $this->forgetJwtAuthState();
+
+        return $this;
+    }
+
+    /**
+     * A cookie-carrying request for a loop over HTTP verbs (`DataProvider`).
+     *
+     * The trap this replaces: `MakesHttpRequests::call()` takes `$cookies` as
+     * its THIRD PARAMETER and defaults it to `[]` — the verb helpers are the
+     * ones that fill it in. Each of the thirteen `get()`/`post()`/`put()`/…
+     * helpers in the trait starts with
+     * `$cookies = $this->prepareCookiesForRequest();` and passes it on; a
+     * direct `->call($method, $uri)` passes nothing, so **no** cookie is
+     * transported no matter what `withCookie()`/`withJwtCookie()` configured.
+     *
+     * MEASURED: `actingAsApi($mandantAdmin)->call('get', '/api/admin/mandants')`
+     * answered 401 ("Unauthenticated.") while the identical request through
+     * `getJson()` answered 403. Both claims cannot hold; the 401 is the truth,
+     * because the cookie never left the test. A test asserting 403 through
+     * `call()` was only ever green because the `JWT::$token` singleton that
+     * `login()` left behind answered it — the 403 was the harness, not the
+     * authorisation check.
+     *
+     * The JSON verbs are used rather than their plain counterparts so the
+     * cookie goes through `prepareCookiesForJsonRequest()` exactly as every
+     * other test in this suite does; mixing both would make the next reader
+     * wonder which one carries the cookie. `shouldRenderJsonWhen()` covers
+     * `api/*` regardless, so a JSON verb changes no status code.
+     *
+     * @param  array<string, mixed>  $parameters
+     */
+    protected function callAsApi(string $method, string $uri, array $parameters = []): TestResponse
+    {
+        return match (strtolower($method)) {
+            'get' => $this->getJson($uri, $parameters),
+            'post' => $this->postJson($uri, $parameters),
+            'put' => $this->putJson($uri, $parameters),
+            'patch' => $this->patchJson($uri, $parameters),
+            'delete' => $this->deleteJson($uri, $parameters),
+            default => throw new InvalidArgumentException(
+                "callAsApi(): '{$method}' is not one of get/post/put/patch/delete."
+            ),
+        };
+    }
+
+    /**
+     * THE ONLY CHANNEL for putting a JWT on the wire for a `/api/*` request.
+     *
+     * ## Why this is a helper and not a call the tests make themselves
+     *
+     * Every obvious spelling is broken, and none of them says so:
+     *
+     *  - `withCookie($name, $value)` alone transports NOTHING on a JSON
+     *    request. `MakesHttpRequests::json()` hands
+     *    `prepareCookiesForJsonRequest()` to the kernel, and that returns
+     *    `$this->withCredentials ? $this->prepareCookiesForRequest() : []` —
+     *    so without `withCredentials()` the cookie is dropped silently.
+     *    MEASURED: `/api/auth/me` answers 401.
+     *  - `withCookie()` + `withCredentials()` is worse: it transports a
+     *    CIPHERTEXT. `prepareCookiesForRequest()` runs every `defaultCookies`
+     *    entry through `encrypt(...)` prefixed with `CookieValuePrefix`, and
+     *    nothing on the `/api/*` path decrypts it — `EncryptCookies` is a
+     *    `web`-group middleware and `bootstrap/app.php` only configures the
+     *    host allow-list, so the `api` group never gets it. jwt-auth runs with
+     *    `decrypt_cookies => false` and therefore reads the ciphertext.
+     *    MEASURED: 401, and the value arriving at the route begins `eyJpdiI6`
+     *    (`{"iv":`) where the raw token begins `eyJ0eXAi` (`{"typ":`).
+     *  - `withUnencryptedCookie()` alone is ALSO dropped — the
+     *    `withCredentials` switch is what turns cookie transport on at all.
+     *    MEASURED: 401.
+     *
+     * So the working channel needs BOTH, and the pair is easy to get wrong in
+     * a way that still returns 200 — the 200 then comes from the
+     * `JWT::$token` singleton that `login()` left behind, not from the
+     * request. That is the false positive this helper exists to make
+     * impossible to write: `withCredentials()` appears exactly once, here,
+     * paired with `withUnencryptedCookie()`, and
+     * `tests/Feature/ForbiddenJwtCookieChannelTest` fails if a `withCookie(`
+     * or `withCredentials(` call reappears anywhere in `tests/`.
+     *
+     * The plain token value is correct, not a workaround: production's cookie
+     * is plain too, because `EncryptCookies` never runs on this route group.
+     *
+     * @param  string|null  $token  `null` re-uses whatever was put on the wire
+     *                              before; a value replaces it.
+     */
+    protected function withJwtCookie(?string $token = null): static
+    {
+        if ($token !== null) {
+            $this->withUnencryptedCookie(config('jwt.cookie_key_name'), $token);
+        }
+
+        $this->withCredentials();
+
+        return $this;
+    }
+
+    /**
+     * Drop every piece of process-global auth state that could answer a
+     * request without looking at the token.
+     *
+     * Two, and they are independent:
+     *
+     *  - `JWT::$token` — a singleton on `tymon.jwt`. `auth('api')->login()` and
+     *    `JWTAuth::make()` leave the token there, and the parser falls back to
+     *    it when the request carries no usable cookie. A 401 measured after a
+     *    logout can therefore come from "there is no token at all" instead of
+     *    from the blacklist, which is precisely how the earlier
+     *    "logout revokes the token" reading was a false positive.
+     *  - `JWTGuard::$user` — the guard memoises its resolved user and the
+     *    guard is a container singleton that SURVIVES between `getJson()` calls
+     *    inside one test. A second protected request can be answered from that
+     *    memo without parsing anything. `AuthManager::forgetGuards()` drops the
+     *    resolved instances while keeping the manager (dropping the manager
+     *    itself would lose the registered `jwt` driver extension).
+     */
+    protected function forgetJwtAuthState(): void
+    {
+        app('tymon.jwt')->unsetToken();
+
+        app('auth')->forgetGuards();
+    }
+
+    /**
+     * Whether the process-global `JWT::$token` currently holds a token, read
+     * by reflection so asserting on it cannot disturb it.
+     */
+    protected function inMemoryJwtTokenIsSet(): bool
+    {
+        return (new ReflectionProperty(app('tymon.jwt'), 'token'))->getValue(app('tymon.jwt')) !== null;
     }
 }

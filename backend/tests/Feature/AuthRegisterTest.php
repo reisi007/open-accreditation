@@ -359,7 +359,7 @@ class AuthRegisterTest extends TestCase
 
         $token = $login->getCookie(config('jwt.cookie_key_name'), false)->getValue();
 
-        $this->withCookie(config('jwt.cookie_key_name'), $token)
+        $this->withJwtCookie($token)
             ->getJson('/api/auth/me')
             ->assertOk()
             ->assertJsonPath('data.id', $admin->id);

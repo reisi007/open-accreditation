@@ -32,9 +32,11 @@ use PHPOpenSourceSaver\JWTAuth\Payload;
  *   token at all*, not because of the blacklist. Measured control: with the
  *   blacklist entry removed by hand, the replay was still 401.
  *
- * `withUnencryptedCookie()` is therefore the only channel that really carries
- * the token on the wire, and every helper here clears the singleton first, so
- * a status code can only come from a request that was genuinely validated.
+ * `Tests\TestCase::withJwtCookie()` is therefore the only channel that really
+ * carries the token on the wire, and every helper here clears the singleton
+ * first, so a status code can only come from a request that was genuinely
+ * validated. `ForbiddenJwtCookieChannelTest` fails if the broken spellings come
+ * back into `tests/`.
  *
  * Two further traps this trait exists to neutralise:
  *
@@ -51,13 +53,16 @@ trait InteractsWithJwtRevocation
     /**
      * Log in through the real guard and put the token on the wire the way
      * production does: as the httpOnly cookie.
+     *
+     * The channel itself is `Tests\TestCase::withJwtCookie()` — a single
+     * implementation, so the measurements in its docblock cannot drift away
+     * from the one place that describes them.
      */
     protected function authenticateOverTheCookie(User $user): string
     {
         $token = auth('api')->login($user);
 
-        $this->withUnencryptedCookie(config('jwt.cookie_key_name'), $token)
-            ->withCredentials();
+        $this->withJwtCookie($token);
 
         $this->forgetInMemoryToken();
 
@@ -75,7 +80,7 @@ trait InteractsWithJwtRevocation
     protected function callProtectedRoute(?string $token = null): int
     {
         if ($token !== null) {
-            $this->withUnencryptedCookie(config('jwt.cookie_key_name'), $token);
+            $this->withJwtCookie($token);
         }
 
         $this->forgetInMemoryToken();

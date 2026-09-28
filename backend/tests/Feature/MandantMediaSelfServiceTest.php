@@ -244,11 +244,20 @@ class MandantMediaSelfServiceTest extends TestCase
      | Access control
      | ------------------------------------------------------------------- */
 
+    /**
+     * The access matrix dispatches through `callAsApi()`, not
+     * `MakesHttpRequests::call()`: `call()` takes `$cookies` as its third
+     * parameter and defaults it to `[]`, so a direct `->call($method, $uri)`
+     * transports no cookie whatever and the request is a GUEST. The
+     * authenticated rows of this matrix asserted 403 (recognised, then denied)
+     * and read as green only because the `JWT::$token` singleton that
+     * `actingAsApi()` left behind answered them from memory.
+     */
     #[DataProvider('selfServiceRoutesProvider')]
     public function test_team_admin_is_denied_on_all_self_service_routes(string $method, string $uri): void
     {
         $this->actingAsApi($this->teamAdmin($this->mandantA))
-            ->call($method, $uri)
+            ->callAsApi($method, $uri)
             ->assertStatus(403, "expected 403 for team_admin on {$method} {$uri}");
     }
 
@@ -256,14 +265,14 @@ class MandantMediaSelfServiceTest extends TestCase
     public function test_plain_user_is_denied_on_all_self_service_routes(string $method, string $uri): void
     {
         $this->actingAsApi($this->plainUser($this->mandantA))
-            ->call($method, $uri)
+            ->callAsApi($method, $uri)
             ->assertStatus(403, "expected 403 for user on {$method} {$uri}");
     }
 
     #[DataProvider('selfServiceRoutesProvider')]
     public function test_guest_gets_401_on_all_self_service_routes(string $method, string $uri): void
     {
-        $this->call($method, $uri)
+        $this->callAsApi($method, $uri)
             ->assertStatus(401, "expected 401 for guest on {$method} {$uri}");
     }
 
@@ -277,7 +286,7 @@ class MandantMediaSelfServiceTest extends TestCase
             foreach (['logo', 'header'] as $kind) {
                 $uri = '/api/mandant/'.$kind;
                 $this->actingAsApi($admin)
-                    ->call($method, $uri)
+                    ->callAsApi($method, $uri)
                     ->assertStatus(403, "expected 403 on {$method} {$uri} for foreign mandant context");
             }
         }
