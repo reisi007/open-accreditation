@@ -4,6 +4,15 @@ import process from 'node:process';
 export default defineConfig({
     testDir: './tests/e2e',
     testMatch: '**/*.spec.ts',
+    // NOT the Playwright default (`test-results/`). Playwright **empties the
+    // outputDir before every run**, and the screenshot config's outputDir is
+    // `test-results/ui-screenshots` — i.e. a subdirectory of the default. One
+    // single E2E run therefore deleted all 60 design-QA screenshots (measured:
+    // capture → 60 PNG, `a11y.spec.ts` → 0 PNG), and with them the "alt" half of
+    // the AGENTS.md §7 fix loop: step 4 requires the vision subagent to compare
+    // old against new, which is the step that releases a change at all. Each
+    // config now owns a sibling directory, so each run only clears its own.
+    outputDir: 'test-results/e2e',
     // Paired on purpose. The teardown restores what the run borrowed, but only
     // if the run ends cleanly — a hard kill in the middle strands the primary
     // mandant's logo and the NEXT run's portal/logo-empty assertions inherit

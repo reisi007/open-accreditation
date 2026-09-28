@@ -12,10 +12,15 @@ import { ensurePrimaryMandantAccreditation } from './helpers/admin-data';
  * Tagging: `@regression` + `@feature:a11y`, deliberately NOT `@smoke`. Two of
  * the three tests depend on timing that this spec cannot control — the 100 ms
  * daisyUI `visibility` transition delay (the focus hand-off lands on
- * `transitionend`) and the "still inside after 25 Tab presses" focus-trap walk.
+ * `transitionend`) and the focus-trap walk inside a real `<dialog>`.
  * `AGENTS.md` §7 reserves `@smoke` for the critical path (login, guest, auth,
  * basic CRUD); a focus-trap assertion is not that, and a spec that has never run
  * in CI must not gate every push.
+ *
+ * A note for whoever touches the keyboard assertions: prefer a statement about
+ * **order** over a statement about a **count**. The drawer test used to encode a
+ * distance (tab until you are back where you started, at most N times), and N
+ * turned out to be a property of the seeded test data. See the comment there.
  */
 test.describe('Admin a11y: dialog semantics and drawer keyboard access', () => {
     // UI-heavy spec: run once (Desktop Chrome) — the shared per-IP login
@@ -58,6 +63,12 @@ test.describe('Admin a11y: dialog semantics and drawer keyboard access', () => {
                 return active !== null && dialogElement !== null && dialogElement.contains(active);
             });
         expect(await inside()).toBe(true);
+        // 25 is a WALK LENGTH here, not a reachability threshold — do not
+        // "optimise" it down. The postcondition is monotone: another Tab can only
+        // strengthen the containment claim, never break it, and a dialog with
+        // fewer stops than presses simply wraps inside itself. The drawer test
+        // below had the opposite construct (a *distance* with a ceiling), which
+        // is why its number had to go.
         for (let i = 0; i < 25; i += 1) {
             await page.keyboard.press('Tab');
         }
@@ -125,16 +136,35 @@ test.describe('Admin a11y: dialog semantics and drawer keyboard access', () => {
 
             // Reachable with the keyboard alone (the old `<label htmlFor>` was
             // neither focusable nor a control).
-            await trigger.focus();
+            //
+            // ANCHORED, NOT COUNTED. The previous version focused the trigger and
+            // then tabbed up to 12 times waiting to land back on it — i.e. it
+            // measured the size of the page's whole tab ring. That ring is a
+            // function of the DATA, not of the header. Measured on
+            // /admin/categories, one variable at a time (empty categories table,
+            // then 1, 2, 3 and 4 rows), the distance back to the trigger was
+            // 9 / 11 / 13 / 15 / 17 presses — **two presses per table row**, and
+            // the old bound of 12 was already exceeded at **two rows**. The seed
+            // helpers create a category per call (`ensurePrimaryMandantAccreditation`),
+            // so the row count is decided by which other tests seeded first: the
+            // assertion was at the mercy of its own suite, and a failure named the
+            // feature. (Reproduced: 4 rows → the old form fails, this one passes,
+            // same database, same build.)
+            //
+            // The claim is unchanged — reachable with the keyboard, no mouse — but
+            // it is now a statement about the HEADER'S ORDER: the trigger is the
+            // stop directly after the header's brand link, and nothing lies
+            // between them. One Tab press, whatever the table holds. That has no
+            // ceiling to grow into.
+            //
+            // The brand link is also the honest anchor: measured, it is the first
+            // focusable element in the document (nothing precedes it, and a Tab
+            // that runs off the end wraps through `body` back to it), so for a
+            // keyboard user starting at the top this is literally "Tab, Tab".
+            const header = page.getByRole('banner');
+            await header.getByRole('link', { name: 'Akkreditierung' }).focus();
             await page.keyboard.press('Tab');
-            let reached = false;
-            for (let i = 0; i < 12 && !reached; i += 1) {
-                reached = await trigger.evaluate((element) => element === document.activeElement);
-                if (!reached) {
-                    await page.keyboard.press('Tab');
-                }
-            }
-            expect(reached).toBe(true);
+            await expect(trigger).toBeFocused();
 
             await page.keyboard.press('Enter');
             await expect(trigger).toHaveAttribute('aria-expanded', 'true');

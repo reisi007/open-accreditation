@@ -111,11 +111,21 @@ export interface UiReviewRoute {
 export interface UiReviewConfig {
     /** Must mirror `outputDir` in playwright.screenshots.config.ts — the spec builds absolute screenshot paths from it. */
     outputDir: string;
+    /**
+     * Fraction of the viewport height one section capture advances (AGENTS.md
+     * §7: "Scroll in 80-%-Schritten"). A fraction, not a pixel count: the two
+     * viewports have different heights (950 px desktop, 1040 px mobile —
+     * `Galaxy A55`), and a fixed pixel step would cover the same *content* on
+     * one and not the other. The remaining 20 % is overlap on purpose — it is
+     * what guarantees that no band of content can fall between two captures.
+     */
+    sectionScrollStep: number;
     routes: UiReviewRoute[];
 }
 
 export const uiReviewConfig: UiReviewConfig = {
     outputDir: 'test-results/ui-screenshots',
+    sectionScrollStep: 0.8,
     routes: [
         // ── Public / guest ──────────────────────────────────────────────────
         {

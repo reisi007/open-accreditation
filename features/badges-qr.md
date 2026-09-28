@@ -290,8 +290,8 @@ Routen, alle gemessen (siehe unten):
 
 | Route | Werkzeuge | Seiten | DPI | Ergebnis |
 |---|---|---|---|---|
-| **Primär** (zweistufig) | `magick` + `gs` | alle | frei | kein Alpha, Eckpixel weiss |
-| **Fallback A** (einstufig) | `gs` allein | alle | frei | kein Alpha, Eckpixel weiss |
+| **Primär** (zweistufig) | `magick` + `gs` | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1) |
+| **Fallback A** (einstufig) | `gs` allein | alle | frei | kein Alpha, Eckpixel **opak** (alpha 1) |
 | **Fallback B** | `sips` | **nur 1** | ~72 | **Alpha bleibt → Exit 3** |
 | keines | — | — | — | Exit 1, nennt die fehlenden Werkzeuge |
 
@@ -300,14 +300,92 @@ Fallback B endet mit Exit 3, weil `sips` keinen Alpha-Kanal entfernen kann —
 ein grüner Lauf auf genau dem Bild, das diese Pipeline beseitigen soll, wäre
 schlimmer als gar keiner.
 
+### Was die Postcondition prüft — und was ausdrücklich nicht
+
+Die Postcondition ist **„kein Alpha-Kanal + deckender Hintergrund“**. Sie prüft
+damit die *Deckung* des Hintergrunds und **nicht** dessen Farbe. Das ist eine
+bewusste Entscheidung, keine Vereinfachung — und sie hat einen Preis, der hier
+stehen muss, weil er eine echte Grenze des Verfahrens ist.
+
+**Gemessen an zwei Leerseiten** (`magick`-Pipeline, 827 × 1165 px, eine Seite,
+200 dpi; erzeugt mit `magick -size 827x1165 xc:<farbe>`), gegen die drei
+Skript-Stände dieser Woche:
+
+| Seite | Skript-Stand | Exit | gemeldete Fehler |
+|---|---|---|---|
+| komplett **weiss** | alt (Weissheit + `*a*`-Muster) | **3** | „hat noch einen Alpha-Kanal“ **und** „Eckpixel ist nicht weiss“ |
+| komplett **schwarz** | alt | **3** | dito |
+| komplett weiss | Graustufen-Fix (`e402412`) | **0** | — |
+| komplett schwarz | Graustufen-Fix | **3** | „Eckpixel ist nicht weiss“ |
+| komplett weiss | **heute** (Opazität, `caf6bed`) | **0** | — |
+| komplett schwarz | **heute** | **0** | — |
+
+Drei Dinge sind daraus abzulesen, und alle drei sind Folgen *derselben*
+Entscheidung:
+
+1. **Eine opake, aber leere oder schwarze Seite gilt heute als erfüllt**
+   (Exit 0). Das ist die Kehrseite von „Farbe ist nicht Teil der Postcondition“:
+   eine deckende Farbe ist gültig, also ist eine deckende Leere es auch. Wer
+   nach einem leeren Ausweis sucht, bekommt ihn sichergestellt, nicht gemeldet.
+2. **Der alte Stand hätte eine Leerseite nie durchgelassen** — und zwar mit
+   der *falschen* Begründung. Er meldete „hat noch einen Alpha-Kanal“, weil sein
+   Muster `*a*` den Buchstaben `a` in „**g**r**a**y“ traf (eine Seite ganz ohne
+   Bild-XObject rastern als `gray`). Zusätzlich meldete er „Eckpixel ist nicht
+   weiss“ auf einem Eckpixel, dessen Wert er korrekt als `#FFFFFF` ausgab — die
+   `txt:`-Zeile eines Graustufenbildes lautet `gray(255)` und nicht
+   `255,255,255`, das Muster konnte also strukturell nie greifen. Zwei Fehler,
+   beide gegen dieselbe Tatsache: die Seite war in Ordnung.
+3. **Die Umstellung auf Opazität ist die kleinere der beiden Korrekturen.** Die
+   Graustufen-Falle betraf den *wichtigsten* Fall (Text ohne Bild, also die
+   normale Badge-Seite), die Weissheit den *seltensten* (deckendes
+   Volldruck-Badge). Die zweite Korrektur beseitigt einen Fehlalarm, die erste
+   einen Fail-open: eine unbekannte Kanalkennung gilt jetzt als **nicht
+   feststellbar** (Exit 3) statt als „kein Alpha“.
+
+**Die verbleibende Grenze, und was sie zurückholen würde.** „Der Hintergrund ist
+eine deckende Farbe“ und „der Hintergrund ist weisses Papier“ sehen am Eckpixel
+identisch aus — der Unterschied ist am Rand schlicht nicht mehr rekonstruierbar.
+Das ist keine Lücke im Auftrag, sondern eine Grenze des Messpunkts. Die
+Weiss-Prüfung konnte wenigstens einen deckenden schwarzen Hintergrund *melden*,
+und diese eine Fähigkeit ist mit der Umstellung bewusst weggefallen. Wer sie
+zurückholen will, braucht eine **eigene** Postcondition und ausdrücklich **keine
+Farbregel im Eckpixel** — der Eckpixel ist per Konstruktion die Ecke und damit
+die am wenigsten repräsentative Stelle der Seite. Der geeignete Messpunkt ist
+die **Verteilung** der Pixel über die ganze Seite, und der ist billig (gemessen
+mit `magick -colorspace Gray -format '%[fx:standard_deviation]' info:` auf den
+Stufe-2-PNGs):
+
+| Seite | eindeutige Farben | Graustufen-Standardabweichung |
+|---|---|---|
+| echtes Badge-PDF, Seite 1 | 3 | **0,110716** |
+| echtes Badge-PDF, Seite 2 | 3 | **0,111768** |
+| Leerseite weiss | 1 | **0** |
+| Leerseite schwarz | 1 | **0** |
+
+Eine unbeschriebene Seite ist damit **exakt 0**, eine echte Badge-Seite
+**> 0,11** — drei Grössenordnungen Abstand, mit jedem vernünftigen Schwellwert
+zu trennen. (Das Probe-Template trug nur zwei Textfelder plus QR; das
+ausführlichere Fixture aus der Tabelle unten hat 26 Farben.) Diese
+Leerseiten-Postcondition ist **nicht implementiert** — der Skript-Stand prüft
+weiterhin nur Alpha-Kanal, Eckpixel-Opazität und Seitenzahl. Der Contract für
+eine Vision-Analyse bleibt davon unberührt: die Befundtabelle gibt zu jeder Seite
+Kanal, Pixelwert und Eckalpha aus, und die Vision-Analyse beurteilt die
+gerenderte Seite ohnehin.
+
 **Gemessene Zahlen** (A6, 2-Karten-Badge-PDF aus `BadgeRenderService::renderPdf`,
 13 970 Byte, 2 Seiten; macOS, ImageMagick 7.1.2-31, Ghostscript 10.08.0):
 
-| | Maße | Kanäle | Eckpixel (2,2) |
-|---|---|---|---|
-| Stufe 1 `magick -density 200` | **827 × 1165 px** | `srgba` (PaletteAlpha) | `#FFFFFF00` — weiss, alpha 0 |
-| Stufe 2 `-background white -alpha remove -alpha off` | 827 × 1165 px | `srgb` (kein Alpha) | `#FFFFFF` — literal weiss |
-| `sips -s format png` | 298 × 420 px | `srgba` | `#00000000` — schwarz, alpha 0 |
+| | Maße | Kanäle | Eckpixel (2,2) | Eckalpha |
+|---|---|---|---|---|
+| Stufe 1 `magick -density 200` | **827 × 1165 px** | `srgba` (PaletteAlpha) | `#FFFFFF00` — weiss, alpha 0 | **0** — nicht erzwungen |
+| Stufe 2 `-background white -alpha remove -alpha off` | 827 × 1165 px | `srgb` (kein Alpha) | `#FFFFFF` — literal weiss | **1** — opak |
+| `sips -s format png` | 298 × 420 px | `srgba` | `#00000000` — schwarz, alpha 0 | **0** |
+
+Die dritte Zeile ist eine **Fehlerdiagnose**, kein gültiger Pfad: sie zeigt, was
+Fallback B erzeugt, und begründet dessen Exit 3. Auf einem frisch gerenderten
+2-Seiten-Badge liefert der heutige Stand für beide Seiten `srgb` mit Eckalpha 1
+und endet mit Exit 0; die Stufe-1-Zeile ist die transparente Vorstufe, nicht das
+Ergebnis.
 
 **Was in Stufe 1 wirklich dasteht** (nicht die verbreitete Vermutung): 89,8 %
 aller Pixel (865 288 von 963 455) sind **vollständig transparent**, und sie

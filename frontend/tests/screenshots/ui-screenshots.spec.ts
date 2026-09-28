@@ -10,8 +10,11 @@ import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandan
  * Generic manifest-driven screenshot spec for the ui-review skill.
  *
  * Iterates the route × state × viewport matrix from `ui-review.config.ts` and
- * captures a full-page PNG per combination. All tests are tagged `@screenshot`
- * so the set is groupable and clearly separate from the functional E2E tags.
+ * captures a full-page PNG per combination, plus one section capture per
+ * viewport-height step down the page (`<name>-secN.png`, see `captureSections`)
+ * so that the review can read what is below the fold. All tests are tagged
+ * `@screenshot` so the set is groupable and clearly separate from the
+ * functional E2E tags.
  *
  * STRICT frontend rules obeyed here:
  * - SPA navigation happens via UI clicks (`nav` steps). `page.goto` is only
@@ -64,6 +67,79 @@ async function waitForAppSettled(page: Page): Promise<void> {
 }
 
 /**
+ * Section captures — the half of the review that the full-page PNG cannot do.
+ *
+ * AGENTS.md §7 promises a full-page PNG **plus** `<name>-secN.png` per route ×
+ * state × viewport, "in 80-%-Scrollschritten, damit unterhalb des Folds nichts
+ * unlesbar skaliert". Measured on the first loop run: 60 full-page PNGs and
+ * **0** section captures. The consequence was not cosmetic — nothing below the
+ * fold was ever looked at, so the verdict covered the visible area only.
+ *
+ * A full-page PNG is a single image: a page several viewports tall is scaled
+ * down to fit, and the smaller it gets the less a reviewer can read. The bands
+ * below restore the native 1:1 pixel size, one viewport at a time, which is what
+ * makes "check the field labels below the table" a checkable statement at all.
+ *
+ * Deliberate properties:
+ * - `behavior: 'instant'` — the app sets no `scroll-behavior`, but an implicit
+ *   smooth scroll would be screenshotted mid-animation and blur the very text
+ *   this function exists to make legible.
+ * - The document is scrolled to the bottom and back **before** the height is
+ *   measured. Otherwise a band list computed against a still-growing
+ *   `scrollHeight` (lazy images, async lists) silently stops short of the end.
+ * - The last band is clamped to the bottom, so the final 20 % of the document is
+ *   never left to the full-page PNG alone.
+ * - A page that fits in one viewport gets **no** band: there is nothing below
+ *   the fold, and the full-page PNG already is the visible area. Emitting a
+ *   copy of it would pad the review with a duplicate.
+ */
+async function captureSections(page: Page, directory: string, name: string): Promise<void> {
+    // Prime lazy content, then return to the top: see the module-level note.
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+
+    const { scrollHeight, viewportHeight } = await page.evaluate(() => ({
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight,
+    }));
+    const maxScroll = scrollHeight - viewportHeight;
+    if (maxScroll <= 0) {
+        return;
+    }
+
+    const step = Math.max(1, Math.round(viewportHeight * uiReviewConfig.sectionScrollStep));
+    const offsets: number[] = [];
+    for (let offset = 0; offset < maxScroll; offset += step) {
+        offsets.push(offset);
+    }
+    // Clamped to the true bottom — the last step of a 80 % walk never lands on it.
+    offsets.push(maxScroll);
+
+    for (const [index, offset] of offsets.entries()) {
+        await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), offset);
+        await page.screenshot({ path: path.resolve(directory, `${name}-sec${index + 1}.png`) });
+    }
+    // Leave the page where the full-page capture found it.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+}
+
+async function settleAndCapture(
+    page: Page,
+    route: UiReviewRoute,
+    state: UiReviewState,
+    viewport: UiReviewViewport,
+): Promise<void> {
+    await waitForAppSettled(page);
+    await expect(page.getByRole('main')).toBeVisible();
+    const directory = path.resolve(process.cwd(), uiReviewConfig.outputDir, state, viewport);
+    // Full page FIRST, on an unscrolled page — unchanged from before the bands
+    // existed, so those artifacts stay byte-comparable to the earlier loop run.
+    await page.screenshot({ path: path.join(directory, `${route.name}.png`), fullPage: true });
+    await captureSections(page, directory, route.name);
+}
+
+/**
  * UI login. The login page itself is loaded by direct URL (see the module
  * comment — the header "Anmelden" link is unreachable in the mobile navbar,
  * so the deep link is the only reliable route there). After the submit the
@@ -98,18 +174,6 @@ async function applyNavStep(page: Page, step: UiReviewNavStep, seed: Record<stri
     }
     await locator.first().click();
     await waitForAppSettled(page);
-}
-
-async function settleAndCapture(
-    page: Page,
-    route: UiReviewRoute,
-    state: UiReviewState,
-    viewport: UiReviewViewport,
-): Promise<void> {
-    await waitForAppSettled(page);
-    await expect(page.getByRole('main')).toBeVisible();
-    const file = path.resolve(process.cwd(), uiReviewConfig.outputDir, state, viewport, `${route.name}.png`);
-    await page.screenshot({ path: file, fullPage: true });
 }
 
 /**
