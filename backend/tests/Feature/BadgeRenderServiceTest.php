@@ -267,11 +267,17 @@ class BadgeRenderServiceTest extends TestCase
         ]));
 
         // The exact generated PNG survives base64 round-trip into the markup
-        // (private disk → data URI, object-fit preserved).
+        // (private disk → data URI). The 60 × 80 portrait in a 25 × 30 mm box is
+        // `cover` (the photo default): it fills the 25 mm width and overhangs
+        // vertically to 33.33 mm, centered, so 1.67 mm is cropped top and bottom.
+        // Before the fit geometry existed this was `width:100%;height:100%` —
+        // i.e. the portrait was STRETCHED into the box, because dompdf silently
+        // drops `object-fit` (see BadgeImageFitGeometryTest).
         $this->assertStringContainsString(
             '<div style="position:absolute;left:8.00mm;top:30.00mm;width:25.00mm;height:30.00mm;'
             .'font-size:12pt;text-align:left;overflow:hidden;">'
-            .'<img src="data:image/png;base64,'.base64_encode($bytes).'" style="width:100%;height:100%;object-fit:cover;"></div>',
+            .'<img src="data:image/png;base64,'.base64_encode($bytes).'"'
+            .' style="position:absolute;left:0.00mm;top:-1.67mm;width:25.00mm;height:33.33mm;object-fit:cover;"></div>',
             $html,
         );
 
@@ -297,10 +303,13 @@ class BadgeRenderServiceTest extends TestCase
             ['field' => 'image', 'x' => 5, 'y' => 130, 'w' => 20, 'h' => 12, 'src' => ['kind' => 'brand', 'ref' => 'logo']],
         ]));
 
-        // Base64 data URI of the brand logo, object-fit defaults to contain.
+        // Base64 data URI of the brand logo, `fit` defaults to contain: the
+        // square 60 × 60 logo lands whole in the 20 × 12 mm box at 12 × 12 mm,
+        // centered on the leftover axis (4.00 mm of empty space per side).
         $this->assertStringContainsString(
             '<div style="position:absolute;left:5.00mm;top:130.00mm;width:20.00mm;height:12.00mm;overflow:hidden;">'
-            .'<img src="data:image/png;base64,'.base64_encode($bytes).'" style="width:100%;height:100%;object-fit:contain;"></div>',
+            .'<img src="data:image/png;base64,'.base64_encode($bytes).'"'
+            .' style="position:absolute;left:4.00mm;top:0.00mm;width:12.00mm;height:12.00mm;object-fit:contain;"></div>',
             $html,
         );
     }
@@ -358,9 +367,13 @@ class BadgeRenderServiceTest extends TestCase
             ['field' => 'image', 'x' => 40, 'y' => 130, 'w' => 15, 'h' => 12, 'src' => ['kind' => 'upload', 'image_id' => $image->id], 'fit' => 'cover'],
         ]));
 
+        // `fit: cover` on a square 60 × 60 source in a 15 × 12 mm box: the box is
+        // filled on the width, the height overhangs to 15 mm and is cropped
+        // 1.50 mm top and bottom. Nothing is letterboxed and nothing is stretched.
         $this->assertStringContainsString(
             '<div style="position:absolute;left:40.00mm;top:130.00mm;width:15.00mm;height:12.00mm;overflow:hidden;">'
-            .'<img src="data:image/png;base64,'.base64_encode($bytes).'" style="width:100%;height:100%;object-fit:cover;"></div>',
+            .'<img src="data:image/png;base64,'.base64_encode($bytes).'"'
+            .' style="position:absolute;left:0.00mm;top:-1.50mm;width:15.00mm;height:15.00mm;object-fit:cover;"></div>',
             $html,
         );
     }
@@ -708,17 +721,21 @@ class BadgeRenderServiceTest extends TestCase
      * distinguishable between two images of identical dimensions (the encoder
      * is deterministic, so two calls with the same colours yield the same file).
      *
+     * `$width`/`$height` default to a SQUARE 60 × 60 source; the `fit` geometry
+     * cases pass a non-square source explicitly (see BadgeImageFitGeometryTest,
+     * which is the spec for those).
+     *
      * @param  array{int, int, int}  $fill
      * @return string the exact PNG bytes written to the private disk
      */
-    private function storeRealPng(string $path, array $fill = [40, 90, 160]): string
+    private function storeRealPng(string $path, array $fill = [40, 90, 160], int $width = 60, int $height = 60): string
     {
-        $image = imagecreatetruecolor(60, 60);
+        $image = imagecreatetruecolor($width, $height);
         $background = imagecolorallocate($image, $fill[0], $fill[1], $fill[2]);
         $accent = imagecolorallocate($image, 230, 200, 150);
 
-        imagefilledrectangle($image, 0, 0, 59, 59, $background);
-        imagefilledellipse($image, 30, 30, 28, 28, $accent);
+        imagefilledrectangle($image, 0, 0, $width - 1, $height - 1, $background);
+        imagefilledellipse($image, intdiv($width, 2), intdiv($height, 2), min(28, $width - 2), min(28, $height - 2), $accent);
 
         ob_start();
         imagepng($image);

@@ -79,7 +79,16 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
   `overflow:hidden`. Ein mehrzeiliger Text in einem zu kleinen Kasten läuft in
   das Feld darunter (gemessen, siehe „Visuelle Verifikation“ unten).
 - **`photo`:** Portrait aus `user.media` (`type = 'portrait'`) auf der `private`-
-  Disk, als Base64-`data:`-URI eingebettet (`object-fit: cover`). **Fehlt das
+  Disk, als Base64-`data:`-URI eingebettet. Die Box wird **nicht gestreckt**:
+  `fit` ist Geometrie, keine Deklaration (dompdf kennt `object-fit` nicht — die
+  Eigenschaft fällt still durch und `width/height: 100 %` bedeutet Stretch).
+  Default ist `cover` (das war die historisch erklärte Absicht), d. h. die Box
+  wird an der begrenzenden Kante gefüllt und die andere Achse **symmetrisch
+  beschnitten** — ein 60 × 80-Porträt in einer 30 × 30-mm-Box ergibt
+  30.00 × 40.00 mm bei 0.00 / −5.00, also 5 mm Beschnitt oben und unten statt
+  Verzerrung. Das ist die einzige Stelle, an der bereits gedruckter Bestand
+  durch die `fit`-Umsetzung (User-Entscheidung 2026-09-28) sein Aussehen ändert.
+  **Fehlt das
   Portrait, druckt die Box das gebündelte Personen-Silhouett** (User-Entscheidung
   2026-09-28) statt nichts — Format, Größe, Alpha-Channel und die selbst
   gerechnete Contain-Geometrie sind in
@@ -87,6 +96,15 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
   **gemessen** begründet. Die leere Box bleibt der letzte Ausweg, wenn
   zusätzlich das gebündelte Asset fehlt (Deploy-Defekt); sie ist damit nicht
   mehr der Normalfall eines Ausweises ohne Bild.
+- **`image` (selbst platziertes Bild, Schema v2):** `fit` steuert dieselbe
+  Geometrie, Default `contain` (Logos werden nicht beschnitten). `contain` legt
+  das Bild vollständig in die Box und zentriert es, `cover` füllt die Box und
+  beschneidet; **beide strecken nie**. Rechenweg, Messwerte am echten Render und
+  die quadratische Entartung (quadratische Quelle in quadratischer Box →
+  `contain` und `cover` identisch) stehen in `badge-template-editor.md` →
+  „Die `fit`-Geometrie rechnet der Renderer selbst"; die Rechnung ist **eine**
+  Funktion für `photo`, Platzhalter und `image`. Ein ungültiges `fit` ist nicht
+  speicherbar (422) und kippt im Renderer nicht still auf einen Default.
 - **`status`:** deutsche Labels — `approved → Akkreditiert`, `requested →
   Beantragt`, `denied → Abgelehnt`, `blacklisted → Gesperrt`.
 

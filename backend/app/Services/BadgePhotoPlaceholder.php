@@ -53,6 +53,17 @@ final class BadgePhotoPlaceholder
      */
     private ?string $base64 = null;
 
+    /**
+     * The raw bytes, resolved once per service instance (see `$base64`). Split
+     * out because `intrinsicSize()` needs the bytes and `dataUri()` needs their
+     * base64 — without the shared cache an export would re-read the file twice
+     * per card.
+     */
+    private ?string $raw = null;
+
+    /** @var array{0: int, 1: int}|null */
+    private ?array $size = null;
+
     private bool $missing = false;
 
     /**
@@ -81,6 +92,10 @@ final class BadgePhotoPlaceholder
      */
     public function bytes(): ?string
     {
+        if ($this->raw !== null) {
+            return $this->raw;
+        }
+
         $path = $this->path();
 
         if (! is_file($path)) {
@@ -97,7 +112,7 @@ final class BadgePhotoPlaceholder
             return null;
         }
 
-        return $bytes;
+        return $this->raw = $bytes;
     }
 
     /**
@@ -118,6 +133,42 @@ final class BadgePhotoPlaceholder
         }
 
         return 'data:'.self::MIME.';base64,'.$this->base64;
+    }
+
+    /**
+     * The asset's intrinsic pixel size as `[width, height]`, measured from the
+     * bundled bytes, or null when the asset is missing or undecodable.
+     *
+     * **Measured, never hardcoded.** The renderer needs the source's aspect
+     * ratio to reproduce `object-fit: contain` in millimetres (dompdf knows no
+     * `object-fit`), and a `512` constant kept in two places would drift the
+     * moment `scripts/render-badge-photo-placeholder.mjs` re-renders the icon
+     * at another size. Reading the header of the file that is actually embedded
+     * keeps that link structural.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    public function intrinsicSize(): ?array
+    {
+        if ($this->size !== null) {
+            return $this->size;
+        }
+
+        $bytes = $this->bytes();
+
+        if ($bytes === null) {
+            return null;
+        }
+
+        // `@`: a header PHP's getimagesize cannot parse must not raise — the
+        // renderer degrades to the plain full-size image and still prints.
+        $size = @getimagesizefromstring($bytes);
+
+        if ($size === false) {
+            return null;
+        }
+
+        return $this->size = [(int) $size[0], (int) $size[1]];
     }
 
     private function reportMissing(string $path): void

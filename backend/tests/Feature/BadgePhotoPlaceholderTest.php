@@ -182,10 +182,13 @@ class BadgePhotoPlaceholderTest extends TestCase
 
         $html = $this->cardHtml(['x' => 8, 'y' => 30, 'w' => 30, 'h' => 30], $application);
 
-        // The portrait is embedded with the historical cover markup.
+        // The portrait is embedded with `cover` geometry (the photo default):
+        // the 60 × 80 portrait fills the square 30 × 30 box and is cropped
+        // 5.00 mm top and bottom rather than stretched — dompdf ignores
+        // `object-fit`, so `cover` is millimetres, not a declaration.
         $this->assertStringContainsString(
             '<img src="data:image/png;base64,'.base64_encode($portraitBytes).'"'
-            .' style="width:100%;height:100%;object-fit:cover;">',
+            .' style="position:absolute;left:0.00mm;top:-5.00mm;width:30.00mm;height:40.00mm;object-fit:cover;">',
             $html,
         );
 

@@ -31,10 +31,21 @@ use Illuminate\Support\Facades\Storage;
  *                 without a portrait the bundled person silhouette
  *                 (`BadgePhotoPlaceholder`) is printed in the same box — see
  *                 features/badge-template-editor.md, "Platzhalter für ein
- *                 fehlendes Porträt"
+ *                 fehlendes Porträt". `fit` defaults to `cover`
  *   status      → human German status label
  *   team        → accreditation.team.name (empty string without a team)
  *   vest_number → user.vest_number (empty string when unset)
+ *
+ * **`fit` is geometry, not a declaration.** dompdf implements no `object-fit`
+ * (measured: a card rendered with `object-fit: contain` and one without it are
+ * byte-identical PDFs — the property falls through the cascade silently), so
+ * `width:100%;height:100%` means STRETCH. Every picture in a badge therefore
+ * gets its drawn rectangle computed in millimetres from the source's intrinsic
+ * aspect ratio — `contain` (fully inside, centered), `cover` (box filled, the
+ * other axis cropped by the box's `overflow:hidden`). One implementation
+ * ({@see fittedImage}) serves the portrait, the placeholder and the `image`
+ * branch; see features/badge-template-editor.md, "Die `fit`-Geometrie rechnet
+ * der Renderer selbst".
  *
  * The verification QR code (PNG, data URI of the verify URL) is part of every
  * card (schema v2, features/badge-template-editor.md): a dedicated `qr`
@@ -49,10 +60,11 @@ use Illuminate\Support\Facades\Storage;
  * server-side from the `src` discriminator:
  * `{kind: brand, ref: logo|header}` → the mandant's brand media, `{kind:
  * upload, image_id: <int>}` → the mandant-scoped `badge_images` row. `fit`
- * defaults to `contain` (logos are untouched); a missing source renders an
- * empty box at the layout position (the card still prints). The upload lookup
- * is mandant-scoped unconditionally and cached per render run, so an export
- * issues O(distinct image ids) queries instead of one per card.
+ * defaults to `contain` (logos are untouched) and selects the mm geometry
+ * described above; a missing source renders an empty box at the layout
+ * position (the card still prints). The upload lookup is mandant-scoped
+ * unconditionally and cached per render run, so an export issues O(distinct
+ * image ids) queries instead of one per card.
  *
  * The verify URL is `{scheme}://{host}/verify/{token}`: `host` is the current
  * mandant's first domain or, without a domain, the host of `config('app.url')`.
@@ -97,9 +109,11 @@ final class BadgeRenderService
      * re-read + re-encoded the file (N×M queries and N×M base64 encodes per
      * export). Keyed by `mandantId:imageId` so a single service instance stays
      * correct when the mandant context changes between renders. Not persisted —
-     * rebuilt per request when Laravel re-resolves the service.
+     * rebuilt per request when Laravel re-resolves the service. The intrinsic
+     * pixel size is cached WITH the URI (same reasoning: it is derived from the
+     * same bytes).
      *
-     * @var array<string, string|null>
+     * @var array<string, array{uri: string, size: array{0: int, 1: int}|null}|null>
      */
     private array $badgeImageCache = [];
 
@@ -279,7 +293,7 @@ final class BadgeRenderService
         );
 
         if ($name === 'photo') {
-            return $this->renderPhoto($style, $application, $wMm, $hMm);
+            return $this->renderPhoto($style, $application, $wMm, $hMm, $this->fitFor($field, 'cover'));
         }
 
         return sprintf('<div style="%s">%s</div>', $style, e((string) ($this->valueFor($application, $name) ?? '')));
@@ -290,32 +304,40 @@ final class BadgeRenderService
      * bundled person silhouette (`BadgePhotoPlaceholder`, features/
      * badge-template-editor.md, "Platzhalter für ein fehlendes Porträt").
      *
-     * The real portrait keeps the historical `100 % × 100 %` markup with
-     * `object-fit: cover`. The placeholder instead gets its **contain geometry
-     * computed in mm**, because dompdf does not implement `object-fit` at all
-     * (measured: a PDF rendered with `object-fit: contain` and one without it are
-     * byte-identical), so the icon would otherwise be stretched into a wide flat
-     * blob in a non-square box. Centering it as a square keeps the printed badge
-     * in step with the editor preview, which honours `object-contain` natively.
+     * Both branches print through {@see fittedImage}, i.e. the `fit` is
+     * GEOMETRY, not a declaration: dompdf does not implement `object-fit` at
+     * all (measured: a PDF rendered with `object-fit: contain` and one without
+     * it are byte-identical), so the property would fall through the cascade
+     * silently and every portrait would be stretched into its box.
      *
      * The box stays in the markup either way — a missing portrait must never
      * remove the reserved space, and if the bundled asset itself is missing the
      * historical empty box is printed (the card always prints).
+     *
+     * `cover` is the default: the historical markup declared `object-fit: cover`
+     * for a real portrait, and a portrait box is authored as a portrait box.
+     * A stored `fit` (the wire format allows one on any entry) overrides it.
      */
-    private function renderPhoto(string $style, Application $application, float $wMm, float $hMm): string
+    private function renderPhoto(string $style, Application $application, float $wMm, float $hMm, string $fit): string
     {
         $portrait = $application->user?->media->firstWhere('type', 'portrait');
 
         if ($portrait !== null && Storage::disk('private')->exists($portrait->path)) {
+            $bytes = (string) Storage::disk('private')->get($portrait->path);
+
             // `e()` hardening: the data URI is base64 today (escape-neutral), but
             // escaping keeps the src attribute safe should the mime/source path
-            // ever change.
-            $dataUri = 'data:'.$portrait->mime.';base64,'.base64_encode((string) Storage::disk('private')->get($portrait->path));
+            // ever change. The bytes are already in hand for the intrinsic size —
+            // measuring them costs no second read of the file.
+            $dataUri = 'data:'.$portrait->mime.';base64,'.base64_encode($bytes);
 
-            return sprintf(
-                '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:cover;"></div>',
-                $style,
-                e($dataUri),
+            return $this->fittedImage(
+                $style.'overflow:hidden;',
+                $dataUri,
+                $this->intrinsicSizeOf($bytes),
+                $wMm,
+                $hMm,
+                $fit,
             );
         }
 
@@ -325,41 +347,149 @@ final class BadgeRenderService
             return sprintf('<div style="%s"></div>', $style);
         }
 
-        return $this->centeredSquareImage($style, $placeholder, $wMm, $hMm);
+        // The silhouette is contained and centered whatever the entry's `fit`
+        // says: it is the answer to "no photo on file", not a placed picture,
+        // and the editor preview renders it with `object-contain` — a cropped
+        // or stretched person icon would disagree with the preview on screen.
+        return $this->fittedImage(
+            $style.'overflow:hidden;',
+            $placeholder,
+            $this->placeholder->intrinsicSize(),
+            $wMm,
+            $hMm,
+            'contain',
+        );
     }
 
     /**
-     * A square image scaled like `object-fit: contain` and centered in its
-     * absolutely positioned mm box — the part of `contain` dompdf would have to
-     * implement for us. `object-fit: contain` stays in the style: it documents the
-     * intent, and on a renderer that honours it the explicit geometry yields the
-     * same result (idempotent, not a second decision).
+     * One image drawn into its mm box the way `object-fit: $fit` would have
+     * drawn it — the part of the property dompdf would have to implement for
+     * us, expressed in millimetres.
      *
-     * A degenerate box (`≤ 0`, only reachable by bypassing the controller's
-     * minimum-size validation) falls back to the plain full-size image.
+     * **This is the only geometry implementation in the file.** The `photo`
+     * branch, the portrait placeholder and the `image` branch all come through
+     * here; a second rule (the placeholder's square-only `min(w, h)`) is
+     * exactly how two implementations of one contract drift apart. The
+     * square placeholder is not a special case of its own here — it is a
+     * square SOURCE fed to the general rule, which is why the two agree
+     * byte-for-byte.
+     *
+     * - `contain`: scale by the SMALLER of the two axis factors, so the whole
+     *   image lands inside the box, centered, and the leftover axis stays empty.
+     * - `cover`: scale by the LARGER, so the box is filled on the binding axis
+     *   and the other axis overhangs — the box's `overflow:hidden` crops it.
+     *
+     * A square source in a square box is the degenerate case in which the two
+     * must agree exactly (both factors are equal, so both draw the box
+     * identically) — the case a wrong implementation hides in, and the one a
+     * test has to pin.
+     *
+     * `object-fit: $fit` stays in the inline style: it documents the intent and
+     * makes the markup idempotent on a renderer that does honour the property.
+     *
+     * A degenerate input — an undecodable source, or a box `≤ 0` (only
+     * reachable by bypassing the controller's minimum-size validation) — falls
+     * back to the plain full-size image. The card must always print, and a
+     * stretched picture beats a missing one.
+     *
+     * @param  string  $style  the box div's style, ending in `;`, with `overflow:hidden` already on it
+     * @param  array{0: int, 1: int}|null  $intrinsic  the source's pixel size, or null when undecodable
      */
-    private function centeredSquareImage(string $style, string $dataUri, float $wMm, float $hMm): string
+    private function fittedImage(string $style, string $dataUri, ?array $intrinsic, float $wMm, float $hMm, string $fit): string
     {
-        $side = min($wMm, $hMm);
+        $geometry = $this->fitGeometry($intrinsic, $wMm, $hMm, $fit);
 
-        if ($side <= 0.0) {
+        if ($geometry === null) {
             return sprintf(
-                '<div style="%soverflow:hidden;"><img src="%s" style="width:100%%;height:100%%;object-fit:contain;"></div>',
+                '<div style="%s"><img src="%s" style="width:100%%;height:100%%;object-fit:%s;"></div>',
                 $style,
                 e($dataUri),
+                $fit,
             );
         }
 
         return sprintf(
-            '<div style="%soverflow:hidden;"><img src="%s" style="position:absolute;left:%smm;top:%smm;'
-            .'width:%smm;height:%smm;object-fit:contain;"></div>',
+            '<div style="%s"><img src="%s" style="position:absolute;left:%smm;top:%smm;'
+            .'width:%smm;height:%smm;object-fit:%s;"></div>',
             $style,
             e($dataUri),
-            $this->mm(($wMm - $side) / 2),
-            $this->mm(($hMm - $side) / 2),
-            $this->mm($side),
-            $this->mm($side),
+            $this->mm($geometry['left']),
+            $this->mm($geometry['top']),
+            $this->mm($geometry['width']),
+            $this->mm($geometry['height']),
+            $fit,
         );
+    }
+
+    /**
+     * The drawn rectangle of a source inside its box, in mm, or null when the
+     * inputs are degenerate (undecodable source or a box `≤ 0`).
+     *
+     * The offset may be NEGATIVE: that is `cover` overhanging its box, which
+     * the box's `overflow:hidden` crops. It is the intended value, not a
+     * rounding artefact.
+     *
+     * @param  array{0: int, 1: int}|null  $intrinsic
+     * @return array{left: float, top: float, width: float, height: float}|null
+     */
+    private function fitGeometry(?array $intrinsic, float $boxW, float $boxH, string $fit): ?array
+    {
+        if ($intrinsic === null || $boxW <= 0.0 || $boxH <= 0.0) {
+            return null;
+        }
+
+        [$sourceW, $sourceH] = $intrinsic;
+
+        if ($sourceW < 1 || $sourceH < 1) {
+            return null;
+        }
+
+        $scaleX = $boxW / $sourceW;
+        $scaleY = $boxH / $sourceH;
+        $scale = $fit === 'cover' ? max($scaleX, $scaleY) : min($scaleX, $scaleY);
+
+        $width = $sourceW * $scale;
+        $height = $sourceH * $scale;
+
+        return [
+            'left' => ($boxW - $width) / 2,
+            'top' => ($boxH - $height) / 2,
+            'width' => $width,
+            'height' => $height,
+        ];
+    }
+
+    /**
+     * The intrinsic `[width, height]` in pixels of an image's raw bytes, or
+     * null when the header cannot be read. `@` because a file whose header
+     * PHP does not know is a rendering detail, not a reason to fail a card.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private function intrinsicSizeOf(string $bytes): ?array
+    {
+        $size = @getimagesizefromstring($bytes);
+
+        return $size === false ? null : [(int) $size[0], (int) $size[1]];
+    }
+
+    /**
+     * The `fit` of one layout entry, normalised to a value the geometry can
+     * apply, or `$default` when the entry carries none.
+     *
+     * An invalid `fit` can never be STORED: `BadgeTemplateController` restricts
+     * `layout.*.fit` to `contain`/`cover` and answers 422. So this is not a
+     * silent fallback for template data — it only keeps a hand-built layout
+     * array (a direct service-level call, a test) from reaching the geometry
+     * with a value it has no branch for.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    private function fitFor(array $entry, string $default): string
+    {
+        $fit = $entry['fit'] ?? null;
+
+        return $fit === 'contain' || $fit === 'cover' ? $fit : $default;
     }
 
     /**
@@ -376,8 +506,9 @@ final class BadgeRenderService
      * - `{kind: upload, image_id: <int>}` → the mandant-scoped `badge_images`
      *   row (empty box when the row/file is gone).
      *
-     * `fit` defaults to `contain` (logos are not cropped); `cover` opts into
-     * the fill-and-crop behaviour.
+     * `fit` defaults to `contain` (logos are not cropped) and is applied as
+     * GEOMETRY, not as a declaration — see {@see fittedImage} for why dompdf
+     * cannot be trusted with `object-fit` and what the mm fallback means.
      *
      * @param  array<string, mixed>  $entry  one validated `image` layout entry
      */
@@ -391,37 +522,44 @@ final class BadgeRenderService
             $this->mm((float) ($entry['h'] ?? 0)),
         );
 
-        $dataUri = $this->resolveImageSource($entry['src'] ?? null);
+        $source = $this->resolveImageSource($entry['src'] ?? null);
 
-        if ($dataUri === null) {
+        if ($source === null) {
             return sprintf('<div style="%s"></div>', $style);
         }
 
-        $fit = ($entry['fit'] ?? null) === 'cover' ? 'cover' : 'contain';
-
-        return sprintf(
-            '<div style="%s"><img src="%s" style="width:100%%;height:100%%;object-fit:%s;"></div>',
+        return $this->fittedImage(
             $style,
-            e($dataUri),
-            $fit,
+            $source['uri'],
+            $source['size'],
+            (float) ($entry['w'] ?? 0),
+            (float) ($entry['h'] ?? 0),
+            $this->fitFor($entry, 'contain'),
         );
     }
 
     /**
-     * Resolve an `image` entry's `src` discriminator to a Base64 data URI from
-     * the public media disk (legacy `private` fallback), or null when the
+     * Resolve an `image` entry's `src` discriminator to an embeddable source
+     * from the public media disk (legacy `private` fallback), or null when the
      * source is absent/invalid. Brand refs resolve through
      * `MandantMediaService`; upload ids resolve against the current mandant's
      * `badge_images` rows only (never a raw path/URL).
      *
+     * The intrinsic pixel size travels WITH the data URI: the `fit` geometry
+     * needs the source's aspect ratio, and the bytes that carry it are already
+     * in hand here — carrying it avoids a second decode of the same payload in
+     * the render step and, more importantly, makes it impossible for the
+     * geometry to be computed against a DIFFERENT image than the one embedded.
+     *
      * The tenancy scope is UNCONDITIONAL in the render path (WP-2-d): without a
      * resolved mandant the entry renders as an empty box. A fail-open filter
-     * (`->when(MandantContext::hasCurrent(), …)`) would drop the filter exactly
+     * (`->when(MantantContext::hasCurrent(), …)`) would drop the filter exactly
      * in the console/test context and embed a foreign mandant's file.
      *
      * @param  mixed  $src  the raw `src` discriminator of an image entry
+     * @return array{uri: string, size: array{0: int, 1: int}|null}|null
      */
-    private function resolveImageSource(mixed $src): ?string
+    private function resolveImageSource(mixed $src): ?array
     {
         if (! is_array($src)) {
             return null;
@@ -448,8 +586,10 @@ final class BadgeRenderService
                 return null;
             }
 
-            return 'data:'.$this->mediaStorage->mimeType($path).';base64,'
-                .base64_encode($this->mediaStorage->get($path));
+            return $this->embeddableSource(
+                $this->mediaStorage->mimeType($path),
+                $this->mediaStorage->get($path),
+            );
         }
 
         if ($kind === 'upload') {
@@ -478,12 +618,14 @@ final class BadgeRenderService
     }
 
     /**
-     * The mandant-scoped `BadgeImage` upload as a Base64 data URI, or null when
-     * the row belongs to another mandant, is gone, or its file is missing. The
-     * `forMandant()` scope is always applied — a foreign id yields null, never a
-     * foreign file.
+     * The mandant-scoped `BadgeImage` upload as an embeddable source, or null
+     * when the row belongs to another mandant, is gone, or its file is missing.
+     * The `forMandant()` scope is always applied — a foreign id yields null,
+     * never a foreign file.
+     *
+     * @return array{uri: string, size: array{0: int, 1: int}|null}|null
      */
-    private function resolveUploadSource(int $imageId, int $mandantId): ?string
+    private function resolveUploadSource(int $imageId, int $mandantId): ?array
     {
         $image = BadgeImage::query()->forMandant($mandantId)->find($imageId);
 
@@ -491,8 +633,22 @@ final class BadgeRenderService
             return null;
         }
 
-        return 'data:'.$image->mime.';base64,'
-            .base64_encode($this->mediaStorage->get($image->path));
+        return $this->embeddableSource($image->mime, $this->mediaStorage->get($image->path));
+    }
+
+    /**
+     * The one place a badge image becomes markup: a Base64 data URI plus the
+     * intrinsic size measured from the very bytes that were encoded, so the
+     * `fit` geometry and the embedded picture can never disagree.
+     *
+     * @return array{uri: string, size: array{0: int, 1: int}|null}
+     */
+    private function embeddableSource(string $mime, string $bytes): array
+    {
+        return [
+            'uri' => 'data:'.$mime.';base64,'.base64_encode($bytes),
+            'size' => $this->intrinsicSizeOf($bytes),
+        ];
     }
 
     /**

@@ -47,8 +47,9 @@ Editor unterstützt neben Datenfeldern auch **selbst platzierte Bilder**
 mit `x/y/w/h` in mm und wählbarer Bildquelle (Upload oder
 Mandant-Brand-Bild). Backend-Infrastruktur (Migration `badge_images` +
 Upload-/Delivery-API), Validierung (`src`-Union + Mandanten-Scoping der
-`image_id`, RV-S2) und Renderer-Zweig (Base64-Embed, `object-fit` contain/
-cover) sind umgesetzt; die Editor-Integration ist in FE2/FE3 mit umgesetzt.
+`image_id`, RV-S2) und Renderer-Zweig (Base64-Embed, `fit`-Geometrie in mm für
+contain/cover) sind umgesetzt; die Editor-Integration ist in FE2/FE3 mit
+umgesetzt.
 Details im Abschnitt „Elementtyp `image`".
 
 ## Ist (verifiziert, Stand dieser Spec)
@@ -56,7 +57,7 @@ Details im Abschnitt „Elementtyp `image`".
 | Baustein | Ort | Ist-Zustand |
 |---|---|---|
 | Schema/Validierung | `Api/Admin/BadgeTemplateController` (`layout`-Rules) | Schema v2: Whitelist inkl. `qr`/`team`/`vest_number`/`image`; A6-Bounds (`x+w ≤ 105`, `y+h ≤ 148`), Mindestgrößen (Text 5×3, Box 10×10 mm), max. ein `qr`-Entry; `image.src` Union-Validierung inkl. Existenz + Mandanten-Scoping der `image_id` (RV-S2) |
-| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, `object-fit: cover`; **ohne Portrait das gebündelte Silhouett**, siehe „Platzhalter für ein fehlendes Porträt"); QR an Entry-Position oder fix unten rechts (Fallback); **`-`Entry** (Base64 aus privater Disk, `object-fit` contain Default/cover, leere Box bei fehlender Quelle) |
+| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, **`fit`-Geometrie in mm, Default `cover`**; **ohne Portrait das gebündelte Silhouett** per `contain`, siehe „Platzhalter für ein fehlendes Porträt"); QR an Entry-Position oder fix unten rechts (Fallback); **`image`-Entry** (Base64 aus privater Disk, **`fit`-Geometrie in mm**, Default `contain`/`cover`, leere Box bei fehlender Quelle) — die mm-Rechnung ist **eine** Funktion für alle drei Zweige, siehe „Die `fit`-Geometrie rechnet der Renderer selbst" |
 | Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
 | API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
 | Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **Vorschau mit Auswahl + Pfeiltasten-Nudge** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die **absoluten** Koordinaten entstehen ausschließlich aus den Panel-Zahleneingaben, der Canvas verschiebt relativ um 1 mm (Shift = 5 mm) und sonst nichts (Maus-Drag, Eckgriffe und magnetische Guides wurden am 2026-09-27 zurückgebaut, das Nudge am selben Tag wiederhergestellt). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
@@ -116,9 +117,11 @@ Migration (`layout` bleibt `json`-Array):
   implementiert**, war hier als „SOLL — noch nicht implementiert" geführt):
   platzierbares Bild (Logo, Vereinswappen, Hintergrund) als eigener Array-Entry
   mit `x/y/w/h` in mm und Pflicht-Quelle `src`; `fit` optional
-  (`contain`/`cover`). `size`/`align` sind erlaubt, aber bedeutungslos
-  (Renderer ignoriert sie, wie bei `qr`). Mehrere `image`-Entries sind erlaubt
-  (Co-Branding); Details im Abschnitt „Elementtyp `image`".
+  (`contain`/`cover`, **wirksam** — steuert die Geometrie in mm, siehe „Die
+  `fit`-Geometrie rechnet der Renderer selbst"). `size`/`align` sind erlaubt,
+  aber bedeutungslos (Renderer ignoriert sie, wie bei `qr`). Mehrere
+  `image`-Entries sind erlaubt (Co-Branding); Details im Abschnitt „Elementtyp
+  `image`".
 - **Koordinaten:** `x/y` = linke obere Ecke in mm von oben links der
   A6-Fläche (105 × 148 mm); `w/h` in mm; `size` in pt; `align` wie Ist.
   Neu: `x + w ≤ 105`, `y + h ≤ 148` wird erzwungen (Ist prüft nur `≥ 0`).
@@ -160,8 +163,8 @@ hier nicht vorgegeben. Bis dahin bleibt `name` das einzige Namens-Feld.
 implementiert.** Eigene Bildelemente ohne Datenfeld-Bezug, identische
 Geometrie-Mechanik wie die Datenfelder. Backend-Infrastruktur (Migration +
 API), Controller-Validierung inkl. Mandanten-Scoping der `image_id` (RV-S2),
-Renderer-Zweig (Base64, `object-fit`) und die Editor-UI (Quellenwahl,
-Upload-Flow) sind umgesetzt.
+Renderer-Zweig (Base64, `fit`-Geometrie in mm) und die Editor-UI (Quellenwahl,
+Upload-Flow, **Fit-Umschalter `Einpassen`/`Füllen`**) sind umgesetzt.
 
 > **⚠️ Einschränkung nach der Korrektur vom 2026-09-27:** Die *Platzierung per
 > Maus* (Drag & Drop auf Bildelemente) ist superseded. Das Element selbst, sein
@@ -217,10 +220,18 @@ Upload-Flow) sind umgesetzt.
 - Absolut positionierter div (`left/top/width/height` in mm) mit
   `overflow:hidden`, darin `<img>` als **Base64-`data:`-URI von der privaten
   Disk** (gleiche Technik wie `photo`/QR — kein Netzzugriff im Renderpfad).
-- **Seitenverhältnis (SOLL-Entscheidung): Default `contain`** — Logos/Wappen
-  dürfen nicht beschnitten werden und werden einpassend skaliert;
-  `"fit": "cover"` ist das Opt-in für füllende Platzierung inkl. Beschnitt
-  (Verhalten wie `photo` mit `object-fit: cover`).
+- **Seitenverhältnis (wirksam seit 2026-09-28, User-Entscheidung): Default
+  `contain`** — Logos/Wappen dürfen nicht beschnitten werden und werden
+  einpassend skaliert; `"fit": "cover"` ist das Opt-in für füllende Platzierung
+  inkl. Beschnitt (wie `photo`, das `cover` als Default hat). Beides ist
+  **Geometrie in mm, keine Deklaration**: `contain` legt das Bild vollständig in
+  die Box (die begrenzende Kante ist Höhe **oder** Breite), zentriert, der Rest
+  bleibt frei; `cover` füllt die Box an der begrenzenden Kante, die andere Achse
+  überragt und wird von `overflow:hidden` beschnitten. Kein Stretch in beiden
+  Richtungen. Rechnung, Messwerte und die quadratische Entartung in „Die
+  `fit`-Geometrie rechnet der Renderer selbst". Ein ungültiges `fit` ist nicht
+  speicherbar (`Rule::in(['contain','cover'])` → 422) und kippt im Renderer
+  **nicht** still auf einen Default.
 - **Fehlende Quelle** (Upload gelöscht, kein Logo hinterlegt) → leere Box an
   der Layout-Position; die Karte druckt trotzdem. Das ist der dokumentierte Weg
   für einen **absichtlich** leeren Kasten — anders als `photo` ohne Portrait, das
@@ -308,7 +319,7 @@ nicht zur Laufzeit. Damit bleibt das akzeptierte Risiko **A4** (AGENTS.md §10)
 unberührt; es entsteht kein npm-Pfad, der untrusted SVG durch einen Sanitizer
 schickt.
 
-### Die Contain-Geometrie rechnet der Fallback selbst (dompdf kann `object-fit` nicht)
+### Die `fit`-Geometrie rechnet der Renderer selbst (dompdf kann `object-fit` nicht)
 
 **Befund:** dompdf implementiert `object-fit` überhaupt nicht. Eine mit
 `object-fit: contain` gerenderte Karte und dieselbe Karte ohne die Deklaration
@@ -316,20 +327,86 @@ sind **byte-identische PDFs** (gemessen: 34 959 Bytes in beiden Fällen) — ein
 `<img>` wird immer auf seine Box gestreckt. Bei einer 25 × 30-mm-Box ergäbe das
 eine breite, flache Silhouette (gemessen: der Kopf wird zum 4:1-Ellipsoid).
 
-Der Fallback rechnet die Geometrie deshalb selbst in mm: Icon quadratisch mit
-Seitenlänge `min(w, h)`, mittig in der Box. `object-fit: contain` bleibt im Style
-stehen — es dokumentiert die Absicht und ist auf einem Renderer, der es
-beherrscht, idempotent. Am **echten** Render gemessen:
+`fit` ist deshalb **Geometrie, keine Deklaration**. `BadgeRenderService` rechnet
+das gezeichnete Rechteck selbst in mm, aus der **intrinsischen** Pixelgröße der
+Quelle (`getimagesizefromstring` auf genau den Bytes, die eingebettet werden) und
+der Box:
 
-| Box | Tinten-Bounding-Box im Render | Vergleich: das Asset selbst |
-|---|---|---|
-| 30 × 30 mm | 161 × 162 px bei (38, 38) → 68.2 % / 16.1 % | 68.2 % / 16.4 % |
-| 25 × 30 mm | **135 × 135** px bei (31, 51) → quadratisch, vertikal zentriert | — |
+```
+scaleX = boxW / sourceW          scaleY = boxH / sourceH
+scale  = contain ? min(scaleX, scaleY) : max(scaleX, scaleY)
+width  = sourceW * scale         height = sourceH * scale
+left   = (boxW - width) / 2      top    = (boxH - height) / 2
+```
 
-Ein Stretch hätte in der 25 × 30-mm-Box 135 × **162** px geliefert. Die Rechnung
-gilt **nur** für den Fallback: der Portrait-Zweig behält sein historisches
-`width/height: 100 %` + `object-fit: cover`-Markup unangetastet (dort ändert sich
-gegenüber dem Bestand nichts).
+`left`/`top` dürfen **negativ** sein — das ist `cover`, das über seine Box
+überragt und von deren `overflow:hidden` beschnitten wird. Kein Beschnitt und
+kein Letterboxing im jeweils anderen Zweig.
+
+**Eine Implementierung, drei Verbraucher.** `photo` (mit Porträt), der
+Platzhalter-Zweig und der `image`-Zweig laufen alle durch `fittedImage()` /
+`fitGeometry()`. Der Platzhalter hat **keine** eigene quadratische Regel mehr:
+eine quadratische Quelle ist nur ein Sonderfall der allgemeinen, und genau
+darum liefert die Konsolidierung **byte-identische** Ausgabe (siehe unten). Zwei
+Geometrien in einer Datei driften — das ist der Grund, aus dem der Fallback
+seine eigene `min(w, h)`-Regel hatte.
+
+`object-fit: <fit>` bleibt im Inline-Style stehen: es dokumentiert die Absicht
+und ist auf einem Renderer, der die Eigenschaft beherrscht, idempotent (keine
+zweite Entscheidung).
+
+**Gemessen am echten Render** (Rasterung bei 300 dpi, rote 60 × 80- bzw.
+60 × 60-Quellen; „Ink" = gemessene Tinten-Bounding-Box, relativ zum Box-Ursprung;
+Rasterisierer-Toleranz ≈ 0,03 mm):
+
+| Quelle | Box | `fit` | Markup (Renderer) | Ink (300 dpi) | Ink-Seitenverhältnis |
+|---|---|---|---|---|---|
+| 60 × 80 | 25 × 30 | `contain` | 1.25 / 0.00 / 22.50 × 30.00 | 1.27 / −0.01 / **22.52 × 29.97** | 0.7514 (Quelle 0.7500) |
+| 60 × 80 | 25 × 30 | `cover` | 0.00 / −1.67 / 25.00 × 33.33 | −0.00 / −0.01 / **24.98 × 30.06** | 0.8310 (Quelle 0.7500) |
+| 60 × 60 | 20 × 12 | `contain` | 4.00 / 0.00 / 12.00 × 12.00 | 3.97 / −0.01 / **12.02 × 12.02** | 1.0000 (Quelle 1.0000) |
+| 60 × 60 | 20 × 12 | `cover` | 0.00 / −4.00 / 20.00 × 20.00 | −0.00 / −0.01 / **19.98 × 12.02** | 1.6620 (Quelle 1.0000) |
+| 60 × 60 | 20 × 20 | `contain` | 0.00 / 0.00 / 20.00 × 20.00 | −0.00 / −0.01 / 19.98 × 19.98 | 1.0000 |
+| 60 × 60 | 20 × 20 | `cover` | 0.00 / 0.00 / 20.00 × 20.00 | −0.00 / −0.01 / 19.98 × 19.98 | 1.0000 |
+| 512 × 512 (Platzhalter) | 25 × 30 | `contain` | 0.00 / 2.50 / 25.00 × 25.00 | −0.00 / 2.53 / **24.98 × 24.98** | 1.0000 |
+
+Drei Dinge sind daran ablesbar und werden von den Tests festgenagelt:
+
+1. **Kein Stretch.** Bei `contain` entspricht das gezeichnete Seitenverhältnis
+   dem der Quelle (0.7514 vs. 0.7500; 1.0000 vs. 1.0000).
+2. **`cover` beschnittet wirklich.** Das Ink-Seitenverhältnis weicht dort vom
+   Quellverhältnis **ab** (0.8310 statt 0.7500; 1.6620 statt 1.0000) und die
+   Tinten-Box füllt die Box exakt (24.98 × 30.06 in 25 × 30) — das ist der
+   Beschnitt durch `overflow:hidden`, kein Skalierungsfehler.
+3. **Quadrat auf Quadrat ist entartet:** bei 60 × 60 in 20 × 20 liefern `contain`
+   und `cover` dasselbe Rechteck (Markup wie Ink) — es gibt nichts zu entscheiden.
+   Genau deshalb hat der Test zusätzlich den Fall „quadratische Quelle in
+   **nicht**quadratischer Box", der die beiden trennen **muss**: allein wäre
+   Fall 3 auch für eine Implementierung grün, die `fit` ignoriert.
+
+**Der Platzhalter bewegt sich nicht.** Das Asset ist 512 × 512 quadratisch, also
+liefert die allgemeine Regel in einer 25 × 30-mm-Box genau die 25 × 25 mm mittig,
+die die frühere `min(w, h)`-Regel lieferte — byte-identisch (der historische
+Beleg: 135 × 135 px statt eines Stretches auf 135 × **162** px; bei 300 dpi
+entspricht das den gemessenen 24.98 mm). Die Konsolidierung hat also keinen
+gedruckten Pixel verschoben; belegt als **Gegenmutation** (alte quadratische
+Regel als zweite Implementierung wiederhergestellt → 45/45 Tests grün) und
+zusätzlich durch `BadgeImageFitGeometryTest::test_the_placeholder_uses_the_same_rule…`.
+
+**Verschiebung des gedruckten Bestands (User-Entscheidung 2026-09-28,
+ausdrücklich in Kauf genommen):** `photo` **mit** Porträt ist von dieser Änderung
+ebenfalls betroffen — es hatte vorher `width/height: 100 %` und wurde damit
+**gestreckt** (dompdf ließ `object-fit: cover` durch). Default dort ist `cover`,
+weil das historische Markup genau das erklärte: ein 60 × 80-Porträt in einer
+30 × 30-mm-Box wird jetzt 30.00 × 40.00 mm bei 0.00 / **−5.00** gezeichnet, also
+5 mm oben und unten beschnitten statt verzerrt. **Kein** Bestand wird leer oder
+druckt nicht mehr (Regressionsrichtung: `photo`/`image` **ohne** `fit`-Key rendert
+unverändert in die Branch-Default und bleibt bedruckt).
+
+**Degradierte Eingaben:** unlesbarer Header oder eine Box `≤ 0` (nur erreichbar,
+indem die Controller-Mindestgröße umgangen wird) fallen auf das historische
+`width:100%;height:100%`-Markup zurück. „Die Karte druckt immer" schlägt „die
+Geometrie stimmt" — ein gestrecktes Bild schlägt ein fehlendes.
+
 
 ### Delivery: auth-gatet, mandantenunabhängig, eine Quelle mit dem PDF
 
@@ -375,11 +452,33 @@ Controller-Validierung, ohne einen einzigen neuen Ausdruck zu gewinnen.
 ### Editor-Vorschau
 
 `BadgeCanvas` rendert in einem `photo`-Kasten
-`<img src={badgePhotoPlaceholderUrl} alt="" class="h-full w-full object-contain">`.
+`<img src={badgePhotoPlaceholderUrl} alt="" className="h-full w-full object-contain">`.
 Der Kasten ist **weiß** — die Karte ist weiß und der Platzhalter wird auf Weiß
 gedruckt; ein andersfarbiger Editor-Hintergrund wäre eine Lüge über den Druck.
 Das Bild ist dekorativ (`alt=""`), weil der Kasten seinen zugänglichen Namen
 schon trägt (`Feld Foto`).
+
+**Die Vorschau rechnet die mm-Geometrie nicht nach — der Browser kann es.** Das
+ist Absicht, nicht Versehen: eine zweite Geometrie-Implementierung in TypeScript
+würde gegen die Renderer-Regel driften, und genau das ist beim Renderer passiert
+(zwei Regeln für dieselbe Sache). Stattdessen wird der Browser mit `object-fit`
+beauftragt, und die Übereinstimmung mit dem Druck entsteht aus zwei
+Voraussetzungen, die `BadgeImageFitAgreement.test.tsx` festnagelt:
+
+1. die Vorschau projiziert dieselben mm auf eine Karte im **A6-Seitenverhältnis**
+   (105 : 148) — das gezeichnete Rechteck hat damit exakt das Verhältnis `w:h`
+   der Druckbox, und damit löst der Browser `object-contain`/`object-cover` auf
+   dieselbe Entscheidung, die `fitGeometry()` in mm trifft;
+2. der `fit`-Wert, auf den der Renderer keyed, kommt unverändert im
+   Wire-Format an — für `image`-Entries mitgeschickt, für `photo`-Entries
+   **weggelassen** (der Editor bietet dort keinen `fit`-Schalter; ein
+   mitgeschicktes `contain` würde beim Speichern unbemerkt von `cover` auf
+   Letterboxing umschalten).
+
+Der Platzhalter ist der Beweis, dass das trägt: quadratische Quelle (512 × 512)
+im quadratischen Default-Portraitkasten (30 × 30 mm) — dort sind `contain` und
+`cover` dieselbe Entscheidung, der Browser kann gar nicht davon abweichen, und
+der Renderer misst dafür 30.00 × 30.00 mm bei 0.00 / 0.00.
 
 **Testfolge (AGENTS.md §3).** PHPUnit: beide Richtungen (kein Portrait → Icon,
 Portrait → **kein** Icon; die zweite ist die, die gern regressiert) plus die
@@ -510,16 +609,20 @@ die zod-Seite erhält die Werte als Props/Konstanten-Export, nicht hart codiert.
   (`?? 0` / Defaults) wie im Ist.
 - **Neue Datenfelder:** Erweiterung des `valueFor`-Match mit null-sicherer
   Auflösung (leerer String statt `null`-Ausgabe, konsistent zu `event`/`date`).
-  Escaping via `e()` bleibt für alle interpolierten Werte Pflicht; der
-  `photo`-Zweig **mit** Portrait (private Disk, Base64, `object-fit: cover`,
-  `width/height: 100 %`) bleibt unangetastet. Neu ist ausschließlich der
-  Fallback-Zweig: ohne Portrait druckt er das gebündelte Silhouett mit selbst
-  gerechneter Contain-Geometrie (siehe „Platzhalter für ein fehlendes
-  Porträt"); fehlt zusätzlich das gebündelte Asset, bleibt es bei der leeren
-  Box, damit ein Export nie an einem Deploy-Defekt stirbt.
+  Escaping via `e()` bleibt für alle interpolierten Werte Pflicht. Der
+  `photo`-Zweig **mit** Portrait (private Disk, Base64) zeichnet seine
+  `fit`-Geometrie in mm, Default `cover` (siehe „Die `fit`-Geometrie rechnet der
+  Renderer selbst") — das war vorher `width/height: 100 %`, also ein Stretch.
+  Der Fallback-Zweig ohne Portrait druckt unverändert das gebündelte
+  Silhouett, ebenfalls über dieselbe Geometrie (siehe „Platzhalter für ein
+  fehlendes Porträt"); fehlt zusätzlich das gebündelte Asset, bleibt es bei der
+  leeren Box, damit ein Export nie an einem Deploy-Defekt stirbt.
 - **`image`-Entry (SOLL):** absolut positionierter, `overflow:hidden`-div mit
-  Base64-`<img>` von der privaten Disk (`object-fit` je `fit`, Default
-  `contain`). Die Quelle wird serverseitig aufgelöst (`brand` →
+  Base64-`<img>` von der privaten Disk. `fit` steuert die **Geometrie**
+  (Default `contain` — Logos werden nicht beschnitten, ein `cover` füllt die Box
+  und beschneidet), keine CSS-Deklaration; die mm-Rechnung und die gemessenen
+  Werte stehen in „Die `fit`-Geometrie rechnet der Renderer selbst". Die Quelle
+  wird serverseitig aufgelöst (`brand` →
   `MandantMediaService`-Pfad des aktuellen Mandanten, `upload` →
   mandantengescopete `badge_images`-Zeile); fehlende Quelle → leere Box (der
   dokumentierte Weg zu einem absichtlich leeren Kasten). Der Mandanten-Scope
@@ -640,11 +743,24 @@ ist im **FE2/FE3-Zyklus** umgesetzt:
   (Bounds, 10×10-Minimum, fehlende/illegale `src`, fremd-mandant `image_id` →
   Reject, mehrere `image`-Entries ok, Alt-Layouts weiterhin valide);
   Upload-API (MIME/Größe/Dimensionen, Mandanten-Isolation, Delete, Delivery
-  auth-gated); `BadgeRenderService` (Position + `object-fit` contain/cover,
+  auth-gated); `BadgeRenderService` (Position + **`fit`-Geometrie in mm**,
+  `contain`/`cover` messbar verschieden, quadratische Entartung identisch,
   Brand-Auflösung logo/header, fehlende Quelle → leere Box, Regression:
-  Alt-Layout rendert unverändert).
+  Alt-Layout rendert unverändert);
+- **`BadgeImageFitGeometryTest`** (neu, 2026-09-28): die `fit`-Geometrie als
+  Spec — `contain` vollständig in der Box und zentriert, `cover` Box gefüllt und
+  symmetrisch beschnitten, beide **messbar verschieden**, quadratische Quelle in
+  quadratischer Box **identisch** plus der Wächter „quadratische Quelle in
+  nichtquadratischer Box trennt sie", Regressionsrichtung `photo`/`image`
+  **ohne** `fit`-Key (nicht leer, druckt), Platzhalter byte-identisch, degradierte
+  Box. Die Nicht-Vakuosität ist per Mutation belegt (siehe dort);
 - Vitest (FE2): zod-Spiegel der `src`-Union + `fit`-Default + Payload-Mapping
   in `badgeTemplateFormUtils.ts`; Defaults der image-Zeile.
+- Vitest: **`BadgeImageFitAgreement.test.tsx`** (neu, 2026-09-28) — Vorschau und
+  Renderer treffen dieselbe Entscheidung: die Vorschau delegiert an
+  `object-contain` (keine mm-Nachrechnung im FE), die projizierte Box behält exakt
+  das Druckverhältnis `w:h`, der `fit`-Wert kommt unverändert ins Wire-Format und
+  wird bei `photo` **nicht** mitgeschickt.
 - Playwright getaggt `{ tag: ['@feature:badge-editor'] }` (+ mind. ein
   weiterer Tag lt. Tag-Policy): Bild platzieren, Quelle wählen, speichern,
   erneut öffnen → persistiert; Upload-Flow Ende-zu-Ende; ungültige/fehlende
