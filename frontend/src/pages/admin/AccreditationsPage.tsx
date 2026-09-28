@@ -291,7 +291,29 @@ export function AccreditationsPage() {
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Event / Team`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Quota`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Verfügbar`)}</th>
-                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Frist`)}</th>
+                                                {/*
+                                                  `whitespace-nowrap` on the date
+                                                  header AND cell. An ISO date has
+                                                  no break opportunity the eye
+                                                  accepts: measured on this page at
+                                                  1920 px, "2026-09-23 – 2026-10-28"
+                                                  wrapped over FIVE lines
+                                                  ("2026-" / "09-" / "23 –" / …),
+                                                  because the only break points
+                                                  are the hyphens. A date that
+                                                  wraps is not a shorter date, it
+                                                  is an unreadable one — and the
+                                                  neighbouring columns already
+                                                  carry `truncate` for the same
+                                                  reason. The column is allowed
+                                                  to be wider than the others;
+                                                  the horizontal scroll is the
+                                                  documented, intended behaviour
+                                                  on these pages.
+                                                */}
+                                                <th className="sticky top-0 z-10 whitespace-nowrap bg-base-100">
+                                                    {i18n._(t`Frist`)}
+                                                </th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
                                             </tr>
@@ -299,8 +321,28 @@ export function AccreditationsPage() {
                                         <tbody>
                                             {pagedAccreditations.map((accreditation) => (
                                                 <tr key={accreditation.id}>
-                                                    <td className="font-medium">{accreditation.category?.name ?? ''}</td>
-                                                    <td>{accreditationScopeLabel(accreditation.scope, i18n)}</td>
+                                                    {/*
+                                                      `min-w-0 max-w-48` + `truncate`
+                                                      + `title`, the pattern the
+                                                      Event/Team cell two columns
+                                                      over already uses. A category
+                                                      is a free-text name, so
+                                                      "E2E Akkreditierung w0-p86470-…"
+                                                      broke mid-token over four
+                                                      lines and dragged the row
+                                                      height with it; the full name
+                                                      stays reachable via `title`
+                                                      and in the cell's text
+                                                      content.
+                                                    */}
+                                                    <td className="min-w-0 max-w-48 font-medium">
+                                                        <span className="block truncate" title={accreditation.category?.name ?? ''}>
+                                                            {accreditation.category?.name ?? ''}
+                                                        </span>
+                                                    </td>
+                                                    <td className="whitespace-nowrap">
+                                                        {accreditationScopeLabel(accreditation.scope, i18n)}
+                                                    </td>
                                                     <td className="min-w-0">
                                                         <div className="flex flex-wrap gap-1">
                                                             {accreditation.event ? (
@@ -333,7 +375,7 @@ export function AccreditationsPage() {
                                                             {accreditation.available}
                                                         </span>
                                                     </td>
-                                                    <td>{formatDeadline(accreditation)}</td>
+                                                    <td className="whitespace-nowrap">{formatDeadline(accreditation)}</td>
                                                     <td>
                                                         {accreditation.active ? (
                                                             <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>

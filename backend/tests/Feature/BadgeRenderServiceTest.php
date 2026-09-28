@@ -80,9 +80,20 @@ class BadgeRenderServiceTest extends TestCase
             $html,
         );
 
+        // The BOX keeps the historical fixed geometry verbatim (right/bottom 5 mm,
+        // 20 × 20 mm). The `<img>` inside it is now drawn in millimetres too — the
+        // P7 `cover` geometry — and for a 20 × 20 mm box holding the square 300 px
+        // QR the drawn rectangle is the whole box, so a square fallback still
+        // prints pixel-identically apart from the `object-fit`/`position`
+        // bookkeeping. `object-fit` stays in the inline style as documentation and
+        // for a renderer that honours it; dompdf does not (see `fittedImage`).
         $this->assertStringContainsString(
-            '<div style="position:absolute;right:5mm;bottom:5mm;width:20mm;height:20mm;">'
+            '<div style="position:absolute;right:5mm;bottom:5mm;width:20mm;height:20mm;overflow:hidden;">'
             .'<img src="data:image/png;base64,',
+            $html,
+        );
+        $this->assertStringContainsString(
+            'style="position:absolute;left:0.00mm;top:0.00mm;width:20.00mm;height:20.00mm;object-fit:cover;"',
             $html,
         );
     }
@@ -123,10 +134,18 @@ class BadgeRenderServiceTest extends TestCase
 
         $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
 
-        // The QR sits at its entry coordinates …
+        // The QR sits at its entry coordinates. The box carries `overflow:hidden`
+        // like every other picture box, and the `<img>` is drawn in millimetres
+        // (P7): a 22 × 22 mm box with the square 300 px QR source is the degenerate
+        // case where `cover` fills the box exactly — see
+        // `test_non_square_qr_box_uses_cover_geometry_and_never_stretches`.
         $this->assertStringContainsString(
-            '<div style="position:absolute;left:78.00mm;top:121.00mm;width:22.00mm;height:22.00mm;">'
+            '<div style="position:absolute;left:78.00mm;top:121.00mm;width:22.00mm;height:22.00mm;overflow:hidden;">'
             .'<img src="data:image/png;base64,',
+            $html,
+        );
+        $this->assertStringContainsString(
+            'style="position:absolute;left:0.00mm;top:0.00mm;width:22.00mm;height:22.00mm;object-fit:cover;"',
             $html,
         );
 
@@ -447,8 +466,110 @@ class BadgeRenderServiceTest extends TestCase
 
         $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
 
-        $this->assertStringNotContainsString('overflow:hidden', $html);
+        // No IMAGE box on the card: the only `overflow:hidden` belongs to the QR,
+        // which is a picture box by contract and has carried one since P7. The
+        // original assertion (`assertStringNotContainsString('overflow:hidden')`)
+        // predates that and would now pass for the wrong reason, so the image
+        // branch's absence is pinned on the `<img>` count instead — the `src`
+        // discriminator is resolved server-side and never reaches the markup, so
+        // exactly ONE image proves only the QR rendered.
         $this->assertSame(1, substr_count($html, '<img'), 'only the QR renders an image');
+        $this->assertSame(1, substr_count($html, 'overflow:hidden'), 'only the QR box clips');
+    }
+
+    /* ---------------------------------------------------------------------
+     | P7 — the QR branch is geometry, like every other picture on the card
+     | ------------------------------------------------------------------- */
+
+    public function test_non_square_qr_box_uses_cover_geometry_and_never_stretches(): void
+    {
+        // A `qr` box is one of the box fields, minimum 10 × 10 mm, so a NON-SQUARE
+        // one is legal tenant input (`w:30, h:20`). Before P7 this branch emitted
+        // `<img style="width:100%;height:100%">`, which dompdf renders as a STRETCH
+        // (it implements no `object-fit`), i.e. a 3:2-distorted code — and a
+        // distorted QR code does not scan, so verification of that badge fails.
+        $template = $this->makeTemplate([
+            ['field' => 'qr', 'x' => 10, 'y' => 20, 'w' => 30, 'h' => 20],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        // The box is the tenant's 30 × 20 mm, unchanged.
+        $this->assertStringContainsString(
+            '<div style="position:absolute;left:10.00mm;top:20.00mm;width:30.00mm;height:20.00mm;overflow:hidden;">',
+            $html,
+        );
+
+        // `cover` on a 300 px SQUARE source in a 30 × 20 box: scale by the larger
+        // axis factor (30/300 = 0.1 vs 20/300 = 0.0667), so the code is drawn
+        // 30 × 30 mm and the box's `overflow:hidden` crops 5 mm top and bottom.
+        // left = (30 - 30) / 2 = 0, top = (20 - 30) / 2 = -5.
+        $this->assertStringContainsString(
+            'style="position:absolute;left:0.00mm;top:-5.00mm;width:30.00mm;height:30.00mm;object-fit:cover;"',
+            $html,
+        );
+
+        // The non-vacuity guard for this whole finding: a STRETCH would be
+        // `width:30.00mm;height:20.00mm`, filling the box edge to edge. Asserting
+        // the exact drawn rectangle is what makes a regression to `100%`/`100%`
+        // (or to `contain`) fail loudly instead of silently shipping a code that
+        // cannot be scanned.
+        $this->assertStringNotContainsString('width:100%;height:100%', $html);
+        $this->assertStringNotContainsString('object-fit:contain', $html);
+    }
+
+    public function test_portrait_qr_box_crops_horizontally_instead_of_stretching(): void
+    {
+        // The transposed case, and the one that proves the geometry is COMPUTED
+        // rather than hard-coded for landscape: a 20 × 30 mm box draws the square
+        // source at 30 × 30 mm with left = (20 - 30) / 2 = -5 and top = 0.
+        $template = $this->makeTemplate([
+            ['field' => 'qr', 'x' => 5, 'y' => 5, 'w' => 20, 'h' => 30],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        $this->assertStringContainsString(
+            'style="position:absolute;left:-5.00mm;top:0.00mm;width:30.00mm;height:30.00mm;object-fit:cover;"',
+            $html,
+        );
+    }
+
+    public function test_square_qr_box_fills_the_box_exactly(): void
+    {
+        // The degenerate case `cover` and `contain` must agree on, pinned because
+        // it is the one a wrong implementation hides in: a square box holding the
+        // square source has equal axis factors, so the drawn rectangle IS the box
+        // (no negative offset, no crop).
+        $template = $this->makeTemplate([
+            ['field' => 'qr', 'x' => 70, 'y' => 110, 'w' => 25, 'h' => 25],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        $this->assertStringContainsString(
+            'style="position:absolute;left:0.00mm;top:0.00mm;width:25.00mm;height:25.00mm;object-fit:cover;"',
+            $html,
+        );
+    }
+
+    public function test_qr_box_ignores_a_fit_key_and_always_prints_cover(): void
+    {
+        // The wire format has no `fit` key for `qr` (the controller validates
+        // `layout.*.fit` only for `image`/`photo` entries). A hand-built layout
+        // that carries one anyway must NOT flip the code to `contain` — a
+        // letterboxed verification code wastes the area the tenant reserved, and
+        // `cover` is the deliberate choice for a code (see `renderQr`).
+        $template = $this->makeTemplate([
+            ['field' => 'qr', 'x' => 10, 'y' => 20, 'w' => 30, 'h' => 20, 'fit' => 'contain'],
+        ]);
+
+        $html = $this->renderer->cardHtml($this->approvedApplication(), $template);
+
+        $this->assertStringContainsString('object-fit:cover', $html);
+        $this->assertStringNotContainsString('object-fit:contain', $html);
+        // `contain` would draw 20 × 20 mm centred; `cover` draws 30 × 30 mm.
+        $this->assertStringContainsString('width:30.00mm;height:30.00mm', $html);
     }
 
     /* ---------------------------------------------------------------------

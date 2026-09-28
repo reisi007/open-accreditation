@@ -1,6 +1,6 @@
 import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import useSWR from 'swr';
 import {
     ApiError,
@@ -34,6 +34,29 @@ function MobileScrollHint() {
             <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
             {i18n._(t`Zum Scrollen wischen`)}
         </p>
+    );
+}
+
+/**
+ * One row's edit/delete pair. Rendered TWICE per row on purpose — once inside
+ * the `Aktionen` cell for `lg` and up, once in a dedicated full-width row below
+ * the data on mobile (P6). Both instances are real buttons with real handlers,
+ * so the accessible names the E2E specs look up are present at every viewport;
+ * exactly one of the two is visible at a time, which keeps the a11y tree free
+ * of duplicate "Bearbeiten" controls.
+ */
+function TemplateRowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+    const { i18n } = useLingui();
+
+    return (
+        <div className="flex gap-2">
+            <button type="button" className="btn btn-sm btn-outline" onClick={onEdit}>
+                {i18n._(t`Bearbeiten`)}
+            </button>
+            <button type="button" className="btn btn-sm btn-error btn-outline" onClick={onDelete}>
+                {i18n._(t`Löschen`)}
+            </button>
+        </div>
     );
 }
 
@@ -169,15 +192,67 @@ export function BadgeTemplatesPage() {
                                             <tr>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Name`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Standard`)}</th>
-                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Felder`)}</th>
-                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
+                                                {/*
+                                                  `whitespace-nowrap` on the header
+                                                  AND the cell: the plural label
+                                                  ("9 Felder") is a badge whose own
+                                                  text wrapped, splitting a
+                                                  two-word count across two lines
+                                                  and misaligning the row. Same
+                                                  reason as the date columns.
+                                                */}
+                                                <th className="sticky top-0 z-10 whitespace-nowrap bg-base-100">
+                                                    {i18n._(t`Felder`)}
+                                                </th>
+                                                {/*
+                                                  P6. The actions column is the
+                                                  ONE column whose loss blocks the
+                                                  page's purpose: the name and the
+                                                  field count are readable without
+                                                  it, but a template that cannot
+                                                  be edited or deleted on a phone
+                                                  cannot be managed there at all.
+
+                                                  `hidden lg:table-cell` on this
+                                                  header plus the cells below
+                                                  removes the column from the
+                                                  horizontally scrolling table on
+                                                  mobile, and the buttons are
+                                                  re-rendered underneath each row
+                                                  (`TemplateRowActions`), which
+                                                  is reachable without any
+                                                  sideways movement. The scroll
+                                                  hint stays for the DATA columns,
+                                                  which are still meant to be
+                                                  swiped.
+                                                */}
+                                                <th className="sticky top-0 z-10 hidden bg-base-100 lg:table-cell">
+                                                    {i18n._(t`Aktionen`)}
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {pagedTemplates.map((template) => {
                                                 const fieldCount = template.layout.length;
                                                 return (
-                                                    <tr key={template.id}>
+                                                    /*
+                                                      A table row cannot host a
+                                                      block below its own cells, so
+                                                      the mobile action row is a
+                                                      SECOND `<tr>` with a single
+                                                      full-width `<td>`. Splitting
+                                                      it out is what keeps the
+                                                      buttons inside the viewport
+                                                      instead of behind the
+                                                      horizontal scroll: a `tr`
+                                                      with `colSpan` occupies the
+                                                      table's full width, and the
+                                                      table itself is only as wide
+                                                      as its remaining data
+                                                      columns at this viewport.
+                                                    */
+                                                    <Fragment key={template.id}>
+                                                    <tr>
                                                         <td className="max-w-56">
                                                             <div className="truncate font-medium" title={template.name}>
                                                                 {template.name}
@@ -190,7 +265,7 @@ export function BadgeTemplatesPage() {
                                                                 <span className="text-base-content/40">—</span>
                                                             )}
                                                         </td>
-                                                        <td>
+                                                        <td className="whitespace-nowrap">
                                                             <span className="badge badge-ghost badge-sm">
                                                                 {i18n._({
                                                                     ...msg`{fieldCount, plural, one {# Feld} other {# Felder}}`,
@@ -198,25 +273,36 @@ export function BadgeTemplatesPage() {
                                                                 })}
                                                             </span>
                                                         </td>
-                                                        <td>
-                                                            <div className="flex gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm btn-outline"
-                                                                    onClick={() => openEdit(template)}
-                                                                >
-                                                                    {i18n._(t`Bearbeiten`)}
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm btn-error btn-outline"
-                                                                    onClick={() => void handleDelete(template)}
-                                                                >
-                                                                    {i18n._(t`Löschen`)}
-                                                                </button>
-                                                            </div>
+                                                        <td className="hidden lg:table-cell">
+                                                            <TemplateRowActions
+                                                                onEdit={() => openEdit(template)}
+                                                                onDelete={() => void handleDelete(template)}
+                                                            />
                                                         </td>
                                                     </tr>
+                                                    <tr className="lg:hidden">
+                                                        {/*
+                                                          `w-full` is the load-bearing
+                                                          class: a `<td>` in a table
+                                                          row is sized by the COLUMN,
+                                                          and a single-cell row still
+                                                          gets the width of the widest
+                                                          column — which is the one
+                                                          that overflows. `w-full`
+                                                          resolves it against the
+                                                          table's own width, so the
+                                                          buttons land inside the
+                                                          viewport instead of behind
+                                                          the horizontal scroll.
+                                                        */}
+                                                        <td className="w-full border-t-0 pb-4">
+                                                            <TemplateRowActions
+                                                                onEdit={() => openEdit(template)}
+                                                                onDelete={() => void handleDelete(template)}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                    </Fragment>
                                                 );
                                             })}
                                         </tbody>

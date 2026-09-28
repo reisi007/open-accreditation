@@ -489,34 +489,69 @@ class BadgeImageFitGeometryTest extends TestCase
      */
     private function drawnRect(string $html): array
     {
+        // The tag now spans box + `<img>`, and the BOX repeats the same four
+        // `left/top/width/height` numbers. The `<img>`'s own values are the
+        // drawn rectangle, so the regex is anchored on `object-fit` — which only
+        // the `<img>` carries — and the numbers are read from the LAST
+        // occurrence, which is the one that follows it.
         $tag = $this->drawnImgTag($html);
 
-        preg_match(
+        preg_match_all(
             '/left:(-?[\d.]+)mm;top:(-?[\d.]+)mm;width:([\d.]+)mm;height:([\d.]+)mm;/',
             $tag,
             $matches,
+            PREG_SET_ORDER,
         );
 
-        $this->assertCount(5, $matches, 'the drawn image carries no millimetre geometry: '.$tag);
+        $this->assertNotEmpty($matches, 'the drawn image carries no millimetre geometry: '.$tag);
+
+        $image = end($matches);
+        $this->assertIsArray($image);
 
         return [
-            'left' => (float) $matches[1],
-            'top' => (float) $matches[2],
-            'width' => (float) $matches[3],
-            'height' => (float) $matches[4],
+            'left' => (float) $image[1],
+            'top' => (float) $image[2],
+            'width' => (float) $image[3],
+            'height' => (float) $image[4],
         ];
     }
 
     /**
      * The single `<img>` the renderer positioned by millimetres — the picture
-     * under test. The QR's own `<img>` is `width:100%;height:100%` and never
-     * matches, so this cannot collide with it.
+     * under test.
+     *
+     * The QR is excluded BY BEING EXCLUDED FROM THE FIXTURE, not by a clever
+     * regex: every template here renders a `photo`/`image` entry only, and
+     * `makeTemplate()` does not add a fallback QR (see
+     * `BadgeRenderServiceTest` for the card WITH a QR). The distinction matters
+     * because P7 moved the QR onto the same mm geometry as every other picture:
+     * before that change the QR's `width:100%;height:100%` was what kept it out
+     * of this regex, and the docblock's claim that it "never matches" would have
+     * become false while still reading as a guarantee.
+     *
+     * `assertCount(1)` is therefore now a real precondition — the card carries
+     * exactly one picture — and not an accident of which branch happened to
+     * render.
      */
     private function drawnImgTag(string $html): string
     {
+        // The picture is located by its BOX, not by the `<img>` alone: the regex
+        // requires the `left/top` box form that every `photo`/`image` entry
+        // uses, and the capture group spans box + image together.
+        //
+        // This is what keeps the QR out, and it is a structural exclusion rather
+        // than a lucky one. `BadgeRenderService::cardHtml` ALWAYS renders a QR —
+        // a layout without a `qr` entry gets the historical bottom-right
+        // fallback, whose box is `right:…;bottom:…` and therefore cannot match.
+        // Since P7 that QR also carries mm geometry, so a regex matching the
+        // `<img>` alone would find two geometries on every card; the old
+        // docblock's claim that the QR "never matches" was true only while the
+        // QR still stretched, and reading as a guarantee it was not.
         preg_match_all(
-            '/<img src="[^"]*" style="position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;'
-            .'width:[\d.]+mm;height:[\d.]+mm;object-fit:(contain|cover);">/',
+            '/<div style="position:absolute;left:-?[\d.]+mm;top:-?[\d.]+mm;width:[\d.]+mm;'
+            .'height:[\d.]+mm;[^"]*overflow:hidden;"><img src="[^"]*" style="position:absolute;'
+            .'left:(-?[\d.]+)mm;top:(-?[\d.]+)mm;width:([\d.]+)mm;height:([\d.]+)mm;'
+            .'object-fit:(contain|cover);">/',
             $html,
             $matches,
         );
@@ -527,8 +562,17 @@ class BadgeImageFitGeometryTest extends TestCase
             .'so the fit was not applied at all. Markup: '.substr($html, 0, 400),
         );
 
-        $this->assertCount(1, $matches[0], 'expected exactly one computed picture geometry on the card');
+        $this->assertCount(
+            1,
+            $matches[0],
+            'expected exactly one computed picture geometry inside a left/top picture box. A second '
+            .'one means a picture beyond the fixture leaked in — the QR shares this geometry since '
+            .'P7 and must stay on its right/bottom fallback box.',
+        );
 
+        // Group 0 is the whole box+image match; the geometry the tests read is
+        // in groups 1–4, so hand back the box+image pair for tag comparison and
+        // let `drawnRect()` parse the numbers out of it.
         return (string) $matches[0][0];
     }
 
@@ -628,6 +672,17 @@ class BadgeImageFitGeometryTest extends TestCase
         ]);
     }
 
+    /**
+     * The card under test, from the given layout.
+     *
+     * It deliberately carries **no** `qr` entry AND no `photo`/`image` entry
+     * beyond the one the caller added, so the card holds exactly one picture.
+     * That is what keeps `drawnImgTag()`'s `assertCount(1)` meaningful: since
+     * P7 the QR shares the same mm geometry as every other picture, so a
+     * fallback QR (which `BadgeRenderService` renders at the historical
+     * bottom-right spot whenever the layout omits a `qr` entry) WOULD match the
+     * regex and turn every case here into a two-geometry card.
+     */
     private function makeTemplate(array $layout): BadgeTemplate
     {
         return BadgeTemplate::create([

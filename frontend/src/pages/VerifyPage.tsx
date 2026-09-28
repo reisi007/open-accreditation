@@ -98,7 +98,23 @@ export function VerifyPage() {
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
                         required
+                        aria-describedby="verify-token-hint"
                     />
+                    {/*
+                      P13. `/verify` is normally reached by SCANNING the code on a
+                      badge, so in that flow the empty field is self-explanatory.
+                      The page is also opened directly — the camera is broken, the
+                      code was copied by hand, a link was truncated in a chat — and
+                      then a bare mandatory input says nothing about where the code
+                      is supposed to come from. One sentence, tied to the input via
+                      `aria-describedby` so it is announced WITH the field instead
+                      of merely printed near it.
+                    */}
+                    <p id="verify-token-hint" className="mt-1 text-sm text-base-content/70">
+                        {i18n._(
+                            t`Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen.`,
+                        )}
+                    </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <button type="submit" className="btn btn-primary" disabled={isLoading}>

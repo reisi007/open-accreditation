@@ -524,6 +524,10 @@ msgstr "Date"
 msgid "Deaktivieren"
 msgstr "Deactivate"
 
+#: src/pages/VerifyPage.tsx
+msgid "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
+msgstr "The code is printed as a QR code on the badge. You can also copy the code from the address of the badge link."
+
 #: src/App.tsx
 msgid "Die angeforderte Seite existiert nicht."
 msgstr "The requested page does not exist."

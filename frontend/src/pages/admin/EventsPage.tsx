@@ -198,8 +198,26 @@ export function EventsPage() {
                                             <tr>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Titel`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Team`)}</th>
-                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Datum`)}</th>
-                                                <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Frist`)}</th>
+                                                {/*
+                                                  `whitespace-nowrap` on both date
+                                                  columns. Same reason as the
+                                                  identical fix in
+                                                  `AccreditationsPage`: an ISO date
+                                                  only breaks at its hyphens, so
+                                                  "2026-11-27" wrapped as
+                                                  "2026-" / "11-27" — a date split
+                                                  into two pieces is no longer a
+                                                  date. The Team cell below
+                                                  already carries
+                                                  `min-w-0 max-w-40` + `truncate`
+                                                  for the same trade.
+                                                */}
+                                                <th className="sticky top-0 z-10 whitespace-nowrap bg-base-100">
+                                                    {i18n._(t`Datum`)}
+                                                </th>
+                                                <th className="sticky top-0 z-10 whitespace-nowrap bg-base-100">
+                                                    {i18n._(t`Frist`)}
+                                                </th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Status`)}</th>
                                                 <th className="sticky top-0 z-10 bg-base-100">{i18n._(t`Aktionen`)}</th>
                                             </tr>
@@ -207,7 +225,24 @@ export function EventsPage() {
                                         <tbody>
                                             {pagedEvents.map((event) => (
                                                 <tr key={event.id}>
-                                                    <td className="font-medium">{event.title}</td>
+                                                    {/*
+                                                      An event title is free text
+                                                      with no natural break
+                                                      opportunity, so it gets the
+                                                      same
+                                                      `min-w-0 max-w-48 truncate
+                                                      title` treatment the Team
+                                                      cell below already uses —
+                                                      long titles otherwise wrapped
+                                                      over three lines and set the
+                                                      row height for the whole
+                                                      table.
+                                                    */}
+                                                    <td className="min-w-0 max-w-48 font-medium">
+                                                        <span className="block truncate" title={event.title}>
+                                                            {event.title}
+                                                        </span>
+                                                    </td>
                                                     <td className="min-w-0">
                                                         {event.team ? (
                                                             <span className="badge badge-outline badge-sm min-w-0 max-w-40">
@@ -217,8 +252,8 @@ export function EventsPage() {
                                                             <span className="badge badge-ghost badge-sm">{i18n._(t`Verbandsebene`)}</span>
                                                         )}
                                                     </td>
-                                                    <td>{event.date ?? ''}</td>
-                                                    <td>{formatDeadline(event)}</td>
+                                                    <td className="whitespace-nowrap">{event.date ?? ''}</td>
+                                                    <td className="whitespace-nowrap">{formatDeadline(event)}</td>
                                                     <td>
                                                         {event.active ? (
                                                             <span className="badge badge-success badge-sm">{i18n._(t`Aktiv`)}</span>

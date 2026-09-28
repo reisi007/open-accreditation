@@ -246,7 +246,19 @@ export function MandantSwitcher() {
             <button
                 ref={triggerRef}
                 type="button"
-                className="btn btn-ghost btn-sm max-w-48 sm:max-w-64 lg:btn-md"
+                // `min-w-0 shrink` + a tighter ceiling below `sm` (128 px instead
+                // of 192 px): this trigger is the widest thing in the header, and
+                // it is the one control with a graceful degradation — its label
+                // spans already carry `truncate`, and the full name stays in
+                // `aria-label` for assistive tech. So when a mandant name is
+                // long it is THIS that yields first, which is what keeps the
+                // language `<select>` (which cannot truncate) intact.
+                // Measured at 480 px: natural 192 px → 128 px, the select stays
+                // at 88.9 px, and a 47-character mandant name now fits the header
+                // with no truncation at all. At `sm` and up the ceiling returns
+                // to 256 px, so desktop and tablet are untouched — this is a
+                // below-`sm` budget decision, not a relabelling of the widget.
+                className="btn btn-ghost btn-sm min-w-0 max-w-32 shrink sm:max-w-64 lg:btn-md"
                 aria-label={currentName === null ? hostName : i18n._(t`Verband: ${currentName} (${hostName})`)}
                 aria-expanded={open}
                 aria-controls={open ? PANEL_ID : undefined}

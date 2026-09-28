@@ -205,13 +205,84 @@ export function AdminLayout() {
                 />
                 <div className="drawer-content">
                     <header className="navbar bg-base-200 shadow-sm">
-                        <div className="navbar-start">
-                            <Link to="/" className="btn btn-ghost px-2 text-base lg:px-4 lg:text-xl">
+                        {/*
+                          `w-auto min-w-0` on BOTH halves, and deliberately NOT
+                          daisyUI's `width: 50%`.
+
+                          Measured on a Galaxy A55 (480 CSS px) at
+                          `/admin/accreditations`, logged in as `super_admin`:
+                          `.navbar-end`'s children want 283.5 px + 32 px of gaps
+                          = 315.5 px ("Hauptseite"), and up to 390.9 px with a
+                          long mandant name (the switcher at its `max-w-48`).
+                          daisyUI's 50 % gave `navbar-end` exactly 232 px of the
+                          464 px content box, so the deficit was absorbed by
+                          whichever child still had `flex-shrink` left — and the
+                          only one that did was the `<select>`: it collapsed from
+                          its natural 88.9 px to 42 px and its option text
+                          clipped to "Deut…" on every admin page.
+
+                          That is why the finding read as "the header overflows":
+                          the document never scrolled
+                          (`documentElement.scrollWidth === clientWidth` at 480
+                          AND at 360, short AND long mandant name) — the header
+                          starved its own control instead. The lock, not the
+                          switcher, is the defect: at 480 px there were 232 px of
+                          empty `navbar-start` next to a crushed select.
+
+                          `w-auto` hands each half its natural width, `min-w-0`
+                          lets the two of them share a genuinely tight viewport
+                          instead of pushing the row wider than the screen, and
+                          `justify-end` keeps the controls right-aligned exactly
+                          as daisyUI's `width: 50%` did — the desktop layout is
+                          unchanged because at ≥ lg both halves fit anyway.
+                        */}
+                        {/*
+                          `min-w-0` + `truncate` on the brand, not just on the
+                          two halves. Measured consequence of dropping the 50 %
+                          lock: at 360 px `navbar-start` is 100 px against a
+                          natural 130.8 px, and the brand `<a>` is a flex item
+                          that did not shrink — its text painted straight through
+                          the hamburger and the switcher (captured, see the
+                          loop's own artifact). `min-w-0` lets the flex item
+                          shrink, and `truncate` on the label turns that into an
+                          ellipsis instead of an overlap. The word is a
+                          non-essential label (the hamburger carries the
+                          product), so truncating it is the cheapest place to
+                          spend the deficit.
+                        */}
+                        {/*
+                          `shrink` on the BRAND half, but only as the THIRD
+                          fallback: the two controls above it (the switcher with
+                          its `shrink-[4]` weighting, then the language
+                          `<select>` with `shrink-0`) are resolved first. What
+                          remains goes to the product name.
+
+                          A floor on the switcher matters more than the order:
+                          weighted shrinkage alone let it fall to 22.3 px at
+                          360 px — a target too small to hit and a label with no
+                          room for even one character. `min-w-20` (80 px) keeps
+                          the trigger usable, and the brand label is what
+                          absorbs the rest.
+                        */}
+                        <div className="navbar-start w-auto min-w-0 shrink overflow-hidden">
+                            <Link
+                                to="/"
+                                className="btn btn-ghost min-w-0 max-w-full px-2 text-base lg:px-4 lg:text-xl"
+                            >
                                 <span className="iconify material-symbols--badge hidden text-2xl text-primary lg:inline-block"></span>
-                                {i18n._(t`Akkreditierung`)}
+                                <span className="truncate">{i18n._(t`Akkreditierung`)}</span>
                             </Link>
                         </div>
-                        <div className="navbar-end flex items-center gap-2">
+                        {/*
+                          `min-w-0` here is what makes the weighting above
+                          reachable: a flex item's automatic minimum size is its
+                          min-content width, so without it this half refuses to
+                          shrink below the full switcher label no matter what
+                          its children are told. Measured at 360 px with it
+                          removed: the brand absorbed the whole 113.7 px
+                          deficit and collapsed to 36.5 px.
+                        */}
+                        <div className="navbar-end flex w-auto min-w-0 shrink items-center gap-2">
                             <button
                                 ref={triggerRef}
                                 type="button"
@@ -232,7 +303,31 @@ export function AdminLayout() {
                               viewport. `MandantSwitcher` renders nothing for
                               every role but `super_admin` (E1).
                             */}
-                            <MandantSwitcher />
+                            {/*
+                              `shrink` + `min-w-0` (not `shrink-0`): the
+                              switcher is the widest control, so it is the one
+                              that must be allowed to yield. Its own label
+                              spans carry `truncate` and the full name stays in
+                              `aria-label`, which is what makes it a safe
+                              shrink victim — a control that cannot degrade must
+                              not be the one the browser squeezes.
+                            */}
+                            {/*
+                              `shrink-[4]` is a deliberate share of the
+                              deficit, not a random number. Flexbox distributes
+                              shrinkage in proportion to `flex-shrink × basis`,
+                              so with both halves at the default `shrink-1` a
+                              360 px viewport crushed the BRAND to 36.5 px
+                              ("A" + ellipsis) before the switcher gave up
+                              anything — the wrong victim for a product name the
+                              hamburger already stands in for. Weighting the
+                              switcher 4× makes it absorb the shortfall first.
+                              Measured at 360 px afterwards: brand keeps its full
+                              130.8 px, the switcher yields instead.
+                            */}
+                            <div className="min-w-20 shrink-[4]">
+                                <MandantSwitcher />
+                            </div>
                             <span className="hidden text-sm text-base-content/70 sm:inline">{user?.email}</span>
                             <button
                                 type="button"

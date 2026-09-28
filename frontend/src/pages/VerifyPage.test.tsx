@@ -81,4 +81,36 @@ describe('VerifyPage', () => {
         await waitFor(() => expect(verifyTokenMock).toHaveBeenCalledWith('token-x'));
         expect(await screen.findByText('Abgelehnt')).toBeInTheDocument();
     });
+
+    // P13: `/verify` opened directly (broken camera, hand-copied code) showed a
+    // bare mandatory input with no hint about where the code comes from.
+    it('explains where the code comes from and ties the hint to the input', () => {
+        renderAt('/verify');
+
+        const input = screen.getByLabelText('Code');
+        const hint = screen.getByText(/Der Code steht als QR-Code auf dem Ausweis/);
+
+        expect(hint).toBeInTheDocument();
+        // `aria-describedby` (not just a nearby <p>): the sentence has to be
+        // announced WITH the field, otherwise a screen-reader user meets the
+        // same bare mandatory input the visual fix was about.
+        expect(input).toHaveAttribute('aria-describedby', hint.id);
+        expect(hint.id).not.toBe('');
+    });
+
+    // Non-vacuity, mutation-verified: breaking the `aria-describedby` link and
+    // removing the sentence each turn this red, so a green run here means the
+    // hint is really wired to the input and not just rendered somewhere.
+    it('has no other element claiming the same description id', () => {
+        renderAt('/verify');
+
+        const input = screen.getByLabelText('Code');
+        const describedBy = input.getAttribute('aria-describedby');
+        expect(describedBy).not.toBeNull();
+        if (describedBy === null) return;
+
+        // `aria-describedby` is an IDREF list: a typo'd id would leave the
+        // sentence unannounced while the attribute still looks correct.
+        expect(document.querySelectorAll(`#${describedBy}`)).toHaveLength(1);
+    });
 });

@@ -57,7 +57,7 @@ Details im Abschnitt „Elementtyp `image`".
 | Baustein | Ort | Ist-Zustand |
 |---|---|---|
 | Schema/Validierung | `Api/Admin/BadgeTemplateController` (`layout`-Rules) | Schema v2: Whitelist inkl. `qr`/`team`/`vest_number`/`image`; A6-Bounds (`x+w ≤ 105`, `y+h ≤ 148`), Mindestgrößen (Text 5×3, Box 10×10 mm), max. ein `qr`-Entry; `image.src` Union-Validierung inkl. Existenz + Mandanten-Scoping der `image_id` (RV-S2) |
-| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, **`fit`-Geometrie in mm, Default `cover`**; **ohne Portrait das gebündelte Silhouett** per `contain`, siehe „Platzhalter für ein fehlendes Porträt"); QR an Entry-Position oder fix unten rechts (Fallback); **`image`-Entry** (Base64 aus privater Disk, **`fit`-Geometrie in mm**, Default `contain`/`cover`, leere Box bei fehlender Quelle) — die mm-Rechnung ist **eine** Funktion für alle drei Zweige, siehe „Die `fit`-Geometrie rechnet der Renderer selbst" |
+| Rendering | `BadgeRenderService` (A6 `105 × 148 mm`, Konstanten) | Absolute `div`s (`left/top/width/height` in mm, `font-size` pt, `text-align`), Werte via `e()` escaped; `photo` special-cased (Base64 aus privater Disk, **`fit`-Geometrie in mm, Default `cover`**; **ohne Portrait das gebündelte Silhouett** per `contain`, siehe „Platzhalter für ein fehlendes Porträt"); **QR an Entry-Position oder fix unten rechts (Fallback), Geometrie hart `cover`** (P7, siehe `features/badges-qr.md`); **`image`-Entry** (Base64 aus privater Disk, **`fit`-Geometrie in mm**, Default `contain`/`cover`, leere Box bei fehlender Quelle) — die mm-Rechnung ist **eine** Funktion für **alle vier** Zweige, siehe „Die `fit`-Geometrie rechnet der Renderer selbst" |
 | Datenmodell | Migrationen `badge_templates` + `badge_images` | `layout` ist Laravel-`json`-Spalte; `badge_images` (id, `mandant_id` FK, `path`, `mime`, `original_name`, timestamps) |
 | API | `BadgeImageController` (`/api/admin/badge-images`) | `GET` (Liste, mandantengescopet), `POST` (Upload: `mimes:jpeg,png,webp\|max:2048` + 2000×2000 px, private Disk `badge-images/{slug}/…`), `DELETE` (nur eigener Mandant), auth-gated Delivery `GET /{id}/file` |
 | Frontend | `BadgeTemplatesPage` → Modal → `BadgeTemplateForm` + `BadgePropertiesPanel` | Palette (10 Typen inkl. `image`) + `BadgePropertiesPanel` mit **Zahleneingaben X/Y/W/H (mm), Schriftgröße, Ausrichtung, Bildquelle (Upload/Brand) + Fit-Umschalter**; `BadgeCanvas` als **Vorschau mit Auswahl + Pfeiltasten-Nudge** über dem **sichtbaren 5-mm-Raster-Overlay** (`backgroundImage`, `CANVAS_GRID_STEP_MM = 5`) — das ist „Raster + konfigurierbare Labels": die **absoluten** Koordinaten entstehen ausschließlich aus den Panel-Zahleneingaben, der Canvas verschiebt relativ um 1 mm (Shift = 5 mm) und sonst nichts (Maus-Drag, Eckgriffe und magnetische Guides wurden am 2026-09-27 zurückgebaut, das Nudge am selben Tag wiederhergestellt). zod-Schema als Factory-Funktion (`badgeTemplateFormUtils.ts`); Frontend-API-Funktionen `listBadgeImages`/`uploadBadgeImage`/`deleteBadgeImage`/`badgeImageFileUrl` an echte Endpoints verdrahtet |
@@ -343,13 +343,25 @@ left   = (boxW - width) / 2      top    = (boxH - height) / 2
 überragt und von deren `overflow:hidden` beschnitten wird. Kein Beschnitt und
 kein Letterboxing im jeweils anderen Zweig.
 
-**Eine Implementierung, drei Verbraucher.** `photo` (mit Porträt), der
-Platzhalter-Zweig und der `image`-Zweig laufen alle durch `fittedImage()` /
-`fitGeometry()`. Der Platzhalter hat **keine** eigene quadratische Regel mehr:
-eine quadratische Quelle ist nur ein Sonderfall der allgemeinen, und genau
-darum liefert die Konsolidierung **byte-identische** Ausgabe (siehe unten). Zwei
-Geometrien in einer Datei driften — das ist der Grund, aus dem der Fallback
-seine eigene `min(w, h)`-Regel hatte.
+**Eine Implementierung, vier Verbraucher.** `photo` (mit Porträt), der
+Platzhalter-Zweig, der `image`-Zweig und der **QR-Zweig** laufen alle durch
+`fittedImage()` / `fitGeometry()`. Der Platzhalter hat **keine** eigene
+quadratische Regel mehr: eine quadratische Quelle ist nur ein Sonderfall der
+allgemeinen, und genau darum liefert die Konsolidierung **byte-identische**
+Ausgabe (siehe unten). Zwei Geometrien in einer Datei driften — das ist der
+Grund, aus dem der Fallback seine eigene `min(w, h)`-Regel hatte.
+
+**Der QR ist der vierte Verbraucher, und er ist hart auf `cover`** (2026-09-28,
+P7). Er war bis dahin die **letzte Ausnahme**: der Zweig rendierte
+`<img style="width:100%;height:100%">` ohne mm-Geometrie, was dompdf als Stretch
+ausführt — bei einem nicht-quadratischen `qr`-Kasten (Minimum 10 × 10 mm, also
+z. B. `w:30, h:20`) wurde der Code in ein 3:2-Rechteck gezogen, und **ein
+gestreckter QR-Code wird nicht gescannt**: die Verifikation dieses Ausweises
+fällt aus. Er trägt **kein** `fit`-Feld im Wire-Format, deshalb ist `cover` fest
+verdrahtet statt ein `fitFor(…, $default)`-Default; ein handgebautes Layout mit
+`fit` darf ihn nicht auf `contain` kippen. Messwerte am echten Render und die
+Begründung für `cover` statt `contain` stehen in `features/badges-qr.md` →
+„Die QR-Geometrie: `cover`, hart kodiert".
 
 `object-fit: <fit>` bleibt im Inline-Style stehen: es dokumentiert die Absicht
 und ist auf einem Renderer, der die Eigenschaft beherrscht, idempotent (keine

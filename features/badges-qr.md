@@ -103,18 +103,63 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
   die quadratische Entartung (quadratische Quelle in quadratischer Box →
   `contain` und `cover` identisch) stehen in `badge-template-editor.md` →
   „Die `fit`-Geometrie rechnet der Renderer selbst"; die Rechnung ist **eine**
-  Funktion für `photo`, Platzhalter und `image`. Ein ungültiges `fit` ist nicht
-  speicherbar (422) und kippt im Renderer nicht still auf einen Default.
+  Funktion für `photo`, Platzhalter, `image` **und den QR-Code** (siehe unten).
+  Ein ungültiges `fit` ist nicht speicherbar (422) und kippt im Renderer nicht
+  still auf einen Default.
 - **`status`:** deutsche Labels — `approved → Akkreditiert`, `requested →
   Beantragt`, `denied → Abgelehnt`, `blacklisted → Gesperrt`.
 
 ### QR-Code (Verify-URL)
 
-Jede Karte trägt **zusätzlich** einen Verifikations-QR-Code an einer
-**festen Position unten rechts** (`right: 5mm; bottom: 5mm; 20 × 20 mm`),
-unabhängig vom `layout` (das Schema adressiert nur die sechs Datenfelder — der
-QR ist ein Standard-Bestandteil der Karte). Rendering via Endroid `QrCode\Builder`
-(`size: 300`, `margin: 0`) als `data:`-URI (PNG).
+Jede Karte trägt **zusätzlich** einen Verifikations-QR-Code. Ohne `qr`-Eintrag
+im `layout` liegt er an der **historischen festen Position unten rechts**
+(`right: 5mm; bottom: 5mm; 20 × 20 mm`), damit Bestandstemplates identisch
+weiterdrucken; mit `qr`-Eintrag positioniert der Eintrag ihn (`left/top/width/
+height` in mm, Minimum 10 × 10 mm, `size`/`align` werden ignoriert). Rendering
+via Endroid `QrCode\Builder` (`size: 300`, `margin: 0`) als `data:`-URI (PNG).
+
+#### Die QR-Geometrie: `cover`, hart kodiert (2026-09-28, P7)
+
+**Der QR-Zweig war die letzte Ausnahme von der `fit`-Regel und ist es nicht
+mehr.** Bis P7 rendierte er `<img style="width:100%;height:100%">` **ohne**
+mm-Geometrie. Da dompdf `object-fit` nicht kennt (gemessen: die Eigenschaft
+kommt in `vendor/dompdf/` mit null Treffern vor und fällt still durch den
+Kaskadenlauf), bedeutete das **STRECK** — und ein nicht-quadratischer `qr`-Kasten
+ist erlaubtes Tenant-Input (Minimum 10 × 10 mm, also z. B. `w:30, h:20`). Ein in
+ein 3:2-Rechteck gezogener Code verliert sein Modul-Seitenverhältnis und **wird
+nicht gescannt**; damit fällt die Verifikation dieses Ausweises aus. Das ist kein
+Kosmetikfehler wie bei einem gestreckten Porträt, sondern ein Ausfall des
+Produkts.
+
+Der Zweig geht jetzt durch **dieselbe** `fittedImage()`-Rechnung wie `photo`,
+Platzhalter und `image` — eine Funktion, vier Zweige. Gemessen am echten Render
+(dompdf → `scripts/pdf-to-png-vision.sh`, 200 dpi; A6 = 827 × 1165 px):
+
+| `qr`-Box | gezeichnetes Rechteck | sichtbarer schwarzer Block | Kontrollrechnung |
+|---|---|---|---|
+| 30 × 20 mm | `left 0.00 / top −5.00 / 30.00 × 30.00 mm` | 233 × 158 px = 29.59 × 20.07 mm | 30 mm × 296/300 (2 px Ruhezone) = 233.1 px ✔ |
+| 20 × 30 mm | `left −5.00 / top 0.00 / 30.00 × 30.00 mm` | — | Gegenprobe: Beschnitt quer statt hoch |
+| 25 × 25 mm | `left 0.00 / top 0.00 / 25.00 × 25.00 mm` | — | Entartung: Box = Quelle |
+
+**`cover`, nicht `contain`** — und der Unterschied ist hier nicht Geschmack:
+`cover` skaliert mit dem grösseren Achsenfaktor, der Code **füllt die Box**, und
+der Beschnitt der zweiten Achse wird von `overflow:hidden` abgeschnitten. Die
+gemessenen Module bleiben quadratisch (233 px entsprechen exakt 30 mm ×
+296/300), nur die Randmodule der gequetschten Achse entfallen. Ein beschnittener
+Code scannt weiter, ein **gestreckter nicht** — und `contain` würde den Code auf
+die kurze Achse schrumpfen lassen und die vom Verband reservierte Fläche
+verschenken. Ein Verifikationscode soll die ihm zugewiesene Box füllen, nicht in
+ihr verschwinden.
+
+Der `qr`-Eintrag trägt **kein** `fit`-Feld (das Wire-Format kennt es für `qr`
+nicht), deshalb ist `cover` hart kodiert und kein `fitFor(…, $default)`-Default.
+Ein handgebautes Layout, das trotzdem ein `fit` mitbringt, darf den Code **nicht**
+auf `contain` kippen — als Regressionstest festgenagelt
+(`test_qr_box_ignores_a_fit_key_and_always_prints_cover`).
+
+Der Docblock von `BadgeRenderService` behauptete bis P7 „**Every** picture in a
+badge therefore gets its drawn rectangle computed in millimetres". Für den QR war
+das **falsch**; er benennt die Ausnahme jetzt explizit, statt sie zu verschweigen.
 
 Die Verify-URL ist `{scheme}://{host}/verify/{token}`:
 - `host` = erste Domain des aktuellen Mandanten (`MandantContext::current()

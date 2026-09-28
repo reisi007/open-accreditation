@@ -43,9 +43,17 @@ use Illuminate\Support\Facades\Storage;
  * gets its drawn rectangle computed in millimetres from the source's intrinsic
  * aspect ratio — `contain` (fully inside, centered), `cover` (box filled, the
  * other axis cropped by the box's `overflow:hidden`). One implementation
- * ({@see fittedImage}) serves the portrait, the placeholder and the `image`
- * branch; see features/badge-template-editor.md, "Die `fit`-Geometrie rechnet
- * der Renderer selbst".
+ * ({@see fittedImage}) serves ALL FOUR picture branches: the portrait, the
+ * placeholder, the free `image` entries and the verification QR; see
+ * features/badge-template-editor.md, "Die `fit`-Geometrie rechnet der Renderer
+ * selbst".
+ *
+ * The QR is the one branch that does not take its `fit` from the layout entry —
+ * the wire format has no `fit` key for `qr` — so it is hard-coded to `cover`
+ * and the paragraph above's "Every picture … from the source's intrinsic aspect
+ * ratio" applies to it too. `cover` rather than `contain` because a verification
+ * code must fill the box the tenant reserved for it: a stretched code does not
+ * scan at all, and a letterboxed one wastes that area. See {@see renderQr}.
  *
  * The verification QR code (PNG, data URI of the verify URL) is part of every
  * card (schema v2, features/badge-template-editor.md): a dedicated `qr`
@@ -88,6 +96,17 @@ final class BadgeRenderService
     public const QR_FALLBACK_MARGIN_MM = 5;
 
     public const QR_FALLBACK_SIZE_MM = 20;
+
+    /**
+     * Edge length in pixels the QR PNG is generated at, and — because the QR
+     * code is square by construction — its intrinsic width AND height. The
+     * builder rounds the requested size up to a whole number of modules, so the
+     * generated PNG is `>=` this on both axes and keeps the module ratio either
+     * way: `fittedImage` only ever uses the aspect ratio of the intrinsic size,
+     * and a square source in a square box is the one case where `cover` and
+     * `contain` must agree exactly.
+     */
+    public const QR_SIZE_PX = 300;
 
     /**
      * In-memory host cache for one render run (FE1-F4). The verify URL's host
@@ -247,27 +266,70 @@ final class BadgeRenderService
      */
     private function renderQr(Application $application, ?array $entry): string
     {
+        [$boxW, $boxH] = $entry === null
+            ? [(float) self::QR_FALLBACK_SIZE_MM, (float) self::QR_FALLBACK_SIZE_MM]
+            : [(float) ($entry['w'] ?? 0), (float) ($entry['h'] ?? 0)];
+
         $style = $entry === null
             ? sprintf(
-                'position:absolute;right:%dmm;bottom:%dmm;width:%dmm;height:%dmm;',
+                'position:absolute;right:%dmm;bottom:%dmm;width:%dmm;height:%dmm;overflow:hidden;',
                 self::QR_FALLBACK_MARGIN_MM,
                 self::QR_FALLBACK_MARGIN_MM,
                 self::QR_FALLBACK_SIZE_MM,
                 self::QR_FALLBACK_SIZE_MM,
             )
             : sprintf(
-                'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;',
+                'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;overflow:hidden;',
                 $this->mm((float) ($entry['x'] ?? 0)),
                 $this->mm((float) ($entry['y'] ?? 0)),
-                $this->mm((float) ($entry['w'] ?? 0)),
-                $this->mm((float) ($entry['h'] ?? 0)),
+                $this->mm($boxW),
+                $this->mm($boxH),
             );
 
-        return sprintf(
-            '<div style="%s"><img src="%s" style="width:100%%;height:100%%;"></div>',
-            $style,
-            $this->qrDataUri($application),
-        );
+        $dataUri = $this->qrDataUri($application);
+
+        /*
+         * P7: the same `fittedImage` rule as every other picture on the card, and
+         * ALWAYS `cover`.
+         *
+         * This branch used to render `<img style="width:100%;height:100%">`, which
+         * is a STRETCH in dompdf (it implements no `object-fit` at all — measured,
+         * the property has zero occurrences in `vendor/dompdf/`). A non-square
+         * `qr` box is legal input: `qr` is one of the box fields, minimum 10 × 10
+         * mm, so a tenant can set `w:30, h:20` and the code was drawn into a 3:2
+         * rectangle. Unlike a stretched portrait that is merely ugly, a stretched
+         * QR code is not SCANNABLE — the finder patterns lose their module ratio,
+         * so verification of that badge silently fails and the badge is the
+         * product.
+         *
+         * `cover` and not `contain`: `cover` scales by the larger axis factor, so
+         * the code fills the box and any surplus is cropped by the box's
+         * `overflow:hidden` — a cropped code still scans (the quiet zone is what
+         * `margin: 0` in `qrDataUri` trades away, and the locator patterns are
+         * kept), while `contain` would letterbox the code inside the box and
+         * waste the tenant's chosen size. A verification code must never be
+         * shrunk away from the area the tenant reserved for it.
+         *
+         * The `qr` entry carries no `fit` key (the wire format does not offer one
+         * for it — `size`/`align` are ignored here for the same reason), so this
+         * is a hard-coded `cover` and not a `fitFor(...)` default.
+         */
+        return $this->fittedImage($style, $dataUri, $this->qrIntrinsicSize(), $boxW, $boxH, 'cover');
+    }
+
+    /**
+     * The QR PNG's intrinsic pixel size.
+     *
+     * The builder is asked for a fixed 300 px square ({@see QR_SIZE_PX}) and the
+     * result is a PNG whose modules are an integer multiple of that, so the size
+     * is a CONSTANT of the code, not a per-render measurement — reading it back
+     * out of the bytes for every card would decode an image header N times per
+     * export for a value that cannot differ. Stated here as the same number the
+     * builder is given, with the coupling called out in the docblock.
+     */
+    private function qrIntrinsicSize(): array
+    {
+        return [self::QR_SIZE_PX, self::QR_SIZE_PX];
     }
 
     /**
@@ -674,7 +736,7 @@ final class BadgeRenderService
 
     private function qrDataUri(Application $application): string
     {
-        $result = (new Builder(data: $this->verifyUrl($application), size: 300, margin: 0))->build();
+        $result = (new Builder(data: $this->verifyUrl($application), size: self::QR_SIZE_PX, margin: 0))->build();
 
         return (string) $result->getDataUri();
     }

@@ -229,6 +229,10 @@ dem Admin einen Mandanten anbieten, der gar nicht der ist, den er bekommt.
 Jede ist eine **Entscheidung**, keine Beobachtung — im Review bitte
 gesondert prüfen.
 
+**Reihenfolge bewusst:** E2a steht **vor** E2, weil es den Befund dokumentiert,
+aus dem E2 entstanden ist — und weil dieser Befund E2 zunächst hätte aufheben
+wollen. E2 selbst ist unverändert und gilt uneingeschränkt.
+
 - **E1 — Sichtbarkeit: nur `super_admin`.** `mandants.manage` ist
   super_admin-only (`backend/config/permissions.php:25-27`, Matrix :69-96), also
   kann nur diese Rolle die Datenquelle `GET /api/admin/mandants` überhaupt
@@ -238,6 +242,45 @@ gesondert prüfen.
   ist für alle anderen schon 403. Begründung: Der sichtbare Ort ist der einzige
   Weg, die Berechtigung ohne Additional-Gate verständlich zu halten; ein
   `mandant_admin`-Dropdown mit nur einem Eintrag wäre Rauschen mit Versprechen.
+
+- **E2a — Der Schalter bleibt im Header, und der Header bekommt dafür den Platz,
+  den er braucht (2026-09-28, P5).** Ergänzung zu E2, **keine Änderung** daran:
+  der Schalter wandert **nicht** in den Drawer.
+
+  **Befund, der zu E2 geführt hätte, war falsch — und die Messung ist es, die
+  E2 rettet.** Der Fund war „Header sprengt den Mobile-Viewport" mit der
+  Rechnung „~528 px auf 360 px". Gemessen im Browser (Chromium, angemeldet als
+  `super_admin`, `/admin/accreditations`, Galaxy-A55-Projektion) ist **kein
+  Viewport überlaufen**: `documentElement.scrollWidth === clientWidth` bei **480
+  px** (der realen Projektion — die PNGs sind 1080 px breit bei `deviceScaleFactor`
+  2,25, also 480 CSS px, nicht 360) **und** bei 360 px, mit kurzem **und** mit
+  47-zeiligem Verbandsnamen. Nichts lag rechts ausserhalb; es gab kein
+  horizontales Scrollen.
+
+  Was tatsächlich kaputt war: daisyUI setzt `.navbar-start`/`.navbar-end` auf
+  `width: 50 %`. `navbar-end` bekam damit **exakt 232 px** eines 464-px-Inhalts-
+  Kastens, während seine Kinder 315,5 px (kurzer Name) bis 390,9 px (langer
+  Name) brauchen. Das Defizit fraß der **einzige** Kindknoten mit
+  `flex-shrink`: das Sprach-`<select>` fiel von **88,9 px auf 42 px** und
+  klemmte seinen eigenen Text auf **„Deut…"** ab — auf allen Admin-Seiten. Der
+  Docblock des Fundes sprach von „abgeschnitten"; richtig war „zerdrückt".
+
+  **Umgesetzt wurde die Kompaktheit, nicht der Umzug:** `w-auto min-w-0` auf
+  beiden Hälften (statt `50 %`), `shrink-0 w-auto` am `<select>` (ein `<select>`
+  kann nicht truncaten — es darf der Browser nicht zerdrücken), `max-w-32` statt
+  `max-w-48` am Trigger **nur unterhalb `sm`** (sein Label truncat bereits und
+  `aria-label` trägt den vollen Namen), plus eine gezielte Flex-Gewichtung
+  (`shrink-[4]`, `min-w-20` am Wrapper), damit bei 360 px der Switcher und nicht
+  die Produktmarke nachgibt. Gemessen nachher: `<select>` **88,9 px, 0 px
+  Beschnitt**, kein Dokument-Überlauf, bei 360 px wie bei 480 px.
+
+  **Warum das E2 nicht bricht:** E2 regelt den **Ort** (Header statt Nav-Liste),
+  und genau der ist unverändert — der Schalter ist weiterhin genau einmal im
+  `navbar-end` instanziiert. Ein Umzug in den Drawer hätte zwei Instanzen
+  erzeugt und E2 damit tatsächlich verletzt; er war nicht nötig, weil der
+  Mangel im **Budget** lag, nicht im Ort. Bei `sm` und aufwärts ist die Breite
+  unverändert (`sm:max-w-64`), die Tabelle `w-auto` ändert auf Desktop nichts,
+  weil beide Hälften dort ohnehin fitten.
 
 - **E2 — Ort: `navbar-end`, vor dem E-Mail-Span.** Nicht in der Nav-Liste.
   Begründung: (a) Die Nav-Liste ist ein `<ul>` mit `<NavLink>`en und wird

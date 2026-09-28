@@ -163,12 +163,28 @@ export function UsersPage() {
                                         <tbody>
                                             {pagedUsers.map((user) => (
                                                 <tr key={user.id}>
-                                                    <td className="max-w-48">
+                                                    <td className="min-w-0 max-w-48">
                                                         <span className="block truncate font-medium" title={user.name}>
                                                             {user.name}
                                                         </span>
                                                     </td>
-                                                    <td className="max-w-72">
+                                                    {/*
+                                                      `max-w-72` → `max-w-48`, plus the
+                                                      `min-w-0` its siblings carry.
+                                                      A seeded address like
+                                                      "approve-1790548254011-7p09eo@example.org"
+                                                      is ~46 characters; at 288 px
+                                                      the cell kept a long visible
+                                                      fragment and still ran past the
+                                                      480 px viewport, so the column
+                                                      forced horizontal scroll for
+                                                      data every other column already
+                                                      truncates. 192 px truncates
+                                                      sooner and keeps the table
+                                                      inside the fold; the full
+                                                      address stays in `title`.
+                                                    */}
+                                                    <td className="min-w-0 max-w-48">
                                                         <span className="block truncate" title={user.email}>
                                                             {user.email}
                                                         </span>
