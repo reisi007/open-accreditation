@@ -96,6 +96,21 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 - Keine `eslint-disable`, `@ts-ignore` oder `any`
 - Keine blinden `.replace()`-Patches (Safe-Patching-Policy, §6)
 
+**3. Das Verfahren tut, was das Dokument verspricht**
+
+- **Ein Vertrag in `AGENTS.md`/`features/` schützt nur, wenn jemand prüft, ob er eingehalten
+  wird.** In einer einzigen Sitzung war das **dreimal** der Fall: §7 versprach Section-Captures,
+  die erst später gebaut wurden — der erste Vision-Loop erzeugte **0 von 60** und sah damit nie
+  unterhalb des Folds; §7 behauptete nach dem D22-Entscheid **das Gegenteil** der gerade
+  getroffenen Entscheidung und argumentierte so scheinbar für die eigene Abschaffung;
+  `features/badges-qr.md` beschrieb einen Prüfvertrag, der nach zwei Korrekturen nicht mehr
+  existierte. **Bei einer Doku, die man selbst schreibt, ist man der schlechteste Leser, den
+  sie haben kann.**
+- **Bevor eine Position als erledigt abgehakt wird:** prüfe sie gegen das, was das Verfahren
+  **tatsächlich erzeugt** — nicht gegen das, was es **verspricht**. Für Code heisst das
+  Mutation, nicht grüne Suite. Für ein Dokument heisst es Diff gegen den Code, nicht gegen die
+  Absicht. Für ein Verdict heisst es die Zahl, die es belegt, nicht der Satz, der es zusammenfasst.
+
 ## 4. Dokumentation & Task-Management
 
 - **`features/`** = **dauerhafter SOLL-Zustand** des Systems. Hier landen nur Architekturentscheidungen,
@@ -247,6 +262,29 @@ Loop (Schritte 1–4):
    betroffenen Routen** (`cd frontend && pnpm test:screenshots -g <routenname>`) → `vision`-Subagent
    vergleicht **old vs new** und bestätigt die Behebung bzw. meldet neue Befunde; gesamten betroffenen
    Batch re-verifizieren, bevor der Loop geschlossen wird.
+
+**Wann ein Verdict dieses Loops überhaupt etwas bedeutet (STRICT).** Drei Voraussetzungen.
+Jede ist aus einem **gemessenen** Versagen entstanden, nicht aus einer Vermutung — und jede ist
+als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harness heute tut:
+
+1. **Die Artefaktmenge ist reproduzierbar.** *Anlass:* drei identische Läufe gegen dieselbe
+   Datenbank ergaben **35 / 45 / 66** Sections, weil die Seeds leaken
+   (`ensurePrimaryMandantAccreditation()` legt pro Aufruf eine Kategorie an, die Seitenhöhen
+   wachsen). Ein Verdict, dessen Umfang von der Datenmenge abhängt, ist ein Verdict **über
+   diesen Lauf**, nicht über das System. **Abnahme:** drei Läufe in Folge ergeben dieselbe
+   Section-Anzahl, und die Bandzahl steht als **Zahl** neben den Bildern — sonst ist ein Batch
+   später nicht mehr nachvollziehbar.
+2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
+   gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
+   gerade neu aufgenommene. **Abnahme:** ein `-g`-Lauf lässt die unbetroffenen Routen
+   **bit-identisch** erhalten **und** legt der betroffenen Route ihr vorheriges Bild als
+   Vergleichsstück bei.
+3. **Der geprüfte Umfang ist der ganze, nicht der sichtbare.** *Anlass:* der erste Vision-Loop
+   dieser Sitzung erzeugte **0 von 60** Section-Captures — er sah nie unterhalb des Folds, und
+   **kein Bericht sagte das**. Sein „APPROVED" galt für den Datenstand, gegen den es lief
+   (210 User, 14 Badge-Templates). **Abnahme:** die Anzahl der Section-PNGs wird **mitgezählt**
+   und im Findings-Report genannt. Ein Batch, dessen Umfang niemand beziffern kann, ist kein
+   Verdict.
 
 **Abgrenzung (STRICT):** Dieser visuelle Loop ist **kein funktionaler Test** — er asserted kein Verhalten,
 sondern erzeugt ausschließlich Pixel zur Design-QA durch den vision-Subagenten. Er gate **nicht** CI oder
