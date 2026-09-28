@@ -21,16 +21,16 @@ features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 
 ## Lokales Setup
 
-Voraussetzungen: PHP 8.5 (z. B. via [Laravel Herd](https://herd.laravel.com)),
+Voraussetzungen: PHP 8.5 (z. B. via Homebrew: `brew install php`),
 Composer, Docker, Node.js + pnpm (`packageManager`-Pin in `frontend/package.json`).
 
-Das Backend ist lokal über **Laravel Herd unter `https://accreditation.test/`**
-erreichbar (Herd als Site auf das `backend/`-Verzeichnis zeigen; `APP_URL` ist
-entsprechend gesetzt). Alternativ läuft es via `php artisan serve` unter
-`http://localhost:8000` (Vite-Proxy in Schritt 3 bleibt gültig).
+Das Backend ist lokal über **`php artisan serve` unter `http://localhost:8000`**
+erreichbar (Vite-Proxy in Schritt 3 bleibt gültig). Alternativ kann es über
+einen Webserver (z. B. Caddy oder Apache) als Site auf das `backend/`-Verzeichnis
+gesetzt werden; `APP_URL` ist entsprechend anzupassen.
 
 Mandanten-Domains (z. B. `bundesliga.test`) werden über den Host aufgelöst —
-die entsprechenden Einträge müssen in `/etc/hosts` bzw. in Herd hinterlegt
+die entsprechenden Einträge müssen in `/etc/hosts` hinterlegt
 werden, sonst 404t die `MandantContext`-Middleware. Der Primary-Mandant
 `main` ist auf `accreditation.test` (+ `www`) und `localhost` gemappt.
 

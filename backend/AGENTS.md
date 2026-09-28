@@ -8,10 +8,9 @@ apply here as well.
 
 ## Commands
 
-Backend tests (PHP via Herd — PATH muss das PHP-Binary enthalten):
+Backend tests (PHP 8.5+ via Homebrew — `php` auf dem PATH):
 
 ```bash
-export PATH="/Users/florianreisinger/Library/Application Support/Herd/bin:$PATH"
 cd backend && php artisan test
 ```
 
