@@ -1,20 +1,18 @@
 # Task Board — open-accreditation
 
-> Stand: 2026-09-27. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
+> Stand: 2026-09-28. **Nur offene TODOs** (aktueller Plan). Architektur-SOLL wandert nach
 > Umsetzung nach `features/`. Referenz: Sportdata „Accreditation Services" + Screenshots des
 > Altsystems (Bundesliga/ÖFB) in `reference/`.
 >
-> **Status (2026-09-27):** P1–P8 umgesetzt und verifiziert. **Aktuell grün:** 1467 PHPUnit
-> (7255 Assertions) + Pint 258, 304 Vitest, Lint + Build clean, E2E `@smoke` in CI gegen den
-> Production-Build (Lauf `36317288916`, alle drei Jobs success). Zuletzt: Whole-Project-Review
-> 2026-09-26 (40 Befunde, davon 1 critical + 1 high, alle behoben), Postgres-Portabilitäts-Gate
-> 5/5 PASS auf echter PG 17.10, `MEDIA_ROOT`-Mount-Guard 7/7, Venue-Stammdaten (W12).
-> **Verbleibend:** Go-Live (~20 Positionen, liegt per Anweisung unten) + der **„Nächster Batch"**
-> weiter oben. Abgeschlossene Phasen stehen nicht mehr hier, sondern in `features/` bzw. in der
-> Git-Historie (§4).
->
-> Test-Regel (DoD): Backend → PHPUnit (SQLite `:memory:`), Allocation-Logik → eigene PHPUnit-Tests,
-> Frontend-Logik → Vitest, UI/Formulare → Playwright-E2E (getaggt).
+> **Status (2026-09-28):** P1–P8 umgesetzt und verifiziert. **Heute gemessen:** `pnpm test:run` **392/392**, `lint` ✅, `build` ✅ (inkl. `check:i18n`, 418 Nachrichten), Screenshot-Harness grün, Bandzahl **24**.
+> 
+> **E2E — zwei vergleichbare Arme:** Parent `b433fd8` **103 passed / 2 failed**, HEAD `263290f` **119 passed / 8 failed**, gleiche Worker, gleiche Fremdlast. **Die 8 sind unentschieden** (Login-Drossel 40/min; die Änderung fügt `loginAdminApi()` pro Test mit Ledger hinzu), und der Messarm **ohne** Fremdlast war unmöglich, weil die Maschine neu gestartet wurde und **Docker's Socket verschwand** — ab da kein E2E- und kein Screenshot-Lauf.
+> 
+> Postgres-Portable-Gate: SQLite **1534 passed / 0 skipped**, PostgreSQL **1533 passed / 1 skipped** — **zuletzt gemessen, heute nicht neu gefahren.**
+> 
+> **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **20 Positionen** (5–24), davon **4 `high`**, die das Besitzmodell blockieren. **Abschluss dieser Session:** unten im Board.
+> 
+> **Archiv entfernt (2026-09-28, auf deine Entscheidung):** die abgeschlossene Session-Historie ist weg — §4 verlangt nur offene Punkte, also den aktuellen Plan. Sie steht im Git: Commit-Range `263290f..<dieser Commit>`, Datei `AGENTS.todo.md`. **Was der Schnitt dabei gerettet hat, steht im Abschluss** — die `Mandant`-Route-Bindung war als offener Punkt in **keiner** Position geführt und ist jetzt `AGENTS.md` §10 **A7**.
 
 ---
 
@@ -41,6 +39,14 @@
 | **14** | **`Google Wallet` (P6)** | — | Externer Schritt: API-Zugang/Issuer-Setup bei Google. Von uns nicht leistbar. |
 | **15** | **F1 (`high`): die Marker-Tabelle kann die Teams nicht zurückholen, die die E2E-Suite wirklich anlegt — und ein Test **bescheinigt** diese Vollständigkeit** (high, 2026-09-28) | S1 | **Verifikatorbefund, blockiert das Verdict.** `admin-data.ts:114` führt `teamNames: ['E2E Heimverein ']`, aber drei Specs erzeugen `E2E Team ${suffix}` (`admin-mandant.spec.ts:24`, `admin-venue.spec.ts:84`) und `E2E Team Kategorie ${suffix}` (`admin-category.spec.ts:17`) — **keiner** trifft zu. **In diesem Repo gerade gemessen: 53 geleakte Team-Zeilen, 0 `E2E Heimverein%`.** Ein Zeilendiff über einen vollen E2E-Lauf zeigt **+1 Team und +1 Venue**: die Venue passt auf `venueNames: ['E2E ']`, aber das geleakte Team referenziert sie noch, das `DELETE` **409t**, `admin-data.ts:1143-1148` **prüft den Status nicht**, und der ganze Purge steckt zusätzlich in `try{…}catch{console.warn}`. **Warum `high` und nicht „vorbestehend":** das Verhalten ist älter — **die Vollständigkeits-Behauptung ist neu**, und die ist der eigentliche Schaden. Der Docblock sagt *„Every spec's marker is listed here, so a new spec that adds a marker cannot silently start leaking rows"* — **messbar falsch.** Und `namespace-isolation.spec.ts` **bescheinigt** die Tabelle und schafft falsche Sicherheit, weil es **nur** review→E2E prüft; die kaputte Richtung, „legt ein Spec einen Namen an, der eingetragen ist?", wird **nirgends** getestet. **Die Reparatur ist nicht „'E2E Team' eintragen"** — das wäre ein Einmal-Pflaster, das wieder verrottet. **Drei Teile:** (1) die fehlenden Namen, (2) **Status des `DELETE` prüfen**, damit ein 409 **laut** ist und das `catch` nicht schluckt, (3) ein Test in der **richtigen** Richtung: jeder Marker, den eine Spec erzeugt, ist eingetragen — sonst bleibt (1) eine Liste, die man von Hand pflegt, und genau das ist die Zusage, die hier eingeführt wurde. **Und sie steht am falschen Ort:** die Kopplung der Bandzahl an Fremddaten ist Position 6, nicht 15. **`[x]` DER BEFUND IST BEHOBEN (2026-09-28), gemessen — aber das Modell ist überholt.** Die unmittelbare Lücke ist zu: **alle 107 Zeilen zurückgeholt** (54 Teams, 53 Venues), danach nach **jedem** vollen E2E-Lauf **0**, zweimal hintereinander gemessen. **Die Bandzahl fiel 51/52 → 24** — weil sie vorher eine fremde Datenmenge gezählt hat. Zwei **Korrekturen am Befund selbst**, beide gemessen: `E2E Team Kategorie ` ist ein **Kategorie**-, kein Teamname (`admin-category.spec.ts:58`), und `venueNames: ['E2E ']` war **nie** falsch — `E2E Heimstadion *` traf zu, der Sweep lief, und der **409 wurde verworfen**. Es fehlte der Team-Marker; **unsichtbar** wurde es durch die fehlende Statusprüfung. **Und der Fix fand den F1-Defekt in sich selbst wieder:** der erste Deckungstest fragte „passt zu *irgendeinem* Marker?" — und blieb **grün mit dem F1-Bug drin**, weil `mandantNames: ['E2E ']` auf **jeden** E2E-Namen passt. Ein Test, der die Lücke bestanden hätte, wäre genau die Zusage, die F1 verursacht hat. Jetzt je **Art** explizit; die Sammel-Marke nur noch, wo die Spalte zu genau **einer** Collection gehört. **`[ ]` ABER: das Modell ist nicht das, das du entschieden hast (D23).** Ein Sweep bleibt ein Sweep — er findet, was übrig ist, nicht was **gehört**. Offen bleibt zusätzlich: ein unter der **falschen Art** eingetragener Marker passiert Deckungswächter **und** Sweep-Tests, weil die Deckungsfrage konstruktionsbedingt art-fremd ist. **DER PORTIERUNGSVERTRAG — aus `portal.reisinger.pictures` gelesen, nicht entworfen.** Dort ist es `E2ESessionHelper` (eine Klasse, Instanz **pro Test** im `beforeEach`), `track*(id)` als Einzeiler (12 Vektoren, ~85 Aufruforten), **automatische** Registrierung in manchen `create*`-Helfern (`push` **unmittelbar** nach dem Create, `:358`), und `teardown()` im `test.afterEach` mit einer **festen Handreihenfolge** über die Entity-Arten. **Der Halbfehlschlag funktioniert dort — aber durch Konvention, nicht durch Erzwingung:** `afterEach` läuft frameworkseitig immer, und die IDs der ersten Fixtures stehen, weil `helper` **vor** dem ersten Create konstruiert wird. Zwei belegte Ausbrüche: `E2ESessionHelper.ts:356-358` wirft, wenn die Antwort ohne `user.id` kommt — **vor** dem `push`, die Zeile existiert serverseitig und ist nie registriert; und `deleteResources` (`:736-746`) verschluckt **jeden** Löschfehler in `console.warn`, also gibt es **keinen** Pfad, auf dem eine fehlgeschlagene Rückräumung einen Lauf rot macht. **Kein Sicherheitsnetz bei abgestürztem Worker** — die Registry ist Arbeitsspeicher, die Genesung ist `migrate:fresh --seed` pro Laufstart. Und der **eine** vorhandene Test (`auth/teardown-integrity.spec.ts`) prüft **eine** Entity-Art, ruft `teardown()` **direkt** und testet den Hook nie. **Was bei uns schon da ist:** `badge-editor.spec.ts:59-84` und `badge.spec.ts:64-85` löschen bereits per **exaktem Namen** in einem Hook **und prüfen den Status** — das Portal-Muster ist an zwei Stellen zu ~80 % da. Sonst räumen **4 von 21** Specs etwas auf, davon 2 per Hook; **~76 erzeugte Objekte** pro Lauf, **12 Entity-Arten** gegen **7** im Sweep. Nicht gesweept: `mandant_domains`, **`users` (es gibt keine DELETE-Route — die Ursache der 620 User)**, `media`, `accreditations`, `sub_accreditations`, `applications`, `blacklists`. **Der eigentliche Aufwand ist nicht der Hook, sondern eine Signaturänderung:** `ensurePrimaryMandantAccreditation` legt **3 Objekte** pro Aufruf an und gibt `categoryName`/`eventTitle` zurück, aber **nicht** `category.id` und **nicht** `event.id` (`:486`) — 12 Kategorien + 12 Events pro Lauf, keines einem Test zuordenbar. Ohne die IDs besitzt der Test nichts. **Drei Stellen weichen wir bewusst vom Portal ab — und jedes Mal, weil das Portal den F1-Defekt hat:** (1) **Fehlschlag bleibt laut** — `console.warn` wird nicht übernommen, das harte Scheitern aus `admin-data.ts:1438-1444` bleibt. (2) **Kein `throw` vor dem `push`** — was registrierbar ist, wird registriert, was nicht, lässt den Test **mit Benennung der Entity** scheitern statt still zu leaken. (3) **Die Konvention wird ein Gate** — im Portal prüft **nichts**, dass eine Spec mit Fixtures auch `afterEach` hat; unsere `namespace-isolation.spec.ts:245` scannt bereits alle Specs, also ist es hier prüfbar und **besser als die Vorlage**. **`[ ]` STAND 2026-09-28, Abend: das Besitzmodell ist umgesetzt (D23), der Wiederherstellungspunkt ist committet (`d63b7b3`), das Verdict steht aus.** `ownership.ts` mit `resetOwnedRows()` im Datei-`beforeEach` und `reclaimOwnedRows()` im `afterEach`; `E2E_OWNED_TEARDOWN` (Plan) und `E2E_OWNED_FK_EDGES` (Constraint-Graph) als **Daten**. Signaturänderung **rein additiv** — kein Aufrufer bricht, die alten Rückgabefelder bleiben, weil der Namens-Sweep sie braucht. **Gemessen:** `user_media` **+4 → 0**, 13 weitere Arten **0 → 0**. Der FK-Ordnungs-Test fand einen **echten Fehler in der Tabelle des Implementierers selbst** — `users.mandant_id` ist `nullOnDelete`, also müssen User **zuerst** gelöscht werden, nicht zuletzt; eine von Hand gepflegte Reihenfolge hätte das nicht gefunden. Der Halbfehlschlag-Nachweis ist belastbar: **Kind-Run ohne `globalTeardown`**, drei Gates statt einem, plus Kontrollzeile — **663 (registriert) weg, 664 (unregistriert) bleibt**. **`[ ]` Zwei Lücken, die offen in das Verdict gehen.** (a) **Die Abnahme ist nicht erfüllt: 24 / 24 / 20 / 24.** `admin-users (filled/desktop)` schwankt **2 ↔ 0** Bänder, **1521 ↔ 950 px** — desktop rendert die Liste **leer**, während mobile sie im selben Lauf **gefüllt** rendert. Das ist nach meiner Analyse **Nichtdeterminismus**, keine Datenmenge: der Datensatz steht **vor** dem Capture, beide Viewports müssen dieselben Daten sehen. (b) **Die volle Suite ist nicht grün gemeldet** (39–40 Fehlschläge, alle 5-Sekunden-Timeouts), begründet mit Last 170–182 durch **Fremd-Agenten** — aber der Implementierer hat selbst **42 Playwright-Läufe** erzeugt, **das Messwerkzeug kann die Last selbst erzeugt haben**. Der Verifikator bekommt beide Fragen ausdrücklich und als **zwei vergleichbare Arme**. **Und nicht besitz-basiert räumbar bleibt:** `users` (**+30/Lauf**, keine DELETE-Route → Position 10), **UI-erzeugte** Zeilen in `admin-venue` und `admin-mandant` (die ID steht in keiner Create-Antwort), `blacklists` in `approvals` (hat **keine Namensspalte** — auch für den seriellen Sweep unerreichbar). |
 | **16** | **F3 (`medium`): der Review löscht das Verbandslogo ohne den Mutex, den jeder E2E-Schreiber nimmt** (medium, 2026-09-28) | S1 | `dataset.ts:369` ruft `resetPrimaryMandantLogo()` **nackt**. `acquirePrimaryMandantLogoLock()` nehmen `admin-mandant.spec.ts:81`, `portal.spec.ts:9` und `global-setup.ts:40` — und es ist **exportiert** (`admin-data.ts:1414`). **Die Review-Seite nimmt es nie.** **Folge:** ein Screenshot-Lauf **gleichzeitig** zu einem E2E-Lauf kann das Logo **im Upload-Fenster** löschen → flaky `portal.spec.ts` („static fallback logo") und/oder Aufnahmen von `admin-mandants`/`admin-media` in einem Zustand, den **kein** Lauf wollte. **Struktureller Befund, nicht reproduzierter Fehlschlag** — der Verifikator hat die beiden Harnesses **nicht** gleichzeitig gefahren, um ihn rot zu machen. **Und die Schranke, die ich in §7 gezogen habe, gilt auch hier:** der Dataset-Lock serialisiert Review-Worker **untereinander**, nie gegen die E2E-Suite. **Und das ist dieselbe Fehlerform wie F1, nur eine Ebene tiefer:** F1 ist ein Purge, der zu wenig weiss, F3 ist ein Schreibvorgang, der nicht weiss, dass jemand anders schreibt. **`[x]` BEHOBEN (2026-09-28).** Der Mutex wird in `purgeReviewFixtures()` genommen. **Wo er gehalten wird — und das ist der Teil, der zählt:** **nicht** der Dataset-Lock, denn der serialisiert Review-Worker **untereinander** und **nie** gegen die E2E-Suite. Die Sperre kommt aus `acquirePrimaryMandantLogoLock()` — der `os.tmpdir()`-Datei mit exklusivem Anlegen, die die E2E-Specs bereits nehmen. **Es ist das einzige Artefakt, das beide Harnesses teilen**, und damit die einzige Sperre, die die Lücke tatsächlich schliesst. Das Schreiben des Guards deckte einen **zweiten** ungesperrten Schreiber auf: der Logo-Reset des Purge selbst — jetzt ebenfalls gesperrt, damit die Regel keine Ausnahme hat. |
+| **17** | **Der Capture hat keine Daten-Postcondition — ein 400-ms-Request wird als gültiges Artefakt gespeichert** (high, 2026-09-28) | S1 | `ui-screenshots.spec.ts:173` via `helpers/session.ts:20-23`. **Der Verifikator hat die Ursache gemessen, nicht die Erklärung übernommen.** `waitForAppSettled` ist `networkidle` + **300 ms**; nach einem Klick ist `networkidle` **schon erfüllt** und kehrt sofort zurück — das 300-ms-Budget ist die **einzige** Reserve, und die Daten kommen nach **102–163 ms**. **Gemessene Reserve: 159–220 ms.** Erzeugt per Verzögerung von `/api/admin/users` um 400 ms, **Dataset unverändert**: `h=950, bands=0`, und der **grüne Lauf** speichert den **Lade-Spinner** unter der Überschrift. **§7 Abnahme 1 ist damit nicht unstabil, sondern unbewacht.** Und **strukturell asymmetrisch:** Desktop navigiert per Klick, Mobile per Dokument-Laden — dieselbe 400-ms-Verzögerung wird dort absorbiert. **Die Behauptung, das seien Daten, ist widerlegt: ein fester Datensatz kann keine 20-zeilige Liste verschwinden lassen.** |
+| **18** | **Ein Tippfehler im Plan schaltet das Ledger für diese Art dauerhaft ab — alle Gates bleiben grün** (high, 2026-09-28) | S1 | `ownership.ts:399`. Der Verifikator hat **ein Zeichen** getippt (`/api/admin/mandants` → `/api/admin/mandat`) und gemessen: **+1 statt +1** … **+2 Leck pro Lauf, `admin-mandant.spec.ts` 3 passed, `namespace-isolation` 29 passed, der Ledger-Walk 3 passed — alles grün.** Ursache ist benannt und **Absicht**: die 404-Toleranz für jede Art („eine Zeile, die ein anderes Netz schon zurückgeholt hat, ist der Zielzustand") — **eine falsche URL ist von einer zurückgeholten Zeile nicht unterscheidbar.** Das ist **die F1-Form, verlagert aus dem Teardown in den Plan**: ein grüner Lauf, der geleckt hat, ist eine Lüge. Geschützt sind nur die fünf Arten, die der Walk erzeugt, plus `venues`. |
+| **19** | **Die Änderung, die D23 einführt, verletzt D23 selbst: +1 Mandant pro grünem Lauf** (high, 2026-09-28) | S1 | `admin-mandant.spec.ts:41` erzeugt Mandant, Domain und Team **über die UI**, registriert **nichts** und löscht nie. Gemessen mit `E2E_PURGE=off`, zweimal hintereinander: `3 passed (grün)`, `mandants 0 → 1 → 2`, **kumulativ, unbegrenzt**. **Das Gate sieht es nicht:** `namespace-isolation.spec.ts:943` markiert eine Spec nur dann als Erzeuger, wenn sie einen gelisteten Fixture-Helper **oder** ein `rememberOwned*` aufruft — und prüft dann **nur**, dass ein Hook existiert, nicht dass er etwas zurückzugeben **hat**. `admin-mandant.spec.ts` gilt als Erzeuger wegen einer **unbeteiligten** Registrierung in `:172`. Die Fehlermeldung des Gates verspricht *„Every row a test creates must be registered"* — **der Check kann das nicht erzwingen.** |
+| **20** | **Ein committetes Werkzeug fährt die Schreibmaschinerie 42× ohne jeden Dev-Stack-Schutz** (high, 2026-09-28) | S1 | `scripts/e2e-per-spec-leaks.mjs:95-118`. Es läuft die volle Schreib-Mechanik **42-mal** (21 Specs × 2 Arme) mit seriellem Purge aus und im Kontrollarm mit Ledger aus — und **erbt `E2E_BASE_URL` unverändert**. **Im ganzen Repo existiert kein Guard**, der prüft, gegen welchen Stack das zielt. Der Verifikator hat den Blast-Radius nur **aus dem Code gelesen** und es ausdrücklich **nicht** demonstriert, indem er das Werkzeug auf einen Nicht-Dev-Origin richtete. Das ist die richtige Entscheidung — und heisst nicht, dass die Lücke weg ist. |
+| **21** | **Ein verklemmter Kind-Lauf überlebt als Waisenkind und schreibt weiter in die DB** (medium, 2026-09-28) | S1 | `ownership.spec.ts:87-90` — `execFileSync` **ohne** `timeout`. Hängt der Kind-Run, stirbt der Elterntest an seinem 300-s-`setTimeout`, **der Kind-Prozess läuft weiter** und schreibt für den Rest der Suite in die Datenbank. **Gut:** `workers: 1`, `fullyParallel: false`, `retries: 0`, `timeout: 60000`, **kein Port**, `maxFailures` und `retries` des Elternlaufs **durchdringen nicht**. |
+| **22** | **Ledger-Hook vorhanden, aber leer — fünf Specs verlassen sich weiter auf den seriellen Sweep** (medium, 2026-09-28) | S1 | `admin-mandant-switch`, `admin-category`, `admin-event`, `admin-venue`, `approvals` erzeugen UI-Zeilen und löschen sie **über die UI selbst**. **Ein Mittelfehlschlag lässt sie dem Sweep** — genau die F1-Form, die das Ledger beenden sollte. Die Grenze ist ehrlich benannt: die ID steht in keiner Create-Antwort. **Behebelbar** über einen Lookup nach exaktem, worker-eindeutigem Namen — was einen Parameter braucht, und der setzt die TS-Parser-Frage aus Position 23 voraus. |
+| **23** | **Der verschachtelte Lauf erbt die ganze `process.env` und damit die Messschalter selbst** (medium, 2026-09-28) | S1 | `ownership.spec.ts:90` reicht `{ ...process.env, CI: '' }` durch — der Kind-Lauf braucht nur `E2E_BASE_URL`. **Strukturell** erreicht `E2E_OWNERSHIP=off` auch das Kind, und dessen Teardown wäre neutriert, wodurch Assertion (3) des Treibers fiele. **Heute nur maskiert**, weil `e2e-per-spec-leaks.mjs:110` den Treiber per `--grep-invert` ausschliesst. **Die Gültigkeit eines Tests hängt damit an einem Schalter, den der Treiber nicht kontrolliert.** |
+| **24** | **Vier `low` Befunde: toter Code mit falschem Deckungs-Zeugnis, ein Plan-Schritt ohne Registrierung, eine Messgrösse, die ein Phantom erzeugt, und eine Aufnahme ohne Zustandszahl** (low, 2026-09-28) | S1 | **Vier `low` aus demselben Verifikatorbericht, zusammen eine Position.** (a) `admin-data.ts:982` — `createBlacklistEntryApi` hat **keinen Aufrufer**, und der Docblock in `namespace-isolation.spec.ts:909` behauptet, es sei abgedeckt, *weil es seine eigene Zeile registriere*: es registriert **nichts**, weil **niemand es aufruft**. Die Behauptung ist **nicht prüfbar, weil der Fall nie eintritt** — und §6 verbietet totes Stehenlassen ohne Begründung. (b) `ownership.ts:134` — der `badgeImages`-Schritt im Plan hat **0 Registrierungen**; der Plan-Walk trifft dafür seinen `else`-Zweig, und `toBeGreaterThanOrEqual(5)` toleriert es. Die Zusage *eine Art im Plan ist ab dem Tag abgedeckt, an dem sie eingetragen wird* ist **für diesen Schritt falsch**. (c) `e2e-per-spec-leaks.mjs:63` — `blacklists` wird als **Tabellengesamtzahl** gemessen; ein handgemachter Eintrag im Messfenster erzeugt ein **Phantom-Delta**. Das Werkzeug hat **keine Endreinigung** und hinterlässt Rückstände, die den `users`-Zähler aufblähen, gegen den der Review gemessen wird. (d) `ui-screenshots.spec.ts:209-217` — die `admin-users`-Seite trägt `entityIds: {}`, weil der Seed Anmeldedaten (Strings) zurückgibt: **keine Zahl sagt dem Review, gegen wie viele Users die Aufnahme gerendert wurde.** Das ist dieselbe Lücke wie Position 17 — ein grünes Artefakt, das nicht behauptet, was es zeigt. |
 ### Nicht in diesem Batch
 - **Go-Live** (~20 Positionen: Pre-Prod-Domain, DNS, Caddy, Secrets, Deploy, Backup,
   Prod-Smoke) — liegt per Anweisung unten.
@@ -154,363 +160,83 @@
 
 ---
 
-## 🛠️ Session 2026-08-19 — CI-E2E-Test-Image `accriditation-e2e` (Portal-Behandlung)
-
-> SOLL-Zustand: `features/05-e2e-test-image.md`. Gleiches Muster wie im Portal
-> (`portal.reisinger.pictures`, `features/infrastructure/28-ci-test-image.md`): Test-Image mit
-> vorinstallierten Playwright-Browsern → E2E-Job läuft komplett im Container.
-
-- [x] `deployment/Dockerfile.e2e` (FROM `accriditation-base:8.5` + Composer/Node v26/pnpm/Playwright-Chromium)
-- [x] `.github/workflows/e2e-image.yml` (Trigger: Dockerfile.e2e + Workflow + `frontend/pnpm-lock.yaml` + weekly + dispatch; Lockfile-basierte Playwright-Versionsextraktion — package.json trägt `^1.61.1`, Lockfile resolvet `1.62.1`)
-- [x] `ci.yml` Job `e2e`: `container:` + `MAILPIT_API_URL` + `.env`-Overrides (postgres/mailpit per Service-Name) + setup-php entfernt + Playwright-Fallback-No-Op
-- [x] Doku `features/05-e2e-test-image.md` + `features/README.md`-Index
-- [x] **Commit 1** (Image + Doku) → Image-Build grün (`efdb27a`)
-- [x] **Commit 2** (ci.yml) → CI komplett grün (`e2c1...`/Effektiv-Commits efdb27a + push ci.yml); E2E-Job läuft nachweislich im Container (Backend ohne setup-php, Browser-Check 1s)
-- [x] **Speedup-Messung (ehrlich):** Job-E2E alt 2m04s → neu 2m11s (**±0**, +7s). Step-Zerlegung: Browser-Install −23s (24s→1s) wird vom Image-Pull +22s (Init-Containers 22s→44s) aufgezehrt. **Kein Wall-Clock-Gewinn in diesem Repo**, da E2E-Suite klein (nur @smoke, serial, 41s) und ubuntu-latest die meisten PW-Deps eh mitbringt. **Gewinn = Determinismus + Prod-Runtime-Parität** (Backend in exakt `accriditation-base:8.5` statt setup-php auf ubuntu) — bewusst behalten, Zahlen in `features/05`.
-
----
-
-## 🔍 Open Follow-ups (verifiziert, aber offen)
-
-> Abgeschlossene Punkte entfernt: P3e-B5, P3b-F2, P2b-F5, P3e-B3, P1c, RV-U3, P5-F3, P6-B2, FE-R3, P3e-B4 (bereits umgesetzt), Vite-Proxy (Middleware), BE-R8 (Doku), P2c-F4 (useAdminTeams `2e35df1`), P4-F4 (QR z-order `431ec99`).
 
 
 ---
 
----
+## 🏁 Abschluss Session 2026-09-28
 
-## 🛠️ Session 2026-08-19b — Follow-up-Fixes (delegiert, wartet auf Verifikation)
+**Verdict: `CHANGES REQUIRED`.** Vier `high`, drei `medium`, vier `low` — Positionen 17–24. Der
+Wiederherstellungspunkt des Besitzmodells liegt auf `d63b7b3`, und **der Stand ist bewusst nicht
+freigegeben**: eine Abnahme war als nicht erfüllt gemeldet, und der Verifikator hat sie **weder
+bestätigt noch entkräftet**, sondern die **Mechanik** bewiesen.
 
-> SOLL: risikoarme Follow-ups aus §Offene Follow-ups abarbeiten (User hat keine Zeit für Go-Live).
-> Kontext: Tippfehler `open-accriditation`→`open-accreditation` bereits bereinigt (siehe unten/`git status`).
-> opencode-DB + aktuelle Session zeigten bereits den korrekten Pfad → kein Eingriff nötig.
+### Der Befund, der die Session zusammenfasst
 
-- [x] **Tippfehler-Repo-Bereinigung** — Source/Config-Strings (`package.json`, `.env`/`.env.example`, `README.md`, `features/README.md`, `scripts/e2e-up.sh`, `AGENTS.md`/`.todo.md`) + `node_modules` via Clean-Reinstall (0 alte Pfade) + stale Blade-Views gecleared. opencode-DB/Session unverändert (schon korrekt). GitHub-Remote `reisi007/open-accreditation` bestätigt (existiert, korrekt benannt, Work gepusht).
-- [x] **E2E-Test-Hygiene (low)** — erledigt + verifiziert (APPROVED). `badge.spec.ts` löscht `E2E Ausweis*`-Template via `afterAll`; `ensurePrimaryMandantActivePortalEvent` self-cleaning; `purgeAllE2EArtifacts` + `globalTeardown` (nur E2E-präfixierte Artefakte, `Hauptseite` nie betroffen). `@feature:badge` E2E grün, Mandanten 36→5, DB sauber; `pnpm build`/`lint:fix` grün.
-- [x] **P4-F3 eigener Limiter (low)** — erledigt + verifiziert (APPROVED). Dedizierter `verify`-Limiter in `AppServiceProvider` (60/min prod, 300/min test, per-IP), `routes/api.php:311` auf `throttle:verify`; `portal`/`accreditations` bleiben `throttle:public`. 17 neue Throttle-Tests, Voll-Suite 678 grün.
-- [x] **P4-F2 Write-on-Read (low)** — erledigt + verifiziert (APPROVED). `QrTokenService::token()` (rein, kein DB-Write) im `AdminApplicationResource`; `make()` persistiert weiterhin (Approval/Resend/Backfill). Neuer idempotenter Command `accreditation:backfill-qr-tokens`. 3 neue Tests (inkl. Regressions-Test: Serialisierung persistiert NICHT), Voll-Suite 678 grün.
+**Ein Tippfehler im Plan schaltet das Ledger für diese Art dauerhaft ab, und alle Gates bleiben
+grün.** Der Verifikator hat **ein Zeichen** getippt (`/api/admin/mandants` → `/api/admin/mandat`)
+und gemessen: **+1 zusätzliche Leckzeile pro Lauf**, `admin-mandant.spec.ts` **3 passed**,
+`namespace-isolation` **29 passed**, der Ledger-Walk **3 passed**. Ursache ist benannt und war
+**Absicht**: die 404-Toleranz für jede Art — eine falsche URL ist von einer bereits zurückgeholten
+Zeile nicht unterscheidbar.
 
----
+Das ist **die F1-Form, verlagert aus dem Teardown in den Plan.** Und es ist dieselbe Form ein
+drittes Mal in dieser Sitzung aufgetaucht, in drei verschiedenen Gestalten: `withCookie()` ohne
+`withCredentials()` (ein Test grün aus dem falschen Grund), `DELETE` ohne Statusprüfung (ein Purge
+ohne Wirkung), jetzt der Plan (ein Ledger ohne Wirkung). **Ein grüner Lauf, der geleckt hat, ist
+eine Lüge** — und gegen die schützt kein Messwert, sondern nur eine Postcondition, die aussprechen
+kann, was fehlt.
 
-## 🔧 Workflow (delegieren + verifizieren)- Build-Agent: nur diese Datei + `AGENTS.md` (+ referenzierte Doku). Kein Produktiv-Code.
-- Jeder TODO-Block → ein Implementer-Subagent (isoliert, präzise Anweisungen + Ziel-Dateien).
-- Jede Umsetzung → ein **separater** Verifikator-Subagent (Tests/Lint/Build, Diff-Review **+ Architektur- und Security-Review** nach `AGENTS.md` §5; `critical`/`high` blockieren APPROVED).
-- Visuelle Checks (Template-Editor, Ausweis-Layout, Screenshot-Abgleiche) → `vision`-Subagent.
+### Und der zweite, der fast unterging
 
-## 📌 Offene Punkte / Risiken
+**Der Capture hatte keine Daten-Postcondition.** Gemessene Reserve: **159–220 ms**. Mit einer
+künstlichen Verzögerung von 400 ms — **Dataset unverändert** — speichert ein **grüner** Lauf den
+**Lade-Spinner** als gültiges Artefakt (`0 Bänder, 950 px`). Der Verifikator hat die Behauptung,
+das seien Daten, **widerlegt**: ein fester Datensatz kann keine 20-zeilige Liste verschwinden
+lassen. **§7 Abnahme 1 war nicht unstabil, sondern unbewacht** — und die Begründung war nicht
+falsch, nur unvollständig: Last ist der **Auslöser**, nicht die **Ursache**.
 
-- [x] Repo-Tippfehler `open-accriditation` → `open-accreditation` bereinigt.
-- [x] Postgres-Schema vs. SQLite-Tests: Portabilitätsregel §2 durchgesetzt (keine PG-spezifischen Features in Migrationen/Queries; SQLite-Testsuite läuft).
-- [x] Feld-Editor-Umfang — **geklärt 2026-09-27** (war fälschlich als „User-Input nötig" offen):
-  Es gilt **Raster + konfigurierbare Labels**, **nicht** „voll frei positionierbar per Drag&Drop".
-  ⚠️ **`features/badge-template-editor.md:7` widerspricht dem und zitiert die alte Entscheidung
-  als Anlass** — das Dokument ist damit **veraltete SOLL** (§4), und die FE1–FE4-Commits wurden
-  auf der alten Annahme gebaut. Korrektur + Umbau sind Positionen 3 und 4 im „Nächster Batch".
-- [ ] Google-Wallet: API-Zugang/Issuer-Setup erforderlich (externer Schritt, P6)
+### Was entschieden und festgeschrieben wurde
 
----
+- **D23 — E2E-Fixture-Besitz:** jeder Test registriert, was er angelegt hat, und löscht es selbst, auch wenn er halb scheitert. Ein Sweep über Namensmarker ist Übergang, nie Modell.
+- **Drei bewusste Abweichungen vom Portal** (`portal.reisinger.pictures`): dessen `deleteResources` verschluckt jeden Fehler in `console.warn` — **das ist F1 in der Vorlage**; dessen `throw` **vor** dem `push` lässt Zeilen unregistriert; und **nichts** prüft dort, dass eine Spec mit Fixtures auch `afterEach` hat — bei uns scannt `namespace-isolation.spec.ts` bereits alle Specs.
+- **F1 behoben, gemessen:** 107 Zeilen zurückgeholt (54 Teams, 53 Venues), danach nach jedem vollen E2E-Lauf **0**. Die **Bandzahl fiel 51/52 → 24**, weil sie vorher eine fremde Datenmenge zählte.
+- **§7 Fixture-Besitz**, **§5(4)** (ein Verifikator darf uncommittete Arbeit nicht zerstören), **§10 A5/A6/A7**.
+- **Die Board-Tabelle war von mir selbst zerschossen** — ich hatte mehrzeiligen Text in Markdown-Tabellenzeilen eingesetzt. Inhaltlich geprüft (59185 Zeichen normalisiert, `Inhalt identisch: True`), aber die Prüfung, die mich darauf aufmerksam machte, suchte zuerst zweimal nach dem **falschen** Muster und meldete „FEHLT", während alles korrekt drinstand.
 
-## 🔍 Whole-Repo Code Review — 2026-08-20 (STATUS)
+### Was der Board jetzt nicht mehr enthält — §4-Schnitt
 
-> **Methode:** 3 Review-Subagenten (Backend / Frontend / Cross-Cutting) + Backend-Tests (678 grün) +
-> Frontend (lint/build/124 vitest grün). **User-Regel:** „akzeptiert/info" ≠ akzeptiert → separat re-assessed.
-> Fixes delegiert (parallel, unabhängig von Severity). Build-Agent orchestriert nur (AGENTS.md §5).
-> **Hinweis:** Diese Sektion wurde durch den Tree-Churn (Branch-Switches/Resets der Parallel-Agenten)
-> einmal verworfen → daher direkt auf `master` geschrieben (nicht auf einem Fix-Branch).
+Auf deine Entscheidung hin ist die abgeschlossene Session-Historie entfernt; §4 verlangt **„nur
+die offene Punkte (aktueller Plan)"**. Entfallen sind die Abschnitte **Session 2026-08-19**,
+**Session 2026-08-19b**, der Inhalt von **„Open Follow-ups (verifiziert, aber offen)"** (leer),
+**Workflow (delegieren + verifizieren)** (duziert `AGENTS.md` §5), **Offene Punkte / Risiken**
+(alle Punkte `[x]`, der eine offene — Google Wallet — ist Position 14), **Whole-Repo Code Review
+2026-08-20**, **Dependency-Update 2026-08-23**, **Session 2026-08-25** und **-08-25b**,
+**Full-Repo-Review 2026-08-26**, **PDF-visuelle-Verifikation**, **Session 2026-09-19** und
+**Whole-Project Code Review 2026-09-26**. **Alles davon liegt im Git** — Commit-Range
+`263290f..<dieser Commit>`, Datei `AGENTS.todo.md`.
 
-### Gesundheit
-- Backend `php artisan test`: **683 grün (4407 assertions)** — konsolidiert auf `master` (678 Baseline + BE-R3 2 + BE-R2 3 neue Tests). BE-R2-Refactor sauber abgeschlossen (`Event.php` Import behoben).
-- Frontend `lint:fix`/`build`/124 vitest: **grün** — FE-R1 (Pluralisierung) erledigt + committet.
+**Vor dem Schnitt geprüft, nicht geraten.** Drei Dinge hätten dabei fallen können, und keines ist
+gefallen: die **Venue-Schreibbreite für `team_admin`** steht als **D20** (die Session-Notiz sagte
+noch „Nicht selbst entscheiden" — veraltet); die **`Mandant`-/`MandantDomain`-Route-Bindung** war
+als offener Punkt in keiner Position geführt und steht jetzt als **`AGENTS.md` §10 A7**; der
+**§6-Parallelitätsbefund** aus Session 09-19 steht als **§6** in `AGENTS.md`. **Der Schnitt hat
+also einen offenen Punkt gerettet** — der wäre sonst still verschwunden, und Position 24(a) ist
+genau der Befund, der beschreibt, wie so etwas aussieht, wenn es niemand bemerkt.
 
-### Findings (neu) — Status
-**Backend**
-- [x] **BE-R2 · MEDIUM · DONE (committed on master)** — Tenant-Isolation-Safety-Net via **Route-Model-Binding-Resolver** + `MandantContext::hasCurrent()` (`Support/MandantContext.php`, `Models/*`, neue `TenantIsolationBindingTest`). Global Scope bewusst nicht (24 legitime Tests mit Cross-Mandant-Rows).
-- [x] **BE-R3 · LOW · DONE (committed on master)** — `updateRoles` Mandant-Mitgliedschafts-Guard + 2 Tests.
-- [x] **BE-R4 · LOW · DONE (committed on master)** — UserController-Suche `escapeLike()` (CC-R1-Controller im selben Commit gebündelt).
-- [x] **BE-R5 · LOW · DONE (committed on master)** — apply-Rate-Limiter `user('api')` (AppServiceProvider.php:71).
-- [x] **BE-R6 · LOW · DONE (committed on master)** — JWT-Cookie `SameSite=None` in prod / `Lax` in dev (Controller.php).
-- [x] **BE-R7 · LOW · DONE (committed on master)** — negativer Host-Cache bei Domain-Anlage geleert (`MandantContext::forgetHost` in `MandantDomainController::store`).
+### Offen bei Übergabe
 
-**Frontend**
-- [x] **FE-R1 · MEDIUM · DONE (committed on master ed73305)** — Pluralisierung `accreditationLabels.ts:31,48` → ICU + DE/EN-Kataloge (124 vitest grün).
-- [x] **FE-R2 · LOW · DONE (committed on master)** — `DeadlineCountdown.tsx` + `UsersPage.tsx` ICU-Plural + DE/EN-Kataloge.
+**20 Positionen** (5–24). **Vier `high` blockieren** die Freigabe des Besitzmodells: 17 Capture-Postcondition · 18 Plan-404-Toleranz · 19 unregistrierte UI-Zeilen · 20 Werkzeug ohne Dev-Stack-Schutz. **Position 10** (Konto-Löschung) ist die Ursache der `users`-Lücke — **+30 Zeilen pro vollem Lauf, 931 → 932** gemessen, bewusst **nicht** geglättet — und liefert die DELETE-Route, ohne die das Ledger diese Art nicht besitzen kann.
 
-**Cross-Cutting / Infra**
-- [x] **CC-R1 · MEDIUM · DONE — korrigiert 2026-08-20** — LIKE → `LOWER()` in `AdminApplicationController:85-86`, `PortalController:81`, `BlacklistController:51`. **Früherer „DONE"-Eintrag war falsch**: kein Review-Commit hatte die 3 Controller berührt (diff `09b2949..HEAD` leer); der §5-Verifikator (F11) verwechselte die prä-existierenden `LOWER()`-Exists-Checks (BlacklistController:90/96) mit der Suche. Jetzt real umgesetzt + je Testdatei case-mismatch-Assertions (`search=SPAM`/`ALICE`/`JANE`, `competition=OKAL` — Postgres-LIKE ist case-sensitiv, SQLite nicht).
-- [x] **CC-R2 · MEDIUM · DONE (committed on master)** — DB-Credentials → env/secret (`docker-compose.yml`, `ci.yml`). Owner: `E2E_POSTGRES_PASSWORD`-Secret konfigurieren.
-- [x] **CC-R3 · LOW · DONE (committed on master)** — DB-Port auf `127.0.0.1:5432:5432` (localhost-only).
-- [x] **CC-R4 · LOW/INFO · DONE (committed on master)** — Digest/SHA-Pin-TODOs zu `:latest`-Images + GH-Actions (CI/docker-compose).
-- [x] **CC-R5 · LOW/INFO · DONE (committed on master)** — `.env.example` `APP_DEBUG=false` (Prod-Footgun entfernt).
-
-### Re-Assessment der „akzeptiert/info"-Follow-ups (Subagent, read-only)
-- **FIX (3) — ERLEDIGT:** `P3a-F1` (→ FE-R2, committet), `P3c-F4` (Allocation-**Test**-Lücken ergänzt: VIP+Blacklist-Precedence, case-insensitive, approveAll idempotent, exact-fit quota), `P4-F5` (`features/`-SOLL-Docs Badge/QR/PDF + Wallet/PKPASS ergänzt).
-- **USER-DECISION (1):** `P6-B1` (`relevantDate` Event-Datum vs `deadline_end`, WalletPassService.php:549,562).
-- **LEAVE (15), davon STALE/zu schließen (4):** `F7`, `P3e-B5`, `B3`, `P3a-F2` (bereits implementiert/mitigiert).
-  Rest defensibel: `P3e-B3`, `P3e-B4`, `P3b-F2`, `P2b-F5`, `P2c-F4`, `P1c`, `P4-F4`, `P5-F3`, `P5-F4`, `P6-B2`, `Vite-Proxy`.
-
-### Branch-Status (git) — KONSOLIDIERT
-- Alle Fixes **auf `master`** committet (8 Commits ahead of origin: 7 Fixes + 1 docs). Scratch-`fix/*`-Branches
-  + Stashes aufgeräumt. Keine offenen Feature-Branches mehr.
-
-### Verification
-- Voll-Suite auf `master` grün: **Backend 689 passed (4451 assertions)**, **Frontend 124 vitest + build + lint**.
-- Formaler **separater Verifikator (AGENTS.md §5)** als Batch über die Review-Commits (`09b2949..HEAD`)
-  ausgeführt → **Verdict APPROVED** (Architektur + Security, keine critical/high-Befunde, kein Regressions-Risiko).
-  **Korrektur aus dem Lauf:** F11 („CC-R1 schon im Base vorhanden") war ein Fehlleser — CC-R1 wurde danach
-  real implementiert (siehe Finding-Liste) und die Suite erneut grün gefahren.
-
-### Offene Entscheidungen / Owner-Action
-- **P6-B1** RESOLVED (dokumentiert): `relevantDate` = `deadline_end` (Event-Datum als Fallback) — Entscheidung in `WalletPassService.php` + `features/wallet-pkpass.md`.
-- **CC-R2**: Owner-declined — E2E DB braucht **kein** sicheres Passwort (explizite Owner-Entscheidung); auf plain `accriditation` vereinfacht, keine Secret-Config nötig.
-
-### Status — ALLE Review-Findings erledigt
-- Code-Fixes (FE-R2, BE-R6, BE-R7, P3c-F4, CC-R1) + Infra/Docs (CC-R3, CC-R4, CC-R5, P4-F5, P6-B1) committet.
-- **Voll-Suite grün:** Backend **689 passed (4451 assertions)**, Frontend **124 vitest** + `lint` + `build`.
-- **§5-Verifikator abgeschlossen: APPROVED** (Batch über `09b2949..HEAD`, Architektur + Security, keine
-  critical/high-Befunde). Einziges Korrektiv aus dem Lauf: CC-R1 war faktisch nicht umgesetzt → nachgeliefert
-  + Regressionstests ergänzt.
-- CC-R2-Owner-Action entfällt (E2E DB kein sicheres Passwort nötig, plain `accriditation`).
-- `AGENTS.todo.md` bereinigt; Befunde ggf. → `features/`/`Security Risk Register`.
-- **Gepusht** an `origin/master` (alle lokalen Commits).
-
-### CI-Folge-Befund (2026-08-20): FE-R2-Regression im E2E-Smoke — GEFIXT
-- **Symptom:** CI-E2E-Smoke rot in 3 Runs (`portal.spec.ts:57` erwartet `/Noch \d+ Tage/`).
-- **Ursache (Root-Cause via Playwright-Snapshot `text: Noch Tage E2E Heimverein …`):**
-  FE-R2-ICU-Messages in `DeadlineCountdown.tsx` hatten **kein `#`** in den Plural-Zweigen
-  (`one {Tag}` statt `one {# Tag}`) → Countdown rendert „Noch Tage" **ohne Zahl**.
-  FE-R1 war korrekt (`{# Platz frei}`); `check-i18n`/vitest sind blind für fehlendes `#`
-  (prüfen nur PO↔JS-Sync, nicht ICU-Inhalt) → Lücke, die nur E2E/Live-Auge zeigt.
-- **Fix:** `#` in beide Messages (`# Tag`/`# Tage`, `# Stunde`/`# Stunden`),
-  `lingui:extract` + EN-msgstr nachgezogen + `lingui:compile`.
-- **Regressionstest:** `portal.spec.ts:57` (war 3× rot, nach Fix grün — CI verifiziert).
-  Zusätzlich geprüft: keine weitere Plural-Message ohne `#` im Source.
-- **Nebenwirkung:** GC von obsoleten Katalogeinträgen bewusst NICHT durchgeführt
-  (`extract --clean`), da dies der bestehende Repo-Standard ist (alte Keys bleiben im
-  kompilierten JS als Restbestand — unschädlich).
-
-## 📦 Dependency-Update — 2026-08-23
-
-Durchgeführt (Branch `chore/deps-2026-08-23`, via PR gemergt):
-- **Frontend (pnpm):** `packageManager` pnpm@11.21.0 → pnpm@11.23.0; MAJOR `@testing-library/jest-dom` 6.9.1→7.0.1 und `jsdom` 29.1.1→30.0.1; Minor/Patch (daisyui, eslint, vite, vitest, @vitejs/plugin-react, @hookform/resolvers, react-hook-form, dompurify, @iconify-json/material-symbols, @testing-library/user-event, @vitest/coverage-v8).
-- **Backend (composer):** `php` ^8.4 → ^8.5; MAJOR `phpunit/phpunit` 11→13.3.1; `laravel/framework` 13.26.1 + Minor/Patch.
-
-Verzögert / blockiert (nicht Teil dieses PRs):
-- **typescript 6→7:** Repo bereits auf TS 6 (^6.0.3). 7.x nur migrieren, sobald Framework/Peer-Tooling es unterstützt — aktuell zu frisch.
-- `guzzlehttp/guzzle` 7→8: blockiert durch direkten Dep `http-interop/http-factory-guzzle` (nur psr7 ^1.7||^2.0, keine 3.0-fähige Version).
-- `brick/math` 0.18→0.19: gedeckelt durch `ramsey/uuid` (<=0.18).
-
----
-
-## 🛠️ Session 2026-08-25 — Follow-up-Batch (Orchestrator, ohne Go-Live + User-Abnahme)
-
-> User-Auftrag: Alle offenen TODOs umsetzen, die **keinen** User-Input brauchen (P7 Go-Live +
-> finale Abnahme + offene Entscheidungen BE-R1/Feld-Editor/Google-Wallet ausgenommen). Umsetzung
-> als Orchestrator → delegiert an Implementer, separat verifiziert (§5). Konsolidierung auf `master`,
-> keine `fix/*`-Branches. Max. 2 Subagenten parallel bei disjunkten Ziel-Dateien.
-
-### TODO-Liste (actionable, mit Test-Forderung)
-### Low Follow-ups (info, aus Verifikation)
-> Abgeschlossene Punkte entfernt: P1c-F1 (email-Kommentar), P1c-F2 (robuste Assertion), P3e-B4-F2 (SWR-Key dokumentiert), P3e-B4-F3 (grouped orderBy), P3e-B4-F1 (Concern-Extraktion `d372693`), P2-F2 (akzeptiertes Risiko), P2-F1 (Non-ASCII dokumentiert `d372693`), P2b-F5 (is_team_override dokumentiert `d372693`), E2E-Hygiene (badge_images purge).
-
-### Bewusst NICHT in diesem Batch (braucht User / externe / Go-Live-Infra)
-- P7 Go-Live (User-Freigabe) · finale User-Abnahme · BE-R1 (E-Mail-Unique-Scope, User-Entscheidung)
-- Feld-Editor-Umfang (P4, User-Klärung) · Google-Wallet-Issuer (extern)
-- P5-F4 Queue-Integration (braucht Queue-Worker → Go-Live-Infra, Post-MVP belassen) · P5-F3/P6-B2 (bereits dokumentierte MVP-Entscheidungen)
-
----
-
-## 🛠️ Session 2026-08-25b — User-Entscheidungen (interaktiv geklärt) + Umsetzung
-
-> Entscheidungen vom Benutzer: **BE-R1 = Per-Mandant `email`-unique** · **Google-Wallet jetzt einleiten** ·
-> **Feld-Editor = voll frei positionierbar** · **Go-Live weiterhin geparkt**.
-
-### TODO-Liste (actionable, mit Test-Forderung)
-_(Alle Tasks dieser Session umgesetzt + verifiziert — inkl. Feld-Editor FE1–FE4: `a17332b`, `eb88cbc`, `8634e40`, `68f52d7`; badge_images-Slice: `8b370a8`; Review-Hardening: `0fe7544`, `a9750c2`; Follow-up-Batch: `80599f4`, `3bc1984`; Concern-Extraktion+Docs: `d372693`, `cef2403`; FK-Migration: `8e487ca`; Profile-E2E+BadgeCanvas: `17498c4`.)_
-
-### Low Follow-ups (info, aus Verifikation — Session 2026-08-25b)
-> Abgeschlossene Punkte entfernt: FE1-F2 (bereits vorhanden `80599f4`), FE1-F3 (Epsilon `80599f4`), FE1-F4 (host-Cache `80599f4`), E2E-Hygiene badge_images (`3bc1984`), BE-R1-F2 (RV-S3 Guard), BE-R1-F1 (FK-Migration `8e487c`), DOC-H-F1/F2 (bereits korrekt), DOC-H-F3 (Vollpfad `cef2403`), BE-R1-F3 (by-design: Tests nutzen `:memory:`, sqlite-Datei ist Dev-Artefakt), **PDF-VISION (Position 10, am 2026-09-27 durchlaufen → `scripts/pdf-to-png-vision.sh`; Messwerte in `features/badges-qr.md`)**.
-
-### Full-Repo-Review 2026-08-26 (seit 2026-08-20) — Follow-ups (Verdict APPROVED, keine critical/high)
-> Alle Punkte abgeschlossen (RV-S1 `0fe7544`, RV-S2/RV-A1/RV-U1 `8b370a8`, RV-S3 `a9750c2`, RV-S4/RV-A2/RV-U2 `0fe7544`, E2E-Hygiene badge_images `3bc1984`, RV-U3 dokumentiert `17498c4`).
-
-### PDF-visuelle-Verifikation — **durchlaufen 2026-09-27** (Board-Position 10)
-> Ziel: generierte Badge-/Ausweis-PDFs genauso visuell verifizieren wie UI-Screenshots (Vision-Agent gegen
-> Checkliste: QR-Position, Feld-Überlappung, Abschneiden, Kontrast, Skalierung). Die SOLL-Beschreibung stand bis
-> 2026-09-27 **ungetestet**; sie ist jetzt gemessen. Skript, Messwerte und Render-Vertrag:
-> `features/badges-qr.md` → „Visuelle Verifikation des gerenderten PDF". Offen sind nur die zwei Punkte unten.
-
-- [ ] **`background-color: #ffffff` auf `body`/`@page` im Badge-HTML — PRODUKTENTSCHEIDUNG, nicht umgesetzt.** Wäre
-  die einfachere und robustere Lösung (der Seitenhintergrund wäre im PDF selbst weiss, die Nachbearbeitung
-  entfiele). Bewusst nicht mitgenommen: es ändert den **Render-Vertrag** — jeder Ausweis bekäme einen gemalten,
-  nicht mehr transparenten Hintergrund (relevant für Ausweisspiele auf Folie/Glas/Siebdruck) — und
-  `BadgeRenderService::cardHtml` ist der Vertrag, gegen den die Tests prüfen. Die Entscheidung liegt beim Benutzer.
-- [ ] **CI-Pfad (optional):** `poppler-utils` (`pdftoppm`) in `deployment/Dockerfile.e2e` aufnehmen, **falls**
-  PDF-Vision jemals automatisierte Checks werden soll. Für die Verifikation von Hand nicht nötig —
-  `scripts/pdf-to-png-vision.sh` deckt macOS (`magick`+`gs`, `gs`-only, `sips`) und ein Linux-Feld mit `gs` ab.
-  Nicht blockierend.
-
-**Was die Messung an den alten Annahmen korrigiert hat** (nicht nur bestätigt):
-
-- ❌ „transparente Pixel erscheinen im PNG schwarz" — **für den `magick`-Pfad falsch.** Sie sind `#FFFFFF00`
-  (weiss, alpha 0) und decken 89,8 % der Seite. Schwarz werden sie erst, wenn ein Konsument auf schwarzen Grund
-  komponiert; dann verschwindet die schwarze Badgeschrift **vollständig** (0 sichtbare Tintepixel in einem
-  79 520-Pixel-Textband). Für `sips` stimmt die Behauptung wörtlich (`#00000000`).
-- ➕ Es gibt eine **einstufige** Route: `gs -sDEVICE=png16m` ist ein *deckendes* Device (kein Alpha, weisser
-  Hintergrund von Ghostscript gemalt) — 0,29 % Abweichung zum Primärpfad, reines Anti-Aliasing-Rauschen. Das
-  Skript nutzt sie als Fallback A, wenn `magick` fehlt.
-- ⚠️ `magick identify -format '%[pixel:p{x,y}]'` meldet auf PaletteAlpha-Bildern **immer** `srgba(0,0,0,0)`, egal was
-  wirklich dasteht — ein Befund mit diesem Werkzeug „beweist" einen schwarzen Hintergrund, den die Datei nicht
-  enthält. Korrekt ist ein 1×1-Crop mit `txt:`.
-- ⚠️ `sips` quittiert ein unlesbares PDF mit `not a valid file - skipping` und **Exit 0** — Skripte müssen die
-  Zieldatei prüfen, nicht den Exit-Code.
-- ➕ Der Layoutkasten **clippt nicht** (nur `photo`/`image` tragen `overflow:hidden`): gemessen ein 10-mm-Kasten
-  mit 12,2 mm Tinte, 4,8 mm darüber hinaus. Eine Feld-Überlappung ist damit nicht automatisch ein Renderer-Fehler,
-  sondern kann aus einem zu kleinen Kasten im Template kommen.
-- ℹ️ Vision-Provider kann flaky sein → PNGs notfalls per Read-Tool selbst analysieren; die PNGs sind
-  nachweislich self-contained (kein Alpha, weisser Grund).
-
-### Bewusst NICHT in diesem Batch
-- P7 Go-Live (weiterhin auf User-Freigabe) · finale User-Abnahme
-- P5-F4 Queue-Integration (Go-Live-Infra, Post-MVP) · Feld-Editor-Umsetzung erst nach SOLL-Spec-Verifikation
-
----
-
-## 🛠️ Session 2026-09-19 — Domain-Ordner Media-Layout + Event-Typen + Team-Teilnehmer
-
-> User-Auftrag: Mandanten-Bilder auf `<MEDIA_ROOT>/<domain>/…`-Layout mit Root-Fallback
-> umstellen (Caddy liefert direkt aus), Event-Typen als mandant-spezifische Tabelle mit
-> Presets, Team/Vereins-Logos + Versus-Teilnehmer (Name+Bild, Heim-Default-Ort), Venue-Liste
-> mit Meilen-Autocomplete prüfen. Entscheidungen (interaktiv): MEDIA_ROOT `/srv/media`,
-> Domain-Key = normalisierter Request-Host, Personenbilder bleiben privat, Doku inklusive.
-> Plan: `.opencode/plan/media-domain-layout.md`. Orchestrierung nach §5 (max. 2 parallel,
-> nur disjunkte Dateien, Konsolidierung auf `main`, keine `fix/*`-Branches, `git add` nur
-> explizite Pfade). Noch nicht live → Migrationen dürfen erweitert werden (D17).
-
-### Ergebnis (abgeschlossen + §5-verifiziert; Voll-Suite 1039 grün, Pint/Compose/Caddy grün)
-- **W1** MediaPathService + media-Disk (`3ef079a`), W1-F1 (`119a293`); W1-F2..F4-Lows in W6/W7 + LOW-Bündel eingearbeitet.
-- **W2** event_types + Admin-CRUD (`bb74671`), W2-F1 (`aae133e`/`51aa937`), W2-F3 UTF-8-Härtung (`2e31643`), W2-F4 (`f041b87`).
-- **W3** Preset-Schema (`f9979d3`) · **W4** Team-Logo + Event-Teilnehmer (`e56d8fe`), W4-F1 (`dbb6886`).
-- **W6** Services + Backfill (`47b784b`), W6-F1/F2 (`70e67cd`), W6-F4 (`f041b87`); W6-F3-Lows in W11-F1 eingearbeitet.
-- **W7** Caddy-Snippet `media_overrides` (`fc84ec1`, high-Re-Fix `d9e9960`), W7b global (`649a3ed`, inaktiv).
-- **W11** Header-Delivery + WebP (`d2eb07f`/`2811f16`), W11-F1 (`7f57954`), W11-F2 (`42a9266`).
-- **M2** (`3496fc7`) · **M3** (`d14bdda`) · **M4** (`d8c63fb`) · **LOW-Bündel** (`b7c037a`) · **W9**-Schlusscheck §5-APPROVED.
-- **W5** Venue-Analyse erledigt + entschieden (KEIN Geo) → Umsetzung als W12 · **W10** WebP-Planung in W11 gemündet · **W8** Doku-Paket committet.
-
-### Offene Punkte
-- [x] **W12 — Venue-Stammdaten** — Backend + FE umgesetzt und verifiziert, **eine Position
-  offen: E2E nie ausgeführt** (siehe Ende des Eintrags + „Nächster Batch" Position 1)
-  (nach W5-Entscheidung: mandant-weite Liste, KEIN Geo, Suche nach Verein/Ort): `venues`-Tabelle + Admin-CRUD stehen (Backend, `venues.manage` an `mandant_admin` **und** `team_admin` — der Venue-Picker im Team-/Event-Formular darf für den Team-Admin nicht 403en, sonst dead-endet der von uns bestätigte Inline-Create). `events.venue_id` nullable **ersetzt** `events.venue` (Freitext-Spalte ist gedroppt — „ergänzend" wäre die superseded Variante, eine zweite Wahrheit ist genau das, was hier rausfällt). Offen: ~~FE (`VenueCombobox`/`VenuesPage`)~~ **erledigt** (`6f5c449`) — Combobox mit
-Inline-Erstellung, `VenuesPage`/`VenueForm`, Team-/Event-Formular auf `venue_id`
-umgestellt, 27 i18n-Keys DE+EN, 304 Vitest grün. 18 Backend-Consumer mitgezogen
-(`a0511b6`), darunter `PortalController` + die Portal-Resources — Venue ist im
-**Portal-Kalender** sichtbar, dort bleibt es beim Namens-String (Ids werden nie öffentlich).
-**Offen bleibt genau eine Sache:** der **E2E-Spec `admin-venue.spec.ts` ist nie gelaufen** —
-weder lokal noch in CI (beide Tests tragen nur `@feature:admin:venue`, `ci.yml:8` fährt auf
-`push` ausschließlich `@smoke`). Das war Position 1 im „Nächster Batch" und ist mit dem vollen CI-Lauf erledigt; erst danach ist W12
-wirklich abgeschlossen.
-- [ ] **Venue-Schreibbreite für `team_admin` (PRODUCT-DECISION, 2026-09-27):** Ein
-  `team_admin` darf heute **jeden** Ort seines Mandanten umbenennen, deaktivieren und
-  löschen — auch einen, den ein Nachbarverein benutzt. Kategorien sind strenger: dort
-  greift `assertOwnership` und ein Team-Admin darf nur *team-eigene* Zeilen
-  anfassen, mandantweite sind für ihn read-only. Beides ist vertretbar, es ist aber eine
-  **Fachentscheidung**: ein Verein, der einen Fremdort umbenennt, ärgert Nachbarn; ein
-  Verein, der einen Ort nicht umbenennen darf, kann seinen eigenen nicht pflegen. Der
-  Implementierer hat die breite Variante als korrekt *und* die Breite in
-  `test_a_team_admin_manages_the_venue_list_of_his_whole_mandant` festgeschrieben, damit
-  sie dokumentiert und nicht zufällig ist. Der Hebel für die engere Variante wäre ein
-  `assertOwnership`-Äquivalent auf der Venue-Oberfläche. **Nicht selbst entscheiden.**
-- [ ] **Dev-DB-Hinweis (W6-F3-Rest):** einmalig `migrate:fresh --seed` (sort_order-Schema).
-  falsch und perpetuierte einen behobenen Fehler): Die Formulierung „`Storage::fake` teilt
-  `storage/framework/testing/disks/*` → Cross-Prozess-Race" ist **überholt** — `0f9cf57` hat
-  die Kollisionsseite geschlossen (prozesseigener Storage-Root). Wer die Regel heute noch
-  mit diesem Grund befolgt, diszipliniert eine Ursache, die es nicht mehr gibt.
-  **Der aktuelle, reproduzierte Lernpunkt ist ein anderer:** Am 2026-09-27 liefen
-  `php artisan test` und `pnpm test:run` **parallel** auf einer 18-Kern-Maschine mit
-  Grundlast ~20. Der Vitest-Reserve-Test (`UsersPage`, bläht unter CPU-Überschreibung um
-  3–5× auf) riss dadurch das Budget und schlug fehl — Last 24.78, Timeout 10000 ms
-  überschritten. **Ursache: CPU-Überschreibung, nicht ein geteiltes Dateisystem.** Ich habe
-  also die Regel gelesen und beim eigenen Verifizieren gebrochen.
-  Für die Verifikation gilt künftig: **sequenziell, nie parallel** — und die Regel gehört
-  nach `AGENTS.md` §7 (*Kandidat für dauerhafte Regel — nicht verschoben*).
-
-### Reihenfolge
-W1 → W2/W4 (disjunkt, parallel ok) → W3/W5 (Analyse) → W6 → W7 → W8 → W9.
-
----
-
-## 🔍 Whole-Project Code Review — 2026-09-26 (abgeschlossen + verifiziert)
-
-> **Methode:** 6 Review-Subagenten über den kompletten Stand (`1b66e00`, ~14.4k LOC
-> Backend + ~12.8k LOC Frontend), danach 11 Umsetzungspakete + 4 Verifikations-/Fix-Wellen,
-> jede Umsetzung mit separatem Verifikator (§5). Die kritischen Befunde wurden vom
-> Build-Agent **nachimitiert** (CSRF-Kette, `putFileAs`-Reihenfolge, `throw=false`,
-> Method-Override, NULL-Ordering, E2E-Assertion, zod-`path`, Spread-Reihenfolge) — drei
-> Subagenten-Prämissen erwiesen sich als falsch und wurden korrigiert, nicht übernommen.
->
-> **Alle Work-Pakete sind umgesetzt, §5-verifiziert und committet.** Abgeschlossene
-> TODOs sind hier **vollständig entfernt** (§4), nicht abgehakt und nicht in einen
-> „Erledigt"-Bereich verschoben. Die dauerhaft gültigen Entscheidungen stehen jetzt in
-> `features/`:
-> SameSite/CSRF/Proxy/Host-Allow-List → `auth/01-auth-and-roles.md` ·
-> Quota-Atomarität/Widerruf-Kaskade/410 → `accreditation/01-allocation-engine.md` ·
-> NULL-Ordering/`role_user`/SMTP-Verschlüsselung → `02-domain-model.md` ·
-> Media-Invariante/Reaper → `media-domain-layout.md` + `04-media-self-service.md` ·
-> Prod-Topologie/Upstream/Migrationen → `03-caddy-brand-files.md` · Token-v2 →
-> `badges-qr.md` + `wallet-pkpass.md` · E2E-Test-Image → `05-e2e-test-image.md`.
->
-> Commits: `47da372` auth · `f8e649c` QR-v2 · `10f1ecb`+`ac3ca70` media · `e577125`
-> allocation · `8d1b106` schema · `9a7bed3` deploy+migrations · `2e80656` dockerignore ·
-> `3d9d3d3` CI · `caf600b` frontend · `f1a2f08` test-isolation · `c0e821b`
-> E2E-Image-Provenienz · `5363645` Mandanten-Mitgliedschaft · `32c7185`
-> Nightly-Gate · `0f9cf57` prozess-eindeutiger Fake-Root.
-> **Abschlussstand (2026-09-26, alle drei CI-Jobs grün):** Backend **1348 passed
-> (6726 Assertions)** / Pint PASS 249 · Frontend lint+build sauber / **252** Vitest ·
-> E2E-Smoke **17 passed / 9 skipped / 0 failed** · Compose: `config` exit 0 mit
-> Vars, exit 1 mit `:?`-Meldung ohne `APP_KEY`/`DB_USERNAME`/`DB_PASSWORD`, alle
-> Ports auf `127.0.0.1`.
-
-### 🔴 Review-Finding #6 — JWT nicht mandanten-gebunden (geschlossen)
-> Dieser Befund war in **keinem** der 11 Work-Pakete gelandet (Build-Agent-
-> Eigenversäumnis, erst an der Abschlussprüfung wiedergefunden) — verifiziert,
-> umgesetzt und **committet** (`5363645`).
-> **Lücke:** `User::getJWTCustomClaims()` lieferte `[]` (kein Mandanten-Claim) und
-> `mayLogInOnCurrentMandant()` galt nur beim Login ⇒ ungegatete `POST
-> /accreditations/{id}/apply` scoped die *Akkreditierung*, nie die *Identität*; ein
-> User des Verbandes A konnte sein Cookie mit `Host: b.example` erneut spielen ⇒
-> Antrag **in Verband B**, Uploads in B's Media-Namespace, fremder Antrag in B's
-> Freigabe-Liste.
-> **Geschlossen:** `EnsureMandantMembership` in der Priority-List direkt nach
-> `SubstituteBindings` ⇒ läuft als letzte Middleware vor dem Controller (nach
-> `auth:api` und allen Route-Limitern, vor jeder Mutation). Regel: unter
-> `auth:api` muss der User ≥1 `role_user`-Zeile für den aufgelösten Mandanten
-> haben, sonst 403; globaler `super_admin` bleibt überall erlaubt.
-> **Per-Request statt JWT-Claim** — begründet: ein Claim wäre unter Rollen-Entzug
-> bis `JWT_TTL` (60 min) gültig, die Middleware wirkt sofort und schließt damit
-> einen Teil der bekannten Lücke, dass `updateRoles` ausgestellte JWTs nicht
-> invalidiert. Kosten: **1** Query (0,057 ms, Index Scan `role_user_scope_unique`),
-> **0** auf allen öffentlichen Routen.
-> **64 Vorbestehende Tests** wurden auf echte Mitglieder umgestellt (User +
-> `role_user`-Zeile) — Fixture-Realismus, keine Abschwächung; der alte Zustand ist
-> in Produktion nicht erreichbar.
-> **Bewiesen:** 7 der 13 neuen Tests scheitern auf dem Pre-Fix-Code; E2E 17/0 mit
-> und ohne Middleware-Register identisch.
-
-
-### Offene Follow-ups
-
-  `PUT /api/admin/users/{user}/roles` ohne Mandant-Scope gebunden — das ist seit
-  `a761f4a` **behoben** (`User::resolveRouteBindingQuery()` scoped über genau die
-  `isMemberOfMandant()`-Prädikat, beide über `constrainToMandantMembership()`),
-  weil dort PII (Name, E-Mail, Adresse) gemint wird. `Mandant` trägt dieselbe
-  Form, **bleibt aber bewusst offen**, weil die naive Lösung falsch ist: ein
-  `where('mandant_id', currentId)`-Scope entzieht `super_admin` den Zweck, jeden
-  Mandanten über einen beliebigen Host zu verwalten (`PUT /api/admin/mandants/{B}`
-  mit A als Host ist ein getesteter, gewollter Flow). Was dort durchsickert, ist
-  „Mandant X existiert" — jeder Mandant hat ohnehin ein öffentliches Portal, sein
-  Hostname steht in der öffentlichen `trustHosts`-Liste, und es sind eine
-  Handvoll Zeilen. `MandantDomain` ist **überhaupt nicht** route-gebunden
-  (`DELETE …/domains/{domain}` nimmt `string $domain` und sucht selbst über die
-  Relation). Die richtige Form, falls es jemand will, ist eine **403/404-Unifikation
-  im Controller** — wie `TeamController`/`UserController` sie für ihre Ressourcen
-  schon haben — als eigenes Ticket mit eigenen Tests, nicht in einem Binding-Scope
-  mitgeschmuggelt.
+**Eine Messung ist unentschieden und bleibt es:** der Verifikator bekam **zwei vergleichbare
+Arme** (Parent `b433fd8` **103 passed / 2 failed**, HEAD `263290f` **119 passed / 8 failed**, gleiche
+Worker, Cache geleert, gleiche Fremdlast) — **6 Netto-Ausfälle derselben Klasse**, alle
+`toHaveURL`-Timeout auf `/login`. Das ist die **Login-Drossel** (40/min, Zähler im DB-Cache), und
+die Änderung fügt `loginAdminApi()` **pro Test mit nichtleerem Ledger** hinzu — also genau auf das
+Budget, das die UI-Specs brauchen. **Ob die 6 von der Änderung kommen oder von der Drossel unter
+Fremdlast, ist nicht entschieden:** der Messarm **ohne** Hintergrundlast war unmöglich, weil die
+Maschine neu gestartet wurde und **Docker's Socket verschwand** — Postgres unerreichbar, ab da kein
+E2E- und kein Screenshot-Lauf möglich. Und: die **39–40 Ausfälle**, die der Implementierer meldete,
+konnte der Verifikator **unter keiner Bedingung reproduzieren**; was er in dieser Grössenordnung
+antraf, war ein **totes `php artisan serve`** mit 502 auf jedem API-Call — **kein Code-Fehler,
+sondern eine umgegebene, die sich als Code-Fehler ausgab.**
