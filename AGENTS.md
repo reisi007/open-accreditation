@@ -207,6 +207,25 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
   der Nightly). `strict` ist der einzige manuelle Weg, einen roten Nightly vor dem nächsten
   03:30-UTC-Fenster erneut zu fahren.
 
+**Fixture-Besitz: kein Test hinterlässt Daten (STRICT, 2026-09-28).** *Anlass, gemessen:* der
+E2E-Namens-Sweep räumte nur auf, was er **zufällig** wiederfand — `teamNames: ['E2E Heimverein ']`
+traf **keinen** der 54 Teams und **keine** der 53 Venues, die tatsächlich liegen geblieben waren. Der
+`DELETE` **409te** (das Team referenzierte die Venue noch), der Status wurde **nicht** geprüft, und
+`admin-data.ts:1143-1148` steckte in `try{…}catch{console.warn}`. Der eigentliche Schaden war nicht
+der Müll, sondern eine **Messzahl, die fremde Daten zählte**: die Bandzahl des UI-Reviews stieg mit
+jeder E2E-Suite (`36 → 48 → 51 → 52`), und `home filled/mobile` lag **6 px** von einer Bandgrenze
+entfernt — die Abnahme „drei Läufe ergeben dieselbe Zahl" hing damit an Daten, die der Harness nicht
+besitzt.
+
+- **Jeder E2E-Test registriert, was er angelegt hat, und löscht es selbst** — auch wenn er **halb**
+  scheitert: drei Fixtures erstellt, das vierte wirft, dann müssen **die drei** weg. Kein Test
+  hinterlässt eine `E2E %`-Zeile.
+- **Ein Sweep über Namensmarker ist Übergang, nicht Modell.** Er darf zusätzlich laufen, aber er darf
+  nie der Grund sein, dass die Suite aufräumt. Referenzimplementierung: `portal.reisinger.pictures`.
+- **Die Ausrede ist abgeschafft:** jedes `DELETE` im Purge prüft den Status, und eine fehlgeschlagene
+  Rückräumung lässt den Lauf **scheitern**, statt sie zu verschlucken. Das ist ein **Sicherheitsnetz**
+  hinter der Besitzregel — es darf nicht deren Ersatz werden.
+
 **Die zwei Laufprofile (gleiches Testset, unterschiedliches Fehler-Budget):**
 
 - **`playwright.config.ts` = verzeihendes Profil** (`retries: 2`, `maxFailures: 10` in CI).

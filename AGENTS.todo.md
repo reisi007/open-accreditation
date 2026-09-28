@@ -101,6 +101,16 @@ dieselbe Zusage erfüllen.
 | D20 | Venue-Schreibbreite `team_admin` (2026-09-27) | **Lesen und Anlegen mandantweit, Ändern nur eigene Orte.** Lesen/Anlegen muss mandantweit bleiben, weil der bestätigte Inline-Create im Team-Formular sonst dead-endet und `venues.manage` zeilengleich `categories.manage` folgt. **Ändern** (Umbenennen, Deaktivieren, Löschen) wird getrennt und folgt dem Kategorie-Muster: ein Verein darf den Ort eines Nachbarvereins nicht umbenennen, ohne ihn zu fragen. Gilt für **beide** Flächen (host-skaliert **und** mandant-adressiert). |
 | D21 | Multi-Domain-Admin-UX (2026-09-27) | **Host-relativ bleibt der Default, plus Dropdown zum Domainwechsel** für `super_admin`. Ausdrücklich **keine** Mandant-Parametrisierung aller Admin-Routen (die wäre die große Variante und ist nicht beschlossen). Der stille Cross-Mandant-Write ist mit `a2c8e5f` unabhängig davon behoben. |
 | D22 | Badge-Hintergrund (2026-09-27) | **OFFEN.** `background-color:#ffffff` auf `body`/`@page` wäre technisch der robustere Fix — dann entfiele die Nachbearbeitung komplett. Nimmt den Ausweisen aber den **transparenten** Hintergrund, der für Ausweisspiele auf Folie, Glas und im Siebdruck relevant ist. Produktfrage, nicht technische; die Alpha-Entfernung ist bis dahin Sache des Skripts `scripts/pdf-to-png-vision.sh`. |
+| D23 | **E2E-Fixture-Besitz** (2026-09-28) | **Jeder E2E-Test registriert, was er angelegt hat, und löscht es selbst — auch wenn er halb scheitert.** Drei Fixtures erstellt, das vierte wirft: die drei müssen weg. **Kein Test hinterlässt eine `E2E %`-Zeile.** Ein Sweep über Namensmarker ist **Übergang**, nie Modell. Referenzimplementierung: `portal.reisinger.pictures`. |
+
+### 🗑️ Verworfen (nicht erneut implementieren)
+
+| Ansatz | Warum verworfen | Wodurch ersetzt |
+|---|---|---|
+| **Globaler Namens-Sweep über `E2E %` als *primäres* Aufräummodell** (2026-09-28) | Erkennt nur, was es **zufällig** wiederfindet. Gemessen: **54 Teams + 53 Venues** blieben liegen, weil `teamNames: ['E2E Heimverein ']` keinen einzigen davon traf. Der `DELETE` **409te**, der Status wurde **nicht** geprüft, und `admin-data.ts:1143-1148` steckte in `try{…}catch{console.warn}` — **genau der F1-Defekt.** Nebenwirkung, die schwerer wog als der Müll: die Bandzahl des UI-Reviews zählte **fremde Daten** (`36 → 48 → 51 → 52`). | D23 — Besitz-basiert, jeder Test räumt **seine** Fixtures ab |
+| **Marker-Deckung als Test „passt zu *irgendeinem* Marker?"** (2026-09-28) | **Vakuos**, und das ist der bemerkenswerte Teil: `mandantNames: ['E2E ']` passt auf **jeden** E2E-Namen, der Test blieb also **grün mit dem F1-Bug drin**. Er hätte bestanden, ohne dass F1 behoben wäre. | Je **Art** (team/venue/category/…) eine **explizite** Deckung; die Sammel-Marke bleibt nur dort, wo die Spalte zu genau **einer** Swept-Collection gehört |
+| **„Warnung, aber nie rot" als Purge-Gate** (2026-09-28, vom Fix-Agenten als Rückfalloption angeboten) | Nimmt genau die Sichtbarkeit zurück, die die Änderung hergestellt hat. Ein Purge, der verschluckt, **ist** der Fehler — er folgt ihm dann wieder. | Jedes `DELETE` prüft den Status; eine fehlgeschlagene Rückräumung lässt den Lauf **scheitern** (Sicherheitsnetz hinter D23) |
+
 
 ---
 
