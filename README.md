@@ -24,10 +24,26 @@ features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 Voraussetzungen: PHP 8.5 (z. B. via Homebrew: `brew install php`),
 Composer, Docker, Node.js + pnpm (`packageManager`-Pin in `frontend/package.json`).
 
+**Nach einem Neustart startet Docker nicht von allein.** Bei **Rancher Desktop** liegt der Socket
+unter `~/.rd/docker.sock`, **nicht** unter `/var/run/docker.sock` — `docker info` schlägt dann mit
+`connect: no such file or directory` fehl und der Fehler sieht nach einem Skript-Problem aus, nicht
+nach einem Docker-Problem. `open -a "Rancher Desktop"`, dann warten, bis `docker info` antwortet
+(hat gedauert: ~50 s), **erst dann** `scripts/e2e-up.sh`.
+
+**Und `scripts/e2e-up.sh` startet die Server nicht** — es legt Postgres, Mailpit, Migrationen und
+Seeds an und **druckt** die URLs (Schritt 3/4 unten). `php artisan serve` und `pnpm dev` sind **zwei
+zusätzliche, manuelle Schritte**. Die Screenshot-Config hat **kein** `webServer` und liest
+`E2E_BASE_URL` (Default `5173`), also muss Vite laufen.
+
 Das Backend ist lokal über **`php artisan serve` unter `http://localhost:8000`**
 erreichbar (Vite-Proxy in Schritt 3 bleibt gültig). Alternativ kann es über
 einen Webserver (z. B. Caddy oder Apache) als Site auf das `backend/`-Verzeichnis
 gesetzt werden; `APP_URL` ist entsprechend anzupassen.
+
+**`memory_limit` prüfen.** Homebrews `php.ini` steht bei **128M**. Das ist der Wert, an dem als
+Erster der **Ausweis-PDF-Export** (dompdf, QR-Einbettung) in einen Speicherfehler läuft — er ist
+der speicherhungrigste Pfad im Backend. Bricht ein Export ab, ist das der erste Wert, den man hebt
+(`php -i | grep memory_limit`), und nicht der erste Verdächtige.
 
 Mandanten-Domains (z. B. `bundesliga.test`) werden über den Host aufgelöst —
 die entsprechenden Einträge müssen in `/etc/hosts` hinterlegt
