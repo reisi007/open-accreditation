@@ -30,7 +30,13 @@ export class MailpitHelper {
             if (!response.ok) {
                 lastDetail = `Mailpit API returned ${response.status}`;
             } else {
-                const data = await response.json();
+                // `JSON.parse(await response.text())` rather than `response.json()`:
+                // the latter is typed `unknown` under this tsconfig, and a strict
+                // file cannot then say anything about a Mailpit payload without an
+                // annotation — which the plain-ES2020 parser in this directory
+                // forbids. The shape is dynamic by nature and is narrowed
+                // structurally right below, which is the honest way to handle it.
+                const data = JSON.parse(await response.text());
                 let found = null;
                 for (const message of data.messages || []) {
                     for (const recipient of message.To || []) {
@@ -45,7 +51,7 @@ export class MailpitHelper {
                 if (found) {
                     const detailResponse = await fetch(`${baseUrl}/message/${found.ID}`);
                     if (detailResponse.ok) {
-                        return await detailResponse.json();
+                        return JSON.parse(await detailResponse.text());
                     }
                     lastDetail = `detail lookup failed (${detailResponse.status})`;
                 } else {

@@ -1,13 +1,16 @@
 import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
+import { pngFixture } from '../screenshots/helpers/png-fixtures';
 
-// Realistic head-and-shoulders portrait fixture (96×120 PNG, ~0.7 KB) —
-// programmatically drawn placeholder shared by every media test so each
-// upload sends a real image that passes the backend's image/dimension
-// validation (max 2000px, no minimum). Reused from admin-data.ts.
-const PORTRAIT_PNG_BASE64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAGAAAAB4CAIAAACCf2CZAAACjklEQVR42u2cu0oDQRSGZ0fTSFBRH0REsVV8BYNWFmJlqRaS2sJCrcTKykrJM0hqMQRfQiy8oCI2YrBYCEuuuztn5xK/v1rIJHPm23/O3MJEj0/PCvWXBgGAAAQgAAEIQAACEAIQgAAEIAABaLQ0bvj9ytqy/42s3d7hILoYgAAEIAABCAEIQAACEIAABCAAIQABCEAAAhCAAAQgACEAuQNkcmipvD9WxUFWAPlsIvPYcJAq9t8dsS6PD+KHncMTH1rVjseLLvZxXysiMhE6ydhcOiirPvVE/DDZ+i6ivEdJuvsVDTVRu7UdzyLlu2s3NJF25Z2Ubc5anpn0SCw1rk/3cn/3vLp9Xt22X69tB/WLtTvLDs676csXQUdgFJtaqnRkwXKplYx4c/+su4WZRqWh5ZNoyqXW14/uiNDrYb4npqyjtWXXCANKmqhtnzSYCkpzSRMZ2kfMQVNLld+Hm3xuKiITx+9pbH7Dl7WYSQuH8rLQjwYokrqaIo2D0ujl9V0pNTc7bf5TIg4SG+ZFohGUVDzMpAEU4nbHAIlkH08d5E8aEoyELmYXkA8mko3BpYOa9Uaz3pAq5vtEMd+ksd3yhdXFrJ/asbDjUWxhdTGmMMAj6ekE46AcK4+egLKiKSIDRsVdEyi1OnM7PujgIrZclw40bmu16KCjt/D7Oug3bMGhOtwcYaf/6kDzqLURILJ/G7Dh8G95uRe5ui45ByYnK+HI7X3S8YFav9M0pVR8wmV+vBX2jmLHYbFiT1qxaQ8gACEAAUhiHrSyfuSw+outmTTFdq/ecBBdDEAAAhACEIAApP7TfpDDGSAOAhCAAAQgAAEIQAhAAAIQgAAEIAABCAEIQAACEIAANFL6A/UV1Rn7fVgJAAAAAElFTkSuQmCC';
+// The portrait is the shared, CRC-verified PROBE from
+// `tests/screenshots/helpers/png-fixtures.ts` (100x100, asymmetric colour
+// bands). The inline literal that used to sit here was the SAME corrupt file as
+// the one in `helpers/admin-data.ts` (IDAT CRC stored 0xfb7d5809, computed
+// 0xfb7d58c9): ImageMagick refuses to decode it, and dompdf renders an empty
+// photo box without an error. `tests/e2e/png-fixtures.spec.ts` now fails on any
+// unregistered PNG literal in this tree, so the class cannot come back.
+const PORTRAIT_PNG_BASE64 = pngFixture('portrait-probe').toString('base64');
 
 // P1c: The accreditation-profile UI (P2) does not exist yet — this spec covers
 // the live backend surface end-to-end through the Vite proxy, following the

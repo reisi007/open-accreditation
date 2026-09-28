@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+import { TINY_BADGE_IMAGE_PNG } from '../screenshots/helpers/png-fixtures';
 
 /**
  * Badge template editor basis UI (FE2, features/badge-template-editor.md):
@@ -25,8 +26,17 @@ import { loginAdminApi, uniqueSuffix } from './helpers/admin-data';
  * inline in the test callbacks where `page` is inferred.
  */
 
-const TINY_PNG_BASE64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const TINY_PNG_BASE64 = TINY_BADGE_IMAGE_PNG;
+
+/**
+ * Names of the templates THIS process created, cleaned up per test.
+ *
+ * Deleting by exact name is what makes the cleanup safe: the names carry
+ * `uniqueSuffix()`, so no two workers — and no two runs — can ever produce the
+ * same one, and a row that belongs to somebody else is unreachable from here.
+ * A prefix sweep would be the opposite (see the `afterEach` comment).
+ */
+const ownedTemplateNames = new Set();
 
 test.describe('Badge-Template-Editor (FE2)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to spare the shared per-IP
@@ -35,16 +45,34 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         test.skip(testInfo.project.name !== 'Desktop Chrome');
     });
 
-    // Self-cleaning: purge the UI-created editor templates via the admin API,
-    // even on failure (same pattern as badge.spec.ts).
-    test.afterAll(async () => {
+    // Self-cleaning BY EXACT NAME, after EVERY test rather than once at the end.
+    //
+    // The hook used to be an `afterAll` that swept every row whose name started
+    // with `E2E Editor` — a mandant-wide prefix sweep in a hook that is not
+    // serial and that also fires in the Mobile Chrome project, where the test is
+    // SKIPPED (a `beforeEach` skip suppresses the test body, not the file's
+    // hooks). MEASURED: it ran 6–10 times per full suite, once per worker that
+    // executed a test of this file, deleting OTHER workers' in-flight templates.
+    // `tests/e2e/namespace-isolation.spec.ts` pins the rule; a crashed run's
+    // leftovers are reclaimed by the serial `globalTeardown` through the
+    // `E2E Editor` marker in `BADGE_TEMPLATE_PURGE_PREFIXES`.
+    test.afterEach(async () => {
+        if (ownedTemplateNames.size === 0) {
+            return;
+        }
+        const names = new Set(ownedTemplateNames);
+        ownedTemplateNames.clear();
         const api = await loginAdminApi();
         try {
             const body = await (await api.get('/api/admin/badge-templates')).json();
-            const templates = body.data ?? [];
-            for (const template of templates) {
-                if ((template.name ?? '').startsWith('E2E Editor')) {
-                    await api.delete(`/api/admin/badge-templates/${template.id}`);
+            for (const template of body.data ?? []) {
+                if (!names.has(template.name)) {
+                    continue;
+                }
+                const removed = await api.delete(`/api/admin/badge-templates/${template.id}`);
+                // 204 = deleted, 404 = the serial teardown got there first.
+                if (removed.status() !== 204 && removed.status() !== 404) {
+                    throw new Error(`Deleting badge template ${template.id} failed with status ${removed.status()}`);
                 }
             }
         } finally {
@@ -96,6 +124,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByLabel('Skalierung').selectOption({ label: 'Füllen' });
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
         await expect(templateRow.getByText('3 Felder')).toBeVisible();
@@ -180,12 +213,22 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByLabel('Breite (mm)').fill('10');
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         await expect(dialog.getByText('Das Feld ragt über den rechten Rand hinaus.')).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Template erstellen' })).toBeVisible();
 
         // Fixing the geometry lets the save go through.
         await dialog.getByLabel('X (mm)').fill('40');
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 
@@ -238,6 +281,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         expect(((box.y - card.y) / card.height) * 148).toBeCloseTo(40, 0);
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
@@ -288,6 +336,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         // rejects hard rules like bounds/min sizes).
         await dialog.getByLabel('Quelle').selectOption('brand');
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 
@@ -337,6 +390,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         await dialog.getByLabel('Skalierung').selectOption({ label: 'Einpassen' });
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
@@ -391,6 +449,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         expect((box.height / card.height) * 148).toBeCloseTo(20, 0);
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
@@ -505,6 +568,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
         expect(((box.y - card.y) / card.height) * 148).toBeCloseTo(14, 0);
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         const templateRow = main.getByRole('row', { name: new RegExp(templateName) });
         await expect(templateRow).toBeVisible();
 
@@ -651,6 +719,11 @@ test.describe('Badge-Template-Editor (FE2)', () => {
 
         // …which must NOT block saving (soft warning, server stays authoritative).
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
+        // Hand the row to this worker's own cleanup, immediately after the
+        // creation — a test that dies in the assertions below still leaves the
+        // row accounted for. The name is unique per run (`uniqueSuffix()`), so
+        // the `afterEach` can only ever find THIS row.
+        ownedTemplateNames.add(templateName);
         await expect(main.getByRole('row', { name: new RegExp(templateName) })).toBeVisible();
     });
 });

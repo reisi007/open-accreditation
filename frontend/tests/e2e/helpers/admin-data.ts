@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MailpitHelper } from './mailpit';
+import { pngFixture } from '../../screenshots/helpers/png-fixtures';
 
 /**
  * Single source of truth for the origin the E2E **API helpers** drive.
@@ -42,6 +43,81 @@ export async function loginAdminApi() {
  */
 const HOME_VENUE_NAME = 'E2E Heimstadion';
 const PORTAL_VENUE_NAME = 'E2E Portal Arena';
+
+/**
+ * Name markers under which a SPEC may create a badge template, and therefore
+ * everything the serial teardown has to reclaim.
+ *
+ * ## Why this table exists at all
+ *
+ * A spec used to sweep its own templates with a `startsWith` prefix in a
+ * `test.afterAll` hook. MEASURED (Playwright 1.63, `fullyParallel`, 8 workers):
+ * a file's `afterAll` runs once **per worker process that executed a test of
+ * that file** — and `test.skip()` inside `beforeEach` suppresses only the test
+ * BODY, not the file's `afterAll`. The Mobile Chrome worker therefore "ran" the
+ * skipped `badge.spec.ts` test and fired the sweep mid-run: in three
+ * consecutive full runs the log showed two `afterAll` invocations in two
+ * different pids, the first deleting `511:E2E Ausweis` **while the Desktop
+ * Chrome worker was between "create template" and "export"**. The export then
+ * answered `422 No badge template.` and the test hung on
+ * `waitForEvent('download')` until the test timeout. `badge-editor.spec.ts` had
+ * the same hook and fired 6–10 times per run, deleting other workers'
+ * in-flight templates.
+ *
+ * ## The rule this table makes enforceable
+ *
+ * 1. **A per-worker / per-test cleanup deletes by ID**, never by name prefix —
+ *    a row it did not create is not its business.
+ * 2. **A name-prefix sweep belongs in ONE place: the serial `globalTeardown`**,
+ *    which by construction runs after every test of the run has finished. That
+ *    is the only place a prefix can be reclaimed safely, and it is where
+ *    crashed-run leftovers die.
+ * 3. **Every spec's marker is listed here**, so "what does the teardown
+ *    reclaim" has exactly one answer, and a new spec that adds a marker cannot
+ *    silently start leaking rows.
+ *
+ * Rule 1 + 2 is what `tests/e2e/namespace-isolation.spec.ts` pins, together
+ * with the same separation the ui-review harness needs against this suite.
+ */
+export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E Badge Mobile'];
+
+/**
+ * EVERY name marker the serial teardown reclaims, in one object.
+ *
+ * `purgeAllE2EArtifacts()` below reads its markers from HERE rather than from
+ * inline literals, for two reasons:
+ *
+ * 1. **It is the contract the ui-review harness is checked against.**
+ *    `tests/screenshots/helpers/fixture-names.ts` owns that suite's namespace;
+ *    `tests/e2e/namespace-isolation.spec.ts` proves the two are disjoint by
+ *    comparing the review's names against this table. A second, drifting copy
+ *    of the markers inside the loop would make that proof worthless — so there
+ *    is no second copy.
+ * 2. **A new fixture marker is a visible edit.** Adding a spec's marker here is
+ *    the same act as teaching the teardown to reclaim it, which is the coupling
+ *    a leftover row needs.
+ *
+ * Keys are entity kinds, values are the prefixes/prefixes-with-space the teardown
+ * matches with `startsWith` (an empty array = the entity is matched by slug).
+ */
+export const E2E_PURGE_MARKERS = {
+    /** `badge_templates.name` */
+    badgeTemplateNames: BADGE_TEMPLATE_PURGE_PREFIXES,
+    /** `badge_images.original_name` */
+    badgeImageNames: ['e2e-'],
+    /** `categories.name` */
+    categoryNames: ['E2E Akkreditierung ', 'E2E Sub Akkreditierung '],
+    /** `events.title` and `events.competition` */
+    eventTitles: ['Portal-Test ', 'E2E Akkreditierung Event ', 'E2E Sub Akkreditierung Event '],
+    eventCompetitions: ['E2E Wettbewerb '],
+    /** `teams.name` */
+    teamNames: ['E2E Heimverein '],
+    /** `venues.name` */
+    venueNames: ['E2E '],
+    /** `mandants.name` and `mandants.slug` */
+    mandantNames: ['E2E '],
+    mandantSlugs: ['e2e-'],
+};
 
 /**
  * Ensures both shared E2E venues exist as ACTIVE rows and returns them. Venue
@@ -464,22 +540,20 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
             throw new Error(`User login failed with status ${login.status()}`);
         }
 
-        // Realistic head-and-shoulders portrait fixture (96×120 PNG, ~0.7 KB) —
-        // programmatically drawn with Python/PIL (light-gray background,
-        // skin-tone head, dark hair cap, simple clothing band) so the public
-        // verify page shows a human-looking image when scaled to ~128×160.
-        // Small enough for a throwaway portrait and passes the backend's
-        // image/dimension validation (max 2000px, no minimum).
+        // The portrait is the shared, CRC-verified PROBE from
+        // `tests/screenshots/helpers/png-fixtures.ts` (100x100, asymmetric colour
+        // bands). The inline literal that used to sit here had a corrupt IDAT
+        // chunk (MEASURED: stored 0xfb7d5809, computed 0xfb7d58c9): ImageMagick
+        // refuses to decode it and dompdf renders an EMPTY photo box — no error,
+        // exit 0, i.e. indistinguishable from "the renderer forgot the photo".
+        // Passes the backend's image/dimension validation (max 2000px, no min).
         const portrait = await api.post('/api/user/media', {
             multipart: {
                 type: 'portrait',
                 file: {
                     name: 'portrait.png',
                     mimeType: 'image/png',
-                    buffer: Buffer.from(
-                        'iVBORw0KGgoAAAANSUhEUgAAAGAAAAB4CAIAAACCf2CZAAACjklEQVR42u2cu0oDQRSGZ0fTSFBRH0REsVV8BYNWFmJlqRaS2sJCrcTKykrJM0hqMQRfQiy8oCI2YrBYCEuuuztn5xK/v1rIJHPm23/O3MJEj0/PCvWXBgGAAAQgAAEIQAACEAIQgAAEIAABaLQ0bvj9ytqy/42s3d7hILoYgAAEIAABCAEIQAACEIAABCAAIQABCEAAAhCAAAQgACEAuQNkcmipvD9WxUFWAPlsIvPYcJAq9t8dsS6PD+KHncMTH1rVjseLLvZxXysiMhE6ydhcOiirPvVE/DDZ+i6ivEdJuvsVDTVRu7UdzyLlu2s3NJF25Z2Ubc5anpn0SCw1rk/3cn/3vLp9Xt22X69tB/WLtTvLDs676csXQUdgFJtaqnRkwXKplYx4c/+su4WZRqWh5ZNoyqXW14/uiNDrYb4npqyjtWXXCANKmqhtnzSYCkpzSRMZ2kfMQVNLld+Hm3xuKiITx+9pbH7Dl7WYSQuH8rLQjwYokrqaIo2D0ujl9V0pNTc7bf5TIg4SG+ZFohGUVDzMpAEU4nbHAIlkH08d5E8aEoyELmYXkA8mko3BpYOa9Uaz3pAq5vtEMd+ksd3yhdXFrJ/asbDjUWxhdTGmMMAj6ekE46AcK4+egLKiKSIDRsVdEyi1OnM7PujgIrZclw40bmu16KCjt/D7Oug3bMGhOtwcYaf/6kDzqLURILJ/G7Dh8G95uRe5ui45ByYnK+HI7X3S8YFav9M0pVR8wmV+vBX2jmLHYbFiT1qxaQ8gACEAAUhiHrSyfuSw+outmTTFdq/ecBBdDEAAAhACEIAApP7TfpDDGSAOAhCAAAQgAAEIQAhAAAIQgAAEIAABCAEIQAACEIAANFL6A/UV1Rn7fVgJAAAAAElFTkSuQmCC',
-                        'base64',
-                    ),
+                    buffer: pngFixture('portrait-probe'),
                 },
             },
         });
@@ -1011,10 +1085,13 @@ export async function purgeAllE2EArtifacts() {
         }
         const primaryId = primary.id;
 
-        // Badge templates: name "E2E Ausweis*".
+        // Badge templates: the markers every spec registers in
+        // `BADGE_TEMPLATE_PURGE_PREFIXES` — the SERIAL teardown is the only
+        // place a prefix sweep is safe (see that constant for the measurement
+        // that forced the rule).
         const templateBody = await (await api.get('/api/admin/badge-templates')).json();
         for (const template of templateBody.data ?? []) {
-            if ((template.name ?? '').startsWith('E2E Ausweis')) {
+            if (E2E_PURGE_MARKERS.badgeTemplateNames.some((marker) => (template.name ?? '').startsWith(marker))) {
                 await api.delete(`/api/admin/badge-templates/${template.id}`);
             }
         }
@@ -1024,7 +1101,7 @@ export async function purgeAllE2EArtifacts() {
         // private-disk file, so repeated runs never accumulate orphans.
         const badgeImageBody = await (await api.get('/api/admin/badge-images')).json();
         for (const image of badgeImageBody.data ?? []) {
-            if ((image.original_name ?? '').startsWith('e2e-')) {
+            if (E2E_PURGE_MARKERS.badgeImageNames.some((marker) => (image.original_name ?? '').startsWith(marker))) {
                 await api.delete(`/api/admin/badge-images/${image.id}`);
             }
         }
@@ -1034,8 +1111,7 @@ export async function purgeAllE2EArtifacts() {
         // applications / sub-accreditations), reclaiming all accreditation data.
         const categoryBody = await (await api.get('/api/admin/categories')).json();
         for (const category of categoryBody.data ?? []) {
-            const name = category.name ?? '';
-            if (name.startsWith('E2E Akkreditierung ') || name.startsWith('E2E Sub Akkreditierung ')) {
+            if (E2E_PURGE_MARKERS.categoryNames.some((marker) => (category.name ?? '').startsWith(marker))) {
                 await api.delete(`/api/admin/categories/${category.id}`);
             }
         }
@@ -1045,13 +1121,9 @@ export async function purgeAllE2EArtifacts() {
         // "E2E Sub Akkreditierung Event *").
         const eventBody = await (await api.get('/api/admin/events')).json();
         for (const event of eventBody.data ?? []) {
-            const title = event.title ?? '';
-            const competition = event.competition ?? '';
             if (
-                title.startsWith('Portal-Test ') ||
-                competition.startsWith('E2E Wettbewerb ') ||
-                title.startsWith('E2E Akkreditierung Event ') ||
-                title.startsWith('E2E Sub Akkreditierung Event ')
+                E2E_PURGE_MARKERS.eventTitles.some((marker) => (event.title ?? '').startsWith(marker)) ||
+                E2E_PURGE_MARKERS.eventCompetitions.some((marker) => (event.competition ?? '').startsWith(marker))
             ) {
                 await api.delete(`/api/admin/events/${event.id}`);
             }
@@ -1060,7 +1132,7 @@ export async function purgeAllE2EArtifacts() {
         // Teams: "E2E Heimverein *" (shared across specs, so reclaimed here).
         const teamBody = await (await api.get(`/api/admin/mandants/${primaryId}/teams`)).json();
         for (const team of teamBody.data ?? []) {
-            if ((team.name ?? '').startsWith('E2E Heimverein ')) {
+            if (E2E_PURGE_MARKERS.teamNames.some((marker) => (team.name ?? '').startsWith(marker))) {
                 await api.delete(`/api/admin/mandants/${primaryId}/teams/${team.id}`);
             }
         }
@@ -1070,7 +1142,7 @@ export async function purgeAllE2EArtifacts() {
         // would otherwise survive every run.
         const venueBody = await (await api.get('/api/admin/venues')).json();
         for (const venue of venueBody.data ?? []) {
-            if ((venue.name ?? '').startsWith('E2E ')) {
+            if (E2E_PURGE_MARKERS.venueNames.some((marker) => (venue.name ?? '').startsWith(marker))) {
                 await api.delete(`/api/admin/venues/${venue.id}`);
             }
         }
@@ -1083,9 +1155,10 @@ export async function purgeAllE2EArtifacts() {
         // ("Hauptseite") is never matched.
         const allMandantsBody = await (await api.get('/api/admin/mandants')).json();
         for (const mandant of allMandantsBody.data ?? []) {
-            const name = mandant.name ?? '';
-            const slug = mandant.slug ?? '';
-            if (name.startsWith('E2E ') || slug.startsWith('e2e-')) {
+            if (
+                E2E_PURGE_MARKERS.mandantNames.some((marker) => (mandant.name ?? '').startsWith(marker)) ||
+                E2E_PURGE_MARKERS.mandantSlugs.some((marker) => (mandant.slug ?? '').startsWith(marker))
+            ) {
                 const teamBody = await (await api.get(`/api/admin/mandants/${mandant.id}/teams`)).json();
                 for (const team of teamBody.data ?? []) {
                     await api.delete(`/api/admin/mandants/${mandant.id}/teams/${team.id}`);

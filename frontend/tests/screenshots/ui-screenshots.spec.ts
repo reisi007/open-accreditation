@@ -3,8 +3,11 @@ import type { Page } from '@playwright/test';
 import path from 'node:path';
 import process from 'node:process';
 import { routes, uiReviewConfig } from './ui-review.config';
-import type { UiReviewNavStep, UiReviewRoute, UiReviewState, UiReviewViewport } from './ui-review.config';
+import type { UiReviewClickStep, UiReviewNavStep, UiReviewRoute, UiReviewState, UiReviewViewport } from './ui-review.config';
 import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandant';
+import { storeRouteCapture } from './helpers/capture-store';
+import { uiReviewDataset } from './helpers/dataset';
+import { loginViaUi, waitForAppSettled } from './helpers/session';
 
 /**
  * Generic manifest-driven screenshot spec for the ui-review skill.
@@ -13,8 +16,23 @@ import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandan
  * captures a full-page PNG per combination, plus one section capture per
  * viewport-height step down the page (`<name>-secN.png`, see `captureSections`)
  * so that the review can read what is below the fold. All tests are tagged
- * `@screenshot` so the set is groupable and clearly separate from the
- * functional E2E tags.
+ * `@screenshot` so the set is groupable and clearly separate from the functional
+ * E2E tags.
+ *
+ * ## Captures overwrite, they never delete
+ *
+ * Every capture is written through `helpers/capture-store.ts`, which archives the
+ * file it replaces into `<dir>/prev/`. A partial re-capture — the §7 fix loop's
+ * `pnpm test:screenshots -g <route>` — therefore leaves BOTH halves of the
+ * comparison on disk: untouched routes byte-for-byte, the re-taken route as
+ * `prev/<name>.png` next to `<name>.png`. (Before the store existed the harness
+ * wrote into Playwright's own `outputDir`, which is deleted at the start of every
+ * run: measured 126 PNG → 11 after one partial run, i.e. no "old" at all.)
+ *
+ * Every capture also records its measurements — above all the SECTION BAND COUNT
+ * — in `<name>.meta.json` next to the images, which is what makes a review batch
+ * auditable and reproducible (it is a function of the page height, which is a
+ * function of the dataset, which `helpers/dataset.ts` fixes per run).
  *
  * STRICT frontend rules obeyed here:
  * - SPA navigation happens via UI clicks (`nav` steps). `page.goto` is only
@@ -34,7 +52,9 @@ import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandan
  *      opened. Resolved-URL loads capture the exact page deterministically;
  *      the desktop path still clicks the landmarks' links.
  * - Login flows through the real UI form — no localStorage injection.
- * - Locators are scoped to landmarks (`banner` / `complementary` / `main`).
+ * - Locators are scoped to landmarks (`banner` / `complementary` / `main`), and
+ *   list rows are addressed by role (`article` card or table `row`), never by CSS
+ *   class.
  */
 
 const PRIMARY_ORIGIN = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
@@ -60,10 +80,10 @@ function resolvePath(pattern: string, params: Record<string, unknown>): string {
     });
 }
 
-/** Let the SPA + i18n settle so later clicks never race a layout shift. */
-async function waitForAppSettled(page: Page): Promise<void> {
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(300);
+interface SectionCapture {
+    /** One viewport-height band per scroll step, in order. */
+    bands: Buffer[];
+    measurements: { scrollHeightPx: number; viewportHeightPx: number };
 }
 
 /**
@@ -92,8 +112,10 @@ async function waitForAppSettled(page: Page): Promise<void> {
  * - A page that fits in one viewport gets **no** band: there is nothing below
  *   the fold, and the full-page PNG already is the visible area. Emitting a
  *   copy of it would pad the review with a duplicate.
+ * - The bands are RETURNED, not written here: the store decides what happens to
+ *   the file that a previous run left under the same name.
  */
-async function captureSections(page: Page, directory: string, name: string): Promise<void> {
+async function captureSections(page: Page): Promise<SectionCapture> {
     // Prime lazy content, then return to the top: see the module-level note.
     await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
     await page.waitForTimeout(200);
@@ -105,7 +127,7 @@ async function captureSections(page: Page, directory: string, name: string): Pro
     }));
     const maxScroll = scrollHeight - viewportHeight;
     if (maxScroll <= 0) {
-        return;
+        return { bands: [], measurements: { scrollHeightPx: scrollHeight, viewportHeightPx: viewportHeight } };
     }
 
     const step = Math.max(1, Math.round(viewportHeight * uiReviewConfig.sectionScrollStep));
@@ -116,12 +138,14 @@ async function captureSections(page: Page, directory: string, name: string): Pro
     // Clamped to the true bottom — the last step of a 80 % walk never lands on it.
     offsets.push(maxScroll);
 
-    for (const [index, offset] of offsets.entries()) {
+    const bands: Buffer[] = [];
+    for (const offset of offsets) {
         await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), offset);
-        await page.screenshot({ path: path.resolve(directory, `${name}-sec${index + 1}.png`) });
+        bands.push(await page.screenshot());
     }
     // Leave the page where the full-page capture found it.
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    return { bands, measurements: { scrollHeightPx: scrollHeight, viewportHeightPx: viewportHeight } };
 }
 
 async function settleAndCapture(
@@ -129,32 +153,84 @@ async function settleAndCapture(
     route: UiReviewRoute,
     state: UiReviewState,
     viewport: UiReviewViewport,
+    dataset: Awaited<ReturnType<typeof uiReviewDataset>>,
+    seed: Record<string, unknown>,
 ): Promise<void> {
+    // POSTCONDITION: the capture must show the route the manifest declares, at
+    // the id the seed resolved. This is the check that makes the addressing
+    // error class LOUD: navigation used to be trusted, so a click that landed on
+    // the wrong row produced a perfectly plausible screenshot of the wrong
+    // dataset (MEASURED: desktop `apply` showed the print accreditation 201
+    // while mobile showed 200, because one took the click path and the other the
+    // URL bypass). A wrong landing is now a failed run, and the ids it would have
+    // hidden are in the sidecar either way.
+    const expectedPathname = resolvePath(route.path, seed);
+    expect(
+        new URL(page.url()).pathname,
+        `"${route.name}" (${state}, ${viewport}) landed on the manifest's route`,
+    ).toBe(expectedPathname);
+
     await waitForAppSettled(page);
     await expect(page.getByRole('main')).toBeVisible();
-    const directory = path.resolve(process.cwd(), uiReviewConfig.outputDir, state, viewport);
-    // Full page FIRST, on an unscrolled page — unchanged from before the bands
-    // existed, so those artifacts stay byte-comparable to the earlier loop run.
-    await page.screenshot({ path: path.join(directory, `${route.name}.png`), fullPage: true });
-    await captureSections(page, directory, route.name);
+    // Full page FIRST, on an unscrolled page — so a reviewer comparing against
+    // the previous run compares the same thing the previous run compared.
+    const fullPage = await page.screenshot({ fullPage: true });
+    const sections = await captureSections(page);
+    const meta = storeRouteCapture({
+        state,
+        viewport,
+        route: route.name,
+        fullPage,
+        bands: sections.bands,
+        measurements: sections.measurements,
+        runKey: dataset.runKey,
+        dataset: dataset.fingerprint,
+        // The dataset ids the capture was actually rendered against, and the URL
+        // it was rendered at. A reviewer (and the §7 acceptance check) can now
+        // read the id off the sidecar instead of squinting at the pixels.
+        entityIds: entityIdsOf(seed),
+        pathname: new URL(page.url()).pathname,
+    });
+    console.log(
+        `[ui-review] ${route.name} (${state}, ${viewport}): ${meta.bands} band(s), ` +
+            `${meta.scrollHeightPx}px page, ${JSON.stringify(meta.entityIds)} → ` +
+            `${path.join(uiReviewConfig.outputDir, state, viewport, meta.file)}`,
+    );
 }
 
 /**
- * UI login. The login page itself is loaded by direct URL (see the module
- * comment — the header "Anmelden" link is unreachable in the mobile navbar,
- * so the deep link is the only reliable route there). After the submit the
- * auth redirect chain must finish before any nav step runs: a user lands on
- * "/" (the admin redirect bounces them back), an admin on "/admin/*".
+ * The seed values that identify WHICH row a capture shows, as numbers, so a
+ * sidecar reader gets `{"accreditationId": 200}` and not a string.
+ *
+ * Credentials are deliberately NOT part of this: the sidecar is handed out with
+ * the batch (see `dataset.ts`'s `assertNoSecretsInArtifact`), so no address that
+ * could log someone in and no token belongs here either.
  */
-async function loginViaUi(page: Page, origin: string, email: string, password: string, landing: RegExp): Promise<void> {
-    await page.goto(`${origin}/login`);
-    await expect(page).toHaveURL(/\/login$/);
-    const main = page.getByRole('main');
-    await main.getByLabel('E-Mail', { exact: true }).fill(email);
-    await main.getByLabel('Passwort', { exact: true }).fill(password);
-    await main.getByRole('button', { name: 'Anmelden', exact: true }).click();
-    await expect(page).toHaveURL(landing);
-    await waitForAppSettled(page);
+function entityIdsOf(seed: Record<string, unknown>): Record<string, number> {
+    const ids: Record<string, number> = {};
+    for (const [key, value] of Object.entries(seed)) {
+        if (typeof value === 'number' && Number.isInteger(value)) {
+            ids[key] = value;
+        }
+    }
+    return ids;
+}
+
+/**
+ * The exact accessible name of a click step, from the manifest's `name` or from
+ * the seed key `nameFrom` points at. `undefined` means "no name filter" — which
+ * the locator below then treats as a strict-mode requirement of exactly ONE
+ * matching element, instead of a silent `.first()`.
+ */
+function resolveName(step: UiReviewClickStep, seed: Record<string, unknown>): { name: string; exact: true } | undefined {
+    if (step.nameFrom !== undefined) {
+        const value = seed[step.nameFrom];
+        if (value === undefined || value === null) {
+            throw new Error(`Nav step nameFrom="${step.nameFrom}" was not resolved by the seed`);
+        }
+        return { name: String(value), exact: true };
+    }
+    return step.name !== undefined ? { name: step.name, exact: true } : undefined;
 }
 
 async function applyNavStep(page: Page, step: UiReviewNavStep, seed: Record<string, unknown>): Promise<void> {
@@ -166,13 +242,49 @@ async function applyNavStep(page: Page, step: UiReviewNavStep, seed: Record<stri
     }
 
     const region = page.getByRole(step.scope);
-    let locator = region.getByRole(step.role, step.name !== undefined ? { name: step.name, exact: true } : undefined);
+    const name = resolveName(step, seed);
+    let locator = region.getByRole(step.role, name);
     if (step.within !== undefined) {
-        locator = region
-            .locator('article', { hasText: String(seed[step.within]) })
-            .getByRole(step.role, { name: step.name, exact: true });
+        // Scope to the list container that carries the seed's value: a card
+        // (`article`) or a table row (`row`). Role-based, not a CSS selector.
+        //
+        // The inner locator matches the name EXACTLY (`withinRole`, see the
+        // manifest's type docblock): a substring would also match any other
+        // fixture whose name merely CONTAINS this one, and the list is ordered
+        // `b.id - a.id`, so `.first()` then silently picked one of them.
+        const value = String(seed[step.within]);
+        // The `has` locator is built from `page`, NOT from `region`, and that is
+        // load-bearing rather than cosmetic. MEASURED on the live page with two
+        // accreditation cards:
+        //
+        //   filter({ has: page.getByRole('main').getByRole('heading', …) })  → 0
+        //   filter({ has: page.getByRole('heading', …) })                    → 1
+        //
+        // `has` is matched against the candidate element, and a locator rooted at
+        // `main` no longer resolves inside a candidate that IS inside main. A
+        // silently empty `has` is exactly the kind of thing that gets "fixed" by
+        // going back to `hasText` — which is the bug this whole change is about.
+        const carrier = page.getByRole(step.withinRole ?? 'heading', { name: value, exact: true });
+        // Two shapes, and the difference is which element gets clicked:
+        //
+        // - `withinContainer` omitted → the container (`article` card / `row`)
+        //   SCOPES the click, and the control is looked up INSIDE it ("the
+        //   Bearbeiten button of this template's row").
+        // - `withinContainer` named → the container IS the control. The portal
+        //   calendar's clickable card is an `<a>` with no control inside it, so
+        //   looking for a link inside the link would never resolve (measured:
+        //   a 120 s wait, not a strict-mode error — the quietest way to be
+        //   wrong).
+        if (step.withinContainer === undefined) {
+            const containers = region.getByRole('article').or(region.getByRole('row'));
+            locator = containers.filter({ has: carrier }).getByRole(step.role, name);
+        } else {
+            locator = region.getByRole(step.withinContainer).filter({ has: carrier });
+        }
     }
-    await locator.first().click();
+    // No `.first()`: a locator that resolves to more than one element must fail
+    // the run (Playwright strict mode) instead of quietly picking one.
+    await locator.click();
     await waitForAppSettled(page);
 }
 
@@ -207,6 +319,11 @@ for (const route of routes) {
                     viewportForProject(testInfo.project.name) !== viewport,
                     `project ${testInfo.project.name} renders the ${viewportForProject(testInfo.project.name)} viewport`,
                 );
+
+                // Awaited by EVERY test, seeds or not: the dataset (reset +
+                // fixtures) is built once per run, and a capture that ran before
+                // the reset would see whatever the previous run left behind.
+                const dataset = await uiReviewDataset();
 
                 const origin = tenantOrigin(route, state);
 
@@ -249,7 +366,7 @@ for (const route of routes) {
                     }
                 }
 
-                await settleAndCapture(page, route, state, viewport);
+                await settleAndCapture(page, route, state, viewport, dataset, seed);
             });
         }
     }

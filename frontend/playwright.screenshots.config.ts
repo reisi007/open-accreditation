@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'node:path';
 import process from 'node:process';
+import { assertCaptureRootOutsidePlaywrightOutput } from './tests/screenshots/helpers/capture-store';
+import { CAPTURE_STORE_DIR, PLAYWRIGHT_SCRATCH_DIR } from './tests/screenshots/helpers/store-paths';
 
 /**
  * Dedicated Playwright config for the ui-review screenshot set.
@@ -8,10 +11,58 @@ import process from 'node:process';
  * `./tests/e2e`): this config only captures screenshots (empty/filled
  * states) for the ui-review skill and must NEVER run inside the standard
  * E2E suite. Run it via `pnpm test:screenshots`.
+ *
+ * Both paths come from `tests/screenshots/helpers/store-paths.ts`, so the
+ * scratch space and the capture store cannot drift apart: the store is
+ * `test-artifacts/ui-review/`, OUTSIDE `test-results/` entirely, and that is what
+ * protects it — not the check below.
  */
+
+/**
+ * The residual check, at CONFIG-LOAD time, and only for a deliberately misaimed
+ * `--output`.
+ *
+ * ## Why here and not only in a hook
+ *
+ * Playwright deletes the resolved `outputDir` recursively before the first test,
+ * and `globalSetup` runs AFTER that deletion. MEASURED: a run with
+ * `--output=test-results` while the store was still a sibling inside
+ * `test-results/` went 192 PNG → 0 even with the guard in `globalSetup` — the
+ * guard fired only to announce the loss. The config file itself is `require`d
+ * while Playwright is still RESOLVING the config, i.e. before it knows what to
+ * delete, so a refusal from here still leaves the evidence on disk.
+ *
+ * ## What it is worth now
+ *
+ * The store is outside `test-results/`, so no default and no habitual flag
+ * reaches it; what is left is `--output` aimed AT the store, which takes intent.
+ * That is a tripwire, not the protection, and `store-guard.spec.ts` says so
+ * where it is tested. `--output` is resolved by Playwright before the project and
+ * config values, so it is the only value this pre-flight has to look at.
+ */
+function effectiveOutputDir(): string {
+    const argv = process.argv;
+    for (let index = 0; index < argv.length; index += 1) {
+        const argument = argv[index];
+        if (argument === '--output') {
+            const value = argv[index + 1];
+            if (value !== undefined && !value.startsWith('-')) {
+                return path.resolve(process.cwd(), value);
+            }
+        }
+        if (argument !== undefined && argument.startsWith('--output=')) {
+            return path.resolve(process.cwd(), argument.slice('--output='.length));
+        }
+    }
+    return path.resolve(process.cwd(), PLAYWRIGHT_SCRATCH_DIR);
+}
+
+assertCaptureRootOutsidePlaywrightOutput(path.resolve(process.cwd(), CAPTURE_STORE_DIR), effectiveOutputDir());
+
 export default defineConfig({
     testDir: './tests/screenshots',
     testMatch: '**/*.spec.ts',
+    globalSetup: './tests/screenshots/global-setup.ts',
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
@@ -28,7 +79,7 @@ export default defineConfig({
         trace: 'off',
         video: 'off',
     },
-    outputDir: 'test-results/ui-screenshots',
+    outputDir: PLAYWRIGHT_SCRATCH_DIR,
     projects: [
         { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 950 } } },
         { name: 'Mobile Chrome', use: { ...devices['Galaxy A55'] } },

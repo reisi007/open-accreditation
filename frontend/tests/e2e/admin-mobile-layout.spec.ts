@@ -183,14 +183,14 @@ test.describe('Badge template actions are reachable on mobile (P6)', () => {
         // The assertion is a real geometry measurement (button box vs. viewport
         // edge), not a visibility check: `toBeVisible()` passes for an element
         // that is on-screen-but-cut, which is precisely the defect.
-        // Named `E2E Ausweis …` on purpose: `purgeAllE2EArtifacts`
-        // (`helpers/admin-data.ts:1017`) reclaims exactly the `E2E Ausweis*`
-        // prefix on every teardown. A template under a name of its own would
-        // survive a hard-killed run and show up as an extra row in the next
-        // run's captures — the "stranded state" class the global setup exists
-        // to clear. The `finally` block below still deletes it explicitly; this
-        // is the belt to that pair of braces.
-        const templateName = `E2E Ausweis Mobile ${Date.now()}`;
+        // Named `E2E Badge Mobile …` on purpose, and NOT `E2E Ausweis …`:
+        // `E2E Ausweis` was `badge.spec.ts`'s cleanup prefix, so this row was a
+        // legitimate target of a mandant-wide sweep that had nothing to do with
+        // it — two specs sharing a name prefix, addressed by prefix. The marker
+        // `purgeAllE2EArtifacts` reclaims is registered in
+        // `BADGE_TEMPLATE_PURGE_PREFIXES` and runs in the SERIAL teardown, so a
+        // hard-killed run cannot strand the row.
+        const templateName = `E2E Badge Mobile ${Date.now()}`;
         const api = await loginAdminApi();
         let createdId = null;
         try {

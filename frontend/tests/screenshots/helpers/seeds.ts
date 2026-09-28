@@ -1,219 +1,131 @@
-import {
-    ensurePrimaryMandantAccreditation,
-    ensurePrimaryMandantActivePortalEvent,
-    ensurePrimaryMandantApprovedApplication,
-    loginAdminApi,
-    registerAndActivateUser,
-    registerAndApplyForAccreditation,
-    resetPrimaryMandantLogo,
-} from '../../e2e/helpers/admin-data';
+import { uiReviewDataset } from './dataset';
+import type { ReviewCredentials, UiReviewDataset } from './dataset';
 
 /**
- * Project-specific seed functions for the filled screenshot states. Each seed
- * makes the primary mandant's data deterministic via the existing E2E data
- * helpers and returns the ids/credentials the spec needs (dynamic route
- * params, UI-scoped clicks, user logins).
+ * Per-route seed selectors over the run's ONE dataset (`helpers/dataset.ts`).
  *
- * Login budget: the backend throttles logins per IP (40/min in local), and
- * every seed + browser login counts against it. Seeds that authenticate as
- * admin (or a seeded user) are therefore wrapped in `cachedSeed` — one login
- * per worker process instead of one per test. Data-creation seeds without a
- * login (registration only) stay per-test.
+ * These used to be creators: `ensurePrimaryMandantAccreditation()` per call, a
+ * fresh badge template per call, a freshly registered user per test. Measured
+ * consequence: three runs of unchanged code produced 35 → 45 → 66 section bands,
+ * because every run added rows and the pages grew. A reviewer could not tell a
+ * layout fix from yesterday's leftovers — and a finding from the first loop of a
+ * session could not be reproduced at all.
+ *
+ * A seed is now a *selector*: it reads what the dataset built once per run and
+ * hands the spec the ids/credentials that route needs. Names, shapes and return
+ * keys are unchanged, so `ui-review.config.ts` and its route notes keep their
+ * meaning — what changed is WHERE the data comes from, not what the routes need.
+ *
+ * Note the deliberate absence of any per-test registration here: the review's
+ * users are created once (they cannot be deleted again — there is no route for
+ * it) and reused, so the admin users list stops growing per run.
  */
 
 type SeedFn = () => Promise<Record<string, unknown>>;
 
-const seedCache = new Map<string, Promise<Record<string, unknown>>>();
-
-function cachedSeed<T extends SeedFn>(key: string, fn: T): T {
-    const memoized = (() => {
-        const existing = seedCache.get(key);
-        if (existing !== undefined) {
-            return existing;
-        }
-        const promise = fn();
-        seedCache.set(key, promise);
-        return promise;
-    }) as unknown as T;
-    return memoized;
+function credentials(value: ReviewCredentials): Record<string, unknown> {
+    return { email: value.email, password: value.password };
 }
 
-export type CredentialsSeedResult = {
-    email: string;
-    password: string;
+async function dataset(): Promise<UiReviewDataset> {
+    return uiReviewDataset();
+}
+
+/** The shared event-scoped accreditation: public list, apply page, approvals. */
+export const seedAccreditation: SeedFn = async () => {
+    const data = await dataset();
+    return {
+        accreditationId: data.accreditation.id,
+        categoryId: data.accreditation.categoryId,
+        categoryName: data.accreditation.categoryName,
+    };
 };
 
-export type ApplySeedResult = CredentialsSeedResult & {
-    accreditationId: number;
-    categoryName: string;
+/** The portal calendar event: home, event detail. */
+export const seedPortalEvent: SeedFn = async () => {
+    const data = await dataset();
+    return {
+        eventId: data.portalEvent.id,
+        // The exact accessible name of the calendar card link. Needed because the
+        // calendar lists every event of the mandant (three in the dataset), so a
+        // nameless click is a list-order dependency — see the route's `note`.
+        eventName: data.portalEvent.title,
+        teamId: data.portalEvent.teamId,
+        mandantName: data.portalEvent.mandantName,
+    };
 };
 
-/** One active event-scoped accreditation (cached per worker). */
-export const seedAccreditation = cachedSeed('accreditation', () => ensurePrimaryMandantAccreditation());
+/** The primary mandant — the admin mandant detail deep link. */
+export const seedPrimaryMandant: SeedFn = async () => {
+    const data = await dataset();
+    return { id: data.primaryMandantId };
+};
 
-/** One active portal event + team (cached per worker). */
-export const seedPortalEvent = cachedSeed('portal-event', () => ensurePrimaryMandantActivePortalEvent());
-
-/**
- * The primary mandant with NO uploaded logo — the state every route that RENDERS
- * the logo (portal landing, admin mandant list/detail, "Logo & Header")
- * documents as its baseline.
- *
- * Why a seed and not the E2E mutex (`acquirePrimaryMandantLogoLock`): a capture
- * needs the state to be *right once*, not mutually exclusive — this suite never
- * mutates the logo, and there is nothing to exclude. What it must not do is
- * ASSUME the state: the E2E suite's "self-service logo upload" test can die
- * between upload and removal, and `playwright.screenshots.config.ts` has no
- * `globalTeardown`, so `purgeAllE2EArtifacts` (which now restores the logo)
- * never runs here. A stranded logo would turn every one of those captures into
- * a filled state nobody asked for. So the guarantee is established here, once
- * per worker, and the route notes stay true.
- */
-export const seedMandantLogoFree = cachedSeed('mandant-logo-free', async () => {
-    const removed = await resetPrimaryMandantLogo();
-    if (removed) {
-        console.log('[ui-review] removed a leftover primary mandant logo before capturing');
-    }
-    return {};
-});
+/** The list route's badge template row (legacy three-field layout). */
+export const seedBadgeTemplate: SeedFn = async () => {
+    const data = await dataset();
+    return { templateName: data.badgeTemplates.list.name, templateId: data.badgeTemplates.list.id };
+};
 
 /**
- * Composes the logo-free guarantee in front of another seed, so a route that
- * needs both ("a portal event AND no mandant logo") keeps the other seed's
- * `:param` values in its result.
+ * The complete schema-v2 template — the mandant's DEFAULT, the one the editor
+ * routes open and the one the print check renders. `templateName` is what the
+ * editor routes scope their "Bearbeiten" click to: the list is sorted newest
+ * first, so clicking "the first Bearbeiten button" used to open whichever
+ * template happened to have the highest id at that moment (a timing dependency,
+ * i.e. one editor capture could show the three-field legacy layout and the next
+ * one the nine-box layout).
  */
-export function seedWithoutMandantLogo<S extends SeedFn>(base: S): S {
-    return (async () => {
-        await seedMandantLogoFree();
-        return base();
-    }) as unknown as S;
-}
-
-/** The primary mandant's id (cached per worker). */
-export const seedPrimaryMandant = cachedSeed('primary-mandant', () => seedPrimaryMandantId());
-
-/** One badge template (cached per worker). */
-export const seedBadgeTemplate = cachedSeed('badge-template', () => seedBadgeTemplatesFilled());
-
-/**
- * One COMPLETE schema-v2 badge template — every entry type the editor palette
- * offers (cached per worker). Both badge EDITOR routes seed this shape so the
- * "Bearbeiten" click (which opens the NEWEST row, id desc) can never land on
- * the legacy three-field layout of `seedBadgeTemplate`.
- */
-export const seedBadgeTemplateSchemaV2 = cachedSeed('badge-template-schema-v2', () =>
-    seedBadgeTemplateSchemaV2Filled(),
-);
-
-/** One approved application with a real QR token (cached per worker). */
-export const seedApprovedApplicationCached = cachedSeed('approved-application', () => seedApprovedApplication());
-
-/** One accreditation + one applicant user (requested application) — apply page. */
-export async function seedApplyFilled(): Promise<ApplySeedResult> {
-    const { accreditation, categoryName } = await seedAccreditation();
-    const user = await registerAndApplyForAccreditation(accreditation.id, 'E2E Bewerber Screenshot');
-    return { accreditationId: accreditation.id, categoryName, ...user };
-}
-
-/** A user with one requested application — "Meine Akkreditierungen" filled. */
-export async function seedMyAccreditationsFilled(): Promise<CredentialsSeedResult> {
-    const { accreditation } = await seedAccreditation();
-    return registerAndApplyForAccreditation(accreditation.id, 'E2E Antragsteller Screenshot');
-}
-
-/** A mandant-scoped user — the admin users list filled. */
-export async function seedUsersFilled(): Promise<CredentialsSeedResult> {
-    return registerAndActivateUser();
-}
-
-/** One accreditation + one requested application — the approvals view filled. */
-export async function seedFreigabenFilled(): Promise<CredentialsSeedResult> {
-    const { accreditation } = await seedAccreditation();
-    return registerAndApplyForAccreditation(accreditation.id, 'E2E Freigaben Antrag');
-}
+export const seedBadgeTemplateSchemaV2: SeedFn = async () => {
+    const data = await dataset();
+    return { templateName: data.badgeTemplates.editor.name, templateId: data.badgeTemplates.editor.id };
+};
 
 /** An approved application with a real QR token — the public verify result page. */
-export async function seedApprovedApplication(): Promise<{ token: string }> {
-    const { application } = await ensurePrimaryMandantApprovedApplication();
-    const qrUrl = String(application.qr_url);
-    const token = qrUrl.split('/').pop();
-    if (token === undefined || token === '') {
-        throw new Error('Approved application carries no qr token');
+export const seedApprovedApplicationCached: SeedFn = async () => {
+    const data = await dataset();
+    const application = data.print.applications[0];
+    if (application === undefined) {
+        throw new Error('The dataset holds no approved application for the verify route');
     }
-    return { token };
-}
+    return { token: application.token };
+};
 
-/** The primary mandant's id — the admin mandant detail deep link. */
-export async function seedPrimaryMandantId(): Promise<{ id: number }> {
-    const api = await loginAdminApi();
-    try {
-        const body = await (await api.get('/api/admin/mandants')).json();
-        const mandants = body.data as Array<{ id: number; is_primary: boolean }> | undefined;
-        const primary = mandants?.find((entry) => entry.is_primary) ?? mandants?.[0];
-        if (primary === undefined) {
-            throw new Error('No mandant found for the admin-mandant-detail seed');
-        }
-        return { id: primary.id };
-    } finally {
-        await api.dispose();
-    }
-}
+/** The accreditation + the applicant who has a REQUESTED application for it. */
+export const seedApplyFilled: SeedFn = async () => {
+    const data = await dataset();
+    return {
+        accreditationId: data.accreditation.id,
+        categoryName: data.accreditation.categoryName,
+        ...credentials(data.users.apply),
+    };
+};
 
-/** One badge template — the badge templates list filled. */
-export async function seedBadgeTemplatesFilled(): Promise<Record<string, unknown>> {
-    const api = await loginAdminApi();
-    try {
-        const create = await api.post('/api/admin/badge-templates', {
-            data: {
-                name: `E2E Ausweis-Template ${Date.now()}`,
-                layout: [
-                    { field: 'name', x: 5, y: 5, w: 50, h: 10, size: 12, align: 'left' },
-                    { field: 'category', x: 5, y: 20, w: 50, h: 10, size: 10, align: 'left' },
-                    { field: 'date', x: 5, y: 35, w: 50, h: 10, size: 10, align: 'left' },
-                ],
-                is_default: true,
-            },
-        });
-        if (create.status() !== 201) {
-            throw new Error(`Badge template seed failed with status ${create.status()}`);
-        }
-        return {};
-    } finally {
-        await api.dispose();
-    }
-}
+/** A user with one requested application — "Meine Akkreditierungen" filled. */
+export const seedMyAccreditationsFilled: SeedFn = async () => {
+    const data = await dataset();
+    return credentials(data.users.applicant);
+};
 
 /**
- * One complete schema-v2 badge template (FE3 screenshot seed): photo top-left,
- * qr top-right (~78/8, 20 × 20), the seven data fields with size + align in
- * the free canvas areas. Non-overlapping and inside the A6 bounds
- * (105 × 148 mm), so the editor edit capture shows all nine boxes plus a
- * clean properties panel without overlap warnings.
+ * A mandant-scoped user — the admin users list filled. The list renders every
+ * user the dev DB holds, so its row count is dominated by leftovers this
+ * harness cannot reclaim (no delete route); what this suite guarantees is that
+ * it does not make that number worse.
  */
-export async function seedBadgeTemplateSchemaV2Filled(): Promise<Record<string, unknown>> {
-    const api = await loginAdminApi();
-    try {
-        const create = await api.post('/api/admin/badge-templates', {
-            data: {
-                name: `E2E Schema-v2 Volltemplate ${Date.now()}`,
-                layout: [
-                    { field: 'photo', x: 8, y: 8, w: 22, h: 28, size: 12, align: 'left' },
-                    { field: 'qr', x: 78, y: 8, w: 20, h: 20 },
-                    { field: 'name', x: 35, y: 8, w: 40, h: 8, size: 14, align: 'left' },
-                    { field: 'category', x: 35, y: 18, w: 40, h: 6, size: 10, align: 'left' },
-                    { field: 'event', x: 35, y: 26, w: 40, h: 6, size: 9, align: 'left' },
-                    { field: 'date', x: 35, y: 34, w: 40, h: 6, size: 9, align: 'left' },
-                    { field: 'status', x: 8, y: 42, w: 30, h: 6, size: 9, align: 'left' },
-                    { field: 'team', x: 8, y: 50, w: 60, h: 6, size: 9, align: 'left' },
-                    { field: 'vest_number', x: 8, y: 58, w: 30, h: 6, size: 9, align: 'left' },
-                ],
-            },
-        });
-        if (create.status() !== 201) {
-            throw new Error(`Schema-v2 badge template seed failed with status ${create.status()}`);
-        }
-        return {};
-    } finally {
-        await api.dispose();
-    }
-}
+export const seedUsersFilled: SeedFn = async () => {
+    const data = await dataset();
+    return credentials(data.users.reviewer);
+};
+
+/** One requested application — the approvals view filled. */
+export const seedFreigabenFilled: SeedFn = async () => {
+    const data = await dataset();
+    return credentials(data.users.freigaben);
+};
+
+/** A mandant member with NO application — "Meine Akkreditierungen" empty. */
+export const seedUserWithoutApplication: SeedFn = async () => {
+    const data = await dataset();
+    return credentials(data.users.empty);
+};

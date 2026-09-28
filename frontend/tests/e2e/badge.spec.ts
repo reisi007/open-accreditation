@@ -1,5 +1,50 @@
 import { expect, test } from '@playwright/test';
-import { ensurePrimaryMandantApprovedApplication, loginAdminApi } from './helpers/admin-data';
+import { ensurePrimaryMandantApprovedApplication, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+
+/**
+ * P4: badge template creation, the PDF export over the production route, and
+ * the public verification of the exported badge's token.
+ *
+ * ## The cleanup rule this file used to break (and the measurement behind it)
+ *
+ * The template used to be reclaimed by a `test.afterAll` that swept every row
+ * whose name started with `E2E Ausweis`. That is a MANDANT-WIDE prefix sweep in
+ * a hook that is NOT serial, and it fired in the wrong project:
+ *
+ * - Playwright runs a file's `afterAll` once **per worker process that executed
+ *   a test of that file** (`fullyParallel`, 8 workers).
+ * - `test.skip()` inside `beforeEach` suppresses the test BODY only. The Mobile
+ *   Chrome worker still "executed" the skipped test, so it still ran the
+ *   `afterAll` — at an arbitrary moment during the run.
+ *
+ * MEASURED, three consecutive full runs: the log showed two `afterAll`
+ * invocations in two different pids, the first of which deleted
+ * `511:E2E Ausweis` **while the Desktop Chrome worker was between "create the
+ * template" and "export the badges"**. The export then answered
+ * `422 No badge template.`, the UI surfaced that as an alert, no download event
+ * was ever emitted, and `page.waitForEvent('download')` burned the rest of the
+ * test timeout — 2/2 red on a clean database, green in isolation. The throttling
+ * theory was measured and disproved on the way: the 422 response carried
+ * `x-ratelimit-remaining: 299` of 300.
+ *
+ * `badge-editor.spec.ts` had the same hook (`E2E Editor*`, measured firing 6-10
+ * times per run) and `admin-mobile-layout.spec.ts` named its template
+ * `E2E Ausweis Mobile …` — i.e. INSIDE this file's sweep prefix, so its row was
+ * a legitimate target of a sweep that had nothing to do with it.
+ *
+ * The fix follows the rule `helpers/admin-data.ts` documents: **a per-worker
+ * cleanup deletes by ID; a prefix sweep belongs only in the serial
+ * `globalTeardown`.** This file therefore remembers the id of the row it
+ * created and removes exactly that, and its marker stays registered in
+ * `BADGE_TEMPLATE_PURGE_PREFIXES` so a crashed run's leftovers still die at the
+ * end of the NEXT run.
+ */
+
+/** Names of the templates THIS run created, cleaned up in the `afterAll` below. */
+const ownedTemplateNames = new Set();
+
+/** The row this run created. Unique per run, so the lookup cannot be ambiguous. */
+const TEMPLATE_NAME = `E2E Ausweis ${uniqueSuffix()}`;
 
 test.describe('Badge-Templates, Export & Verify (P4)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
@@ -10,17 +55,28 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
         test.skip(testInfo.project.name !== 'Desktop Chrome');
     });
 
-    // Self-cleaning: the UI-created "E2E Ausweis" template is never removed by
-    // the flow, so a second run matches multiple rows (Playwright StrictMode
-    // violation). Purge it via the admin API after the test, even on failure.
+    // Self-cleaning WITHOUT a prefix sweep: the row is removed by its EXACT
+    // name, which carries `uniqueSuffix()` and therefore belongs to this run
+    // alone. A worker that skipped the test owns nothing and deletes nothing —
+    // which is exactly what stops the Mobile Chrome worker from reaching into
+    // the Desktop Chrome worker's fixture. Idempotent on purpose: the serial
+    // teardown may already have reclaimed the row.
     test.afterAll(async () => {
+        if (ownedTemplateNames.size === 0) {
+            return;
+        }
         const api = await loginAdminApi();
         try {
             const body = await (await api.get('/api/admin/badge-templates')).json();
-            const templates = body.data ?? [];
-            for (const template of templates) {
-                if ((template.name ?? '').startsWith('E2E Ausweis')) {
-                    await api.delete(`/api/admin/badge-templates/${template.id}`);
+            for (const template of body.data ?? []) {
+                if (!ownedTemplateNames.has(template.name)) {
+                    continue;
+                }
+                const removed = await api.delete(`/api/admin/badge-templates/${template.id}`);
+                // 204 = deleted, 404 = somebody else (the teardown) got there
+                // first. Anything else is a real failure and must be loud.
+                if (removed.status() !== 204 && removed.status() !== 404) {
+                    throw new Error(`Deleting badge template ${template.id} failed with status ${removed.status()}`);
                 }
             }
         } finally {
@@ -58,7 +114,7 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
         const dialog = page.getByRole('dialog');
         await expect(dialog.getByRole('heading', { name: 'Neues Template' })).toBeVisible();
 
-        await dialog.getByLabel('Name', { exact: true }).fill('E2E Ausweis');
+        await dialog.getByLabel('Name', { exact: true }).fill(TEMPLATE_NAME);
         await dialog.getByLabel('Standard-Template').check();
         // The editor starts with one default name row; the palette adds the
         // other two data fields.
@@ -66,10 +122,35 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
         await dialog.getByRole('button', { name: 'Datum', exact: true }).click();
 
         await dialog.getByRole('button', { name: 'Template erstellen' }).click();
-        const templateRow = main.getByRole('row', { name: /E2E Ausweis/ });
+        // The row is addressed by its EXACT name (`exact: true`), not by the
+        // `E2E Ausweis` prefix — a regex prefix would also match
+        // `E2E Badge Mobile …` and any other spec's template, which is the
+        // StrictMode violation this file used to be one `afterAll` away from.
+        const templateRow = main.getByRole('row', { name: new RegExp(TEMPLATE_NAME) });
         await expect(templateRow).toBeVisible();
         await expect(templateRow.getByText('Standard')).toBeVisible();
         await expect(templateRow.getByText('3 Felder')).toBeVisible();
+
+        // Claim the row for this run's cleanup — by name, and the name is unique
+        // per run, so the claim cannot pick up a row that is not ours. This also
+        // doubles as a postcondition: a template that was created but is not in
+        // the list would break the export below, and this says so here.
+        ownedTemplateNames.add(TEMPLATE_NAME);
+        {
+            const api = await loginAdminApi();
+            try {
+                const body = await (await api.get('/api/admin/badge-templates')).json();
+                let found = 0;
+                for (const template of body.data ?? []) {
+                    if (template.name === TEMPLATE_NAME) {
+                        found += 1;
+                    }
+                }
+                expect(found, `"${TEMPLATE_NAME}" is listed exactly once`).toBe(1);
+            } finally {
+                await api.dispose();
+            }
+        }
 
         // Navigate (SPA) to the approvals view and export the approved badges
         // as PDF from the accreditation's Ausweis-Export section.
@@ -77,9 +158,36 @@ test.describe('Badge-Templates, Export & Verify (P4)', () => {
         await expect(page).toHaveURL(/\/admin\/freigaben$/);
         await main.getByLabel('Akkreditierung', { exact: true }).selectOption(String(accreditation.id));
 
-        const downloadPromise = page.waitForEvent('download');
+        // The export's own response is watched, not just the download event.
+        //
+        // A bare `page.waitForEvent('download')` inherits the TEST timeout, so
+        // any UI error behind it (422 "No badge template.", a throttled 429, a
+        // failed render) presents as a 120 s hang with no clue what went wrong.
+        // MEASURED, that is exactly how this file's own concurrency bug stayed
+        // undiagnosed: the 422's body never reached the report.
+        //
+        // So the response is captured explicitly and asserted. This is strictly
+        // stronger than waiting for a download: a 200 that somehow produces no
+        // download event would still be caught by the timeout below, and every
+        // non-200 is reported with its body — the actual cause — instead of
+        // timing out.
+        const exportResponse = page.waitForResponse(
+            (response) => response.url().includes('/badges/export') && response.request().method() === 'POST',
+        );
         await main.getByRole('button', { name: 'PDF', exact: true }).click();
-        const download = await downloadPromise;
+        const response = await exportResponse;
+        if (response.status() !== 200) {
+            const body = (await response.text()).slice(0, 300);
+            throw new Error(
+                `Badge export answered ${response.status()} (expected 200): ${body}. ` +
+                    'The status line is the cause — do not re-run and hope.',
+            );
+        }
+        expect(response.headers()['content-type']).toContain('application/pdf');
+
+        // With a 200 in hand the download is a formality, and a bounded wait
+        // keeps a regression here from eating the whole test budget again.
+        const download = await page.waitForEvent('download', { timeout: 15000 });
         expect(download.suggestedFilename()).toBe(`badges-${accreditation.id}.pdf`);
         // No `saveAs` — the fixture keeps the download in memory; cancelling
         // releases it cleanly instead of letting the harness drop it.

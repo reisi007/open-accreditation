@@ -1,10 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { acquirePrimaryMandantLogoLock, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+import { pngFixture } from '../screenshots/helpers/png-fixtures';
 
-// 1×1 transparent PNG — the same fixture bytes used for the portrait upload
-// in helpers/admin-data.ts.
-const PNG_1PX_BASE64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+// 1×1 transparent PNG, taken from the shared, CRC-VERIFIED fixture registry
+// (`tests/screenshots/helpers/png-fixtures.ts`). It used to be a literal in this
+// spec; `tests/e2e/png-fixtures.spec.ts` now fails on any base64 PNG literal in
+// the tree that is not registered there — which is how the corrupt portrait that
+// survived in two specs for so long becomes impossible to add a third time to.
+const PNG_1PX_BASE64 = pngFixture('tiny-logo-image').toString('base64');
 
 test.describe('Admin: Mandanten (P2a)', () => {
     // UI-heavy spec: run once (Desktop Chrome) to avoid throttled duplicate
