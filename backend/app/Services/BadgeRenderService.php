@@ -21,6 +21,13 @@ use Illuminate\Support\Facades\Storage;
  * 1 mm on the fixed 105 × 148 mm card (`@page A6, margin 0`) — no server-side
  * scaling step. Missing keys stay defensively defaulted (`?? 0` / defaults).
  *
+ * **The card is printed on an opaque white page** ({@see PAGE_BACKGROUND_STYLE}):
+ * dompdf paints no page background of its own, so without it a badge PDF came
+ * out transparent and its raster carried an alpha channel whose treatment the
+ * CONSUMER decided. The price — a badge is no longer transparent, so foil, glass
+ * and screen-print over-prints are no longer served — was weighed and decided
+ * knowingly on 2026-09-28; features/badges-qr.md carries the full reasoning.
+ *
  * `field` values are resolved from the application graph:
  *
  *   name        → user name
@@ -91,6 +98,40 @@ final class BadgeRenderService
     public const A6_WIDTH_MM = 105;
 
     public const A6_HEIGHT_MM = 148;
+
+    /**
+     * The white page background, painted inline on the card root.
+     *
+     * **Why it is set at the source (Nutzerentscheidung 2026-09-28).** dompdf
+     * paints NO page background of its own: a badge PDF came out of the renderer
+     * fully transparent, so the raster of it carried an **alpha channel** and
+     * what the page looked like was decided by the CONSUMER, not by the
+     * renderer — on white paper correct, on a dark background black, with the
+     * badge's black text vanishing into it. That is why the visual verification
+     * needed a post-processing script to strip the alpha at all. A white
+     * background painted here removes the defect in the PDF itself, so there is
+     * nothing left to repair: measured, the raw raster of a badge page goes
+     * from `srgba` with corner alpha 0 to no alpha channel at all.
+     *
+     * It sits on the CARD ROOT, not on the individual elements: `cardHtml()`
+     * returns the A6-sized `.card` div (105 × 148 mm, the page container), so
+     * the fill covers the whole A6 surface instead of only the boxes that happen
+     * to carry a field. Every state of every element inherits it — a card whose
+     * `photo` entry has a portrait, one that falls back to the silhouette
+     * placeholder, and one with no picture behind the spot at all. A background
+     * on the picture boxes would have been transparent again in the third case.
+     *
+     * **The price, decided knowingly:** a badge is no longer transparent. Foil,
+     * glass and screen-print over-prints that rely on a transparent background
+     * are no longer served by this export. features/badges-qr.md records the
+     * decision; features/badge-template-editor.md the render contract.
+     *
+     * `scripts/pdf-to-png-vision.sh` keeps its alpha-stripping logic over this
+     * deliberately: for OUR badges there is nothing left to strip, but the
+     * script must still repair a FOREIGN PDF robustly, and its postcondition
+     * ("no alpha channel, opaque background") is what proves that.
+     */
+    public const PAGE_BACKGROUND_STYLE = 'background-color:#ffffff;';
 
     /** Historical QR fallback geometry: bottom-right, 5 mm margin, 20 × 20 mm. */
     public const QR_FALLBACK_MARGIN_MM = 5;
@@ -249,7 +290,7 @@ final class BadgeRenderService
             $images .= $this->renderImage($imageEntry);
         }
 
-        return '<div class="card">'
+        return '<div class="card" style="'.self::PAGE_BACKGROUND_STYLE.'">'
             .$fields
             .$images
             .$this->renderQr($application, $qrEntry)

@@ -72,6 +72,11 @@ Editor (Drag & Drop) liegt in `badge-template-editor.md`.
 - **Kartenformat:** A6, **105 × 148 mm**, Hochformat. Jede Karte ist ein
   `position: relative`-Container mit `page-break-after: always` (eine Karte pro
   genehmigter Application).
+- **Seitenhintergrund:** **deckend weiss**, `background-color:#ffffff` auf dem
+  Karten-Wurzelcontainer (Nutzerentscheidung 2026-09-28). **Kein** optionales
+  Detail und **keine** Transparenz — die frühere transparente Seite war ein
+  Defekt, kein Feature (Begründung, Messwerte und der bewusst bezahlte Preis in
+  „Weisser Seitenhintergrund" unten).
 - **Feld-Positionisierung:** jedes Layout-Feld wird absolut positioniert
   (`left/top` mm, `width/height` mm, `font-size` pt, `text-align`). Text wird
   via `e()` escaped (XSS-Safe). `width/height` **clippen nicht** — sie
@@ -269,14 +274,80 @@ optionale `qr`-Layout-Feld (P4-F4, implementiert): der Template-Autor verschiebt
 den QR an eine freie Position. Die Fixposition bleibt bestehen, solange
 Bestandstemplates ohne `qr`-Entry existieren (Rückwärtskompatibilität).
 
+### Weisser Seitenhintergrund (Nutzerentscheidung 2026-09-28) — **SOLL**
+
+**Die Seite ist deckend weiss.** `BadgeRenderService` malt
+`background-color:#ffffff` auf den **Karten-Wurzel-container** (den A6-grossen
+`.card`-div, den `cardHtml()` zurückgibt), nicht auf einzelne Boxen. Das ist
+**kein** optionales Detail und **keine** Transparenz: der Export liefert keine
+transparenten Ausweise mehr.
+
+**Warum es überhaupt gab.** dompdf malt von sich aus **keinen** Seitenhintergrund.
+Vor der Entscheidung kam jedes Badge-PDF vollständig transparent aus dem Renderer
+heraus; die Rasterung trug darum einen **Alpha-Kanal**, und wie die Seite am Ende
+aussah entschied der **Konsument**, nicht der Rasterer — auf weissem Papier
+korrekt, auf dunklem Grund schwarz, mit der schwarzen Badgeschrift unsichtbar
+(gemessen: 0 sichtbare Tintepixel in einem 640 × 160-Textband). Genau darum
+existiert die zweistufige Nachbearbeitung in
+`scripts/pdf-to-png-vision.sh`.
+
+**Gemessen, vorher/nachher** (A6-Einzelkarte, 200 dpi, 827 × 1165 px, ImageMagick
+7.1.2-31 + Ghostscript 10.08.0, Stufe 1 = Rohraster, Stufe 2 = Skript-Postcondition;
+Zahlen aus dem Skript-Lauf, Zelle „ECKALPHA“ = `-alpha extract` des Eckpixels (2,2)):
+
+| Zustand | vorher: Kanäle | vorher: Eckpixel / Eckalpha | nachher: Kanäle | nachher: Eckpixel / Eckalpha |
+|---|---|---|---|---|
+| Porträt vorhanden | `srgba` | `#FFFFFF00` / **0** | `srgb` | `#FFFFFF` / **1** |
+| Platzhalter-Silhouette | `srgba` | `#FFFFFF00` / **0** | `srgb` | `#FFFFFF` / **1** |
+| kein Bild an der Stelle | `srgba` | `#FFFFFF00` / **0** | `srgb` | `#FFFFFF` / **1** |
+
+Nachher trägt **keine** der drei Rasterungen einen Alpha-Kanal (`srgb`), und die
+ganze Seite ist deckend: `-alpha extract` liefert `min=1 max=1 mean=1`, also
+kein einziger halbwegs transparenter Pixel — auch nicht in der letzten Zeile oder
+Spalte (der Füllrechteck-Operator lautet `0.000 0.002 297.638 419.528 re f`, die
+gesamte A6-Fläche).
+
+**Dass kein gedrucktes Pixel gewandert ist** (die eigentliche Regressionssorge,
+weil die `fit`-/`QR`-Geometrie gerade vermessen ist): (a) der Diff des
+**kompletten Content-Streams** vorher/nachher besteht in allen drei Zuständen aus
+**genau zwei zusätzlichen Zeilen** — `1.000 1.000 1.000 rg` und die
+Vollseiten-Füllung; jede Textposition, jedes Bild-XObject-Bildmaß und jeder
+Clip-Pfad ist byte-identisch. (b) Der Pixelvergleich der Rasterungen
+(vorher-Stufe 2 = auf Weiss geflatet, nachher-Stufe 1 = deckend gemalt) ergibt
+**0 abweichende Pixel** bei RMSE 0 in allen drei Zuständen. (c) Die vorhandenen
+Goldens bleiben unverändert grün: `BadgeImageFitGeometryTest`,
+`BadgeRenderServiceTest` (inkl. der `fit`-/`QR`-Rechteck-Goldens) und die
+übrigen Badge-Suiten, 138 Tests / 939 Assertions ohne Anpassung. Der neue
+Regressionsschutz ist `backend/tests/Feature/BadgePageBackgroundTest.php`.
+
+**Die Folge, die ausdrücklich bezahlt wird: die Transparenz ist weg.** Das war
+der Grund, warum die Frage offen war — Folie, Glas und Siebdruck brauchen sie. Der
+Nutzer hat das **wissend** entschied; diese Spec hält die Kosten fest, damit sie
+niemand neu erfindet, weil sie niemandem aufgefallen ist.
+
+**Was `pdf-to-png-vision.sh` daraus folgt — und was nicht.** Für **unsere**
+Ausweise ist die Nachbearbeitung **überflüssig**: es gibt nichts mehr zu
+entfernen, der Hintergrund ist deckend. Das Skript **behält seine Logik trotzdem
+unverändert**, weil es **fremde** PDFs weiterhin robust machen muss, und weil
+seine Postcondition („kein Alpha-Kanal, deckender Hintergrund") überhaupt erst
+beweist, dass das so ist. **Die Postcondition ist deshalb KEINE Pflicht, die man
+einsehen darf, sobald der Hintergrund steht** — wer sie aus unseren Ausweisen
+heraus abbauen will, baut die Robustheit des Verifikationswerkzeugs ab. Der
+zweistufige Pfad bleibt der Primärpfad, Fallback A (`gs -sDEVICE=png16m`,
+ebenfalls deckend) und Fallback B (`sips`, kann keinen Alpha entfernen → Exit 3)
+bleiben, wie sie sind.
+
 ### Visuelle Verifikation des gerenderten PDF (`PDF-VISION`)
 
 Ein Badge-PDF ist nur dann visuell prüfbar, wenn daraus **das richtige PNG**
-wird. Der Renderer malt **keinen** weissen Seitenhintergrund — dompdf lässt die
-Seite transparent. Damit hängt das Aussehen der Rasterung vom *Konsumenten* ab
-und nicht vom Rasterer, und die drei üblichen Konsumenten liefern drei
-verschiedene Bilder. Das ist der Grund, warum die Verifikation zweistufig läuft
-und warum sie als Skript existiert statt als Einmal-Anweisung:
+wird. Bis zur Entscheidung vom 2026-09-28 malte der Renderer **keinen** weissen
+Seitenhintergrund — dompdf ließ die Seite durch, damit hing das Aussehen der
+Rasterung vom *Konsumenten* ab und nicht vom Rasterer, und die drei üblichen
+Konsumenten lieferten drei verschiedene Bilder. Seitdem ist die Seite an der
+Quelle weiss (siehe oben); das Skript ist trotzdem **kein** Einmal-Werkzeug
+unserer Ausweise, sondern die Rasterung, die **jedes** PDF — auch ein fremdes,
+transparentes — verlässlich macht. Genau darum existiert es als Skript mit
+Postcondition statt als Einmal-Anweisung:
 
 ```bash
 bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
@@ -372,8 +443,11 @@ eine Vision-Analyse bleibt davon unberührt: die Befundtabelle gibt zu jeder Sei
 Kanal, Pixelwert und Eckalpha aus, und die Vision-Analyse beurteilt die
 gerenderte Seite ohnehin.
 
-**Gemessene Zahlen** (A6, 2-Karten-Badge-PDF aus `BadgeRenderService::renderPdf`,
-13 970 Byte, 2 Seiten; macOS, ImageMagick 7.1.2-31, Ghostscript 10.08.0):
+**Gemessene Zahlen, Stand VOR der Hintergrund-Entscheidung** (A6,
+2-Karten-Badge-PDF aus `BadgeRenderService::renderPdf`, 13 970 Byte, 2 Seiten;
+macOS, ImageMagick 7.1.2-31, Ghostscript 10.08.0). Sie stehen hier, weil sie den
+Defekt **beweisen**, den die Entscheidung beseitigt — der heutige Stand steht in
+„Weisser Seitenhintergrund" oben:
 
 | | Maße | Kanäle | Eckpixel (2,2) | Eckalpha |
 |---|---|---|---|---|
@@ -387,7 +461,9 @@ Fallback B erzeugt, und begründet dessen Exit 3. Auf einem frisch gerenderten
 und endet mit Exit 0; die Stufe-1-Zeile ist die transparente Vorstufe, nicht das
 Ergebnis.
 
-**Was in Stufe 1 wirklich dasteht** (nicht die verbreitete Vermutung): 89,8 %
+**Was in Stufe 1 wirklich dasteht** — gemessen **vor** der
+Hintergrund-Entscheidung, an einem PDF ohne gemalten Seitenhintergrund (nicht die
+verbreitete Vermutung): 89,8 %
 aller Pixel (865 288 von 963 455) sind **vollständig transparent**, und sie
 tragen als RGB **weiss** — `#FFFFFF00`. Die Behauptung „transparente Pixel
 erscheinen schwarz" ist damit **für den `magick`-Pfad falsch** und **für den
@@ -438,17 +514,21 @@ Feld-Überlappung auf dem Ausweis ist deshalb **nicht automatisch ein
 Renderer-Fehler**, sondern kann aus einem zu kleinen Kasten im Template kommen.
 Die Vision-Checkliste muss das unterscheiden, bevor sie einen Befund meldet.
 
-**Empfehlung, ausdrücklich NICHT umgesetzt (Produktentscheidung):**
-`background-color: #ffffff` auf `body` bzw. `@page` im Badge-HTML wäre die
-einfachere und robustere Lösung — dann wäre der Seitenhintergrund im PDF
-selbst weiss und die Nachbearbeitung entfiele. Sie ist **nicht** implementiert,
-weil sie den **Render-Vertrag** ändert (jeder Ausweis bekäme einen gemalten
+**Historisch: die Empfehlung, die eine Produktfrage offen liess** (vor
+2026-09-28). `background-color: #ffffff` auf `body` bzw. `@page` wäre die
+einfachere und robustere Lösung gewesen — der Seitenhintergrund wäre im PDF
+selbst weiss und die Nachbearbeitung entfallen. Sie wurde zurückgestellt, weil
+sie den **Render-Vertrag** ändert (jeder Ausweis bekäme einen gemalten
 Hintergrund, `BadgeRenderService::cardHtml` wird zum Render-Vertrag, gegen den
 die Tests prüfen) und weil sie eine **Produktfrage** berührt, die nicht
-technisch ist: Ein Ausweis mit weiss gemaltem Hintergrund ist nicht mehr
+technisch ist: ein Ausweis mit weiss gemaltem Hintergrund ist nicht mehr
 transparent, was für Ausweisspiele mit farbigem oder transparentem Untergrund
-(Folien, Glas, Siebdruck) eine echte Einschränkung ist. Entscheidung liegt beim
-Benutzer; bis dahin gilt die gemessene zweistufige Pipeline.
+(Folien, Glas, Siebdruck) eine echte Einschränkung ist. **Entschieden am
+2026-09-28, wissend und mit genau diesem Preis** — umgesetzt als
+`BadgeRenderService::PAGE_BACKGROUND_STYLE` auf dem Karten-Wurzelcontainer
+(siehe „Weisser Seitenhintergrund" oben). Der Abschnitt ist als
+Entscheidungshistorie stehen geblieben, damit der Grund für die
+Raster-Nachbearbeitung und der Preis der Entscheidung nicht verloren gehen.
 
 ## Export — `BadgeExportService` (P4)
 

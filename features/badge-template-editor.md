@@ -611,6 +611,23 @@ die zod-Seite erhält die Werte als Props/Konstanten-Export, nicht hart codiert.
 - **Einheiten sind identisch:** dompdf versteht CSS-mm/-pt als physikalische
   Einheiten — `1 layout-mm = 1 gedruckter-mm`, kein Umrechnungs-/Skalierungsschritt
   serverseitig. Karte bleibt fixer `105 × 148 mm`-Container, `@page A6, margin 0`.
+- **Die Seite ist deckend weiss** (Nutzerentscheidung 2026-09-28,
+  `BadgeRenderService::PAGE_BACKGROUND_STYLE`): `background-color:#ffffff` liegt
+  als Inline-Style auf dem **Karten-Wurzel-div** — dem A6-Seitencontainer, den
+  `cardHtml()` zurückgibt (`<div class="card" style="…">`), nicht auf den
+  einzelnen Feld-, `photo`-, `image`- oder QR-Boxen. Grund: dompdf malt von
+  sich aus **keinen** Seitenhintergrund, das PDF kam also transparent aus dem
+  Renderer heraus und trug im Raster einen **Alpha-Kanal**, dessen Behandlung der
+  *Konsument* entschied (auf weissem Papier korrekt, auf dunklem Grund schwarz
+  und die schwarze Badgeschrift unsichtbar). Der Hintergrund gehört deshalb an
+  die Seite und nicht an ein Element: nur so trägt er **alle drei Bildzustände** —
+  Porträt vorhanden, Platzhalter-Silhouette, und **kein Bild** an der Stelle
+  überhaupt. An den Bildboxen wäre er im dritten Fall wieder durchscheinend
+  gewesen. **Die Kehrseite, bewusst in Kauf genommen:** der Ausweis ist nicht
+  mehr transparent — Folie, Glas und Siebdruck-Überdruck, die einen transparenten
+  Hintergrund brauchen, werden von diesem Export nicht mehr bedient. Begründung
+  und Messwerte: `features/badges-qr.md`, „Weisser Seitenhintergrund
+  (Nutzerentscheidung 2026-09-28)".
 - **`qr`-Entry:** Statt des fixen QR-divs rendert der Service den QR-Bildblock
   am Entry (`left/top/width/height` mm, gleiche `<img>`-Ausgabe, Endroid
   Builder unverändert). Der QR bleibt **immer** Teil jeder Karte — auch wenn
@@ -618,7 +635,9 @@ die zod-Seite erhält die Werte als Props/Konstanten-Export, nicht hart codiert.
 - **Rückwärtskompatibilität:** Templates ohne `qr`-Entry behalten exakt die
   heutige Geometrie (`right:5mm; bottom:5mm; 20×20mm`). Bestehende Templates
   rendern visuell identisch weiter; fehlende Keys bleiben defensiv belegt
-  (`?? 0` / Defaults) wie im Ist.
+  (`?? 0` / Defaults) wie im Ist. **Eine** bewusste Abweichung gibt es im
+  Druckbild und nur in ihr: der gemalte weisse Seitenhintergrund — vorher
+  transparent, heute deckend weiss (siehe oben).
 - **Neue Datenfelder:** Erweiterung des `valueFor`-Match mit null-sicherer
   Auflösung (leerer String statt `null`-Ausgabe, konsistent zu `event`/`date`).
   Escaping via `e()` bleibt für alle interpolierten Werte Pflicht. Der
@@ -899,6 +918,14 @@ Diese vier Punkte sind entschieden und damit **gültige Spec**:
   Arithmetik (kein PG-spezifisches SQL, AGENTS.md §2).
 - Ohne `qr`-Entry gilt die historische Fixposition — niemals entfernen, solange
   Bestandstemplates ohne Entry existieren.
+- **Der weisse Hintergrund gehört auf die Seite, nie auf eine Box** (und er ist
+  kein `optional`): genau **ein** Element der Karte deklariert einen Hintergrund,
+  der Karten-Wurzel-container, und dessen Füllung misst die volle A6-Fläche. Wird
+  er auf eine Feld-/Bild-Box verschoben, ist die Seite dort wieder transparent —
+  bei einem Element ganz ohne Bild in jedem Fall. Er darf auch nicht wieder
+  entfernt werden, weil die Nachbearbeitung ihn scheinbar überflüssig macht:
+  `scripts/pdf-to-png-vision.sh` **muss** die Nachbearbeitung für fremde PDFs
+  behalten, unsere Ausweise haben nur nichts mehr zu reparieren.
 - `image`-Quellen sind nie client-kontrollierte Pfade/URLs im layout-JSON —
   nur Enum-Ref (`brand.ref`) oder Integer-ID (`image_id`); Bild-Bits kommen
   ausschließlich von der privaten Disk (Base64-Embed). Das Mandanten-Scoping
