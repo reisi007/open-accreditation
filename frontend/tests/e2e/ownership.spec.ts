@@ -1,14 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { loginAdminApi } from './helpers/api-session';
-import { E2E_OWNED_TEARDOWN, reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
+import {
+    E2E_OWNED_TEARDOWN,
+    TEARDOWN_NOT_FOUND,
+    TEARDOWN_ROUTE_PROBE_ID,
+    classifyNotFoundBody,
+    preflightTeardownRoutes,
+    reclaimOwnedRows,
+    rememberOwnedRow,
+    resetOwnedRows,
+} from './helpers/ownership';
 import {
     PROBE_CONTROL_RECORD_PATH,
     PROBE_RECORD_PATH,
     clearProbeRecord,
     readProbeRecord,
 } from './ownership-probe/probe-record';
+import { runChild } from './ownership-probe/run-child';
 
 /**
  * The same file-scope ownership hooks every other spec carries — this one eats
@@ -57,6 +66,15 @@ test.afterEach(async () => {
  * "fix" it by adding the teardown back.
  */
 test.describe('the ownership ledger gives a half-failed test its fixtures back', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
+    // SERIAL, and the mode is a correctness requirement rather than a budget
+    // choice: the residue check at the end of this describe asserts that the
+    // hand-off records are GONE, which is only meaningful AFTER the driver has
+    // run. MEASURED in a full run with `fullyParallel`: the check ran in another
+    // worker while the driver's child was mid-probe, saw the records, and failed
+    // — a false accusation against a cleanup that had already run. Serial mode
+    // makes the two run one after the other in one worker, which is the order the
+    // claim needs.
+    test.describe.configure({ mode: 'serial' });
     // A child Playwright run is a heavy thing to start, and it needs the dev
     // stack up. 5 minutes is generous for one API-only test; the default 30 s is
     // not, on a loaded machine.
@@ -76,40 +94,59 @@ test.describe('the ownership ledger gives a half-failed test its fixtures back',
     });
 
     /**
+     * How long the child may run before it is KILLED, and why the number is
+     * below the driver's own timeout rather than at it.
+     *
+     * The driver sets `test.setTimeout(300000)`. With no bound of its own, a hung
+     * child made the parent hit 300 s, Playwright failed the test, and the CHILD
+     * KEPT RUNNING — still writing rows into the shared dev database with nobody
+     * left to attribute them. That is the worse half of the failure: not one red
+     * test but an unbounded set of writes that outlive the run that started them
+     * and land in the next run's measurements.
+     *
+     * 240 s is four minutes of generous headroom over the child's actual cost
+     * (one API-only test, ~2 s) and leaves a full minute in which the parent
+     * reports the timeout as a readable failure.
+     */
+    const PROBE_TIMEOUT_MS = 240000;
+
+    /**
      * Run the probe suite and hand back its combined output plus exit status.
      *
-     * `stdio: 'pipe'` so the child's own failure text reaches the assertion
-     * below instead of scrolling past: the driver must show that the child
-     * failed for the DECLARED reason, not for a typo in the probe.
+     * `runChild`, not `execFileSync` — and the reason is measured, not stylistic.
+     * `execFileSync`'s `timeout`/`killSignal` signal ONLY the process it spawned,
+     * which here is `npx`; the Playwright runner and its worker are grandchildren
+     * and both survived a SIGKILL of the launcher (see `run-child.ts`). A bound
+     * that does not reach the process doing the writing is the original bug with a
+     * number attached. `runChild` spawns the child into its own process group and
+     * signals the GROUP, so the launcher, the runner and the worker all get it.
+     *
+     * The environment is passed EXPLICITLY rather than inherited for the one
+     * variable that decides whether the child's own teardown runs:
+     * `E2E_OWNERSHIP=off` reaching the child would neuter the child's per-test
+     * teardown, assertion (3) below would fail — and the only reason this test
+     * ever passed with that switch set is that
+     * `scripts/e2e-per-spec-leaks.mjs` excludes the driver with `--grep-invert`.
+     * A test whose validity depends on a filter in a different tool is not a test
+     * of the claim; it is a test of that tool's arguments. Pinning the value here
+     * makes the driver honest on its own, under any environment.
+     *
+     * `CI: ''` is still passed deliberately: it is what stops the child's reporter
+     * from writing to a CI annotations file this repo does not have.
      */
-    function runProbe() {
-        try {
-            const stdout = execFileSync(
-                'npx',
-                ['playwright', 'test', '-c', 'tests/e2e/playwright.ownership-probe.config.ts'],
-                { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, CI: '' } },
-            );
-            return { status: 0, output: stdout };
-        } catch (error) {
-            // `unknown` narrowed structurally: a thrown `execFileSync` error is
-            // not typed, and this directory may not annotate a narrowing variable
-            // (no TS syntax). `'stdout' in error` is the check that actually
-            // holds, and it is what the two reads below depend on.
-            let status = 1;
-            let output = '';
-            if (error && typeof error === 'object') {
-                if ('status' in error && typeof error.status === 'number') {
-                    status = error.status;
-                }
-                if ('stdout' in error && typeof error.stdout === 'string') {
-                    output = error.stdout;
-                }
-                if ('stderr' in error && typeof error.stderr === 'string') {
-                    output += error.stderr;
-                }
-            }
-            return { status, output };
-        }
+    async function runProbe() {
+        const result = await runChild(
+            'npx',
+            ['playwright', 'test', '-c', 'tests/e2e/playwright.ownership-probe.config.ts'],
+            PROBE_TIMEOUT_MS,
+            { ...process.env, CI: '', E2E_OWNERSHIP: 'on' },
+        );
+        return {
+            status: result.status,
+            output: result.output,
+            killedForTimeout: result.killedForTimeout,
+            elapsedMs: result.elapsedMs,
+        };
     }
 
     /**
@@ -140,10 +177,22 @@ test.describe('the ownership ledger gives a half-failed test its fixtures back',
         clearProbeRecord(PROBE_RECORD_PATH);
         clearProbeRecord(PROBE_CONTROL_RECORD_PATH);
 
-        const run = runProbe();
+        const run = await runProbe();
 
         const registered = readProbeRecord(PROBE_RECORD_PATH);
         const control = readProbeRecord(PROBE_CONTROL_RECORD_PATH);
+
+        // 0. The child produced a RESULT rather than being killed. Ahead of
+        //    "it failed", because a killed child also "failed" — and everything
+        //    below reasons about rows the child may never have created. Without
+        //    this, a hung probe would surface as a confident, wrong conclusion
+        //    about the teardown instead of as a hang.
+        expect(
+            run.killedForTimeout,
+            `the probe was killed after ${PROBE_TIMEOUT_MS / 1000}s instead of finishing, so there is no ` +
+                'measurement here at all. Everything below would be reasoning about rows the probe may never ' +
+                `have created. It has been SIGKILLed and is no longer writing.\n${run.output}`,
+        ).toBe(false);
 
         // 1. The child really ran, and really FAILED — the deliberate throw. A
         //    green child would mean the probe stopped failing, i.e. the input
@@ -188,6 +237,27 @@ test.describe('the ownership ledger gives a half-failed test its fixtures back',
         await deleteCategory(control.id);
         clearProbeRecord(PROBE_RECORD_PATH);
         clearProbeRecord(PROBE_CONTROL_RECORD_PATH);
+    });
+
+    /**
+     * A leftover from an aborted probe run would be invisible residue. The driver
+     * clears both records; this is the belt to that braces, and it also fails loudly
+     * if a probe run is killed so hard the driver's cleanup never happens.
+     *
+     * INSIDE the serial describe, after the driver, so it cannot run while the
+     * driver's child is still writing (see `test.describe.configure` above).
+     */
+    test('no probe record survives this run', { tag: ['@regression', '@feature:e2e-hygiene'] }, async ({}, testInfo) => {
+        // DESKTOP ONLY, for the same reason as the driver above: a second browser
+        // project is a second writer of the same file.
+        test.skip(testInfo.project.name !== 'Desktop Chrome');
+        for (const recordPath of [PROBE_RECORD_PATH, PROBE_CONTROL_RECORD_PATH]) {
+            expect(
+                fs.existsSync(recordPath),
+                `${recordPath} survived — the driver did not clean up after itself, and its probe left a ` +
+                    'deliberate control row that nothing can now address by id or by name',
+            ).toBe(false);
+        }
     });
 
     /** Remove one category by id, for the control row the driver is responsible for. */
@@ -252,15 +322,34 @@ test.describe('the ownership teardown gives back what the test registered', { ta
             // Walks the REAL plan rather than a restatement of it, so a kind added
             // to `E2E_OWNED_TEARDOWN` is covered the day it is added.
             //
-            // Three kinds are skipped, each for a stated reason rather than by
-            // omission: the mandant-scoped routes need a parent this test does not
-            // create (their own specs register mandants and domains), and the
-            // owner-scoped ones answer only for the owning account (the probe's
-            // control arm and `profile.spec.ts` cover those).
+            // Kinds are skipped for STATED reasons, and the important one is the
+            // `creatableHere: false` flag rather than the absence of a branch in
+            // the if/else below. MEASURED: the walk used to reach its final `else
+            // { continue }` for `badgeImages` and `venues` and this test asserted
+            // `toBeGreaterThanOrEqual(5)` — so "the plan yielded five kinds, not
+            // seven" passed silently, and the promise "a kind in the plan is
+            // covered from the day it is entered" was false for both. The flag
+            // makes the skip a data statement the test below can count, and the
+            // other two skip reasons stay where they were: the mandant-scoped
+            // routes need a parent this file does not create (their own specs
+            // register mandants and domains), and the owner-scoped ones answer only
+            // for the owning account (the probe's control arm and `profile.spec.ts`
+            // cover those).
             const api = await loginAdminApi();
+            // Two tallies, both reported rather than asserted inside this test: the
+            // assertion lives below, where the created list is in hand and the two
+            // numbers can be compared against each other.
+            const uncovered = [];
+            const covered = [];
             try {
                 for (const step of E2E_OWNED_TEARDOWN) {
-                    if (!step.reclaimable || step.route === null || step.route.includes('{parentId}') || step.actor === 'owner') {
+                    if (
+                        !step.reclaimable ||
+                        step.route === null ||
+                        step.route.includes('{parentId}') ||
+                        step.actor === 'owner' ||
+                        step.creatableHere === false
+                    ) {
                         continue;
                     }
 
@@ -311,6 +400,13 @@ test.describe('the ownership teardown gives back what the test registered', { ta
                             active: true,
                         };
                     } else {
+                        // Unreachable for every entry that is NOT flagged
+                        // `creatableHere: false`, and that is the point: the flag is
+                        // the skip, so a kind that arrives in the plan without a
+                        // branch AND without the flag lands here and is COUNTED as
+                        // covered. The count below is what makes that visible —
+                        // with a floor (`toBeGreaterThanOrEqual`) it would not be.
+                        uncovered.push(step.kind);
                         continue;
                     }
 
@@ -319,11 +415,32 @@ test.describe('the ownership teardown gives back what the test registered', { ta
                     const row = (await response.json()).data;
                     rememberOwnedRow(step.kind, row.id);
                     CREATED.push({ kind: step.kind, id: row.id, listUrl: path });
+                    covered.push(step.kind);
                 }
             } finally {
                 await api.dispose();
             }
 
+            // EXACT count, not a floor. The floor (`toBeGreaterThanOrEqual(5)`) is
+            // what let a plan entry with no fixture here pass unnoticed: the number
+            // went from seven to five, the floor stayed satisfied, and the promise
+            // "a kind in the plan is covered from the day it is entered" quietly
+            // stopped being true. An exact list is a claim about WHICH kinds, and
+            // it has to be edited when the plan changes — which is the cost that
+            // buys the honesty.
+            expect(
+                covered,
+                'the kinds this walk creates, by name. A kind added to E2E_OWNED_TEARDOWN appears here unless ' +
+                    'it is flagged creatableHere: false; a kind that is neither created nor flagged is an ' +
+                    'UNCOVERED plan entry, and the assertion below lists those separately.',
+            ).toEqual(['accreditations', 'categories', 'events', 'blacklists', 'badgeTemplates']);
+            expect(
+                uncovered,
+                'these plan entries are reclaimable but this walk cannot create them, and they are not flagged ' +
+                    'creatableHere: false. That means nothing here proves their route or their success status — ' +
+                    "flag them, or add a branch. (preflightTeardownRoutes still checks the ROUTE of every entry, " +
+                    'so what is missing is the create-and-verify round trip.)',
+            ).toEqual([]);
             expect(
                 CREATED.length,
                 'the plan yielded no creatable fixture — either the walk is vacuous or every kind became ' +
@@ -334,11 +451,14 @@ test.describe('the ownership teardown gives back what the test registered', { ta
         test('the teardown deleted every one of them', async () => {
             // Runs AFTER the creating test, whose `afterEach` has already
             // reclaimed. If the creating test never ran, "nothing is left" would
-            // be trivially true — so the count is asserted first.
+            // be trivially true — so the count is asserted first, and against the
+            // SAME exact list the creating test used, so a walk that quietly
+            // covered less cannot make this one pass for the right reason.
             expect(
-                CREATED.length,
-                'the creating test did not run or registered nothing — this assertion would be vacuous',
-            ).toBeGreaterThanOrEqual(5);
+                CREATED.map((row) => row.kind),
+                'the creating test did not run, or registered a different set of kinds than it asserts — this ' +
+                    'assertion would be vacuous',
+            ).toEqual(['accreditations', 'categories', 'events', 'blacklists', 'badgeTemplates']);
 
             const stillThere = [];
             for (const row of CREATED) {
@@ -459,20 +579,94 @@ test.describe('the ownership teardown gives back what the test registered', { ta
 });
 
 /**
- * A leftover from an aborted probe run would be invisible residue. The driver
- * clears both records; this is the belt to that braces, and it also fails loudly
- * if a probe run is killed so hard the driver's cleanup never happens.
+ * ## Two 404s that look identical from the outside
+ *
+ * The teardown tolerates 404 because "the row is already gone" is the goal
+ * state. Tolerating it TOTAL meant a plan entry with a typo passed for the same
+ * thing: one character in `/api/admin/mandants` — `/api/admin/mandat` — and the
+ * suite stayed green while `mandants` grew by one row per run, without bound.
+ *
+ * These tests pin the distinction from both ends: the classifier on the exact
+ * bodies the backend produces, and the PLAN against the backend so an entry that
+ * no test happens to exercise is asked about anyway.
  */
-test('no probe record survives this run', { tag: ['@regression', '@feature:e2e-hygiene'] }, async ({}, testInfo) => {
-    // DESKTOP ONLY, for the same reason as the driver above: a second browser
-    // project is a second writer of the same file, and this check would be
-    // reporting on a probe that is legitimately still in flight.
-    test.skip(testInfo.project.name !== 'Desktop Chrome');
-    for (const recordPath of [PROBE_RECORD_PATH, PROBE_CONTROL_RECORD_PATH]) {
+test.describe('the teardown can tell a gone row from a wrong address', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
+    test('a 404 that means "the row is gone" is tolerated, a 404 that means "no such route" is not', async () => {
+        // MEASURED against the running backend: both answer 404, and only the
+        // message differs. The two requests are made for real — a classifier
+        // tested against bodies typed by hand is a classifier tested against the
+        // author's belief about the bodies.
+        const api = await loginAdminApi();
+        try {
+            const rowGone = await api.delete(`/api/admin/categories/${TEARDOWN_ROUTE_PROBE_ID}`);
+            const noRoute = await api.delete('/api/admin/categoriez/1');
+
+            // The precondition, stated: the two really are the same status.
+            expect(
+                rowGone.status(),
+                'a real route with an id that cannot exist must answer 404 "row gone"',
+            ).toBe(404);
+            expect(
+                noRoute.status(),
+                'a route that does not exist must ALSO answer 404 — that is the whole difficulty',
+            ).toBe(404);
+
+            expect(
+                classifyNotFoundBody(await rowGone.text()),
+                'the row-gone 404 must classify as the goal state, or the teardown would fail on every ' +
+                    'cascaded child',
+            ).toBe(TEARDOWN_NOT_FOUND.ROW_ABSENT);
+            expect(
+                classifyNotFoundBody(await noRoute.text()),
+                'the route-missing 404 must NOT classify as the goal state — tolerating it is what let a ' +
+                    'one-character typo in the teardown plan leak a row per run, silently',
+            ).toBe(TEARDOWN_NOT_FOUND.ROUTE_ABSENT);
+        } finally {
+            await api.dispose();
+        }
+    });
+
+    test('a 404 nobody can read is a FAILURE, not a tolerated one', () => {
+        // Fail-closed, and the reason is worth stating: a 404 the harness cannot
+        // classify is indistinguishable from a wrong address, so tolerating it is
+        // precisely the shape this section was written to remove. An HTML body
+        // from a proxy in front of the API is the realistic version.
+        expect(classifyNotFoundBody('<html><body>404 Not Found</body></html>')).toBe(TEARDOWN_NOT_FOUND.UNKNOWN);
+        expect(classifyNotFoundBody('')).toBe(TEARDOWN_NOT_FOUND.UNKNOWN);
+        // And the message is read, not the debug payload: a body that carries the
+        // verdict in a field other than `message` is still not classifiable.
+        expect(classifyNotFoundBody(JSON.stringify({ error: 'No query results for model' }))).toBe(
+            TEARDOWN_NOT_FOUND.UNKNOWN,
+        );
+    });
+
+    test('every route in the teardown plan reaches a real delete route', async () => {
+        // The plan-level half. A kind no test owns is a route nobody has ever
+        // asked about: `badgeImages` has ZERO registrations in the whole suite
+        // today, so a typo in its route would be invisible until a test starts
+        // owning badge images. This asks the backend about the PLAN instead.
+        const reclaimable = E2E_OWNED_TEARDOWN.filter((step) => step.reclaimable && step.route !== null);
         expect(
-            fs.existsSync(recordPath),
-            `${recordPath} survived — the driver did not clean up after itself, and its probe left a ` +
-                'deliberate control row that nothing can now address by id or by name',
-        ).toBe(false);
-    }
+            reclaimable.length,
+            'the plan yielded no reclaimable route — the preflight would then be checking nothing',
+        ).toBeGreaterThanOrEqual(10);
+
+        const preflight = await preflightTeardownRoutes();
+
+        expect(
+            preflight.rejected,
+            'these teardown routes do not reach a per-row delete route. A plan entry that reaches nothing ' +
+                'answers 404, the teardown counted that as "already gone", and every row of that kind stayed ' +
+                'behind while the suite reported success:\n' +
+                preflight.rejected.join('\n'),
+        ).toEqual([]);
+        // Non-vacuity: the probe really did ask about every reclaimable step, not
+        // about a subset that happened to work.
+        expect(
+            preflight.checked.length,
+            `the preflight checked ${preflight.checked.length} of ${reclaimable.length} reclaimable routes — a ` +
+                'partial check is the "looks like coverage" edit',
+        ).toBe(reclaimable.length);
+    });
 });
+

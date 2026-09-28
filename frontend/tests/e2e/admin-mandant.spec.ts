@@ -46,6 +46,66 @@ test.describe('Admin: Mandanten (P2a)', () => {
         const teamName = `E2E Team ${suffix}`;
         const teamSlug = `e2e-team-${suffix}`;
 
+        /**
+         * The id of one UI-created row, found by its EXACT, worker-unique field
+         * value.
+         *
+         * ## Why a lookup at all
+         *
+         * The mandant, its domain and its team are created THROUGH THE UI, and a
+         * create form answers nothing the test can keep: the mandant's id shows
+         * up in the URL, the domain's and the team's nowhere. So the rows were
+         * never registered, and MEASURED with `E2E_PURGE=off`, twice in a row:
+         * `mandants 0 → 1 → 2` — cumulative and unbounded, from a spec whose every
+         * assertion is green. The serial name sweep does reclaim them eventually,
+         * by prefix, which is exactly why the leak stays invisible for a whole
+         * run.
+         *
+         * The lookup is by exact value and not by prefix, because `uniqueSuffix()`
+         * stamps every one of these names per worker — a prefix search would
+         * return a sibling's row and register the WRONG id, which is a worse
+         * failure than no registration at all.
+         *
+         * ## Why it returns the id and does NOT register it
+         *
+         * The `rememberOwnedRow('<kind>', …)` call is written at each create site
+         * instead of inside here, for two reasons: the kind is a LITERAL at the
+         * call site, so the gate in `namespace-isolation.spec.ts` can read which
+         * kinds a test registers (a generic `rememberOwnedRow(kind, …)` reads as a
+         * registration of nothing); and the ordering the ledger depends on —
+         * create, then immediately register — is visible in the test body.
+         *
+         * ## Why a short-lived session
+         *
+         * One call per create, right after its submit, so the third create
+         * throwing cannot lose the first two rows: that is the half-failure
+         * guarantee, and a session held across all three would put a live
+         * resource between a create and its registration. `login` is throttled
+         * per IP; three sessions it is.
+         */
+        async function findCreatedRowId(listUrl = '', key = '', value = '', kind = '') {
+            const api = await loginAdminApi();
+            try {
+                const rows = (await (await api.get(listUrl)).json()).data ?? [];
+                for (const row of rows) {
+                    if (row[key] === value) {
+                        return row.id;
+                    }
+                }
+            } finally {
+                await api.dispose();
+            }
+            // Throwing rather than warning is the point: a lookup that finds
+            // nothing means the form and the API disagree, and the row is
+            // already in the database. Carrying on would leave it behind with a
+            // green test on top of it.
+            throw new Error(
+                `the form for a ${kind} reported success, but no row in ${listUrl} carries ${key} ` +
+                    `"${value}". Its id is therefore unknown, so it cannot be given back, and this test ` +
+                    'refuses to continue on top of a row it would leak.',
+            );
+        }
+
         // Initial guest load is the only allowed page.goto.
         await page.goto('/');
 
@@ -75,12 +135,26 @@ test.describe('Admin: Mandanten (P2a)', () => {
 
         await expect(page).toHaveURL(/\/admin\/mandants\/\d+$/);
         await expect(page.getByRole('main').getByRole('heading', { level: 1, name: uniqueName })).toBeVisible();
+        // Register BEFORE the domain step, so a failure in either of the two
+        // steps below cannot lose the mandant.
+        const mandantId = await findCreatedRowId('/api/admin/mandants', 'name', uniqueName, 'mandants');
+        rememberOwnedRow('mandants', mandantId);
 
         // Add a domain.
         const detailMain = page.getByRole('main');
         await detailMain.getByLabel('Domain', { exact: true }).fill(domainHostname);
         await detailMain.getByRole('button', { name: 'Domain hinzufügen' }).click();
         await expect(detailMain.getByText(domainHostname)).toBeVisible();
+        rememberOwnedRow(
+            'mandantDomains',
+            await findCreatedRowId(
+                `/api/admin/mandants/${mandantId}/domains`,
+                'hostname',
+                domainHostname,
+                'mandantDomains',
+            ),
+            mandantId,
+        );
 
         // Add a team.
         await detailMain.getByRole('button', { name: 'Team hinzufügen' }).click();
@@ -88,6 +162,11 @@ test.describe('Admin: Mandanten (P2a)', () => {
         await detailMain.getByLabel('Team-Slug', { exact: true }).fill(teamSlug);
         await detailMain.getByRole('button', { name: 'Team speichern' }).click();
         await expect(detailMain.getByText(teamName)).toBeVisible();
+        rememberOwnedRow(
+            'teams',
+            await findCreatedRowId(`/api/admin/mandants/${mandantId}/teams`, 'name', teamName, 'teams'),
+            mandantId,
+        );
 
         // The new mandant shows up in the list.
         await page.getByRole('complementary').getByRole('link', { name: 'Mandanten' }).click();

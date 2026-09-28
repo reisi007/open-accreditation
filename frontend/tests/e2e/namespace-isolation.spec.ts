@@ -811,6 +811,29 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
             'these kinds do not answer 204 on delete. If that is still true, the contract is pinned here on ' +
                 'purpose — add it, do not widen the tolerance',
         ).toEqual(['userMedia=200']);
+
+        // The complement of the promise the ledger-walk test makes. That test walks
+        // the plan and creates a row of each kind it can; the kinds it cannot are
+        // flagged `creatableHere: false` with a stated reason, and the flag is what
+        // turns "the walk silently skipped two entries" into a countable claim.
+        //
+        // MEASURED, and this is the number that changed: before the flag existed,
+        // the walk hit its final `else { continue }` for FOUR reclaimable entries
+        // (badgeImages, venues, subAccreditations, mandants) while the walk test
+        // asserted `toBeGreaterThanOrEqual(5)` — so the promise "a kind in the
+        // plan is covered from the day it is entered" was false for four of them
+        // and nothing said so. The list below is therefore an EXACT one: it names
+        // the entries whose create-and-verify round trip happens elsewhere, and
+        // adding a kind to the plan without either a fixture or a flag breaks it.
+        const flagged = E2E_OWNED_TEARDOWN.filter((step) => step.creatableHere === false).map((step) => step.kind);
+        expect(
+            flagged,
+            'the plan entries that no test in the ledger walk creates. Each needs the reason to sit next to it ' +
+                'in E2E_OWNED_TEARDOWN — an unflagged entry is a plan row that nothing verifies, and a flagged ' +
+                'entry whose reason has gone is a stale claim. NOTE the two mandant-scoped steps (teams, ' +
+                'mandantDomains) are not here: they are skipped for a structural reason (they need a parent ' +
+                'this file does not create) and are registered by their own specs.',
+        ).toEqual(['subAccreditations', 'venues', 'badgeImages', 'mandants']);
     });
 
     test('a restrict or nullOnDelete parent is reclaimed AFTER its child', () => {
@@ -906,12 +929,14 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
      * - `registerUploadPortraitAndApply()` — no spec calls it; it is the inner
      *   step of `ensurePrimaryMandantApprovedApplication()`, which is listed and
      *   therefore already gated.
-     * - `createBlacklistEntryApi()` — **no caller at all**, not even from a
-     *   listed helper: `approvals.spec.ts` creates its blacklist entry through the
-     *   UI instead. That makes it dead code. It is left in place (removing a
-     *   helper is not this file's business) but named here so the next person is
-     *   not left guessing whether it is covered. It is covered regardless — it
-     *   registers its own row.
+     * - `createBlacklistEntryApi()` — **used to be here and is now GONE**
+     *   (2026-09-28). It had no caller at all: `approvals.spec.ts` creates its
+     *   blacklist entry through the UI, so the helper was dead code — and the
+     *   note that used to sit here claimed it "is covered regardless — it
+     *   registers its own row". That sentence was true of the function and false
+     *   about the suite: a helper nobody calls registers nothing, ever. §6 forbids
+     *   dead code without a stated justification, so it was DELETED along with its
+     *   docblock, and the table entry never existed.
      *
      * A spec that creates a row some OTHER way (a raw `api.post` in its body) is
      * caught by the second half of the check below, which also looks for a ledger
@@ -940,6 +965,70 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
                 .replace(LINE_COMMENT, ''),
         }));
 
+    /**
+     * ## The half of "creates" that no amount of looking at helpers can find
+     *
+     * A spec that creates a row THROUGH THE UI creates a row. The helper list
+     * above cannot see that — a form submit is not a function call — and neither
+     * can `rememberOwned*`, which is the very thing being checked for. So the
+     * first version of the guard had a hole shaped exactly like
+     * `admin-mandant.spec.ts`: that spec created a mandant, a domain and a team
+     * through three forms, registered NOTHING, and was nonetheless classified as
+     * a creator — because of an UNRELATED registration in a different test
+     * (`:172`) — so the guard only ever asked whether a hook existed and never
+     * whether it had anything to give back. MEASURED with `E2E_PURGE=off`, twice:
+     * `mandants 0 → 1 → 2`, every assertion green.
+     *
+     * So UI creates are listed as DATA here, one row per (spec, what it creates,
+     * the control it clicks), and the test below checks two things per row:
+     *
+     * 1. the row is REAL — the named control is in that spec's code, so a
+     *    renamed or deleted button cannot leave a table entry that quietly
+     *    "covers" a spec which no longer creates anything;
+     * 2. the spec REGISTERS that kind — the ledger is the only thing that can
+     *    give the row back, and a registration of a different kind does not
+     *    count.
+     *
+     * Plus a third, automatic signal with no table at all
+     * (`PLAN_COLLECTIONS`): a spec that POSTs to a collection route of the
+     * teardown plan is a creator **whether or not it registers anything**. That
+     * is what makes this file a gate rather than a note.
+     */
+    const UI_CREATE_SITES = [
+        {
+            spec: 'tests/e2e/admin-mandant.spec.ts',
+            kind: 'mandants',
+            controls: ['Mandant erstellen', 'Teams aktivieren'],
+            note: 'the "create mandant" form; the id is only in the URL, so the spec looks it up by its ' +
+                'exact, worker-stamped name right after the submit.',
+        },
+        {
+            spec: 'tests/e2e/admin-mandant.spec.ts',
+            kind: 'mandantDomains',
+            controls: ['Domain hinzufügen'],
+            note: "the detail page's domain form, registered immediately after the submit.",
+        },
+        {
+            spec: 'tests/e2e/admin-mandant.spec.ts',
+            kind: 'teams',
+            controls: ['Team speichern'],
+            note: "the detail page's team form — the only create in the suite that needs a mandant-scoped " +
+                'parentId, which is why the lookup takes the mandant id as an argument.',
+        },
+    ];
+
+    /**
+     * The mandant-independent collection routes of the teardown plan — the
+     * addresses a spec can POST to in order to create a row the ledger knows how
+     * to give back. Derived from the plan rather than written out, so a new kind
+     * in `E2E_OWNED_TEARDOWN` is covered the day it is added. The
+     * mandant-scoped routes are excluded because they carry a `{parentId}`
+     * placeholder that no literal in a spec would contain.
+     */
+    const PLAN_COLLECTIONS = E2E_OWNED_TEARDOWN.filter((step) => step.route !== null)
+        .map((step) => step.route)
+        .filter((route) => !route.includes('{parentId}'));
+
     test('THE GUARD: a fixture-creating spec has an afterEach that reclaims', () => {
         const offenders = [];
         for (const spec of SPECS) {
@@ -953,6 +1042,24 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             // whose id it pushes) is equally a creator — and the registration is
             // what makes it findable without guessing at the create shape.
             if (spec.code.includes('rememberOwnedRow(') || spec.code.includes('rememberOwnedByUser(')) {
+                creates = true;
+            }
+            // A spec that POSTs to a collection route of the teardown plan is a
+            // creator TOO — and this is the signal that needs no maintenance at
+            // all, so it is the one that cannot rot. It matters because the two
+            // signals above are both downstream of the ledger: a spec that
+            // creates through a form and registers NOTHING matched neither, and
+            // the guard then had nothing to complain about (the measured
+            // `admin-mandant.spec.ts` hole — see `UI_CREATE_SITES`).
+            for (const route of PLAN_COLLECTIONS) {
+                if (spec.code.includes(`post('${route}'`) || spec.code.includes(`post(\`${route}\``)) {
+                    creates = true;
+                }
+            }
+            // …and a spec listed as creating through the UI is a creator even
+            // when this run's tree has not yet registered it, so the check below
+            // has something to check.
+            if (UI_CREATE_SITES.some((site) => site.spec === spec.file)) {
                 creates = true;
             }
             if (!creates) {
@@ -1047,5 +1154,157 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             }
         }
         expect(unused, 'FIXTURE_CREATORS entries that no spec calls — dead coverage').toEqual([]);
+    });
+
+    /**
+     * The `test(` / `test.describe(` block that contains a given offset, as
+     * source text: everything from the nearest preceding block opener up to the
+     * next one.
+     *
+     * ## Why per BLOCK and not per file
+     *
+     * The first version of the UI-create check asked per FILE, and that is
+     * demonstrably too coarse — measured, not assumed: with the three
+     * registrations of `admin-mandant.spec.ts` removed, the check went red for
+     * `mandants` and `teams` but stayed GREEN for `mandantDomains`, because a
+     * DIFFERENT test in the same file (the logo-column one) still calls
+     * `rememberOwnedRow('mandantDomains', …)`. A file-level answer to "does this
+     * spec give its UI-created rows back" is an answer about the wrong unit: the
+     * ledger is per TEST, so the question is too.
+     *
+     * The scan is deliberately simple — a linear walk over block openers — and
+     * deliberately *over*-narrow rather than over-wide: a block boundary that is
+     * missed would make the check stricter, never laxer.
+     */
+    const TEST_BLOCK_OPENER = /\n[ \t]*test(?:\.[A-Za-z]+)?\(/g;
+
+    /**
+     * Does this source register a row of `kind` with the ledger?
+     *
+     * A REGEX rather than a substring, and the reason is measured: the natural
+     * way to write a three-argument registration is multi-line (the line gets
+     * long), and a substring check for `rememberOwnedRow('mandantDomains'` then
+     * fails on CORRECT code — a gate that fails on correct code is a gate people
+     * learn to bypass. Whitespace between the paren and the literal is the only
+     * concession; the kind itself must still be a string LITERAL, because
+     * `rememberOwnedRow(kind, …)` names nothing.
+     */
+    function registerCallIn(code = '', kind = '') {
+        return new RegExp(`rememberOwnedRow\\(\\s*'${kind}'`).test(code);
+    }
+
+    function testBlockContaining(code = '', index = 0) {
+        // A FRESH regex per call: a module-scope `/g` pattern carries `lastIndex`
+        // between calls, and two calls in one test would then read a block
+        // boundary that belongs to the previous one.
+        const pattern = new RegExp(TEST_BLOCK_OPENER.source, 'g');
+        const starts = [];
+        let end = code.length;
+        let match = pattern.exec(code);
+        while (match !== null) {
+            if (match.index >= index) {
+                end = match.index;
+                break;
+            }
+            starts.push(match.index);
+            match = pattern.exec(code);
+        }
+        if (starts.length === 0) {
+            return code;
+        }
+        return code.slice(starts[starts.length - 1], end);
+    }
+
+    test('THE GUARD: a spec that creates through the UI registers what it created', () => {
+        const offenders = [];
+        for (const site of UI_CREATE_SITES) {
+            const spec = SPECS.find((entry) => entry.file === site.spec);
+            if (spec === undefined) {
+                offenders.push(
+                    `  ${site.spec}  is listed as creating "${site.kind}" through the UI but the file does not ` +
+                        'exist any more — the table is asserting about a spec that is gone',
+                );
+                continue;
+            }
+            const missingControl = site.controls.filter((control) => !spec.code.includes(control));
+            if (missingControl.length > 0) {
+                offenders.push(
+                    `  ${site.spec}  is listed as creating a ${site.kind} but none of ` +
+                        `${JSON.stringify(missingControl)} appears in it any more — the table claims coverage ` +
+                        'that the spec no longer has',
+                );
+                continue;
+            }
+            // The registration has to be in the SAME test that creates the row,
+            // because the ledger is emptied per test (`resetOwnedRows` in
+            // `beforeEach`) — a registration in a sibling test registers nothing
+            // for this one. See `testBlockContaining` for why that granularity is
+            // measured rather than assumed.
+            const unregistered = site.controls.filter((control) => {
+                const block = testBlockContaining(spec.code, spec.code.indexOf(control));
+                return !registerCallIn(block, site.kind);
+            });
+            if (unregistered.length > 0) {
+                offenders.push(
+                    `  ${site.spec}  creates a ${site.kind} through the UI (${JSON.stringify(unregistered)}) ` +
+                        `but that test never calls rememberOwnedRow('${site.kind}'). A create form answers no ` +
+                        "id, so the test's only handle is the name it typed — without a registration the row " +
+                        'survives this test, the next run inherits it, and every assertion in the spec stays ' +
+                        'green. (A registration in a SIBLING test does not count: the ledger is emptied per ' +
+                        'test.)',
+                );
+            }
+        }
+        expect(
+            offenders,
+            'These specs create rows through the UI and never hand them back. "Every row a test creates must ' +
+                'be registered" cannot be enforced for a form submit by looking at helper calls — the create ' +
+                'happens in the browser, not in the spec — so it is listed as data and checked here. Register ' +
+                'the row by looking it up under its exact, worker-stamped name right after the submit:\n' +
+                "    rememberOwnedRow('mandants', await findCreatedRowId(…));\n" +
+                offenders.join('\n'),
+        ).toEqual([]);
+    });
+
+    test('the UI-create table has no dead entry', () => {
+        // The twin of the check above, for the same reason `FIXTURE_CREATORS` has
+        // one: a table entry that no longer describes anything is the "looks like
+        // coverage" edit this whole file exists to be against.
+        const stale = [];
+        for (const site of UI_CREATE_SITES) {
+            const spec = SPECS.find((entry) => entry.file === site.spec);
+            if (spec === undefined || !site.controls.some((control) => spec.code.includes(control))) {
+                stale.push(`${site.spec} (${site.kind}, ${JSON.stringify(site.controls)})`);
+            }
+        }
+        expect(
+            stale,
+            'UI_CREATE_SITES entries whose control is not in the spec any more — dead coverage that hides a ' +
+                'spec that stopped registering',
+        ).toEqual([]);
+    });
+
+    test('a raw create POST makes a spec a creator even with no registration at all', () => {
+        // The automatic, table-free half. A spec that POSTs to a collection route
+        // of the teardown plan creates a row the ledger is able to address, so it
+        // has to be one whether it says so or not — which is the difference
+        // between a gate and a note.
+        const creators = [];
+        for (const spec of SPECS) {
+            for (const route of PLAN_COLLECTIONS) {
+                if (spec.code.includes(`post('${route}'`) || spec.code.includes(`post(\`${route}\``)) {
+                    creators.push(spec.file);
+                    break;
+                }
+            }
+        }
+        // Non-vacuous in both directions: the scan must find a real number of
+        // specs, and the spec that creates a row of every creatable kind — the
+        // ledger walk — must show up in it.
+        expect(new Set(creators).size, 'the collection-route scan found nothing at all').toBeGreaterThan(3);
+        expect(
+            creators,
+            'every spec that posts to a teardown collection route is classified as a creator',
+        ).toContain('tests/e2e/ownership.spec.ts');
     });
 });

@@ -160,6 +160,20 @@ export interface CaptureMeta {
      * sidecars, which is what the §7 acceptance check does.
      */
     entityIds: Record<string, number>;
+    /**
+     * HOW MUCH of the route's content marker was on screen when the shutter
+     * fired — the count the postcondition actually measured, not a declared one.
+     *
+     * A separate field from `entityIds` because the two answer different
+     * questions: "which row" and "how many". `admin-users` is the case that made
+     * the gap visible: its seed returns LOGIN CREDENTIALS (strings), `entityIdsOf`
+     * keeps integers only, and the sidecar therefore carried `entityIds: {}` —
+     * with no number anywhere saying against how many users the capture was
+     * rendered. `dataset.users` holds the mandant total, but the page PAGINATES
+     * (`UsersPage.tsx`), so the total is not what the reviewer is looking at
+     * either. This is the rendered count, read from the content postcondition.
+     */
+    contentCount: number;
     /** The pathname the capture was taken at — the manifest's route, postconditioned. */
     pathname: string;
     /**
@@ -188,6 +202,8 @@ export interface RouteCaptureInput {
     runKey: string;
     dataset: Record<string, number>;
     entityIds: Record<string, number>;
+    /** The measured content marker count — see `CaptureMeta.contentCount`. */
+    contentCount: number;
     pathname: string;
     compareWith?: string;
     visionNote?: string;
@@ -309,6 +325,7 @@ export function storeRouteCapture(input: RouteCaptureInput): CaptureMeta {
         capturedAt: new Date().toISOString(),
         dataset: input.dataset,
         entityIds: input.entityIds,
+        contentCount: input.contentCount,
         pathname: input.pathname,
         ...(input.compareWith === undefined ? {} : { compareWith: input.compareWith }),
         ...(input.visionNote === undefined ? {} : { visionNote: input.visionNote }),

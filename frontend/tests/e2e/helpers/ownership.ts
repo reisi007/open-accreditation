@@ -80,8 +80,25 @@ const E2E_OWNED = new Map();
  * Each entry: `kind` (the `E2E_OWNED` key), `route` (the API path; the literal
  * `{parentId}` is substituted per row), `actor` (`'admin'` = the bootstrap admin
  * session, `'owner'` = log in as the row's own user), `okStatus` (the success
- * status THIS route answers — they are not uniform, see below), and `reclaimable`
- * (false for a kind with NO delete route at all — see the users note below).
+ * status THIS route answers — they are not uniform, see below), `reclaimable`
+ * (false for a kind with NO delete route at all — see the users note below), and
+ * `creatableHere` (false for a kind the ledger-walk test cannot create a fixture
+ * for — each such entry carries its reason inline, and
+ * `namespace-isolation.spec.ts` pins the list by name so the set cannot grow
+ * silently).
+ *
+ * ## The claim this table does NOT make
+ *
+ * "A kind in this plan is covered from the day it is entered" is true for the
+ * ROUTE of every entry — `preflightTeardownRoutes` asks the backend about all of
+ * them on every run, including the ones no test ever exercises — and FALSE for
+ * the create-and-verify round trip of four of them (MEASURED 2026-09-28:
+ * `subAccreditations`, `venues`, `badgeImages`, `mandants`, plus the two
+ * mandant-scoped steps the walk skips structurally). Those carry
+ * `creatableHere: false` with a reason, and that flag is the honest form of the
+ * gap. Before it existed the walk test asserted `toBeGreaterThanOrEqual(5)`, the
+ * count went from seven to five, and the floor stayed satisfied — so a plan entry
+ * nobody verified looked exactly like one somebody did.
  *
  * ## `okStatus` is per kind, and that is measured, not stylistic
  *
@@ -99,8 +116,12 @@ const E2E_OWNED = new Map();
  * in fact worked. The expectation now lives next to the route it describes,
  * which is the only place it can be kept true.
  *
- * 404 is tolerated for EVERY kind regardless: a row another net already reclaimed
- * (or a cascade that took a child with its parent) is the goal state, not a fault.
+ * 404 is tolerated for EVERY kind — but only the 404 that means THE ROW IS GONE
+ * (a row another net already reclaimed, or a cascade that took a child with its
+ * parent). That distinction is not a nicety: a plan entry with a typo answers
+ * 404 too, and tolerating it silently is how the suite stayed green while
+ * `mandants` grew by one row per run. `classifyNotFoundBody` reads the two
+ * apart; a 404 that is neither is a failure.
  * 409 is NOT tolerated anywhere — that is the backend saying "something still
  * references this", which is precisely the ordering bug this must surface.
  */
@@ -124,19 +145,174 @@ export const E2E_OWNED_TEARDOWN = [
     { kind: 'applications', route: '/api/applications', actor: 'owner', okStatus: 204, reclaimable: true },
     { kind: 'subApplications', route: '/api/sub-applications', actor: 'owner', okStatus: 204, reclaimable: true },
     { kind: 'userMedia', route: '/api/user/media', actor: 'owner', okStatus: 200, reclaimable: true },
-    { kind: 'subAccreditations', route: '/api/admin/sub-accreditations', actor: 'admin', okStatus: 204, reclaimable: true },
+    { kind: 'subAccreditations', route: '/api/admin/sub-accreditations', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
     { kind: 'accreditations', route: '/api/admin/accreditations', actor: 'admin', okStatus: 204, reclaimable: true },
     // ── categories BEFORE events (see the module docblock) ──────────────────
     { kind: 'categories', route: '/api/admin/categories', actor: 'admin', okStatus: 204, reclaimable: true },
     { kind: 'events', route: '/api/admin/events', actor: 'admin', okStatus: 204, reclaimable: true },
     { kind: 'teams', route: '/api/admin/mandants/{parentId}/teams', actor: 'admin', okStatus: 204, reclaimable: true },
-    { kind: 'venues', route: '/api/admin/venues', actor: 'admin', okStatus: 204, reclaimable: true },
+    { kind: 'venues', route: '/api/admin/venues', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
     { kind: 'blacklists', route: '/api/admin/blacklists', actor: 'admin', okStatus: 204, reclaimable: true },
-    { kind: 'badgeImages', route: '/api/admin/badge-images', actor: 'admin', okStatus: 204, reclaimable: true },
+    { kind: 'badgeImages', route: '/api/admin/badge-images', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
     { kind: 'badgeTemplates', route: '/api/admin/badge-templates', actor: 'admin', okStatus: 204, reclaimable: true },
     { kind: 'mandantDomains', route: '/api/admin/mandants/{parentId}/domains', actor: 'admin', okStatus: 204, reclaimable: true },
-    { kind: 'mandants', route: '/api/admin/mandants', actor: 'admin', okStatus: 204, reclaimable: true },
+    { kind: 'mandants', route: '/api/admin/mandants', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
 ];
+
+/**
+ * ## Two 404s that are not the same 404
+ *
+ * 404 is tolerated for every kind on purpose — a row another net already
+ * reclaimed, or a cascade that took a child with its parent, is the goal state
+ * and not a fault. But that tolerance was TOTAL, and a total tolerance cannot
+ * tell a wrong address from a gone row. One character typed into
+ * `/api/admin/mandants` — `/api/admin/mandat` — makes the teardown's DELETE hit
+ * no route at all, answer 404, get counted as "reclaimed", and leave the row
+ * behind. MEASURED with that typo in place: the suite stayed **green** (3 + 29
+ * + 3 passed) while `mandants` grew by one row per run, without bound.
+ *
+ * The two cases ARE distinguishable, and they are measured against the running
+ * dev backend with an id that cannot exist. BOTH answer **404**; only the
+ * `message` differs:
+ *
+ * | case                                              | `message`                                                     |
+ * |---------------------------------------------------|---------------------------------------------------------------|
+ * | row gone — the route exists, model binding failed | `No query results for model [App\Models\Category] 2147483647` |
+ * | address wrong — no such route                     | `The route api/admin/mandat/2147483647 could not be found.`   |
+ *
+ * The two mandant-scoped steps are covered too: `{parentId}` is substituted with
+ * `0`, so the MANDANT binding fails first and still yields the "row gone" shape.
+ *
+ * The verdict is read from `message` and never from the `file` field: that one
+ * carries an ABSOLUTE path and would break the moment the checkout moves. The
+ * `message` is framework text that survives `APP_DEBUG=0` — only the extra
+ * fields are stripped there, not the message.
+ */
+export const TEARDOWN_NOT_FOUND = {
+    ROW_ABSENT: 'row-absent',
+    ROUTE_ABSENT: 'route-absent',
+    UNKNOWN: 'unknown',
+};
+
+/**
+ * The id the route preflight asks about. It cannot exist, which is the whole
+ * safety argument for the preflight: every step's delete is a real `DELETE`
+ * request, and the only way one of them could delete a row is if the backend
+ * ignored the id — which is precisely what the preflight would then report.
+ */
+export const TEARDOWN_ROUTE_PROBE_ID = 2147483647;
+
+/**
+ * Which kind of 404 this body is. Fail-closed by construction, in two places:
+ *
+ * 1. Anything that is neither of the two measured shapes is `unknown`, and
+ *    `unknown` is a FAILURE downstream. A harness that tolerates a 404 it cannot
+ *    classify is the shape this whole section exists to remove — it would be
+ *    indistinguishable from the typo that motivated it.
+ * 2. The verdict is read from the JSON `message` field and from NOTHING else —
+ *    not from the whole body, not from the debug payload. MEASURED, and found by
+ *    the test written for it: a body that carries the verdict in a field other
+ *    than `message` must stay `unknown`, or the classifier is fail-OPEN.
+ *
+ * The fallback exists only as a measurement artefact: callers may pass a body
+ * truncated for a failure message, which can cut the JSON in half and make
+ * `JSON.parse` fail. A truncated body is `unknown` — and a body nobody can
+ * classify is the correct verdict for it.
+ */
+export function classifyNotFoundBody(body = '') {
+    let parsed = null;
+    try {
+        parsed = JSON.parse(body);
+    } catch {
+        // No verdict to read.
+        return TEARDOWN_NOT_FOUND.UNKNOWN;
+    }
+    if (parsed === null || typeof parsed !== 'object' || typeof parsed.message !== 'string') {
+        return TEARDOWN_NOT_FOUND.UNKNOWN;
+    }
+    // Order matters: the model message is checked first, because it is the one
+    // that legitimately means "the row is gone".
+    if (parsed.message.includes('No query results for model')) {
+        return TEARDOWN_NOT_FOUND.ROW_ABSENT;
+    }
+    if (parsed.message.includes('could not be found')) {
+        return TEARDOWN_NOT_FOUND.ROUTE_ABSENT;
+    }
+    return TEARDOWN_NOT_FOUND.UNKNOWN;
+}
+
+/**
+ * Asks the BACKEND whether every route in the plan exists — one sentinel DELETE
+ * per reclaimable step, and ONE admin login for all of them.
+ *
+ * ## Why this is not the same check as the 404 classification
+ *
+ * The classification only runs on a 404 the teardown actually receives, so a
+ * step whose kind no test happened to own in this run is never questioned: a
+ * typo in the `badgeImages` route stays invisible until some test owns a badge
+ * image, which today is no test at all. This preflight asks about the PLAN, so
+ * an unexercised entry is checked anyway. The two are complementary and neither
+ * subsumes the other.
+ *
+ * ## Why it lives in a test rather than in the teardown's hot path
+ *
+ * It is a plan-level question, so it is asked once per RUN from
+ * `ownership.spec.ts`, where its own assertions live and where a failure names
+ * the offending kind. Folding it into every `reclaimOwnedRows()` would put
+ * twelve extra DELETEs — and in the specs that reclaim without an admin session
+ * an extra login, which is the budget the UI-heavy specs need — into a path that
+ * runs after EVERY test.
+ *
+ * ## What it accepts, and why the probe is safe
+ *
+ * Only the "row absent" verdict, which for the sentinel means: the route is
+ * registered and its model binding rejected an id that cannot exist. A 204 would
+ * mean the sentinel was deleted (impossible for an id this large, and the only
+ * way to reach that state is a route that ignores its id) and a 405 that the URI
+ * exists under another method only — both are reported, not tolerated.
+ */
+export async function preflightTeardownRoutes() {
+    const api = await loginAdminApi();
+    const rejected = [];
+    const checked = [];
+    try {
+        for (const step of E2E_OWNED_TEARDOWN) {
+            if (!step.reclaimable || step.route === null) {
+                continue;
+            }
+            const url = step.route.replace('{parentId}', '0') + `/${TEARDOWN_ROUTE_PROBE_ID}`;
+            const response = await api.delete(url);
+            const status = response.status();
+            if (status === 404) {
+                const verdict = classifyNotFoundBody(await response.text());
+                if (verdict === TEARDOWN_NOT_FOUND.ROW_ABSENT) {
+                    checked.push(`${step.kind} → ${url}`);
+                    continue;
+                }
+                rejected.push(
+                    `${step.kind}: DELETE ${url} answered 404 that is NOT "the row is gone" (${verdict}) — ` +
+                        'the address in E2E_OWNED_TEARDOWN reaches no delete route, so every row of this kind is ' +
+                        `silently kept. The route in the plan is: ${step.route}`,
+                );
+                continue;
+            }
+            let body = '';
+            try {
+                body = (await response.text()).slice(0, 200);
+            } catch {
+                body = '<unreadable body>';
+            }
+            rejected.push(
+                `${step.kind}: DELETE ${url} answered ${status} for an id that cannot exist (expected a 404 ` +
+                    `"saying the row is gone"). The route in the plan may not be a per-row delete at all: ` +
+                    `${step.route}. Body: ${body}`,
+            );
+        }
+    } finally {
+        await api.dispose();
+    }
+    return { checked, rejected };
+}
 
 /**
  * The FK constraint graph the teardown order has to respect, as data.
@@ -270,12 +446,13 @@ export function ownedRowCount(kind = '') {
  * `PurgeReclamationFailure` — the same class the serial teardown uses, so a run
  * that cannot give a row back is RED in both nets.
  *
- * 404 is tolerated and only 404: a row another net already reclaimed (or a
- * cascade that took a child with its parent) is the goal state, not a fault.
- * 409 is NOT tolerated anywhere — that is the backend saying "something still
- * references this", which is precisely the ordering bug this must surface. The
- * success status is per kind (`okStatus` on each step), because the destroy
- * routes are not uniform — see the table's docblock.
+ * 404 is tolerated, and only the 404 that means "the row is gone": a row another
+ * net already reclaimed, or a cascade that took a child with its parent, is the
+ * goal state. A 404 that means the ROUTE does not exist is a different thing
+ * entirely and fails the run — see `classifyNotFoundBody` for the two measured
+ * shapes and why tolerating both is what let a one-character typo leak a row per
+ * run. 409 is NOT tolerated anywhere: that is the backend saying "something still
+ * references this", which is precisely the ordering bug this must surface.
  *
  * ## Owner-scoped kinds
  *
@@ -396,19 +573,45 @@ export async function reclaimOwnedRows() {
 
                 const response = await session.delete(url);
                 const status = response.status();
-                if (status === step.okStatus || status === 404) {
+                if (status === step.okStatus) {
                     reclaimed += 1;
                     continue;
                 }
+                // The FULL body for the classifier and a 300-char slice for the
+                // message — the other way round is a real bug, not a style
+                // question: with `APP_DEBUG=1` a model-not-found body carries a
+                // full stack trace, so 300 characters cuts the JSON in half,
+                // `JSON.parse` fails, and every legitimately cascaded row would be
+                // reported as an unreadable 404.
                 let body = '';
                 try {
-                    body = (await response.text()).slice(0, 300);
+                    body = await response.text();
                 } catch {
                     body = '<unreadable body>';
                 }
+                const shortBody = body.slice(0, 300);
+                if (status === 404) {
+                    // THE fix for the tolerance that could not tell two 404s
+                    // apart (see `classifyNotFoundBody`): "the row is gone" is the
+                    // goal state, "the address reaches nothing" is a typo in the
+                    // plan, and the second one used to pass for the first.
+                    const verdict = classifyNotFoundBody(body);
+                    if (verdict === TEARDOWN_NOT_FOUND.ROW_ABSENT) {
+                        reclaimed += 1;
+                        continue;
+                    }
+                    failures.push(
+                        `DELETE ${url} answered 404 that is NOT "the row is gone" (${verdict}) — the ` +
+                            `${step.kind} row ${entry.id} was never addressed at all, so it stays and the NEXT ` +
+                            'run inherits it. A 404 here means either the route in E2E_OWNED_TEARDOWN is wrong ' +
+                            'or something in front of the API answers 404 for everything. Body: ' +
+                            shortBody,
+                    );
+                    continue;
+                }
                 failures.push(
                     `DELETE ${url} answered ${status} (expected ${step.okStatus}/404) — the ${step.kind} row ` +
-                        `${entry.id} stays, and the NEXT run inherits it. Body: ${body}`,
+                        `${entry.id} stays, and the NEXT run inherits it. Body: ${shortBody}`,
                 );
             }
         }

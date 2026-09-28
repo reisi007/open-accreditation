@@ -56,6 +56,14 @@ export default {
     forbidOnly: true,
     // No 5-minute UI timeouts to sit through — the probe is pure API.
     timeout: 60000,
+    // Its OWN output dir, and this is load-bearing rather than tidiness: the
+    // default (`test-results/`) is where the hand-off records live, and a child
+    // runner EMPTIES its outputDir before the first test. Two child runs of two
+    // specs then wipe the SAME directory concurrently — MEASURED in a full run:
+    // `child-lifetime`'s hang record vanished under a sibling child's wipe. The
+    // record paths stay in `test-results/` root, which no child's outputDir
+    // reaches.
+    outputDir: path.resolve(process.cwd(), 'test-results/ownership-probe'),
     reporter: [['line']],
     use: {
         baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',

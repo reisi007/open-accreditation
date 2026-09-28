@@ -130,6 +130,92 @@ export type UiReviewNavStep = UiReviewClickStep | UiReviewGotoStep;
 
 export type UiReviewSeed = () => Promise<Record<string, unknown>>;
 
+/**
+ * The accessible roles a content postcondition may name.
+ *
+ * Declared here rather than imported because Playwright 1.63 INLINES the role
+ * union into `getByRole`'s signature and exports no `AriaRole` name to alias
+ * (checked: `import type { AriaRole } from '@playwright/test'` has no exported
+ * member). An import would not compile; `role: string` WOULD compile and would
+ * hand every role name to the runtime unchecked.
+ *
+ * Being a narrower union is the point: a role this manifest has never used has
+ * to be added here deliberately, with a reason, instead of being a typo that
+ * fails as "0 elements matched" at capture time.
+ */
+export type UiReviewRole =
+    | 'article'
+    | 'cell'
+    | 'columnheader'
+    | 'dialog'
+    | 'heading'
+    | 'link'
+    | 'listitem'
+    | 'region'
+    | 'row';
+
+/**
+ * ## WHAT the capture must show, as a landmark-scoped locator
+ *
+ * The harness knew the state it was capturing (`filled` or `empty`) and never
+ * used it: `settleAndCapture` waited for `networkidle` plus a flat 300 ms. After
+ * a CLIENT-SIDE navigation `networkidle` is satisfied before the click's fetch is
+ * even issued, so that 300 ms was the entire reserve — and the data arrives after
+ * 102–163 ms on this stack, leaving 159–220 ms of headroom. With 400 ms of delay
+ * on `/api/admin/users`: `rows=0`, a 950 px page, **zero** bands (a table that has
+ * not rendered fits the fold), and every assertion PASSED — the run stored the
+ * loading spinner and called it a capture.
+ *
+ * The asymmetry made it worse: desktop navigates by click and mobile loads the
+ * document (`ui-screenshots.spec.ts`'s mobile bypass), so the SAME delay was
+ * absorbed on one viewport and not the other. Desktop was the only viewport
+ * without a real wait.
+ *
+ * So every state declares the content the capture is ABOUT, and the spec waits
+ * for THAT. It is a postcondition, not a longer sleep: `toBeVisible` and
+ * `expect.poll` retry, and a loading spinner satisfies neither — the empty-state
+ * headings and list rows are all rendered behind `!isLoading`, which is what makes
+ * "empty" and "still loading" mutually exclusive by construction rather than by
+ * hope.
+ *
+ * Two marker shapes, because the pages are not uniform:
+ * - `role` (+ optional `name`, `min`) — a heading, a dialog, a table `cell`.
+ *   Table data cells are `cell` while header cells are `columnheader`, so a
+ *   `cell` count is a header-proof "there is a row" and NOT a "there is a table":
+ *   six admin pages render an empty `<table>` beside their empty-state card, so a
+ *   "table visible" check would pass on an empty list.
+ * - `text` — for the pages whose settled marker is plain text with no role
+ *   (`/admin/freigaben`'s tab bodies).
+ *
+ * `note` is REQUIRED: it is the record of why this marker and not the obvious
+ * neighbour, which is the only thing that keeps the next person from swapping in
+ * something that happens to pass.
+ */
+export interface UiReviewContent {
+    /** Landmark the postcondition is scoped to. Every route here is page content. */
+    scope: 'main';
+    /** A container the content must be INSIDE — e.g. the portal calendar region. */
+    within?: { role: UiReviewRole; name?: string };
+    /** Accessible role; the match count must reach `min`. */
+    role?: UiReviewRole;
+    /** Exact accessible name for the role locator. */
+    name?: string;
+    /**
+     * Seed key whose value IS the exact accessible name — required wherever the
+     * name is a fixture value (an event title, the mandant's name) rather than a
+     * UI constant, for the same reason the nav steps have it: a hard-coded copy
+     * of a fixture name is a second source of truth that rots silently, and an
+     * id cannot be matched by an accessible name at all.
+     */
+    nameFrom?: string;
+    /** Minimum number of matches. Default 1. */
+    min?: number;
+    /** Plain-text marker for pages whose settled marker carries no role. Exact. */
+    text?: string;
+    /** Why THIS marker. Required — the declaration is the contract. */
+    note: string;
+}
+
 export interface UiReviewRoute {
     name: string;
     /** Route pattern; `:param` tokens are resolved from the seed result where used. */
@@ -142,6 +228,13 @@ export interface UiReviewRoute {
     note?: string;
     /** Seed per state — only states that need deterministic data define one. */
     seeds?: Partial<Record<UiReviewState, UiReviewSeed>>;
+    /**
+     * The content postcondition per state — REQUIRED for every state the route
+     * captures. Missing is a hard error in the spec, never a skipped wait: a route
+     * without one is exactly the "desktop capture photographed the spinner"
+     * failure this declaration exists to make impossible.
+     */
+    content: Partial<Record<UiReviewState, UiReviewContent>>;
     nav?: UiReviewNavStep[];
     /**
      * URL globs intercepted ONLY in the `empty` state and fulfilled with an
@@ -192,6 +285,30 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'home',
             path: '/',
+            content: {
+                // Both markers sit INSIDE the calendar region, and that is the load-bearing part: the whole
+                // portal body is behind `mandant && !overviewLoading && !overviewError`
+                // (PortalHomePage.tsx:80), so a region that exists at all already means the overview
+                // resolved. Without the region scope, "a heading named Keine Veranstaltungen exists" would
+                // also be true for a page that never finished loading.
+                filled: {
+                    scope: 'main',
+                    within: { role: 'region', name: 'Veranstaltungskalender' },
+                    role: 'link',
+                    min: 1,
+                    note: 'one calendar card. The cards are `<Link className="card">`, so role link — and the ' +
+                        'count is the number a reviewer wants, not merely "> 0".',
+                },
+                empty: {
+                    scope: 'main',
+                    within: { role: 'region', name: 'Veranstaltungskalender' },
+                    role: 'heading',
+                    name: 'Keine Veranstaltungen',
+                    note: 'the empty-state card title (PortalHomePage.tsx:171, NO trailing period). It is ' +
+                        'rendered only behind `events && events.length === 0`, i.e. only after the list ' +
+                        'request resolved — so it cannot be mistaken for loading.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'guest',
             tenant: { empty: 'primary' },
@@ -222,6 +339,22 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'akkreditierungen',
             path: '/akkreditierungen',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'article',
+                    min: 1,
+                    note: 'one public accreditation card (AccreditationsPage.tsx). Cards and the empty ' +
+                        'state are length-gated, so an article can only appear after the list resolved.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Keine Akkreditierungen verfügbar.',
+                    note: 'the empty-state card title (AccreditationsPage.tsx), behind the same ' +
+                        'length-gated branch as the cards.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'guest',
             tenant: { empty: 'primary' },
@@ -233,6 +366,25 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'login',
             path: '/login',
+            content: {
+                // A pure form, so there is no data to wait for. What there IS to wait for is the route
+                // GUARD: RequireAuth/RequireAdmin render a spinner and nothing else until the session is
+                // known, so the page's h1 is the first thing that proves the guard resolved.
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Anmelden',
+                    note: 'the page h1 (LoginPage.tsx). Role heading, not the submit button: both are ' +
+                        'named "Anmelden", and the button exists from the first paint of the form.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Anmelden',
+                    note: 'same marker as filled, deliberately: this route has no data dependency, so the two ' +
+                        'captures are expected to be identical and the postcondition says exactly that.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'guest',
             nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Anmelden' }],
@@ -241,6 +393,21 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'verify',
             path: '/verify',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Verifizieren',
+                    note: 'the page h1 (VerifyPage.tsx) — the form is rendered only after the route guard ' +
+                        'resolved. Same shape as the login route: no list, so the guard is the settle.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Verifizieren',
+                    note: 'same marker as filled, deliberately — the empty form is the filled form.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'guest',
             nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Verifizieren' }],
@@ -248,6 +415,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'verify-token',
             path: '/verify/:token',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'article',
+                    min: 1,
+                    note: 'the RESULT card (VerifyPage.tsx), which the page renders only after the ' +
+                        'verification POST resolved; the spinner is what it replaces. This is the ' +
+                        'one route where the capture is about a RESPONSE rather than about a form, and ' +
+                        'without this marker a delayed verification would photograph the spinner.',
+                },
+            },
             states: ['filled'],
             auth: 'guest',
             viewports: ['desktop'],
@@ -263,6 +441,18 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'events-detail',
             path: '/events/:eventId',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    nameFrom: 'eventName',
+                    note: "the event h1 (EventDetailPage.tsx:50), which IS the event's own title — and the " +
+                        'page early-returns a spinner (`:39`) until the event has loaded, so the h1 is the ' +
+                        "settle. The name comes from the seed because the title is a fixture value: an id " +
+                        'cannot be matched by an accessible name, and a copied literal would be a second ' +
+                        'source of truth that rots when the fixture is renamed.',
+                },
+            },
             states: ['filled'],
             auth: 'guest',
             nav: [
@@ -283,6 +473,24 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'meine-akkreditierungen',
             path: '/meine-akkreditierungen',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'article',
+                    min: 1,
+                    note: 'one application card (MyAccreditationsPage.tsx). The dataset user has exactly ' +
+                        "one requested application, so the count a reviewer sees is 1 — and the sidecar " +
+                        'records what was actually rendered, not what was hoped for.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Anträge',
+                    note: 'the empty-state card title (MyAccreditationsPage.tsx, NO trailing period — the ' +
+                        'exact literal is load-bearing, a "friendly" added period would simply never match). ' +
+                        'It is length-gated, so it appears only after the list resolved.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'user',
             tenant: { empty: 'primary' },
@@ -296,6 +504,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'apply',
             path: '/apply/:accreditationId',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'article',
+                    min: 1,
+                    note: 'the form card (ApplyPage.tsx:73). The page renders the spinner at `:51` until the ' +
+                        'accreditation loaded, so the card is the settle — and it is the card rather than a ' +
+                        'heading, because the h1 at `:49` sits OUTSIDE the loading guard and is therefore ' +
+                        'already on screen while the data is still in flight.',
+                },
+            },
             states: ['filled'],
             auth: 'user',
             nav: [
@@ -317,6 +536,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-mandants',
             path: '/admin/mandants',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table DATA cells, not the table: header cells carry role columnheader, so a cell ' +
+                        'count is a header-proof "there is a row". This page renders an empty <table> BESIDE ' +
+                        'its empty state (the table is guarded on !isLoading, not on length), so a ' +
+                        '"table is visible" check would pass on a list with nothing in it.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             // The list renders a logo cell per mandant; the primary mandant's
@@ -329,6 +559,15 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-mandants-new',
             path: '/admin/mandants/new',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Neuer Mandant',
+                    note: 'the page h1 (MandantFormPage.tsx:32). The page fetches nothing, so the settle is ' +
+                        'the admin route guard — and the h1 is the first thing it renders.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'main', role: 'link', name: 'Neu' }],
@@ -337,6 +576,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-mandant-detail',
             path: '/admin/mandants/:id',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    nameFrom: 'mandantName',
+                    note: 'the mandant h1 (MandantDetailPage.tsx:198). The page early-returns a spinner ' +
+                        'until the mandant loaded, so this is the settle for the WHOLE page — ' +
+                        'including the two list sections below it, whose <ul> renders (empty, and therefore ' +
+                        'immediately) even while the mandant is still being fetched.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             nav: [
@@ -352,6 +602,23 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-categories',
             path: '/admin/categories',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells (cell, not columnheader) — see admin-mandants. The empty state ' +
+                        'here is a card with an h2 (CategoriesPage.tsx:234), so the two are distinguishable.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Kategorien vorhanden.',
+                    note: 'the empty-state card title (CategoriesPage.tsx:234). It renders behind !isLoading, ' +
+                        'so it is structurally impossible to see it while the spinner is up — which is what ' +
+                        'makes "empty" and "still loading" two different captures rather than one.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -363,6 +630,20 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-events',
             path: '/admin/events',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells — see admin-categories.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Events vorhanden.',
+                    note: 'the empty-state card title (EventsPage.tsx:300), behind !isLoading.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -374,6 +655,24 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-accreditations',
             path: '/admin/accreditations',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells — see admin-categories. This page also has a sub-accreditation ' +
+                        'modal with its own article cards; scoping to main and counting cells keeps the modal ' +
+                        'out of it.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Akkreditierungen vorhanden.',
+                    note: 'the empty-state card title (AccreditationsPage.tsx:429), behind !isLoading. The ' +
+                        'sub-modal carries near-identical text (`Noch keine Sub-Akkreditierungen vorhanden.`) ' +
+                        '— a different string, and therefore excluded by the exact name.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -385,6 +684,24 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-freigaben',
             path: '/admin/freigaben',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells of the default tab (Anträge). The three tab bodies are separate ' +
+                        'components, and this is the one the route opens on (ApprovalsPage.tsx:1240-1260).',
+                },
+                empty: {
+                    scope: 'main',
+                    text: 'Keine Anträge vorhanden.',
+                    note: 'A TEXT marker and not a role one, which is a property of the page rather than a ' +
+                        'shortcut: this empty state is a bare expression in JSX (ApprovalsPage.tsx:679) and ' +
+                        'carries no role, so there is no semantic handle for it. Exact match, and the ' +
+                        'near-identical tab siblings (`Keine Sub-Anträge vorhanden.`, ' +
+                        '`Keine Blacklist-Einträge vorhanden.`) are different strings and cannot satisfy it.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -396,6 +713,25 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-users',
             path: '/admin/users',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells. This list is PAGINATED (UsersPage.tsx slices at PAGE_SIZE), ' +
+                        'so the count that reaches the sidecar is the rendered PAGE, not the mandant total; ' +
+                        "the total travels separately as the seed's numeric userCount.",
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Benutzer vorhanden.',
+                    note: 'the empty-state card title (UsersPage.tsx:229). The page has a second empty text for ' +
+                        'an active search (`Keine Benutzer für die Suche.`); a capture never types ' +
+                        'into the search box, so the unfiltered one is the honest marker and the exact name ' +
+                        'excludes its sibling.',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -407,6 +743,20 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-badge-templates',
             path: '/admin/badge-templates',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'cell',
+                    min: 1,
+                    note: 'table data cells — see admin-categories.',
+                },
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Noch keine Ausweis-Templates',
+                    note: 'the empty-state card title (BadgeTemplatesPage.tsx:322, NO trailing period).',
+                },
+            },
             states: ['filled', 'empty'],
             auth: 'admin',
             tenant: { empty: 'primary' },
@@ -418,6 +768,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-badge-editor-new',
             path: '/admin/badge-templates',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'dialog',
+                    min: 1,
+                    note: 'the open editor. `<dialog>` (Modal.tsx:127) has no implicit role while closed and is ' +
+                        'display:none, so role dialog resolves only once the modal is really open — which is ' +
+                        'the whole subject of this route. The list behind it also has cells, so counting ' +
+                        'dialogs is what separates "editor open" from "list rendered".',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             viewports: ['desktop'],
@@ -431,6 +792,16 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-badge-editor-edit',
             path: '/admin/badge-templates',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'dialog',
+                    min: 1,
+                    note: 'the open editor with the seeded template loaded — see admin-badge-editor-new. This ' +
+                        "route additionally needs the LIST to be settled before its row-scoped \"Bearbeiten\" " +
+                        'click can resolve, and the nav step’s own click already waits for that name.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             viewports: ['desktop'],
@@ -451,6 +822,16 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-badge-editor-selected',
             path: '/admin/badge-templates',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'dialog',
+                    min: 1,
+                    note: 'the open editor with one canvas field selected — see admin-badge-editor-new. The ' +
+                        'last nav step clicks a field by name and Playwright waits for that name, so this ' +
+                        'marker is what closes the step after it.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             viewports: ['desktop'],
@@ -472,6 +853,17 @@ export const uiReviewConfig: UiReviewConfig = {
         {
             name: 'admin-media',
             path: '/admin/media',
+            content: {
+                filled: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Logo & Header',
+                    note: 'the page h1 (MandantMediaPage.tsx:38). The page early-returns a spinner ' +
+                        'while the mandant overview is in flight, so the h1 is the settle for the logo and ' +
+                        'header state the capture is about. This page has no list and therefore no empty ' +
+                        'state — it captures only `filled`, and the manifest says why.',
+                },
+            },
             states: ['filled'],
             auth: 'admin',
             nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Logo & Header' }],

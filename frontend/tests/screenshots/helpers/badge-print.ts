@@ -273,6 +273,11 @@ export async function capturePrintedBadges(params: {
         // the sidecar names it: template id + accreditation id (see
         // `CaptureMeta.entityIds`).
         entityIds: { templateId, accreditationId },
+        // The rendered print PAGES, which is the same role `contentCount` plays
+        // for a DOM capture (see `CaptureMeta.contentCount`): how much of the
+        // artifact the reviewer is actually looking at. For a print capture that
+        // happens to be the `bands` value above.
+        contentCount: buffers.length,
         pathname: `/api/admin/accreditations/${accreditationId}/badges/export`,
         compareWith: EDITOR_ROUTE,
         visionNote: printVisionNote(expectedPages),

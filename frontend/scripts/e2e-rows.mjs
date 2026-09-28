@@ -21,9 +21,10 @@
  * why the user numbers are reported separately: **there is no DELETE route for
  * a user**, so those rows are a measured gap, not a bug in this script.
  *
- * `blacklists` has no name column at all (it is `email`/`domain`/`note`), so it
- * is counted in total and the note says so — an E2E blacklist row is
- * indistinguishable from a hand-made one by any marker.
+ * `blacklists` has no NAME column (it is `email`/`domain`/`note`), so it is
+ * counted by its EMAIL, which lands in the same `example.test` fixture namespace
+ * every user address does. It used to be counted as a table TOTAL, which made the
+ * number a property of the measurement window rather than of the suite.
  *
  * ## Usage
  *
@@ -119,8 +120,21 @@ const MEASURES = [
     },
     {
         table: 'blacklists',
-        via: 'NO MARKER (total)',
-        sql: `SELECT count(*) FROM blacklists`,
+        // CORRECTED 2026-09-28. This was `NO MARKER (total)` — a bare
+        // `SELECT count(*) FROM blacklists` — which is a count of the WINDOW, not
+        // of the suite: any entry created inside a measurement window by anything
+        // at all (a manual test, a seed, a previous run) shows up as a delta that
+        // this script then attributes to the run being measured.
+        //
+        // The marker is the email, and that is a property of the TABLE rather than
+        // a convenience: `blacklists` has no name column (`email`/`domain`/`note`
+        // only) and every fixture helper mints its addresses in the `example.test`
+        // share of the fixture namespace — the same marker the `users` measure
+        // uses above. A domain-only entry (no email) is invisible here, which is
+        // why the label names the marker instead of claiming completeness. The
+        // suite creates none.
+        via: 'email (fixture namespace)',
+        sql: `SELECT count(*) FROM blacklists WHERE email LIKE '%@example.test'`,
     },
 ];
 

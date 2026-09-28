@@ -61,6 +61,15 @@ const PRIMARY_ORIGIN = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'admin';
 
+/**
+ * How long a content postcondition may take to become true. Generous on
+ * purpose: this is a CEILING, not a budget. The assertion returns the moment the
+ * content is there, so a slow page costs only its own latency — while a page
+ * that never renders fails after this long instead of hanging until the
+ * suite-wide timeout. Measured: the data itself arrives in 102–163 ms.
+ */
+const contentTimeoutMs = 15000;
+
 function viewportForProject(projectName: string): UiReviewViewport {
     return projectName === 'Mobile Chrome' ? 'mobile' : 'desktop';
 }
@@ -84,6 +93,126 @@ interface SectionCapture {
     /** One viewport-height band per scroll step, in order. */
     bands: Buffer[];
     measurements: { scrollHeightPx: number; viewportHeightPx: number };
+}
+
+/**
+ * The content postcondition: WHAT the capture must show, in a landmark-scoped
+ * locator, waited for with retrying assertions.
+ *
+ * ## Why this exists, measured
+ *
+ * The harness knew the state it was capturing (`filled` / `empty`) and used
+ * nothing but a clock: `waitForAppSettled` is `networkidle` + a flat 300 ms.
+ * After a CLIENT-SIDE navigation `networkidle` is satisfied before the click's
+ * fetch is even issued, so that 300 ms was the only reserve — and the data
+ * arrives after 102–163 ms on this stack, leaving 159–220 ms of headroom. With
+ * 400 ms of delay on `/api/admin/users` and the dataset unchanged: `rows=0`,
+ * `h=950`, `bands=0` (a table that has not rendered fits the fold), and every
+ * assertion PASSED. The run stored the loading spinner and called it a capture.
+ *
+ * The asymmetry is structural, not incidental: desktop navigates by CLICK
+ * (`applyNavStep`) and mobile loads the document through the mobile bypass, so
+ * the same delay was absorbed on one viewport and not the other. Desktop was
+ * the only viewport without a real wait.
+ *
+ * ## Why it is a postcondition and not a longer sleep
+ *
+ * A longer budget is the same mistake with a bigger number: it converts a
+ * correctness property into a timing race, and it is wrong again the moment the
+ * machine is loaded. `toBeVisible` and `expect.poll` RETRY, so this absorbs any
+ * delay and only fails when the content genuinely does not arrive — and it also
+ * makes the suite faster, because a settled page is captured as soon as it is
+ * settled.
+ *
+ * ## The spinner cannot pass for content
+ *
+ * Two independent reasons, and the second is the one that matters:
+ * 1. every marker below is rendered behind the page's own `!isLoading` guard
+ *    (empty-state headings, list rows, result cards), so while the spinner is
+ *    up the marker is absent;
+ * 2. the explicit `toHaveCount(0)` on the spinner afterwards, so a future page
+ *    that renders its empty state while loading is caught by a name in the error
+ *    message instead of a silent wrong capture.
+ */
+async function waitForContent(
+    page: Page,
+    route: UiReviewRoute,
+    state: UiReviewState,
+    seed: Record<string, unknown>,
+): Promise<number> {
+    const content = route.content[state];
+    if (content === undefined) {
+        throw new Error(
+            `Route "${route.name}" declares no content postcondition for the "${state}" state. Every state a ` +
+                'capture can be taken in must say what the capture is ABOUT — see UiReviewContent in ' +
+                'ui-review.config.ts. A missing one is not a skipped wait, it is a capture that can photograph ' +
+                'a loading spinner and pass.',
+        );
+    }
+
+    const scope = page.getByRole(content.scope);
+    await expect(scope, `"${route.name}" (${state}) has its main landmark`).toBeVisible();
+
+    let container = scope;
+    if (content.within !== undefined) {
+        container = scope.getByRole(
+            content.within.role,
+            content.within.name === undefined ? undefined : { name: content.within.name },
+        );
+        await expect(
+            container,
+            `"${route.name}" (${state}) reached its "${content.within.name ?? content.within.role}" container, ` +
+                'which is the part of the page the data belongs to',
+        ).toBeVisible();
+    }
+
+    const min = content.min ?? 1;
+    const where = `"${route.name}" (${state}) shows the content it was captured for`;
+    if (content.text !== undefined) {
+        await expect(container.getByText(content.text, { exact: true }), where).toBeVisible();
+        return 1;
+    }
+    if (content.role === undefined) {
+        throw new Error(
+            `The content postcondition of "${route.name}" (${state}) declares neither a role nor a text ` +
+                'marker, so it cannot be waited for. One of the two is required.',
+        );
+    }
+    // The name may come from the seed — a fixture title is a fixture value, and
+    // an id cannot be matched by an accessible name at all.
+    let name = content.name;
+    if (name === undefined && content.nameFrom !== undefined) {
+        const value = seed[content.nameFrom];
+        if (value === undefined || value === null) {
+            throw new Error(
+                `The content postcondition of "${route.name}" (${state}) names its marker from the ` +
+                    `seed key "${content.nameFrom}", which the seed did not resolve`,
+            );
+        }
+        name = String(value);
+    }
+    const matches =
+        name === undefined
+            ? container.getByRole(content.role)
+            : container.getByRole(content.role, { name, exact: true });
+
+    // `expect.poll` because the marker may need several frames to appear (SWR
+    // fetch → render → revalidate) and a one-shot `count()` would be a snapshot
+    // of the wrong moment — which is the entire bug this function exists to fix.
+    await expect
+        .poll(() => matches.count(), { message: where, timeout: contentTimeoutMs })
+        .toBeGreaterThanOrEqual(min);
+
+    // The explicit spinner exclusion, so the failure names a CAUSE instead of
+    // leaving a reviewer to wonder why the page is half-rendered.
+    await expect(
+        page.locator('.loading-spinner'),
+        `"${route.name}" (${state}) is no longer loading. daisyUI's loading indicator ships no role and no ` +
+            'aria-label, so its class is the only handle there is — and it is an assertion, not an address, ' +
+            'so the "locate by role, never by CSS class" rule is untouched.',
+    ).toHaveCount(0);
+
+    return matches.count();
 }
 
 /**
@@ -170,7 +299,12 @@ async function settleAndCapture(
         `"${route.name}" (${state}, ${viewport}) landed on the manifest's route`,
     ).toBe(expectedPathname);
 
+    // The settle that matters. `waitForAppSettled` used to be the whole of it,
+    // and it is a `networkidle` plus a flat 300 ms — a CLOCK, not a condition.
+    // It stays below as the layout settle for the nav steps, but the capture's
+    // correctness now rests on the content the manifest says it is about.
     await waitForAppSettled(page);
+    const contentCount = await waitForContent(page, route, state, seed);
     await expect(page.getByRole('main')).toBeVisible();
     // Full page FIRST, on an unscrolled page — so a reviewer comparing against
     // the previous run compares the same thing the previous run compared.
@@ -189,6 +323,14 @@ async function settleAndCapture(
         // it was rendered at. A reviewer (and the §7 acceptance check) can now
         // read the id off the sidecar instead of squinting at the pixels.
         entityIds: entityIdsOf(seed),
+        // HOW MUCH of the marker was actually on screen. `entityIds` answers
+        // "which row", this answers "how many" — and the two are not
+        // interchangeable: `admin-users` paginates, so its seed carries the
+        // mandant total (a number, `userCount`) while this is the rendered page.
+        // Before this field existed, a credentials-only seed left that route with
+        // `entityIds: {}` and NO number anywhere saying against how many users
+        // the capture was rendered.
+        contentCount,
         pathname: new URL(page.url()).pathname,
     });
     console.log(

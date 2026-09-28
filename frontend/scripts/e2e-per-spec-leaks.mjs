@@ -41,8 +41,41 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DevStackRefusal, devStackRefusals, fetchOk, liveDevStackRefusals } from './e2e-target-guard.mjs';
 
 const E2E_DIR = path.resolve(process.cwd(), 'tests/e2e');
+
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+
+/**
+ * ## Why this tool is gated, and why the gate is the FIRST thing it does
+ *
+ * Everything below writes: dozens of Playwright invocations, each running the
+ * suite's full create/delete mechanics against a real database. `E2E_BASE_URL`
+ * was inherited unchanged and the whole repository had no guard, so pointing
+ * this at a shared host was one environment variable away — and would report a
+ * table of green deltas while doing it.
+ *
+ * Called before the first snapshot and before the first Playwright process, so a
+ * refusal means NOTHING WAS TOUCHED. That ordering is the whole value of the
+ * guard: a refusal that arrives after the invocations is a report, not a
+ * protection. The check itself, and why it needs a human acknowledgement as well
+ * as a loopback host, is documented in `e2e-target-guard.mjs`.
+ */
+async function assertDisposableStack() {
+    const reasons = devStackRefusals(BASE_URL, process.env.E2E_LEAKS_TARGET);
+    if (reasons.length === 0) {
+        reasons.push(
+            ...(await liveDevStackRefusals(BASE_URL, {
+                fetchImpl: fetchOk,
+                databaseHoldsSeededAdmin,
+            })),
+        );
+    }
+    if (reasons.length > 0) {
+        throw new DevStackRefusal(reasons);
+    }
+}
 
 /** Kinds the ownership ledger can address. Users are counted, never deleted. */
 const MEASURES = [
@@ -60,21 +93,57 @@ const MEASURES = [
     { table: 'sub_accreditations', sql: `SELECT count(*) FROM sub_accreditations s JOIN accreditations a ON a.id=s.accreditation_id JOIN categories c ON c.id=a.category_id WHERE c.name LIKE 'E2E %'` },
     { table: 'applications', sql: `SELECT count(*) FROM applications p JOIN accreditations a ON a.id=p.accreditation_id JOIN categories c ON c.id=a.category_id WHERE c.name LIKE 'E2E %'` },
     { table: 'sub_applications', sql: `SELECT count(*) FROM sub_applications sa JOIN sub_accreditations s ON s.id=sa.sub_accreditation_id JOIN accreditations a ON a.id=s.accreditation_id JOIN categories c ON c.id=a.category_id WHERE c.name LIKE 'E2E %'` },
-    { table: 'blacklists', sql: `SELECT count(*) FROM blacklists` },
+    // The E2E namespace, NOT the table total. MEASURED 2026-09-28: this line read
+    // `SELECT count(*) FROM blacklists`, so a blacklist entry created INSIDE the
+    // measurement window by anything at all — a colleague's manual test, a
+    // migration seed, the tool's own previous run — produced a delta that is
+    // attributed to the spec under measurement. The count is a property of the
+    // WINDOW, not of the spec.
+    //
+    // The marker is the email, and that is a fact about the table rather than a
+    // convenience: `blacklists` has no name column at all (it is
+    // `email`/`domain`/`note`), and every fixture helper mints its addresses in
+    // the `example.test` share of the fixture namespace — the same marker `users`
+    // is counted by above. A domain-only blacklist row (no email) is invisible to
+    // this measure; the suite creates none, and a marker that matched everything
+    // would reintroduce the phantom delta this fixes.
+    { table: 'blacklists', sql: `SELECT count(*) FROM blacklists WHERE email LIKE '%@example.test'` },
 ];
+
+/** One scalar out of the dev database, as a number. */
+function queryNumber(sql) {
+    const raw = execFileSync(
+        'docker',
+        ['exec', process.env.E2E_DB_CONTAINER ?? 'accriditation_db', 'psql',
+         '-U', process.env.E2E_DB_USER ?? 'accriditation',
+         '-d', process.env.E2E_DB_NAME ?? 'accriditation', '-t', '-A', '-c', sql],
+        { encoding: 'utf8' },
+    );
+    return Number.parseInt(raw.trim(), 10);
+}
+
+/**
+ * Is this the project's dev database? The live half of the guard, and the one
+ * thing that distinguishes "a loopback host" from "this project's loopback host":
+ * a stack serving this app without this project's seeded bootstrap admin is a
+ * different environment, and counting rows in it is what the gate exists to stop.
+ */
+function databaseHoldsSeededAdmin() {
+    return Promise.resolve(
+        queryNumber(`SELECT count(*) FROM users WHERE email = 'admin@example.com'`) > 0,
+    );
+}
+
+/** How many blacklist rows the E2E email namespace currently holds. */
+function blacklistRowsInNamespace() {
+    return queryNumber(`SELECT count(*) FROM blacklists WHERE email LIKE '%@example.test'`);
+}
 
 /** Every table's current count, as a plain object keyed by table. */
 function snapshot() {
     const out = {};
     for (const measure of MEASURES) {
-        const raw = execFileSync(
-            'docker',
-            ['exec', process.env.E2E_DB_CONTAINER ?? 'accriditation_db', 'psql',
-             '-U', process.env.E2E_DB_USER ?? 'accriditation',
-             '-d', process.env.E2E_DB_NAME ?? 'accriditation', '-t', '-A', '-c', measure.sql],
-            { encoding: 'utf8' },
-        );
-        out[measure.table] = Number.parseInt(raw.trim(), 10);
+        out[measure.table] = queryNumber(measure.sql);
     }
     return out;
 }
@@ -91,17 +160,26 @@ function diff(before, after) {
     return moved;
 }
 
-/** Run one spec in one arm. The global teardown is DISABLED on purpose. */
-function runSpec(specFile, arm) {
-    // `E2E_PURGE=off` switches the serial name sweep off for BOTH arms, so the
-    // delta is what the SPEC left rather than what the sweep reclaimed afterwards
-    // — otherwise both arms read zero and the attribution is meaningless.
+/**
+ * Run one spec in one arm. The global teardown is DISABLED on purpose — except
+ * for the final cleanup run, which is the one place it is wanted.
+ *
+ * `options.purge` exists for that single call and nothing else: the control arm
+ * runs the suite with the ledger OFF, so its rows stay — that is the measurement,
+ * not an accident, and the cleanup is what makes the tool leave the database the
+ * way it found it.
+ */
+function runSpec(specFile, arm, options = {}) {
+    // `E2E_PURGE=off` switches the serial name sweep off for BOTH measurement
+    // arms, so the delta is what the SPEC left rather than what the sweep
+    // reclaimed afterwards — otherwise both arms read zero and the attribution
+    // is meaningless.
     //
     // The probe-driven spec is excluded: it spawns a CHILD Playwright run of its
     // own, which would double-count and add ~15 s per spec.
     const env = {
         ...process.env,
-        E2E_PURGE: 'off',
+        E2E_PURGE: options.purge === true ? 'on' : 'off',
         E2E_OWNERSHIP: arm === 'control' ? 'off' : 'on',
     };
     const args = [
@@ -120,9 +198,28 @@ function runSpec(specFile, arm) {
 const requested = process.argv.slice(2);
 const specs = fs
     .readdirSync(E2E_DIR)
-    .filter((file) => file.endsWith('.spec.ts') && file !== 'namespace-isolation.spec.ts')
+    .filter((file) => file.endsWith('.spec.ts'))
+    // Three specs are excluded because they are META-experiments, not
+    // fixture-creating feature specs: `namespace-isolation` tests the harness's
+    // own wiring, `ownership` and `child-lifetime` each spawn a CHILD Playwright
+    // run of their own (which would double-count and add seconds per spec).
+    .filter((file) => !['namespace-isolation.spec.ts', 'ownership.spec.ts', 'child-lifetime.spec.ts'].includes(file))
     .filter((file) => requested.length === 0 || requested.some((name) => file.includes(name)))
     .sort();
+
+// ── The gate, before anything is touched (see `e2e-target-guard.mjs`) ──────
+// Awaited at MODULE level, i.e. before the first `snapshot()` below and before
+// the first `runSpec`. A refusal exits non-zero with a message that says nothing
+// was written, which is the difference between a guard and a report.
+try {
+    await assertDisposableStack();
+} catch (error) {
+    if (error instanceof DevStackRefusal) {
+        process.stderr.write(`${error.message}\n`);
+        process.exit(2);
+    }
+    throw error;
+}
 
 const report = [];
 for (const spec of specs) {
@@ -153,3 +250,73 @@ process.stdout.write('\n  [ ] = valid measurement     [!] = INVALID, the run fai
 
 fs.writeFileSync(path.resolve(process.cwd(), 'test-results/e2e-per-spec-leaks.json'), JSON.stringify(report, null, 2));
 process.stdout.write('\nwrote test-results/e2e-per-spec-leaks.json\n');
+
+/**
+ * ## The tool cleans up after itself, and says whether it did
+ *
+ * The control arm runs the suite with the ledger OFF, which means its rows stay
+ * — that is the measurement, not an accident. But a measurement tool that leaves
+ * its residue in the dev database is a tool whose residue is indistinguishable
+ * from the next tool's finding: the run after this one counts what this one left,
+ * and neither number can be trusted.
+ *
+ * The cleanup is the suite's OWN serial name sweep, reached by one extra run of
+ * the cheapest fixture-free spec with the purge enabled — a re-implementation
+ * here would be a second copy of `E2E_PURGE_SWEEPS` to keep in step with the
+ * first, and this file is not the place that ordering lives.
+ *
+ * `routing.spec.ts` is the spec used for it, and the choice is measured, not
+ * arbitrary: it calls no fixture helper, so it adds nothing of its own, and its
+ * only job is to make the run end — which is what runs the sweep.
+ */
+const CLEANUP_SPEC = 'routing.spec.ts';
+
+const beforeCleanup = snapshot();
+const cleanup = runSpec(CLEANUP_SPEC, 'armed', { purge: true });
+const afterCleanup = snapshot();
+const reclaimed = diff(afterCleanup, beforeCleanup);
+const fmtDelta = (delta) => {
+    const entries = Object.entries(delta);
+    return entries.length === 0 ? 'nothing to reclaim' : entries.map(([table, n]) => `${table} ${n}`).join(', ');
+};
+if (cleanup.status !== 0) {
+    process.stdout.write(
+        `\n  CLEANUP FAILED (exit ${cleanup.status}) — the control arm's rows are still in the dev database.\n` +
+            `${cleanup.tail}\n`,
+    );
+    process.exitCode = 1;
+} else {
+    process.stdout.write(`\n  cleanup: ran ${CLEANUP_SPEC} with the serial purge → reclaimed ${fmtDelta(reclaimed)}\n`);
+    // The serial purge reclaims everything with a NAME marker. `blacklists` has
+    // no name column (`email`/`domain`/`note` only), so the sweep cannot see it —
+    // and the tool would otherwise leave one row per control arm behind: the
+    // residue that breaks `approvals.spec.ts`'s "1 Eintrag" assertion on the NEXT
+    // run. Deleting the E2E email namespace here is the tool's own end cleanup,
+    // scoped to exactly the marker the suite mints.
+    const purgedBlacklists = blacklistRowsInNamespace();
+    if (purgedBlacklists > 0) {
+        execFileSync(
+            'docker',
+            ['exec', process.env.E2E_DB_CONTAINER ?? 'accriditation_db', 'psql',
+             '-U', process.env.E2E_DB_USER ?? 'accriditation',
+             '-d', process.env.E2E_DB_NAME ?? 'accriditation', '-t', '-A',
+             '-c', `DELETE FROM blacklists WHERE email LIKE '%@example.test'`],
+            { encoding: 'utf8' },
+        );
+        process.stdout.write(
+            `  cleanup: deleted ${purgedBlacklists} blacklist row(s) the name sweep cannot address ` +
+                '(no name column — Position 24.3)\n',
+        );
+    }
+    const stillThere = Object.entries(afterCleanup).filter(([table, n]) => n > 0 && table !== 'blacklists');
+    if (stillThere.length > 0) {
+        // Reported, not hidden: `users` has no delete route and grows by design (a
+        // separate board position), and `user_media` follows it. Naming the
+        // remainder is the only way a reader can tell "the cleanup worked" from
+        // "the cleanup did nothing and happened to look clean".
+        process.stdout.write(
+            '  cleanup: rows the purge cannot address remain: ' +
+                `${stillThere.map(([table, n]) => `${table} ${n}`).join(', ')}\n`,
+        );
+    }
+}

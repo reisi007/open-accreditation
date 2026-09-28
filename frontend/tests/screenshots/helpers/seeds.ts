@@ -55,10 +55,15 @@ export const seedPortalEvent: SeedFn = async () => {
     };
 };
 
-/** The primary mandant — the admin mandant detail deep link. */
+/** The primary mandant — the admin mandant detail deep link, and its list row. */
 export const seedPrimaryMandant: SeedFn = async () => {
     const data = await dataset();
-    return { id: data.primaryMandantId };
+    // `mandantName` is the mandant's NAME, not just its id, because the detail
+    // page's `<h1>` IS that name (`MandantDetailPage.tsx:198`) and the page renders
+    // nothing but a spinner until the mandant has loaded (`:67`). An id cannot be
+    // matched by an accessible name, so without this the capture's content
+    // postcondition for that route had nothing to wait for.
+    return { id: data.primaryMandantId, mandantName: data.portalEvent.mandantName };
 };
 
 /** The list route's badge template row (legacy three-field layout). */
@@ -112,10 +117,18 @@ export const seedMyAccreditationsFilled: SeedFn = async () => {
  * user the dev DB holds, so its row count is dominated by leftovers this
  * harness cannot reclaim (no delete route); what this suite guarantees is that
  * it does not make that number worse.
+ *
+ * `userCount` is the total the mandant-scoped list holds, and it is here as a
+ * NUMBER on purpose: `entityIdsOf` keeps integers and drops strings, so a
+ * credentials-only seed left the `admin-users` sidecar with `entityIds: {}` — and
+ * a reviewer could not tell from any number against how many users the capture
+ * was rendered. The page paginates (`UsersPage.tsx` slices at `PAGE_SIZE`), so
+ * this is the total, not the rendered row count; the spec records the rendered
+ * count separately in the sidecar's `contentCount`.
  */
 export const seedUsersFilled: SeedFn = async () => {
     const data = await dataset();
-    return credentials(data.users.reviewer);
+    return { ...credentials(data.users.reviewer), userCount: data.fingerprint.users };
 };
 
 /** One requested application — the approvals view filled. */

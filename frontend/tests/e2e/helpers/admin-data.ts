@@ -969,33 +969,6 @@ export async function ensurePrimaryMandantWalletSetup() {
 }
 
 /**
- * Creates a mandant-scoped blacklist entry via the admin API (super admin /
- * mandant_admin only). Returns the created entry.
- *
- * Registered immediately, like every other creator here. A blacklist row is the
- * one entity the name sweep cannot address at all — it has no name column
- * (`email`/`domain`/`note` only), so an id-less fixture would be a PERMANENT
- * leak, one row per run, invisible to every marker in `E2E_PURGE_MARKERS`.
- *
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function createBlacklistEntryApi(payload = {}) {
-    const api = await loginAdminApi();
-    try {
-        const response = await api.post('/api/admin/blacklists', { data: payload });
-        if (response.status() !== 201) {
-            throw new Error(`Blacklist create failed with status ${response.status()}`);
-        }
-
-        const created = (await response.json()).data;
-        rememberOwnedRow('blacklists', created.id);
-        return created;
-    } finally {
-        await api.dispose();
-    }
-}
-
-/**
  * Runs the manual allocation trigger (mode=all | mode=first) on one
  * accreditation via the admin API and returns the `{approved, denied,
  * skipped_blacklist}` result.
