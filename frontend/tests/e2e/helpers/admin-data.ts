@@ -72,12 +72,40 @@ const PORTAL_VENUE_NAME = 'E2E Portal Arena';
  *    which by construction runs after every test of the run has finished. That
  *    is the only place a prefix can be reclaimed safely, and it is where
  *    crashed-run leftovers die.
- * 3. **Every spec's marker is listed here**, so "what does the teardown
- *    reclaim" has exactly one answer, and a new spec that adds a marker cannot
- *    silently start leaking rows.
+ * 3. **Every stamped name this suite constructs is listed here**, so "what does
+ *    the teardown reclaim" has exactly one answer.
  *
- * Rule 1 + 2 is what `tests/e2e/namespace-isolation.spec.ts` pins, together
- * with the same separation the ui-review harness needs against this suite.
+ * ## Rule 3 used to be a CLAIM, and was measurably false
+ *
+ * This docblock asserted that "a new spec that adds a marker cannot silently
+ * start leaking rows", and nothing in the repo checked that. F1 measured the
+ * consequence on this machine: **54 leaked `teams` rows and 53 leaked
+ * `venues`**, every one of them `E2E %` and none of them `E2E Heimverein %`.
+ * `teamNames` listed only `E2E Heimverein `, but three specs create
+ * `E2E Team ${suffix}` (`admin-mandant.spec.ts:24`, `admin-venue.spec.ts:84`)
+ * and `E2E Team Kategorie ${suffix}` (`admin-category.spec.ts:17`). The purge
+ * therefore never even attempted those teams; each of them referenced one
+ * `E2E Heimstadion *` venue, and the venue sweep — which DID match, via
+ * `venueNames: ['E2E ']` — got a **409** per row, which nothing looked at.
+ *
+ * Two corrections to the claim's own diagnosis, both measured:
+ *
+ * - `E2E Team Kategorie ` is a **category** name, not a team name: it is typed
+ *   into the category form's Name field for the team-level override
+ *   (`admin-category.spec.ts:58`). It belongs in `categoryNames`, and it is
+ *   registered there — not because it leaks today (that spec deletes it by id)
+ *   but because a crash mid-test is exactly what the serial teardown exists for.
+ * - The `venueNames` marker was never wrong. `E2E Heimstadion *` matches
+ *   `venueNames: ['E2E ']`; the venue sweep ran, was refused, and the refusal
+ *   was discarded. **The missing marker was the teams; the missing status check
+ *   is why that stayed invisible.**
+ *
+ * So rule 3 is now a TEST rather than a sentence, and it is the test that asks
+ * the question the old one could not: `namespace-isolation.spec.ts` walks every
+ * `.ts` under `tests/e2e`, collects the name prefixes this suite constructs, and
+ * holds each of them against THIS table. It fails on a prefix nobody registered.
+ * Rule 1 + 2 is what that same file pins, together with the separation the
+ * ui-review harness needs against this suite.
  */
 export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E Badge Mobile'];
 
@@ -95,29 +123,164 @@ export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E 
  *    is no second copy.
  * 2. **A new fixture marker is a visible edit.** Adding a spec's marker here is
  *    the same act as teaching the teardown to reclaim it, which is the coupling
- *    a leftover row needs.
+ *    a leftover row needs. And the entry is not optional bookkeeping: the
+ *    coverage test in `namespace-isolation.spec.ts` reads the names the specs
+ *    construct and fails on any prefix this object does not match.
  *
  * Keys are entity kinds, values are the prefixes/prefixes-with-space the teardown
  * matches with `startsWith` (an empty array = the entity is matched by slug).
+ *
+ * ## Blanket markers, and the one rule that permits them
+ *
+ * Two entries are still a prefix sweep: `badgeImageNames: ['e2e-']` and
+ * `mandantSlugs: ['e2e-']`. Both are legal for the same reason — **their column
+ * belongs to exactly one swept collection** (`badge_images.original_name` and
+ * `mandants.slug`), so a prefix match there cannot reach a row of any other kind.
+ * `venueNames` and `mandantNames` were blanket too, and were made explicit: their
+ * column is the same `name` column every other kind is matched on, so `'E2E '`
+ * there meant "every E2E row of any kind is mine" — which is how the missing team
+ * marker stayed invisible, and how the coverage test was made unable to fail.
+ *
+ * The coverage test in `namespace-isolation.spec.ts` does not care which style a
+ * kind uses — it only asks whether each constructed name is matched by SOME
+ * marker. Making the name markers explicit is what gives that question an answer.
+ * The per-kind accuracy (a team marker filed under `venueNames` would match
+ * nothing) is a separate property, pinned by executing `E2E_PURGE_SWEEPS` in the
+ * same spec — see that constant.
  */
 export const E2E_PURGE_MARKERS = {
     /** `badge_templates.name` */
     badgeTemplateNames: BADGE_TEMPLATE_PURGE_PREFIXES,
     /** `badge_images.original_name` */
     badgeImageNames: ['e2e-'],
-    /** `categories.name` */
-    categoryNames: ['E2E Akkreditierung ', 'E2E Sub Akkreditierung '],
-    /** `events.title` and `events.competition` */
-    eventTitles: ['Portal-Test ', 'E2E Akkreditierung Event ', 'E2E Sub Akkreditierung Event '],
+    /**
+     * `categories.name`. The last two are the admin CRUD specs' own rows:
+     * `E2E Kategorie ${suffix}` (mandant-level) and `E2E Team Kategorie
+     * ${suffix}` — which despite the name is a CATEGORY name, typed into the
+     * category form for the team-level override, not a team.
+     */
+    categoryNames: [
+        'E2E Akkreditierung ',
+        'E2E Sub Akkreditierung ',
+        'E2E Kategorie ',
+        'E2E Team Kategorie ',
+    ],
+    /**
+     * `events.title` and `events.competition`.
+     *
+     * `E2E Event ` is `admin-event.spec.ts`'s own event; the portal and
+     * accreditation fixtures are the others. The competition column is matched
+     * separately, because a row can carry an E2E competition with a title that
+     * says nothing E2E-ish.
+     */
+    eventTitles: [
+        'Portal-Test ',
+        'E2E Akkreditierung Event ',
+        'E2E Sub Akkreditierung Event ',
+        'E2E Event ',
+    ],
     eventCompetitions: ['E2E Wettbewerb '],
-    /** `teams.name` */
-    teamNames: ['E2E Heimverein '],
-    /** `venues.name` */
-    venueNames: ['E2E '],
-    /** `mandants.name` and `mandants.slug` */
-    mandantNames: ['E2E '],
+    /**
+     * `teams.name`. `E2E Team ` is the one the table was missing for F1 — it is
+     * created by `admin-mandant.spec.ts` and `admin-venue.spec.ts` and, because
+     * neither deletes it, it was the row that 409'd 53 venue deletions.
+     */
+    teamNames: ['E2E Heimverein ', 'E2E Team '],
+    /**
+     * `venues.name` — every venue the suite creates, EXPLICITLY.
+     *
+     * This used to be the blanket `'E2E '`, and that one entry is the root of
+     * F1. A blanket marker does two harmful things at once:
+     *
+     * 1. **It makes the coverage test vacuous.** "Is this E2E name registered
+     *    SOMEWHERE?" is answered by `'E2E '` for every name in the suite, so the
+     *    check that was supposed to catch a missing marker could not fail —
+     *    MEASURED: a probe spec constructing `E2E MUTATION Sonstiges ${suffix}`
+     *    left the guard green.
+     * 2. **It invites the cross-namespace deletion the whole file exists to
+     *    prevent**, because it asserts "every `E2E …` venue is mine" rather
+     *    than "these four venues are mine".
+     *
+     * `E2E Heimstadion` has no trailing space on purpose: the shared fixture
+     * constant (`HOME_VENUE_NAME`) is the bare name, while `admin-venue.spec.ts`
+     * appends a per-run suffix, and one marker without the space covers both.
+     */
+    venueNames: ['E2E Heimstadion', 'E2E Portal Arena', 'E2E Spielort '],
+    /**
+     * `mandants.name` and `mandants.slug` — likewise explicit.
+     *
+     * The slug list stays the blanket `e2e-`, and that asymmetry is deliberate
+     * rather than lazy: a marker may be a prefix-sweep only when its column
+     * belongs to ONE swept collection. `mandants.slug` is such a column (nothing
+     * else in the table is matched by slug), so nothing outside the E2E mandant
+     * namespace can be reached through it. `mandants.name` is shared with teams,
+     * venues, categories, events and badge templates — which is exactly why a
+     * blanket marker there was both unsafe and untestable.
+     */
+    mandantNames: ['E2E Mandant ', 'E2E Liste ', 'E2E Switcher Inaktiv ', 'E2E Switcher Ohne Domain '],
     mandantSlugs: ['e2e-'],
 };
+
+/**
+ * The purge's sweep, as DATA: which collections it walks, which marker list is
+ * matched against which column of each, and IN WHICH ORDER.
+ *
+ * ## Why the order is in the table and not in the code
+ *
+ * A referenced venue is refused with a **409** naming the reference
+ * (`VenueController::deleteVenue`), and a mandant that still owns teams is
+ * refused with a **409** too (`MandantController::destroy`). So the order is a
+ * correctness requirement, not a style choice: children before parents, or rows
+ * survive every run and nothing says so. The order is therefore DATA here, and
+ * the coverage test can assert it — an order that put venues before teams would
+ * go red in the same spec that pins the markers.
+ *
+ * ## Why this is not a second copy of anything
+ *
+ * `purgeAllE2EArtifacts()` iterates THIS array. It holds no marker and no list
+ * endpoint of its own; the only branch it takes is `teams` (nested under the
+ * mandant) and `mandants` (detach teams first), which is a URL shape, not a
+ * matching rule. `E2E_PURGE_MARKERS` above stays the single source of the
+ * markers and this array the single source of which collection is compared
+ * against which marker — and a test that walks both walks the real plan.
+ *
+ * `resource` is the API path segment (`/api/admin/{resource}`), which is why
+ * `teams` is spelled out rather than nested: only its list and delete URLs need
+ * the mandant id.
+ */
+export const E2E_PURGE_SWEEPS = [
+    { resource: 'badge-templates', matchers: [{ field: 'name', markerKind: 'badgeTemplateNames' }] },
+    { resource: 'badge-images', matchers: [{ field: 'original_name', markerKind: 'badgeImageNames' }] },
+    { resource: 'categories', matchers: [{ field: 'name', markerKind: 'categoryNames' }] },
+    {
+        resource: 'events',
+        matchers: [
+            { field: 'title', markerKind: 'eventTitles' },
+            { field: 'competition', markerKind: 'eventCompetitions' },
+        ],
+    },
+    { resource: 'teams', matchers: [{ field: 'name', markerKind: 'teamNames' }] },
+    { resource: 'venues', matchers: [{ field: 'name', markerKind: 'venueNames' }] },
+    {
+        resource: 'mandants',
+        matchers: [
+            { field: 'name', markerKind: 'mandantNames' },
+            { field: 'slug', markerKind: 'mandantSlugs' },
+        ],
+    },
+];
+
+/**
+ * The marker table as `[kind, markers]` pairs.
+ *
+ * Exported so the coverage test reads the table through the SAME access the purge
+ * does. `Object.entries` rather than `E2E_PURGE_MARKERS[kind]`: the kinds are
+ * dynamic (they come from the sweep table above), and indexing a fixed object type
+ * with a `string` is a hard `tsc` error in this directory — which is why this
+ * indirection exists rather than a helper function. A helper would need
+ * parameters, and this directory allows none (see the lock helpers below).
+ */
+export const E2E_PURGE_MARKER_ENTRIES = Object.entries(E2E_PURGE_MARKERS);
 
 /**
  * Ensures both shared E2E venues exist as ACTIVE rows and returns them. Venue
@@ -1042,14 +1205,86 @@ export async function resetPrimaryMandantLogoForRun() {
 }
 
 /**
+ * A row the purge MATCHED and could not reclaim.
+ *
+ * A separate class from a plain `Error` because the two must be treated
+ * differently by the caller, and conflating them is what made F1 invisible:
+ * `purgeAllE2EArtifacts` wrapped its whole body in one
+ * `try { … } catch { console.warn }`, so a **409 on 53 venue deletes** and a
+ * backend that is simply not running produced the same shrug. They are not the
+ * same event. A backend that is down must not fail a run that would otherwise
+ * report on its own merits; a matched row that survives its own delete means the
+ * next run inherits it, and that is the bug this whole mechanism exists to
+ * prevent — so it fails the run loudly, with every failed row listed.
+ */
+class PurgeReclamationFailure extends Error {}
+
+/**
+ * Exported so `global-teardown.ts` can tell the two failure classes apart with
+ * `instanceof` rather than by calling a predicate helper — a helper would need a
+ * parameter, and this directory allows none. `instanceof` is also the more honest
+ * form of the test: the class IS the distinction, rather than a function that
+ * re-derives it.
+ */
+export { PurgeReclamationFailure };
+
+
+/**
+ * DELETE with the status checked, and the check made LOUD.
+ *
+ * F1: the venue loop issued `await api.delete(…)` and threw the answer away,
+ * which is why 53 refused deletions produced no output at all. Every DELETE the
+ * purge issues now goes through the single status-checked loop at the bottom of
+ * `purgeAllE2EArtifacts()`, and an unexpected status is a `PurgeReclamationFailure`.
+ *
+ * 204 is the contract of every destroy route in `Api/Admin`; 404 is tolerated
+ * because two sweeps can name the same row (a mandant is matched by name AND by
+ * slug, and the teams/events of a swept mandant are already gone by then), so
+ * the second attempt is a no-op rather than a fault. 409 is NOT tolerated
+ * anywhere: it is the backend saying "something still references this", which is
+ * precisely the ordering bug this must surface.
+ */
+
+/**
  * Best-effort global purge of every E2E artifact left in the dev database.
  * Intended to run from Playwright's `globalTeardown` so each full run starts
- * from a clean slate, but exported so it can also be invoked manually. Never
- * throws — a down stack or an already-removed row must not fail the suite.
+ * from a clean slate, but exported so it can also be invoked manually.
  *
- * The purge is deliberately written with inline loops (rather than param-bearing
- * helpers) so it stays on the plain-ES2020 parser that `tests/e2e` uses while
- * still satisfying the strict `tsc` build (no implicit-`any` parameters).
+ * ## What "best-effort" means here, precisely
+ *
+ * Two failure classes, no longer merged:
+ *
+ * - **Infrastructure** (the stack is down, no mandant exists, a list request
+ *   fails): logged, and thrown as a plain `Error` that `globalTeardown` warns
+ *   about. A run must not be failed for a database that is not there.
+ * - **Reclamation** (a row we matched answered something other than 204/404):
+ *   collected and thrown together as one `PurgeReclamationFailure`, which
+ *   `globalTeardown` lets propagate so the run is RED. This is the F1 class —
+ *   silent accumulation, one row per run, forever.
+ *
+ * ## Plan first, then delete — and why that shape
+ *
+ * The sweep only ever DECIDES here: it walks `E2E_PURGE_SWEEPS`, and for every
+ * row a marker matches it appends `{ url, what }` to a plan. The plan is executed
+ * by one loop afterwards, which is where the status check lives.
+ *
+ * That split exists for two reasons, one of them load-bearing:
+ *
+ * 1. **One status check instead of three.** The mandant sweep has to delete a
+ *    mandant's teams before the mandant, and both are DELETEs. With the deletes
+ *    inline there would be three copies of the check, and a check that exists
+ *    three times is a check that will one day exist twice.
+ * 2. **The order is visible in the plan, not implied by nesting.** The mandant's
+ *    team deletes are pushed before its own, because the loop pushes them first —
+ *    and because the mandant sweep is last in `E2E_PURGE_SWEEPS`, the 409 that
+ *    ordering exists to avoid cannot happen.
+ *
+ * The matching rule (`startsWith` over the sweep's marker kinds) is written out
+ * here rather than in a shared helper, because a helper needs parameters and this
+ * directory allows none. What stays single-source is the part that actually broke:
+ * `E2E_PURGE_MARKERS` (which markers) and `E2E_PURGE_SWEEPS` (which marker against
+ * which column of which collection). The one-line comparison is restated in the
+ * coverage spec, and that spec is what pins the wiring.
  */
 export async function purgeAllE2EArtifacts() {
     // Restore the primary mandant's seeded logo state FIRST, in its own
@@ -1057,16 +1292,31 @@ export async function purgeAllE2EArtifacts() {
     // name marker) and therefore the one a crash is most likely to strand —
     // see `resetPrimaryMandantLogo()`. Isolated so a failure here cannot skip
     // the rest of the purge.
+    //
+    // Under the SAME mutex as every other logo writer, including the review
+    // harness's (`dataset.ts`). This teardown is serial, so the lock is
+    // uncontended and free; the alternative was an exception to the rule the
+    // logo-mutex guard in `namespace-isolation.spec.ts` enforces, and an
+    // exception is how "only the teardown may do this unlocked" quietly becomes
+    // "anybody may do this unlocked". The guard flags THIS call site, which is
+    // how that rule was found to be missing a writer.
+    let releaseLogoLock;
     try {
+        releaseLogoLock = await acquirePrimaryMandantLogoLock();
         const removed = await resetPrimaryMandantLogo();
         if (removed) {
             console.log('[e2e-hygiene] removed a leftover primary mandant logo');
         }
     } catch (error) {
         console.warn('[e2e-hygiene] resetPrimaryMandantLogo failed:', error);
+    } finally {
+        if (releaseLogoLock !== undefined) {
+            releaseLogoLock();
+        }
     }
 
     const api = await loginAdminApi();
+    const reclamationFailures = [];
     try {
         const mandantsBody = await (await api.get('/api/admin/mandants')).json();
         const mandants = mandantsBody.data ?? [];
@@ -1085,91 +1335,112 @@ export async function purgeAllE2EArtifacts() {
         }
         const primaryId = primary.id;
 
-        // Badge templates: the markers every spec registers in
-        // `BADGE_TEMPLATE_PURGE_PREFIXES` — the SERIAL teardown is the only
-        // place a prefix sweep is safe (see that constant for the measurement
-        // that forced the rule).
-        const templateBody = await (await api.get('/api/admin/badge-templates')).json();
-        for (const template of templateBody.data ?? []) {
-            if (E2E_PURGE_MARKERS.badgeTemplateNames.some((marker) => (template.name ?? '').startsWith(marker))) {
-                await api.delete(`/api/admin/badge-templates/${template.id}`);
-            }
-        }
+        /** The deletions the sweep decided on, in the order they must happen. */
+        const plan = [];
 
-        // Badge images: original_name "e2e-*" (uploaded by the badge-editor
-        // upload E2E test). The destroy route removes both the row and the
-        // private-disk file, so repeated runs never accumulate orphans.
-        const badgeImageBody = await (await api.get('/api/admin/badge-images')).json();
-        for (const image of badgeImageBody.data ?? []) {
-            if (E2E_PURGE_MARKERS.badgeImageNames.some((marker) => (image.original_name ?? '').startsWith(marker))) {
-                await api.delete(`/api/admin/badge-images/${image.id}`);
-            }
-        }
+        for (const sweep of E2E_PURGE_SWEEPS) {
+            const listUrl =
+                sweep.resource === 'teams'
+                    ? `/api/admin/mandants/${primaryId}/teams`
+                    : `/api/admin/${sweep.resource}`;
+            const body = await (await api.get(listUrl)).json();
+            const rows = body.data ?? [];
 
-        // Categories: "E2E Akkreditierung *" / "E2E Sub Akkreditierung *".
-        // Deleting a category cascades to its accreditations (and their
-        // applications / sub-accreditations), reclaiming all accreditation data.
-        const categoryBody = await (await api.get('/api/admin/categories')).json();
-        for (const category of categoryBody.data ?? []) {
-            if (E2E_PURGE_MARKERS.categoryNames.some((marker) => (category.name ?? '').startsWith(marker))) {
-                await api.delete(`/api/admin/categories/${category.id}`);
-            }
-        }
-
-        // Events: portal markers ("Portal-Test *" / "E2E Wettbewerb *") and
-        // accreditation markers ("E2E Akkreditierung Event *" /
-        // "E2E Sub Akkreditierung Event *").
-        const eventBody = await (await api.get('/api/admin/events')).json();
-        for (const event of eventBody.data ?? []) {
-            if (
-                E2E_PURGE_MARKERS.eventTitles.some((marker) => (event.title ?? '').startsWith(marker)) ||
-                E2E_PURGE_MARKERS.eventCompetitions.some((marker) => (event.competition ?? '').startsWith(marker))
-            ) {
-                await api.delete(`/api/admin/events/${event.id}`);
-            }
-        }
-
-        // Teams: "E2E Heimverein *" (shared across specs, so reclaimed here).
-        const teamBody = await (await api.get(`/api/admin/mandants/${primaryId}/teams`)).json();
-        for (const team of teamBody.data ?? []) {
-            if (E2E_PURGE_MARKERS.teamNames.some((marker) => (team.name ?? '').startsWith(marker))) {
-                await api.delete(`/api/admin/mandants/${primaryId}/teams/${team.id}`);
-            }
-        }
-
-        // Venues (W12): the shared E2E fixtures. Deleted AFTER the teams and
-        // events above, because a referenced venue is refused with a 409 and
-        // would otherwise survive every run.
-        const venueBody = await (await api.get('/api/admin/venues')).json();
-        for (const venue of venueBody.data ?? []) {
-            if (E2E_PURGE_MARKERS.venueNames.some((marker) => (venue.name ?? '').startsWith(marker))) {
-                await api.delete(`/api/admin/venues/${venue.id}`);
-            }
-        }
-
-        // Mandants: E2E-prefixed (name "E2E *" / slug "e2e-*") fabricated by
-        // admin-mandant.spec. The destroy route refuses to delete a mandant that
-        // still owns teams (409), so detach its teams first — they are all E2E
-        // test artifacts — then delete the mandant (which cascades to the
-        // mandant's own events / categories). The seeded primary mandant
-        // ("Hauptseite") is never matched.
-        const allMandantsBody = await (await api.get('/api/admin/mandants')).json();
-        for (const mandant of allMandantsBody.data ?? []) {
-            if (
-                E2E_PURGE_MARKERS.mandantNames.some((marker) => (mandant.name ?? '').startsWith(marker)) ||
-                E2E_PURGE_MARKERS.mandantSlugs.some((marker) => (mandant.slug ?? '').startsWith(marker))
-            ) {
-                const teamBody = await (await api.get(`/api/admin/mandants/${mandant.id}/teams`)).json();
-                for (const team of teamBody.data ?? []) {
-                    await api.delete(`/api/admin/mandants/${mandant.id}/teams/${team.id}`);
+            for (const row of rows) {
+                // The matching rule. `startsWith`, over the markers of every
+                // column this sweep reads; a null column (an event without a
+                // competition) is simply not a match.
+                let isOurs = false;
+                for (const matcher of sweep.matchers) {
+                    const value = row[matcher.field];
+                    if (value === null || value === undefined) {
+                        continue;
+                    }
+                    const text = String(value);
+                    for (const [kind, markers] of E2E_PURGE_MARKER_ENTRIES) {
+                        if (kind !== matcher.markerKind) {
+                            continue;
+                        }
+                        for (const marker of markers) {
+                            if (text.startsWith(marker)) {
+                                isOurs = true;
+                            }
+                        }
+                    }
                 }
-                await api.delete(`/api/admin/mandants/${mandant.id}`);
+                if (!isOurs) {
+                    continue;
+                }
+
+                const what = `purging ${sweep.resource} "${String(row[sweep.matchers[0].field])}" (id ${row.id})`;
+
+                if (sweep.resource === 'mandants') {
+                    // Detach first: the destroy route refuses a mandant that
+                    // still owns teams with a 409. Every team of an E2E mandant
+                    // is an E2E artifact by construction — the mandant only
+                    // exists because a spec created it.
+                    const owned = await (await api.get(`/api/admin/mandants/${row.id}/teams`)).json();
+                    for (const team of owned.data ?? []) {
+                        plan.push({
+                            url: `/api/admin/mandants/${row.id}/teams/${team.id}`,
+                            what: `detaching team "${team.name}" from ${what}`,
+                        });
+                    }
+                }
+
+                plan.push({
+                    url:
+                        sweep.resource === 'teams'
+                            ? `/api/admin/mandants/${primaryId}/teams/${row.id}`
+                            : `/api/admin/${sweep.resource}/${row.id}`,
+                    what,
+                });
             }
+        }
+
+        // The one status check. 204 is every destroy route's contract; 404 means a
+        // row two sweeps both named is already gone, which is a no-op rather than
+        // a fault; anything else — 409 above all — means a row we MATCHED is
+        // still there, and that is collected and reported, never swallowed.
+        for (const entry of plan) {
+            const response = await api.delete(entry.url);
+            const status = response.status();
+            if (status === 204 || status === 404) {
+                continue;
+            }
+            let body = '';
+            try {
+                body = (await response.text()).slice(0, 300);
+            } catch {
+                body = '<unreadable body>';
+            }
+            reclamationFailures.push(
+                `${entry.what}: DELETE ${entry.url} answered ${status} (expected 204/404) — the row ` +
+                    `stays and the NEXT run inherits it. Body: ${body}`,
+            );
         }
     } catch (error) {
         console.warn('[e2e-hygiene] purgeAllE2EArtifacts failed:', error);
+        if (reclamationFailures.length > 0) {
+            // Never swallow a reclamation failure behind an infrastructure one:
+            // both happened, and the reclamation one is the one that leaves rows
+            // behind for the next run.
+            throw new PurgeReclamationFailure(
+                `${reclamationFailures.length} row(s) survived the purge AND the sweep itself failed: ` +
+                    `${error instanceof Error ? error.message : error}\n${reclamationFailures.join('\n')}`,
+            );
+        }
+        throw error;
     } finally {
         await api.dispose();
+    }
+
+    if (reclamationFailures.length > 0) {
+        throw new PurgeReclamationFailure(
+            `[e2e-hygiene] the purge matched ${reclamationFailures.length} row(s) it could not reclaim. ` +
+                `Each one survives into the next run — this is the F1 failure mode, and it is not a warning:\n` +
+                reclamationFailures.join('\n'),
+        );
     }
 }
 

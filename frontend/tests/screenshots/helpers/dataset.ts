@@ -5,6 +5,7 @@ import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import {
     FRONTEND_BASE_URL,
+    acquirePrimaryMandantLogoLock,
     allocateAccreditationApi,
     loginAdminApi,
     resetPrimaryMandantLogo,
@@ -361,12 +362,49 @@ async function dateInDays(days: number): Promise<string> {
  * the `admin-mandants` / `admin-media` captures document the "no uploaded logo"
  * baseline as part of their fixture.
  *
+ * ## Why the logo reset is taken UNDER THE LOGO MUTEX (F3)
+ *
+ * That exception is the one place this sweep writes a row the functional suite
+ * also writes, so it is the one place it needs the functional suite's mutex.
+ * `acquirePrimaryMandantLogoLock()` is already taken by `admin-mandant.spec.ts`
+ * (around its upload), by `portal.spec.ts` (around its "no logo" assertion) and
+ * by the E2E `globalSetup`; `purgeReviewFixtures()` was the only caller of
+ * `resetPrimaryMandantLogo()` that took **none** of them, so a screenshot run
+ * beside a live E2E run could delete the logo out from under the upload test's
+ * open file dialog.
+ *
+ * **Where the lock is held, stated precisely — this is not the dataset lock.**
+ * `withDatasetLock()` (the `.dataset.lock` file in the capture store) serialises
+ * the review harness against ITSELF: worker B waits for worker A's fixture build
+ * so the two do not reset each other's rows. It has never had anything to say
+ * about the E2E suite, and it cannot: the two harnesses have separate processes,
+ * separate configs and separate lock files. The logo mutex is a DIFFERENT lock —
+ * an exclusive-create file in `os.tmpdir()` — and it is the only artefact the
+ * two suites share. Taking it here is what extends the exclusion from
+ * "review vs review" to "review vs E2E", which is precisely the gap F3 names.
+ *
+ * The residual is stated rather than papered over: the mutex orders the logo
+ * against a *concurrent* writer, not against a run that starts afterwards. An
+ * E2E `globalSetup` that lands after this sweep still resets the same row, but
+ * that is the idempotent half (both call sites are the same "restore the seeded
+ * no-logo state" operation), not a delete of somebody's upload.
+ *
  * The fixtures of the PREVIOUS namespace do not need a legacy sweep: they were
  * named `E2E Akkreditierung …` / `E2E Ausweis…` / `E2E Heimverein …`, so the next
  * full E2E run's teardown reclaims them. This harness stops touching them.
  */
 async function purgeReviewFixtures(api: APIRequestContext): Promise<void> {
-    await resetPrimaryMandantLogo();
+    // Under the SAME mutex the E2E logo writers take, and released in a `finally`
+    // so a throw below cannot strand the lock (a stranded lock is only reclaimed
+    // after `LOGO_LOCK_STALE_MS`, which would stall the other suite's upload
+    // test for 30 s). See the docblock above for why this call needs a lock that
+    // `withDatasetLock` does not provide.
+    const releaseLogoLock = await acquirePrimaryMandantLogoLock();
+    try {
+        await resetPrimaryMandantLogo();
+    } finally {
+        releaseLogoLock();
+    }
 
     for (const template of await readList<BadgeTemplateRow>(api, '/api/admin/badge-templates')) {
         if (ALL_REVIEW_NAMES.includes(template.name)) {
