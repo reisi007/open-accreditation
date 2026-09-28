@@ -467,6 +467,25 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   von der CSS-Klassen-Nutzung auf den Vite-Plugin-Pfad wechselt (dann verarbeitet
   SVGO ggf. eigene Icons) oder (c) SVGO je zur Laufzeit auf User-Uploads gelegt wird.
 
+- **A5 (accepted 2026-09-28, medium):** Die **Konto-Löschung** (Nutzer selbst, `mandant_admin`
+  und `super_admin`) ist **unumkehrbar und protokolliert nur in das Anwendungslog** — es gibt
+  **kein** `audit_logs`, weder Migration noch Model (geprüft: in `backend/database/` und in
+  `app/Models/` **null** Treffer). **Nutzerentscheid 2026-09-28:** „kein Audit, nur das
+  Anwendungslog". **Konsistent mit dem Bestand:** das Löschen eines *Mandanten* protokolliert
+  bereits auf dieselbe Weise (`MandantController:283`, `Log::error(…, ['mandant_id' => …])`), die
+  Entscheidung führt also kein fremdes Muster ein, sie erweitert ein bestehendes. **Die
+  Löschung ist deshalb verpflichtend, strukturiert und mit VOLLSTÄNDIGEM Kontext zu loggen** —
+  Akteur, Ziel-Id, Ziel-E-Mail, Mandant, Anzahl der mitgerissenen Anträge, Media und
+  Rollenzuordnungen — weil das Anwendungslog der **einzige** Ort ist, an dem die Frage „wer hat
+  welches Konto gelöscht" je beantwortet werden kann. **Die Haltbarkeit hängt an einer
+  Konfigurationsvariable, nicht an einer Zusage:** `LOG_STACK` ist in `.env.example` auf `single`
+  gesetzt (eine Datei, **keine** Rotation per Config); ein Wechsel auf `daily` deckelt auf
+  `max_files = 14`, auf `monthly` auf `3` — beide **hart kodiert** in `config/logging.php`. Wer
+  den Kanal umstellt, ohne das zu bedenken, macht die Protokollierung unbrauchbar, **ohne** dass
+  irgendetwas rot wird. Re-evaluieren, wenn (a) `LOG_STACK`/`LOG_DAILY_DAYS` umgebaut werden,
+  (b) Protokolle in ein externes System wandern, oder (c) die Nachweispflicht aus einer
+  Vertrags- oder Zertifizierungsanforderung folgt.
+
 ## 11. Bestätigte Stärken / Nicht regredieren (aus Portal übernommen, soweit anwendbar)
 
 - Mandanten-Isolation (`MandantContext`-Middleware + `forCurrentMandant()`-Scopes) — wie Brand im Portal.
