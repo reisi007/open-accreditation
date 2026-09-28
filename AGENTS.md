@@ -253,9 +253,15 @@ sondern erzeugt ausschließlich Pixel zur Design-QA durch den vision-Subagenten.
 Deployment; funktional verbindlich bleiben ausschließlich die E2E-Suiten dieses §7.
 
 **PDFs statt Screenshots (`PDF-VISION`).** Für **Badge-/Ausweis-PDFs** (dompdf) ist
-`playwright.screenshots` nicht das Werkzeug: der Renderer malt keinen weissen Seitenhintergrund,
-die Rasterung liefert einen Alpha-Kanal, und wie das aussieht entscheidet der Konsument. Der
-wiederholbare Weg ist **ein Skript**, keine Einmal-Anweisung:
+`playwright.screenshots` nicht das Werkzeug: der Rasterweg liefert **grundsätzlich** einen
+Alpha-Kanal, und wie das aussieht entscheidet der Konsument. **Stand 2026-09-28:** unsere
+**eigenen** Ausweise tragen jetzt `background-color: #ffffff` auf dem Seitencontainer
+(Nutzerentscheidung D22), rasteren also **ohne** Alpha-Kanal — gemessen `srgb`, Eckalpha 1.
+**Das Skript bleibt trotzdem streng**, weil es **fremde** PDFs weiterhin robust machen muss;
+für unsere Ausweise ist es vom Reparierenden zum Prüfenden geworden. **Wer hier „der Renderer
+malt keinen Hintergrund" liest, um die Postcondition abzubauen, liest veraltet** — die
+Aussage gilt für dompdf im Allgemeinen, nicht mehr für unser Rendering. Der wiederholbare
+Weg ist **ein Skript**, keine Einmal-Anweisung:
 
 ```bash
 bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-step1]
