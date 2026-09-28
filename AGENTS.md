@@ -337,14 +337,43 @@ Stolperfallen: `features/badges-qr.md` → „Visuelle Verifikation des gerender
 entscheidet, wie das aussieht. (2) **Eckpixel opak** statt „weiss": eine
 **Transparenz**-Postcondition hätte Graustufen als Weiss missverstanden; Opazität ist die
 Eigenschaft, die tatsächlich gebraucht wird. (3) **Tinte vorhanden** (`INK_SIGMA_MIN=0.001`,
-Graustufen-σ im 1-%-Rand) — eine **leere oder schwarze** Seite gilt nicht mehr als erfüllt. Der
-Wert ist **„genau ein dunkler Pixel auf der ganzen A6-Seite"**, also vom Leser nachrechenbar; die
-Leerseite misst **exakt 0** (4 Füllfarben × 6 Dichten, auf einer zweiten Toolchain bit-gleich
-bestätigt), und der 1-%-Rand ist **tragend**, weil die antialiaste Seitenkante sonst **0,0202**
-liefert — **mehr** als ein legitimes 1-pt-Wort. **Grenze, die bleibt:** σ misst Tinte, **nicht**
-Lesbarkeit; ein Kontrast-Verdikt wäre eine zweite Postcondition und ist es nicht. **Nicht
-abschwächen**, um eine gültige, sehr leere Seite durchzulassen — sie zu blockieren wäre schlimmer,
-aber die Schwelle steht aus **gemessenen** Zahlen, nicht aus Bequemlichkeit.
+Graustufen-σ im 1-%-Rand) — eine **leere oder schwarze** Seite gilt nicht mehr als erfüllt.
+
+*Und die Zahlen, weil eine Schwelle ohne sie eine Setzung ist statt einer Rechnung:*
+
+- **σ ist `sqrt(k(n−k))/n`** für `k` dunkle unter `n` Pixeln, auf ≤3,2·10⁻⁸ genau nachgemessen
+  (5 von 5 Fixtures). Damit ist sie **nachrechenbar**, nicht behauptet.
+- **`0,001` ist die Ein-Pixel-Linie — aber nur bei 200 dpi.** Gemessen: 0,002855 (72) · 0,002058
+  (100) · 0,001372 (150) · **0,001029 (200)** · 0,000686 (300) · 0,000514 (400). Bei 300/400 dpi
+  braucht die Schwelle also **2 bzw. ~4 Pixel** — **fail-closed in die richtige Richtung**, aber
+  „genau ein Pixel" gilt **nur** bei der Default-Dichte. Wer die Zusage zitiert, muss die Dichte
+  dazusagen.
+- **Die Leerseite misst exakt 0** — 30 Kombinationen (5 Füllungen × 6 Dichten), auf einer zweiten
+  Toolchain **32/32 bit-gleich**. Einschränkung: beide Läufe waren aarch64; x86-Linux ist
+  ungemessen.
+- **Der 1-%-Rand ist tragend — aber nicht aus dem Grund, der hier früher stand.** Ohne Rand
+  liefert die antialiaste Seitenkante **0,01300** (72 dpi) bis **0,00465** (400) auf dem
+  `magick`-Primärweg, bei 150/300 dpi exakt 0 — und **gar nicht** über `gs -sDEVICE=png16m`. Der
+  Effekt tritt **nur bei gemaltem Seitenhintergrund** auf, also genau bei dem Fall, den unsere
+  Ausweise seit D22 **nicht** mehr sind. Er bleibt fail-closed und wird nicht weggetestet.
+- **Der Rand verschluckt nichts:** 4 px links/rechts = **0,51 mm**, 6 px oben/unten = **0,76 mm**,
+  gegen das kleinste legale Element von **3 mm** (`MIN_TEXT_H_MM`) und die 10-mm-QR-Box.
+
+**Drei Grenzen, die bleiben — und keine davon durch Absenken der Schwelle heilen:**
+
+1. **σ misst Tinte, nicht Lesbarkeit.** 9771 Tintenpixel bei 0,06 % Kontrast lesen 0,00109, auf
+   Weiss 0,00063 — beide **um** der Schwelle. Solche Seiten sind unbrauchbar und werden dem
+   `vision`-Agenten gemeldet oder nicht; zu entscheiden ist das **nicht** diese Postcondition. Ein
+   Kontrast-Verdikt wäre eine **zweite** und ist **nicht** gebaut.
+2. **Ein Dekorrahmen maskiert fehlenden Inhalt.** Ein 1-pt-Rahmen, 1 pt eingerückt, ohne Text und
+   ohne QR, misst **0,049…0,111** und gilt als „Inhalt" — ein **Fail-open**, und zwar gegen genau
+   den Fall, den die Postcondition fangen soll. Das ist die Schwäche, die man kennen muss, bevor
+   jemand die Schwelle „etwas höher" dreht, um ein Validitätsproblem zu heilen, das sie nicht
+   verursacht.
+3. **Straddeln existiert, aber anders als zuerst berichtet.** Ein 1-pt-Wort misst **0,0027…0,0041**
+   und liegt bei allen sechs Dichten **über** der Schwelle — es straddelt **nicht**. Die Zone, in
+   der das Urteil kippt, ist ein **einzelnes 0,5-pt-Zeichen**. Die Struktur ist real (σ = √(k/n),
+   `k` ganzzahlig), die zuerst genannte Einzelzahl war fixture-spezifisch.
 
 **Das gerenderte PDF gehört in den Loop (NUTZERENTSCHEIDUNG 2026-09-28).** Der Editor-Screenshot
 prüft HTML/CSS im Browser; der Druck entsteht in dompdf. **dompdf kennt `object-fit` nicht** —
