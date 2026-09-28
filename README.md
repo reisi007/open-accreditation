@@ -40,10 +40,19 @@ erreichbar (Vite-Proxy in Schritt 3 bleibt gültig). Alternativ kann es über
 einen Webserver (z. B. Caddy oder Apache) als Site auf das `backend/`-Verzeichnis
 gesetzt werden; `APP_URL` ist entsprechend anzupassen.
 
-**`memory_limit` prüfen.** Homebrews `php.ini` steht bei **128M**. Das ist der Wert, an dem als
-Erster der **Ausweis-PDF-Export** (dompdf, QR-Einbettung) in einen Speicherfehler läuft — er ist
-der speicherhungrigste Pfad im Backend. Bricht ein Export ab, ist das der erste Wert, den man hebt
-(`php -i | grep memory_limit`), und nicht der erste Verdächtige.
+**`memory_limit`.** Homebrews `php.ini` steht bei **128M**; lokal wurde er am 2026-09-28 auf **1G**
+gehoben (Backup: `php.ini.bak.<Zeitstempel>` daneben). **Der Grund ist Reserve, nicht ein
+bekannter Fehler:** `BadgeRenderServiceTest` — der speicherhungrigste Pfad (dompdf + QR) — meldet
+einen Peak von **97 MB** und läuft **sogar mit harter 96M-Grenze** durch. 128M hat den Ausweis-Export
+also **nicht** umgeworfen.
+
+**Diese Zahl nicht mit dem RSS verwechseln.** Derselbe Lauf belegt ~**134 MB** *resident set size*.
+Die Differenz sind Binär, Extensions und opcache — und `memory_limit` zählt **PHPs eigene
+Allokationen**, nicht den RSS. Wer beide gleichsetzt, schliesst aus einer Zahl die falsche
+Grenze. (Genau das stand hier vorher als Warnung, auf Basis genau dieser Verwechslung — die
+Messung hat sie widerlegt.)
+
+1G deckt ab, was 128M **knapp** hielt: die volle Suite mit paratest-Workern und echte Serien-Exporte.
 
 Mandanten-Domains (z. B. `bundesliga.test`) werden über den Host aufgelöst —
 die entsprechenden Einträge müssen in `/etc/hosts` hinterlegt
