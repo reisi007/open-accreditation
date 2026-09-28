@@ -211,7 +211,7 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
 E2E-Namens-Sweep räumte nur auf, was er **zufällig** wiederfand — `teamNames: ['E2E Heimverein ']`
 traf **keinen** der 54 Teams und **keine** der 53 Venues, die tatsächlich liegen geblieben waren. Der
 `DELETE` **409te** (das Team referenzierte die Venue noch), der Status wurde **nicht** geprüft, und
-`admin-data.ts:1143-1148` steckte in `try{…}catch{console.warn}`. Der eigentliche Schaden war nicht
+`admin-data.ts` steckte in `try{…}catch{console.warn}` — der Status-Check steht heute bei **`:1405-1421`**, das harte Scheitern bei **`:1438-1444`** (`PurgeReclamationFailure`). Der eigentliche Schaden war nicht
 der Müll, sondern eine **Messzahl, die fremde Daten zählte**: die Bandzahl des UI-Reviews stieg mit
 jeder E2E-Suite (`36 → 48 → 51 → 52`), und `home filled/mobile` lag **6 px** von einer Bandgrenze
 entfernt — die Abnahme „drei Läufe ergeben dieselbe Zahl" hing damit an Daten, die der Harness nicht
