@@ -121,6 +121,31 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * Main accreditation applications of this account.
+     *
+     * Exists as a relation so the deletion summary and the confirmation dialog
+     * count them through the ordinary query builder (`withCount`, no raw SQL,
+     * portable on both engines per §2). `applications.user_id` carries
+     * `cascadeOnDelete()`, so they go with the account — and with them every
+     * printed badge's `qr_token`, which is the intended DSGVO consequence: the
+     * token would otherwise stay a way to re-identify the deleted person.
+     */
+    public function applications(): HasMany
+    {
+        return $this->hasMany(Application::class);
+    }
+
+    /**
+     * Park-/Sitzkarte applications. `sub_applications.user_id` cascades as well
+     * (independently of `sub_applications.application_id`), so this relation is
+     * the authoritative count for the confirmation dialog.
+     */
+    public function subApplications(): HasMany
+    {
+        return $this->hasMany(SubApplication::class);
+    }
+
+    /**
      * Whether the user holds a specific role for the given scope. Null scope
      * values match the global `super_admin` assignment (mandant_id = team_id =
      * null).

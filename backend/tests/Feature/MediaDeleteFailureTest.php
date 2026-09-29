@@ -17,6 +17,7 @@ use App\Services\BadgeImageService;
 use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
 use App\Services\MediaPathService;
+use App\Services\MediaPurgeRunner;
 use App\Services\MediaStorage;
 use App\Services\TeamMediaService;
 use App\Services\UserMediaService;
@@ -1101,16 +1102,21 @@ class MediaDeleteFailureTest extends TestCase
     }
 
     /**
-     * The controller's own `PURGE_ATTEMPTS`, read through reflection so
-     * raising the bound scales the assertion instead of turning it into a
-     * tautology (`count($attempts) === 3` would keep passing at 3, 4, 5 … and
-     * would be a claim about a literal rather than about the retry).
+     * The attempt bound, read through reflection so raising it scales the
+     * assertion instead of turning it into a tautology (`count($attempts) === 3`
+     * would keep passing at 3, 4, 5 … and would be a claim about a literal
+     * rather than about the retry).
+     *
+     * The constant now lives on `MediaPurgeRunner`, not on the controller: the
+     * bounded retry is shared with the account deletion
+     * (`AccountDeletionService`), so a second copy of the loop — and with it a
+     * second bound to keep in step — is exactly what the extraction prevents.
      */
     private function purgeAttempts(): int
     {
-        $attempts = (new ReflectionClass(MandantController::class))->getConstant('PURGE_ATTEMPTS');
+        $attempts = (new ReflectionClass(MediaPurgeRunner::class))->getConstant('PURGE_ATTEMPTS');
 
-        $this->assertIsInt($attempts, 'MandantController::PURGE_ATTEMPTS must be an int attempt count.');
+        $this->assertIsInt($attempts, 'MediaPurgeRunner::PURGE_ATTEMPTS must be an int attempt count.');
 
         return $attempts;
     }

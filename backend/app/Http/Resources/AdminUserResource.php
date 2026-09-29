@@ -25,6 +25,11 @@ class AdminUserResource extends JsonResource
             'id' => $this->id,
             'email' => $this->email,
             'name' => $this->name,
+            // Application counts, loaded by `withCount()` in `UserController::index()`.
+            // A deletion confirmation dialog needs them, and a count read after
+            // the delete would always be zero.
+            'applications_count' => (int) ($this->applications_count ?? 0),
+            'sub_applications_count' => (int) ($this->sub_applications_count ?? 0),
             'roles' => self::rolesPayload(
                 $this->relationLoaded('roleUserAssignments') ? $this->roleUserAssignments : [],
             ),

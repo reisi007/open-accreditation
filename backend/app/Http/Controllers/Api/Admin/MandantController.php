@@ -13,6 +13,7 @@ use App\Rules\ValidUtf8;
 use App\Services\BadgeImageService;
 use App\Services\EventTypeMediaService;
 use App\Services\MandantMediaService;
+use App\Services\MediaPurgeRunner;
 use App\Support\MandantContext;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Collection;
@@ -39,38 +40,22 @@ class MandantController extends Controller
     use ResolvesMandantRouteParameter;
 
     /**
-     * Attempts per media purge in the delete cascade, see `purgeWithRetry()`.
-     * Bounded: a file that is genuinely unremovable must surface as a 500
-     * quickly instead of holding the request open.
+     * The clause that follows "is unreferenced now and …" in the purge log
+     * lines. Every file of THIS cascade lives in the managed layout on the
+     * `media` disk, which `media:prune-orphans` really does enumerate — so the
+     * promise the log makes is true here. The bounded retry itself
+     * (attempts, aggregate budget, "only a removal failure is retried") lives
+     * in `MediaPurgeRunner`, shared with the account deletion, because the
+     * contract is identical and a second copy would be a second, shorter
+     * answer to it.
      */
-    private const PURGE_ATTEMPTS = 3;
-
-    /**
-     * Backoff before the second and third attempt, multiplied by the attempt
-     * number (so the waits are 50 ms + 100 ms). Long enough to ride out a
-     * transient filesystem error, short enough to stay invisible in a request.
-     */
-    private const PURGE_RETRY_DELAY_MICROSECONDS = 50_000;
-
-    /**
-     * Wall-clock budget for the WHOLE delete cascade, not for one file.
-     *
-     * `PURGE_ATTEMPTS` bounds a single purge; without an aggregate bound the
-     * total is `N × 3 × backoff` on a read-only MEDIA_ROOT, where every one of
-     * the N children fails and the request spends its whole time asleep. Thirty
-     * seconds is far beyond any honest local unlink (which is a single
-     * `unlink()` call) and short enough that the request stays inside a normal
-     * gateway timeout. What is left when the budget runs out is NOT lost: the
-     * rows are already deleted, so the files are unreferenced orphans that the
-     * weekly `media:prune-orphans` collects — the same residual the failure
-     * path leaves behind anyway.
-     */
-    private const PURGE_TOTAL_BUDGET_SECONDS = 30.0;
+    private const PURGE_LEFTOVER_ADVICE = '`media:prune-orphans` reaps it';
 
     public function __construct(
         private readonly MandantMediaService $media,
         private readonly EventTypeMediaService $eventTypes,
         private readonly BadgeImageService $badges,
+        private readonly MediaPurgeRunner $purgeRunner,
     ) {}
 
     public function index(): AnonymousResourceCollection
@@ -277,7 +262,7 @@ class MandantController extends Controller
             $purges[sprintf('badge-image#%d', $badgeImage->id)] = fn () => $this->badges->destroy($badgeImage);
         }
 
-        $failed = $this->purgeWithRetry($purges);
+        $failed = $this->purgeRunner->run($purges, 'a deleted mandant', self::PURGE_LEFTOVER_ADVICE);
 
         if ($failed !== []) {
             Log::error('Deleting a mandant removed its rows but not every media file; the leftovers are unreferenced now.', [
@@ -303,94 +288,6 @@ class MandantController extends Controller
                 previous: $first,
             );
         }
-    }
-
-    /**
-     * Run every purge, retrying a raised one a bounded number of times, and
-     * return the ones that never succeeded.
-     *
-     * The retry is for the transient half of "the file could not be removed"
-     * (an NFS hiccup, a briefly read-only mount, an EIO): a purge is idempotent
-     * — `MediaStorage::delete()` of an already absent file reports success — so
-     * a second attempt is safe. It is BOUNDED on purpose: a file that is truly
-     * stuck must not keep a request alive. The delay grows per attempt so a
-     * mount that is remounted read-write in between is picked up.
-     *
-     * A failure does not abort the remaining purges: the row is already gone, so
-     * every other file is collectable right now, and stopping at the first stuck
-     * file would strand all of them for the reaper as well.
-     *
-     * **Only `MediaRemovalFailedException` is retried** (F1). That is the one
-     * failure "a second unlink might still succeed" applies to. A
-     * `QueryException` from the row delete a purge performs
-     * (`BadgeImageService::destroy()` deletes after the unlink) is a DATABASE
-     * failure: the file is gone but the row is not, which no retry of the
-     * unlink can fix. Retrying it three times with a growing backoff would turn
-     * one loud, immediate database error into a request that burns 150 ms of
-     * sleep before reporting the wrong cause — so it propagates on the first
-     * attempt, exactly like every other non-removal exception.
-     *
-     * The whole loop is additionally bounded by `PURGE_TOTAL_BUDGET_SECONDS`
-     * (F2). `PURGE_ATTEMPTS` bounds ONE file; nothing bounded the aggregate, and
-     * with a fully read-only MEDIA_ROOT every one of the N children burns its
-     * 3 × backoff — pure sleep, N-fold. Once the budget is spent the loop
-     * breaks and the remainder is left to `media:prune-orphans`: the rows are
-     * already deleted, so the files are unreferenced orphans by definition and
-     * nothing about a longer request makes them any more collectable.
-     *
-     * @param  array<string, callable(): void>  $purges
-     * @return array<string, MediaRemovalFailedException> label => the last failure
-     */
-    private function purgeWithRetry(array $purges): array
-    {
-        $failed = [];
-        $attempted = [];
-        $deadline = hrtime(true) + (int) (self::PURGE_TOTAL_BUDGET_SECONDS * 1_000_000_000);
-
-        foreach ($purges as $label => $purge) {
-            // F2: the aggregate deadline. Checked BEFORE the first attempt of a
-            // label, so a purge never starts when no budget is left to finish it.
-            if (hrtime(true) > $deadline) {
-                Log::error('The media purge of a mandant delete ran out of its time budget; the remaining files are left to `media:prune-orphans`.', [
-                    'budget_seconds' => self::PURGE_TOTAL_BUDGET_SECONDS,
-                    'attempts_per_file' => self::PURGE_ATTEMPTS,
-                    'skipped' => array_values(array_diff(array_keys($purges), $attempted)),
-                ]);
-
-                break;
-            }
-
-            $attempted[] = $label;
-
-            for ($attempt = 1; ; $attempt++) {
-                try {
-                    $purge();
-
-                    break;
-                } catch (MediaRemovalFailedException $exception) {
-                    if ($attempt >= self::PURGE_ATTEMPTS) {
-                        $failed[$label] = $exception;
-
-                        // F2: the path is logged the moment it is known to be
-                        // stuck, not only in the post-hoc summary of the whole
-                        // cascade — with a read-only volume that summary can be
-                        // arbitrarily far in the future, and the operator needs
-                        // the concrete file now.
-                        Log::error('A media file of a deleted mandant could not be removed; the leftover is unreferenced now and `media:prune-orphans` reaps it.', [
-                            'label' => $label,
-                            'path' => $exception->path,
-                            'attempts' => self::PURGE_ATTEMPTS,
-                        ]);
-
-                        break;
-                    }
-
-                    usleep(self::PURGE_RETRY_DELAY_MICROSECONDS * $attempt);
-                }
-            }
-        }
-
-        return $failed;
     }
 
     /**

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\AccreditationController;
 use App\Http\Controllers\Api\Admin\AccreditationController as AdminAccreditationController;
 use App\Http\Controllers\Api\Admin\AdminApplicationController;
@@ -54,8 +55,14 @@ use Illuminate\Support\Facades\Route;
 | mandant — carry an inline per-user bucket (M3, see the comment on the
 | routes).
 |
-| Profile & media (auth:api):
+| Profile & account (auth:api):
 |   PUT    /api/user/profile      update own accreditation profile
+|   GET    /api/user/account      own identity + the counts a deletion
+|                                 confirmation dialog has to name
+|   DELETE /api/user/account      hard-delete the OWN account (DSGVO, no
+|                                 anonymisation) — no gate: the target is
+|                                 `$request->user()`, so `auth:api` is the
+|                                 whole authorisation
 |   GET    /api/user/media        list own media
 |   POST   /api/user/media        upload (portrait|press_id|attachment)
 |   GET    /api/user/media/{id}   auth-gated inline delivery (owner-only)
@@ -97,6 +104,16 @@ Route::middleware('auth:api')->group(function (): void {
     // call that has to work to clear his session.
     Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('throttle:60,1,auth-logout')->name('api.auth.logout');
     Route::get('/auth/me', [AuthController::class, 'me'])->middleware('throttle:60,1,auth-me')->name('api.auth.me');
+
+    // Self-service account surface. No `can:` gate HERE on purpose: the target
+    // is `$request->user()` — the account the JWT was minted for — so a gate
+    // would evaluate a permission of the account against itself and could only
+    // ever add a second source of "you may not do that". `auth:api` is the
+    // whole authorisation, and `GET /api/user/account` exists so the
+    // confirmation dialog can name the account AND its application count
+    // before anything is deleted (a count read afterwards is always zero).
+    Route::get('/user/account', [AccountController::class, 'show'])->name('api.user.account.show');
+    Route::delete('/user/account', [AccountController::class, 'destroy'])->name('api.user.account.destroy');
 
     Route::put('/user/profile', [ProfileController::class, 'update'])->name('api.user.profile.update');
 
@@ -159,6 +176,9 @@ Route::middleware('auth:api')->group(function (): void {
 |   - venues                              → `can:venues.manage` (W12)
 |   - events                              → `can:events.manage`
 |   - users / roles                       → `can:users.manage` (P2c)
+|   - user account deletion               → `can:users.delete` (DSGVO). NOT
+|     `users.manage`: that one is role assignment, and whoever may hand out
+|     roles may not thereby end accounts. Same mandant-scoped `{user}` binding.
 |
 | `mandants.manage`/`teams.manage` are super_admin-only in this tenant-CRUD
 | surface. `teams.view` opens the read-only team list for mandant_admin (all
@@ -363,6 +383,15 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
     Route::middleware('can:users.manage')->group(function (): void {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->middleware('throttle:admin')->name('users.roles.update');
+    });
+
+    // Account termination sits behind its OWN gate, `users.delete`, and NOT
+    // inside the `users.manage` group above: that one is ROLE ASSIGNMENT, and
+    // hanging account termination off it would give whoever may hand out roles
+    // the power to end an account. Same mandant-scoped `{user}` binding, so a
+    // foreign target is a 404.
+    Route::middleware('can:users.delete')->group(function (): void {
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('throttle:admin')->name('users.destroy');
     });
 });
 

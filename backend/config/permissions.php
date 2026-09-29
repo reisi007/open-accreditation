@@ -46,6 +46,18 @@ use App\Enums\UserRole;
 | team → 403). super_admin manages every team globally; user and verifier hold
 | no team media permission and are denied at the route gate.
 |
+| `users.delete` is a permission of its OWN and deliberately NOT part of
+| `users.manage`. `users.manage` means ROLE ASSIGNMENT (which roles a person
+| holds inside the mandant); hanging account termination off it would hand the
+| power to end an account to whoever may hand out roles — two different kinds of
+| authority. Only `mandant_admin` holds it; `super_admin` holds `'*'`, which
+| `Gate::before` grants mandant-independently, so cross-mandant deletion is a
+| consequence of the existing bypass rather than a second, deletion-only rule.
+| `team_admin`, `user` and `verifier` hold no `users.delete` and are denied at
+| the route gate. Self-service deletion (`DELETE /api/user/account`) is NOT a
+| role question at all and deliberately carries no gate: its target is
+| `$request->user()`.
+
 | `venues.manage` (W12) is held by mandant_admin AND team_admin — the same
 | pair that holds `categories.manage`, and for the same reason. A venue
 | (Spielstätte) is mandant-wide master data referenced by BOTH `teams.venue_id`
@@ -75,6 +87,7 @@ return [
         'categories.manage',
         'events.manage',
         'users.manage',
+        'users.delete',
         'accreditations.view',
         'accreditations.manage',
         'mandant.media.manage',

@@ -11,6 +11,7 @@ use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
 use App\Rules\ValidUtf8;
+use App\Services\AccountDeletionService;
 use App\Support\LikeSearch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -21,18 +22,33 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Admin user management (P2c): list the users of the current mandant (scoped
- * to users holding at least one `role_user` assignment there) and replace
- * their mandant role set.
+ * to users holding at least one `role_user` assignment there), replace their
+ * mandant role set, and hard-delete an account.
  *
  * Guarded by `can:users.manage` (super_admin + mandant_admin). Role
  * replacement is union-friendly (P1d-F2): several roles per (user, mandant)
  * are allowed and each assignment is written separately. The global
  * `super_admin` assignment (mandant_id = null) is never touched and
  * `super_admin` is rejected in the payload.
+ *
+ * `destroy()` sits behind its OWN gate, `users.delete`, deliberately separate
+ * from `users.manage`: that one is ROLE ASSIGNMENT, and hanging account
+ * termination off it would give whoever may hand out roles the power to end an
+ * account. Both are `can:` on the same mandant-scoped route binding, so the
+ * deletion cannot reach outside the current mandant.
+ *
+ * Note what "cross-mandant for super_admin" means HERE: the GATE is
+ * mandant-independent for him (`Gate::before` grants every gate), exactly like
+ * every other permission. The route binding still scopes the TARGET to the
+ * current mandant — a super_admin reaches another mandant's users by acting on
+ * that mandant's host, which is how the whole admin surface works (D21), not
+ * through a second, deletion-only rule.
  */
 class UserController extends Controller
 {
     use ResolvesAdminTeamScope;
+
+    public function __construct(private readonly AccountDeletionService $deletions) {}
 
     /**
      * All users of the current mandant with their scoped role assignments.
@@ -53,7 +69,14 @@ class UserController extends Controller
 
         $query = User::query()
             ->whereHas('roleUserAssignments', fn (Builder $q) => $q->forMandant($mandantId))
-            ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])]);
+            ->with(['roleUserAssignments' => fn ($q) => $q->forMandant($mandantId)->with(['role', 'team'])])
+            // The confirmation dialog for a deletion must be able to name the
+            // number of applications BEFORE the delete — after it, the rows are
+            // gone and a count read then is always zero. `withCount` adds two
+            // correlated subqueries to the SAME select (no extra round-trip, no
+            // N+1) and is plain `select … (select count(*) …)` on both engines
+            // (§2 portability).
+            ->withCount(['applications', 'subApplications']);
 
         // M5: a whitespace-only `search` ('   ') is treated exactly like an
         // absent one — otherwise LIKE '%   %' would silently filter everything
@@ -148,6 +171,41 @@ class UserController extends Controller
             ->get();
 
         return response()->json(['data' => AdminUserResource::rolesPayload($roles)]);
+    }
+
+    /**
+     * DELETE /api/admin/users/{user} — hard-delete an account (DSGVO: no
+     * anonymisation, the row and everything referencing it go).
+     *
+     * Behind its own gate `users.delete` (see the class docblock) and behind
+     * the mandant-scoped `User::resolveRouteBindingQuery()`, so a target of
+     * another mandant is a 404 — the same shape as the roles endpoint, and the
+     * reason no second membership check is needed here: the binding already
+     * answers "is this one of my users".
+     *
+     * The counts in the response are measured INSIDE the deletion transaction,
+     * which is what makes them trustworthy: they are the number of rows that
+     * actually went, not a second query that could disagree with them.
+     *
+     * 200 `{message, data: {applications_deleted, sub_applications_deleted,
+     * media_files_deleted, role_assignments_deleted, sessions_deleted,
+     * media_files_left_over: string[]}}`.
+     */
+    public function destroy(User $user): JsonResponse
+    {
+        $summary = $this->deletions->delete($user, 'admin');
+
+        return response()->json([
+            'message' => 'Konto gelöscht.',
+            'data' => [
+                'applications_deleted' => $summary['counts']['applications'],
+                'sub_applications_deleted' => $summary['counts']['sub_applications'],
+                'media_files_deleted' => $summary['counts']['media'] - count($summary['residue']),
+                'role_assignments_deleted' => $summary['counts']['role_assignments'],
+                'sessions_deleted' => $summary['counts']['sessions'],
+                'media_files_left_over' => $summary['residue'],
+            ],
+        ]);
     }
 
     /**

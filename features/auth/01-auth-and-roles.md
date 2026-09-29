@@ -309,7 +309,7 @@ die Scope-Logik lebt in `User::hasPermission()` (Matrix + Mandant-/Team-Scope).
 | Rolle | Permissions | Scope |
 |---|---|---|
 | `super_admin` | `*` (global, `Gate::before` → `true`) | beliebiger/kein Mandant |
-| `mandant_admin` | `categories.manage`, `events.manage`, `users.manage`, `accreditations.view`, `accreditations.manage` | aktueller Mandant (`MandantContext`) |
+| `mandant_admin` | `categories.manage`, `events.manage`, `users.manage`, `users.delete`, `accreditations.view`, `accreditations.manage` | aktueller Mandant (`MandantContext`) |
 | `team_admin` | `teams.manage`, `events.manage`, `accreditations.manage`, `accreditations.view` (read-only, D7) | eigenes Team (`role_user.team_id`) |
 | `user` | `accreditations.self` | aktueller Mandant |
 | `verifier` | `verification.verify` | aktueller Mandant |
@@ -333,6 +333,17 @@ Semantik:
   validiert).
 - `mandants.manage`/`teams.manage` sind **super_admin-only** — Mandanten und
   Teams verwaltet der Super Admin, nicht der Mandant-Admin (D2/Portal-Muster).
+- `users.delete` ist eine **eigene** Permission und bewusst NICHT Teil von
+  `users.manage`: `users.manage` ist die **Rollenvergabe** (welche Rollen eine
+  Person im Mandant hält). Hängt man die Kontolöschung daran, bekommt wer
+  Rollen verteilen darf auch Konten beenden — zwei verschiedene Arten von
+  Befugnis. Nur `mandant_admin` hält sie; `super_admin` hat `'*'` und umgeht
+  das Gate ohnehin mandantenunabhängig (`Gate::before`), weshalb die
+  mandantenübergreifende Löschung eine **Folge des bestehenden Bypasses** ist und
+  keine Sonderregel nur für die Löschung. `team_admin`, `user` und `verifier`
+  halten sie nicht (403 am Route-Gate). Die **Selbstbedienung**
+  (`DELETE /api/user/account`) ist keine Rollenfrage und trägt deshalb
+  **kein** Gate: ihr Ziel ist `$request->user()`.
 - Nutzung in Controllern/Policies (P2+): `Gate::allows()`/`Gate::authorize()`
   oder direkt `$user->hasPermission($permission, $mandantId, $teamId)`.
 
@@ -344,6 +355,94 @@ User-ID im Request** (kein Cross-User-Write). Felder: `title`, `gender`,
 `company`, `phone`, `fax`, `branch` (`Rule::in('print','tv','online','radio',
 'photo','other')`), `position`, `vest_available` (bool), `vest_number`.
 Antwort: `UserResource` + `message`.
+
+## Konto-Löschung (DSGVO — harte Löschung, keine Anonymisierung)
+
+Nutzerentscheid 2026-09-28, drei Punkte: **Selbstbedienung** („user soll selbst
+account löschen können"), **harte Löschung** („wirklich löschen wegen DSGVO"),
+**mandantenübergreifend für `super_admin`** (wie jede andere Berechtigung).
+
+### Zwei Routen, zwei Autorisierungen
+
+| Route | Gate | Ziel |
+|---|---|---|
+| `GET /api/user/account` | **kein** (nur `auth:api`) | `$request->user()` |
+| `DELETE /api/user/account` | **kein** (nur `auth:api`) | `$request->user()` |
+| `DELETE /api/admin/users/{user}` | `can:users.delete` | mandantenscoped via `User::resolveRouteBindingQuery()` (fremd → **404**) |
+
+Die Selbstbedienung trägt **kein Gate**, weil ihr Ziel der JWT-Inhaber selbst
+ist: ein Gate würde eine Permission des Kontos gegen sich selbst prüfen und
+könnte nur eine zweite Fehlerquelle für einen bereits fixierten Request
+sein. `user` hält nur `accreditations.self` — Selbstbedienung ist damit
+**keine Rollenfrage**.
+
+### Die Anzahl muss VOR dem Löschen existieren
+
+Ein Bestätigungsdialog muss das Konto **und** die Anzahl seiner Anträge nennen.
+Nach dem Löschen ist die Zahl null — der Dialog kann sie nicht mehr erfragen.
+Darum trägt `GET /api/user/account` die Identität plus `applications_count`,
+`sub_applications_count` und `media_count`; die Admin-Liste trägt
+`applications_count`/`sub_applications_count` **pro Zeile** (`withCount`, zwei
+korrelierte Subqueries in **einem** Select, kein N+1), und die Lösch-Antwort
+wiederholt die **gemessen** Werte.
+
+### Reihenfolge: Zeilen zuerst, Dateien danach
+
+Wie beim Mandanten-Löschen (`WF-3-D3`): ein `unlink` ist **nicht**
+transaktional. Ein File-Purge **vor** dem Zeilen-Löschen ließe ein Fenster, in
+dem Dateien weg sind und die Zeile noch steht. Für die Kontolöschung ist das
+Argument noch stärker — die Zeile **muss** weg (DSGVO), also darf eine
+festhängende Datei das Konto nicht am Leben halten. Was danach zurückbleibt,
+ist eine **unreferenzierte Waisen-Datei**, kein hängender Verweis.
+
+### Was die Kaskade nimmt — und die eine Lücke
+
+`role_user` · `user_media` · `applications` · `sub_applications` → alle vier
+`cascadeOnDelete()` auf `user_id`. **`sessions.user_id` ist die einzige Spalte
+`nullable()->index()` OHNE Fremdschlüssel** (`0001_01_01_000000:75`): ihre Zeilen
+überlebten als Waisen mit verwaistem User-Id — sie werden **explizit** in
+derselben Transaktion gelöscht, vor dem Konto. Festgenagelt in
+`AccountDeletionTest::test_the_session_rows_of_a_deleted_account_are_gone`.
+
+### Der Widerruf ruht auf der DB-Zeile, nie auf der JWT-Blacklist
+
+`JWTGuard::user()` löst den Subject mit einem nackten `retrieveById($payload['sub'])`
+(`:107`). Fehlt die Zeile, ist das Konto **sofort** (401 im nächsten Request) und
+**bleibt** es auch nach komplettem Cache-Flush. `logout()`s Blacklist (Weg B,
+akzeptiertes Risiko **A6**) wäre durch ein `cache:clear` aufhebbar und schluckt
+ihren eigenen Fehler — die Löschung **schreibt** deshalb nichts in die
+Blacklist. Festgenagelt in `AccountDeletionRevokesAccessImmediatelyTest` (die
+Konsequenz) und `AccountDeletionTest::test_the_deletion_does_not_go_through_the_jwt_blacklist`
+(die Route).
+
+### Jeder gedruckte Ausweis stirbt mit seinem Antrag — und das wird gesagt
+
+Jede QR-Verifikation hängt am `qr_token` des Antrags. Die harte Löschung nimmt
+ihn mit: ein bereits gedruckter Ausweis ist danach **nicht mehr verifizierbar**.
+Das ist die richtige DSGVO-Folge (der Token bliebe sonst ein Weg, die gelöschte
+Person wiederzuerkennen) und steht in der Antwort, nicht im Stillen.
+
+### Protokollierung (akzeptiertes Risiko **A5**)
+
+Nutzerentscheid: „kein Audit, nur das Anwendungslog" — es gibt **kein**
+`audit_logs`. `AccountDeletionService` schreibt deshalb `Log::notice` mit
+`reason` (`self_service`|`admin`), Ziel-Id, Ziel-Mail, Ziel-Name, Ziel-Mandant
+und den Zählern (`applications_deleted`, `sub_applications_deleted`,
+`media_rows_deleted`, `role_assignments_deleted`, `sessions_deleted`) plus
+`media_files_left_over`. Das ist die **einzige** Stelle, an der die Frage „wer
+hat welches Konto gelöscht" je beantwortet werden kann.
+
+### Ein hängendes File ist ein Rest, kein 500
+
+`UserMediaService::purge()` (die Datei ohne Zeilenschreib-Bewegung — das
+Gegenstück zu `destroy()`) meldet `MediaRemovalFailedException`, und
+`MediaPurgeRunner` versucht sie begrenzt erneut (`PURGE_ATTEMPTS` = 3,
+Gesamtbudget). Weil das Konto so oder so weg ist, wäre ein 500 **falsch**: er
+sagte dem Nutzer, sein Löschen sei fehlgeschlagen. Stattdessen: Rest loggen,
+weitermachen, die Pfade **in der Antwort nennen**. `media:prune-orphans`
+ enumeriert `user-media/**` **nicht** (W5, `private`-Disk) — die Log-Zeile
+nennt deshalb den **manuellen** Schritt, statt einen Reaper zu versprechen, den
+es dort nicht gibt.
 
 ## Media-Vertrag
 

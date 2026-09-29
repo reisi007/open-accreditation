@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\MediaType;
+use App\Exceptions\MediaRemovalFailedException;
 use App\Models\User;
 use App\Models\UserMedia;
 use Illuminate\Http\UploadedFile;
@@ -160,25 +161,76 @@ class UserMediaService
     /**
      * Remove a media file from disk and delete its row.
      *
-     * @throws RuntimeException when the file is still on the disk afterwards —
-     *                          the row is kept, so a file that could not be
-     *                          removed never loses its only reference
+     * @throws MediaRemovalFailedException when the file is still on the disk
+     *                                     afterwards — the row is kept, so a file
+     *                                     that could not be removed never loses its
+     *                                     only reference
      */
     public function destroy(UserMedia $media): void
     {
-        if (! $this->removeFile($media->path)) {
-            Log::error('Could not remove a user media file; the row was kept.', [
-                'path' => $media->path,
-                'user_media_id' => $media->id,
-            ]);
-
-            throw new RuntimeException(sprintf(
-                'Could not remove the media file "%s"; the stored reference was kept.',
-                $media->path,
-            ));
+        try {
+            $this->purge($media);
+        } catch (MediaRemovalFailedException $exception) {
+            // The message `purge()` raises is deliberately neutral ("the file is
+            // still on the disk"), because in a cascade the row is long gone and
+            // that claim would be false — see `purge()`. HERE the row really does
+            // survive, so the message says so, and an applicant reading it needs
+            // to know his quota slot and his photo are intact.
+            throw new MediaRemovalFailedException(
+                $exception->path,
+                sprintf('Could not remove the media file "%s"; the stored reference was kept.', $media->path),
+                previous: $exception,
+            );
         }
 
         $media->delete();
+    }
+
+    /**
+     * Remove the file behind a media row WITHOUT touching the row — the shape
+     * a deleting cascade needs (`MandantMediaService::purge()` is the same
+     * method for the brand files).
+     *
+     * `AccountDeletionService` is the caller that forces it: it drops every
+     * `user_media` row with the account (FK cascade) and THEN unlinks the files,
+     * because a file unlink is not transactional and a stuck file must never be
+     * able to keep the rows alive. The split exists so that this service states
+     * the storage fact ("the file is gone / it is not") and the caller states
+     * the policy ("that is not fatal, log it and report the residue") — one
+     * place each, instead of a boolean flag or a swallowed exception.
+     *
+     * Idempotent: a row whose file is already absent succeeds, so a repeated
+     * cascade or a retry never turns into a 500.
+     *
+     * @throws MediaRemovalFailedException when the file is still on the disk
+     *                                     afterwards. The exception carries the
+     *                                     path, so a caller can report exactly
+     *                                     which file is left over instead of
+     *                                     parsing the message.
+     */
+    public function purge(UserMedia $media): void
+    {
+        if ($this->removeFile($media->path)) {
+            return;
+        }
+
+        // Deliberately NOT the wording `destroy()` uses ("the stored reference
+        // was kept"): in a cascade the row is long gone — the account delete
+        // drops every `user_media` row before the first unlink — so that claim
+        // would be false here, exactly as it was for the mandant cascade (F4 in
+        // `MandantController`). What is true in BOTH cases is the file and its
+        // path, so the message says only that.
+        Log::error('Could not remove a user media file; the file is still on the disk.', [
+            'path' => $media->path,
+            'user_id' => $media->user_id,
+            'user_media_id' => $media->id,
+            'type' => $media->type,
+        ]);
+
+        throw new MediaRemovalFailedException($media->path, sprintf(
+            'Could not remove the media file "%s".',
+            $media->path,
+        ));
     }
 
     /**
