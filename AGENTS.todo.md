@@ -44,6 +44,48 @@
 > dagegen über `leaderIsStillOurs`). Der Implementer meldet deshalb **jede**
 > Position, die am HEAD **nicht** hält — und zwar **gemessen**, nicht behauptet.
 
+### Stand 2026-09-29 — implementiert (`2e9ea93`), verifiziert: **`CHANGES REQUIRED`**
+
+**Implementer-Verdikt, das zählt weil es Abweichungen meldet statt sie zu übergehen:**
+34 · 31 · 30(M1/M3) · 33(L1) · 35(a/b) · 36 · 37 = **CONFIRMED+fixed** · 33(L2) = **ALREADY-SATISFIED**,
+nichts geändert · 33(L3) = **DOES-NOT-HOLD-AS-DESCRIBED** (die BusyBox-Zitatstelle existiert an HEAD
+nicht mehr, gelöscht in `c119f1d`) — **keine Arbeit erfunden**, das ist hier der eigentliche Wert ·
+33(L4) = Board-Text veraltet, **aber der tiefere Punkt des Boards stimmte**: `pgrp === pid` beweist
+„Gruppenleiter", nicht „unser Prozess" → `isSameProcess` (pid/pgrp/**comm** gegen die bei Kill-Zeit
+gespeicherte Zeile) · **D26** = implemented, end-to-end **UNPROVEN**.
+
+**Gates (unabhängig nachgefahren, alle Zahlen bestätigt):** `lint` clean `--max-warnings 0` ·
+Vitest **434/43** (vorher 405/42, **+29**; `434 = 405 + 29` und `43 = 42 + 1` sind der Lebend-Tripwire,
+falls die `include`-Erweiterung die Datei eines Tages verliert) · `build` ✅ inkl. `check:i18n` 418 ·
+`ownership` **8** · `namespace-isolation` **56** · `admin-venue` **2 passed / 2 skipped** ·
+`child-lifetime` **3 passed / 4 skipped / 1 failed = D26, absichtlich** (→ **D27**) ·
+**Security: neutral**, keine Befunde — und keine erfunden.
+
+**Blockierend (2 `high`), beide in der Prüfapparatur selbst — die Klasse, für die dieses Board existiert:**
+- **H1** `run-child.test.ts:233` — die „fail loudly"-Verzweigung ist auf Linux eine **Tautologie**
+  (`'procfs must be readable'` gegen sich selbst). **Vom Verifikator per Mutation bewiesen:** `freshParentTable()`
+  → `return NO_TABLE` ließ die Suite bei **29/29 grün**. Damit nagelt die Position-34-Pin **nichts** fest, und
+  der Testkommentar beschreibt exakt das Fehlverhalten, das er zeigt.
+- **H2** `child-lifetime.spec.ts:387` — `readFileSync('/proc/1/comm')` ungeprüft; macOS hat kein procfs →
+  **ENOENT**, der Test *bricht* statt grün zu werden. Widerspricht dem eigenen Docblock `:352-356`
+  („NOT skipped, and NOT linux-only … the test is green there"). Dieselbe Datei kennt das richtige Idiom
+  (`:388`, `:544`).
+
+**Verifikator zur D26-Frage: `UNPROVEN-BUT-FAIL-CLOSED`** — und mit einer Präzisierung, die die
+Commit-Message **überzeichnete:** outcome-proven ≠ mechanism-declared. Fehlender Reaper = rot
+(nachgemessen: Waisenkind `Z`, `ppid=1`, PID 1 = `opencode` reapt nicht) — also **fail-closed**, und genau
+die Richtung, die §3 verlangt. Aber der Test ist grün, sobald **irgendein** Reaper existiert: er beweist den
+**Ausgang**, nicht die **Ursache**. Nur die Deklarations-Pin verknüpft beides — mutationsgeprüft, inkl. **Decoy**:
+eine `options: --init` im `frontend`-Job erfüllt sie **nicht**, der Pin ist also gescoped und kein globales Grep.
+
+**Vier neue Befunde aus der Implementierung, offene Positionen:** die Snapshot-Rück-Signalisierung und die
+Gruppensignalisierung sind **beide** ungeschützt gegen Pid-Recycling (nur der Fresh-Walk ist gebunden) ·
+`isSameProcess` vergleicht `comm` + `pgrp`, **keinen** Kernel-Generationszähler (einer ist nicht zugänglich)
+· `DatabaseSeeder` setzt `teams_enabled => false`, wodurch `ownership.spec.ts` auf einer frischen lokalen DB
+rot ist, bis ein Lauf es einschaltet · die Pass-2-Walk wird **nie** ausgeführt (die Prämisse hält laut der
+eigenen Aufzeichnung des Moduls im Normalfall nicht) — der Fix entfernt eine Landmine, stellt aber **keine**
+echten SIGKILLs wieder her.
+
 
 
 > **Stand 2026-09-27, Ende der Go-Live-freien Runde.** Die Umsetzungspositionen sind
@@ -112,7 +154,8 @@
 | D22 | Badge-Hintergrund (2026-09-27) | **OFFEN.** `background-color:#ffffff` auf `body`/`@page` wäre technisch der robustere Fix — dann entfiele die Nachbearbeitung komplett. Nimmt den Ausweisen aber den **transparenten** Hintergrund, der für Ausweisspiele auf Folie, Glas und im Siebdruck relevant ist. Produktfrage, nicht technische; die Alpha-Entfernung ist bis dahin Sache des Skripts `scripts/pdf-to-png-vision.sh`. |
 | D23 | **E2E-Fixture-Besitz** (2026-09-28) | **Jeder E2E-Test registriert, was er angelegt hat, und löscht es selbst — auch wenn er halb scheitert.** Drei Fixtures erstellt, das vierte wirft: die drei müssen weg. **Kein Test hinterlässt eine `E2E %`-Zeile.** Ein Sweep über Namensmarker ist **Übergang**, nie Modell. Referenzimplementierung: `portal.reisinger.pictures`. |
 | D25 | **Entscheidungen nie in `AGENTS.md`** (2026-09-29) | Agenten-Entscheidungen (D-Reihe) gehören **ausschließlich** in `AGENTS.todo.md`. `AGENTS.md` bleibt frei von Entscheidungs-Einträgen — die D24-Zeile in §5 wurde noch am selben Tag zurückgenommen. **Gilt nur künftig:** ältere Einträge (A-Register, D-Verweise in §7) bleiben stehen (entschieden 2026-09-29). |
-| D26 | **Keine Prozesslecks** (2026-09-29) | Nutzerentscheid auf Board-Position 32(b), wörtlich: **„no process leaks please."** Ein verwaistes Kind muss **wirklich verschwinden**, nicht bloss nicht-ausführbar sein — also **strikte Lesart** statt Test-Toleranz. Umsetzung: Reaper (`tini` o. ä.) als **PID 1** im E2E-Image; die bestehenden STAT-Prädikate (`isExecuting`, `isZombieState`) **bleiben** als zusätzliche, fail-closed Postcondition stehen und werden *nicht* entfernt. **Nicht zu verwechseln** mit „Toleranz abbauen": die Entscheidung **verschärft** die Zusage, sie lockert sie nicht. Begründung: §7 „Fixture-Besitz" und die ganze Board-Kette lehren, dass ein grüner Lauf, der geleckt hat, eine Lüge ist — dasselbe gilt für Prozesse. |
+| D26 | **Keine Prozesslecks** (2026-09-29) | Nutzerentscheid auf Board-Position 32(b), wörtlich: **„no process leaks please."** Ein verwaistes Kind muss **wirklich verschwinden**, nicht bloss nicht-ausführbar sein — also **strikte Lesart** statt Test-Toleranz. **Was gebaut wurde (`2e9ea93`):** `options: --init` am **e2e-Job-Container** in `ci.yml` — Docker-Daemon-eigenes `docker-init` (tini) als PID 1. **Bewusst KEIN `ENTRYPOINT` im Image:** bei einem Job-Container bestimmt der *Runner* PID 1, nicht das Image; ein `ENTRYPOINT`, den der Runner ersetzt, wäre eine Zeile ohne Aussage über das laufende System. **Stand der Erkenntnis — zwei Hälften, und das ist nicht dasselbe:** (a) **outcome-proven** — `docker create --init` → `PID1 comm=docker-init`, Waisenkind **GONE**; ohne → `state=Z` (gemessen, Docker 29.8.1); (b) **mechanism-declared** — dass GitHub `options:` für einen Job-Container auswertet, steht in der Syntax-Referenz (nur `--network`/`--entrypoint` ausgeschlossen), im Runner-Quellcode **nicht** nachlesbar. **Nur ein echter CI-Lauf schliesst (b).** Die bestehenden STAT-Prädikate (`isExecuting`, `isZombieState`) **bleiben**: ein `Z` ist jetzt die **Abwesenheitskontrolle** für den Reaper, nicht sein Ersatz. **Nicht zu verwechseln** mit „Toleranz abbauen": die Entscheidung **verschärft** die Zusage. Begründung: §7 „Fixture-Besitz" und die ganze Board-Kette lehren, dass ein grüner Lauf, der geleckt hat, eine Lüge ist — dasselbe gilt für Prozesse. |
+| D27 | **Bekanntes Rot: `child-lifetime.spec.ts` ist ohne Reaper absichtlich rot** (medium, 2026-09-29) | Aus D26 folgt eine **dauerhaft rote** Teststelle auf jedem Host ohne PID-1-Reaper — u. a. in **jedem** Entwickler-Container, in diesem Sandbox likewise (gemessen: PID 1 = `opencode`, Waisenkind `Z`, `ppid=1`). **Das ist fail-closed und damit richtig** (§3: ein rotes Gate ist besser als eine grüne Lüge), **aber es muss bekannt sein** — §3/§4 verlangen, dass eine wissentlich rote Standard-Suite-Stelle als akzeptiertes Risiko festgehalten wird, sonst begegnet sie dem Nächsten unvorhergesagt. **Zweite, unbequemere Folge:** der **CI-Push-Gate** ruht jetzt vollständig auf der **unbewiesenen** Hälfte (b) von D26 — wäre `--init` dort inert, geht der `e2e`-Job **bei jedem Push** rot. Auch das die richtige Richtung, aber ein selbst zugefügtes Rot über alle vier Gates, das nichts vorhersagt. **Grenze, die bleibt:** der Test ist grün, sobald **irgendein** Reaper existiert — er beweist damit den **Ausgang**, nicht die **Ursache** (b). Das einzige, was beides verknüpft, ist die Deklarations-Pin im Vitest (`options: --init` in `ci.yml`), mutationsgeprüft. |
 
 ### 🗑️ Verworfen (nicht erneut implementieren)
 
