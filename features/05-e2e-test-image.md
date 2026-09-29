@@ -245,6 +245,55 @@ Hinweis in `scripts/e2e-up.sh`). Der CI-E2E-Job ist nicht betroffen: er
 migriert je Job eine frische Datenbank (leere Cache-Tabelle) — es gibt keinen
 übertragenen Limiter-State zwischen Runs.
 
+## Reaper als PID 1 — und der daraus folgende bekannte Rote (Nutzerentscheid D26/D27, 2026-09-29)
+
+**Entscheidung („no process leaks please"):** ein verwaistes Kind muss **wirklich
+verschwinden**, nicht bloß nicht-ausführbar sein. Strikte Lesart, kein Toleranz-Ausbau.
+
+**Gebaut:** `options: --init` am **`e2e`-Jobcontainer** in `ci.yml` — der Docker-Daemon-eigene
+`docker-init` (tini) wird PID 1. **Bewusst kein `ENTRYPOINT` im Image:** bei einem Jobcontainer
+bestimmt der *Runner* PID 1, nicht das Image; ein `ENTRYPOINT`, den der Runner ersetzt, wäre eine
+Zeile, die nichts über das laufende System aussagt.
+
+**Zwei Hälften, und die Unterscheidung trägt die ganze Aussage:**
+
+| Hälfte | Status | Beleg |
+|---|---|---|
+| **Ausgang** — ein Reaper lässt das Waisenkind verschwinden | **outcome-proven** | `docker create --init` → `PID 1 comm=docker-init`, Orphan **GONE**; ohne → `state=Z`, `ppid=1` (Docker 29.8.1) |
+| **Mechanismus** — GitHub wertet `options:` für einen Jobcontainer aus | **nur deklariert** | Workflow-Syntax-Referenz (nur `--network`/`--entrypoint` ausgeschlossen); im Runner-Quellcode **nicht** nachlesbar |
+
+**Das ist der Punkt, den man zitieren muss:** der Verhaltenstest ist grün, sobald **irgendein**
+Reaper existiert. Er beweist den **Ausgang**, nicht die **Ursache**. Nur die Deklarations-Pin im
+Vitest verknüpft beides.
+
+### Bekanntes Rot — akzeptiertes Risiko
+
+`child-lifetime.spec.ts` **ist auf jedem Host ohne PID-1-Reaper dauerhaft rot.** Gemessen in einem
+Entwickler-Container: `PID 1 = opencode`, Waisenkind `state=Z`, `ppid=1`.
+
+**Warum das richtig ist:** §3 verlangt einen roten Zustand statt einer grünen Lüge. Ein Lauf, der
+geleckt hat und grün ist, ist eine Lüge — dasselbe gilt für Prozesse. Die Alternative wäre, `Z`
+wieder als „gut genug" zu akzeptieren, und genau das hat D26 abgeschafft.
+
+**Was es kostet, offen benannt:**
+
+- Der lokale E2E-Lauf ist **nicht mehr grün**, wenn man in einem Container ohne `init` arbeitet.
+  Das ist der Preis, nicht ein Randfehler.
+- Der **CI-Push-Gate** ruht vollständig auf der **unbewiesenen** Hälfte. Wäre `--init` dort
+  inert, geht der `e2e`-Job bei jedem Push rot — in die richtige Richtung, aber ein selbst
+  zugefügtes Rot über den **`e2e`-Job** (nicht über alle vier Gates), das hier dokumentiert ist.
+- Auf **darwin** ist derselbe Test aus einem **anderen** Grund rot: kein procfs. Beide Gründe sind
+  in der Fehlermeldung unterscheidbar.
+
+**Auflösung der zweiten Hälfte:** nur ein echter CI-Lauf. Fällt er grün aus, ist (b) belegt; fällt
+er rot, ist es laut statt still — was genau der Zweck ist.
+
+> **Warum dieser Abschnitt hier steht und nicht nur im Board.** §3 verlangt, dass ein
+> wissentlich roter Testbereich als akzeptiertes Risiko in `features/` festgehalten wird. Der
+> erste Entwurf lag nur in `AGENTS.todo.md` — und §4 schneidet genau diese Datei weg. Ein §4-Durchgang
+> hätte die Notiz still gelöscht. Das ist derselbe Fehler, den `AGENTS.md` §10 **A7** beschreibt:
+> eine offene Position, die nirgends geführt war und deshalb verschwand.
+
 ## Invarianten (nicht regredieren)
 
 - **Nur die Umgebung einbacken** — nie App-Code, `node_modules/`, `vendor/`.
