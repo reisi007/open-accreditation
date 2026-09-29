@@ -370,6 +370,18 @@ test.describe('the child probe process is killed, not left running', { tag: ['@r
  * The one environment it cannot pass is a container without an init — which is
  * precisely the fault it exists to report, so a red run here is the correct
  * direction to fail.
+ *
+ * ## What it still cannot tell apart, stated here rather than only in the code
+ *
+ * Every "the orphan is GONE" conclusion is drawn from one `''` answer that is
+ * accompanied, at the same instant, by a non-empty answer for this test
+ * runner's own pid. So a reader that is blind platform-wide — the measured
+ * missing-`ps` case, and a procfs that is not mounted — is reported as a broken
+ * mechanism, not as a working reaper. What survives that is a blindness specific
+ * to the ORPHAN's own pid, which the control cannot exclude. Closing it would
+ * mean changing `statCodeFor` to separate "no such process" from "could not
+ * look", which is that function's stated non-goal (`run-child.ts`), so the limit
+ * stands here on purpose: narrowed, not closed, and named.
  */
 test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
     // The test runner's process tree is this machine's; running the same
@@ -431,6 +443,21 @@ test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@
         // same precondition in the same style is what `isExecuting` above
         // (`run-child.test.ts`) and the state-classification test in this file
         // assert; this one was the odd case out, and it was the one carrying D26.
+        //
+        // AND THIS PRECONDITION ALONE IS NOT SUFFICIENT — which follows from the
+        // ambiguity documented one paragraph up rather than from a measurement
+        // (the measured part is the missing-`ps` run; the narrowing below is
+        // argued, and its residue is stated at the end of it). What is proved
+        // HERE is "the reader works, for `process.pid`, at T0". What the
+        // conclusion needs is "the reader works, for the ORPHAN pid, at T1". Two
+        // different pids and two different instants: a reader that is blind for
+        // exactly one process, or only from T1 on, passes this line and then
+        // answers `''` for the orphan on every poll — which the previous version
+        // of this test read as "reaped". Closing THAT would mean teaching
+        // `statCodeFor` to tell "no such process" from "could not look", which is
+        // its stated non-goal (`run-child.ts`), so what is done instead is the
+        // narrowing: the same instant is sampled twice, once for the orphan and
+        // once for a pid that certainly exists.
         const ownState = statCodeFor(process.pid);
         expect(
             ownState,
@@ -446,25 +473,81 @@ test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@
         // when the poll ends. Polling is what keeps the test from being a
         // race against an arbitrary sleep.
         //
-        // `''` is now safe to read as "gone", and only because of the precondition
-        // above: the reader demonstrably works on a live pid, so on THIS pid an
-        // empty answer is a missing row rather than a missing mechanism.
+        // `''` is read as "gone" only next to a HEALTHY read of a pid that
+        // certainly exists, taken at the same instant — the control in the loop
+        // below. The precondition above is necessary and not sufficient; the
+        // comment on it says which half is which, and this comment is the other
+        // half: two pids, one instant, one of them known to be there.
         const deadline = Date.now() + 3000;
         let state = '';
         let present = true;
+        // Why the LAST poll saw nothing — empty when the last poll was a real
+        // observation of the orphan. A description rather than a flag, because it
+        // is printed: "the reader could not look" is the entire content of it, and
+        // a boolean could not say WHICH reader, on WHICH pid, on HOW MANY polls.
+        let inconclusive = '';
+        let polls = 0;
         while (Date.now() < deadline) {
+            polls += 1;
             try {
                 state = statCodeFor(orphanPid);
-                present = state !== '';
+                if (state !== '') {
+                    // A non-empty answer cannot be produced by a blind mechanism,
+                    // so this direction needs no control: the orphan was observed.
+                    // `inconclusive` is cleared because the LAST poll is now a
+                    // real observation, which is what the verdict below rests on.
+                    present = true;
+                    inconclusive = '';
+                } else {
+                    // THE inference — and the only answer this test would read as
+                    // "reaped". So the reader is re-proved HERE, at the instant of
+                    // the inference, against `process.pid`: the one pid that
+                    // certainly exists and certainly has a state. If the control
+                    // reads empty at the same moment, the empty answer carries no
+                    // information about the orphan, and none is drawn from it.
+                    //
+                    // The cost is one extra `statCodeFor`, and it is paid ONLY on
+                    // the answer that needs it — never while the orphan is still
+                    // there, and once on the way to a pass. On linux that is one
+                    // more `/proc/<pid>/stat` read, the single-pid form per
+                    // `readProcessRow`'s own docblock; on the `ps` path (darwin) it
+                    // is one more `ps` spawn, at the same single moment.
+                    //
+                    // What this does NOT close, stated rather than implied: a
+                    // blindness specific to the ORPHAN's pid still reads as
+                    // absence, because the control only proves the reader is not
+                    // blind to the MACHINE. Ruling that out needs `statCodeFor` to
+                    // separate "no such process" from "could not look", which is
+                    // its stated non-goal (`run-child.ts`) and is not changed here.
+                    const control = statCodeFor(process.pid);
+                    if (control === '') {
+                        // No evidence about the orphan in this instant, so the poll
+                        // records that and tries again rather than concluding. A
+                        // reader blind on every poll therefore ends in the
+                        // inconclusive message below and NOT in D26's — the one
+                        // thing this must never do is report a reaper it did not
+                        // see.
+                        present = true;
+                        inconclusive =
+                            `the reader answered \`''\` for this test runner's own pid (${process.pid}) on ` +
+                            `poll ${polls} of this run, at the same instant it answered \`''\` for the orphan`;
+                    } else {
+                        present = false;
+                        inconclusive = '';
+                    }
+                }
             } catch (error) {
                 // A THROW is not an answer about the orphan either, and the old
                 // `present = false` here read it as "gone" — the same fail-open
-                // one branch up. The precondition has already ruled out a broken
-                // mechanism, so a throw is unexpected; it is recorded and the
-                // poll continues, and the assertion below fails on the recorded
-                // evidence instead of on an absence nobody observed.
+                // one branch up. The poll continues, and the assertion below fails
+                // on the recorded evidence instead of on an absence nobody
+                // observed. `inconclusive` is set rather than left empty, because
+                // this instant yielded no evidence about the orphan EITHER, and the
+                // verdict below must say that instead of naming a fault (a missing
+                // reaper) that was never established.
                 present = true;
                 state = `(the reader threw: ${String(error)})`;
+                inconclusive = `the reader THREW on the orphan's own read — ${String(error)}`;
             }
             if (!present) {
                 break;
@@ -474,20 +557,38 @@ test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@
             });
         }
 
+        // One assertion, and the MESSAGE is chosen by the evidence: the two
+        // failures below are different faults, and reporting the D26 one when the
+        // run observed nothing is the fail-OPEN direction in words. So a poll
+        // whose last sample was inconclusive says so, and a poll that did observe
+        // the orphan says that.
+        const noObservation =
+            'this run observed NOTHING about the orphan, so it must not be read as "it was reaped". The ' +
+            `process-table reader is blind or threw — ${inconclusive} — while this test runner's own pid ` +
+            `certainly existed throughout. ${polls} poll(s) ran.\n` +
+            `  orphan pid:                       ${orphanPid}\n` +
+            `  its STAT on the last poll:        ${state}\n` +
+            `  PID 1 comm:                       ${pid1Comm}\n` +
+            `  PID 1 cmdline:                    ${pid1Cmdline}\n\n` +
+            'A reader that cannot look has no opinion about a reaper: check the MECHANISM first (no `ps` binary, ' +
+            'no procfs, the wrong platform fallback — the missing-`ps` case is MEASURED, CI run 36532030136) ' +
+            'before reading anything into PID 1.';
         expect(
             present,
-            'a process whose parent exited was left in the process table, so nothing at PID 1 reaped it.\n' +
-                'This is Nutzerentscheid D26 ("no process leaks please") failing in the strict sense: the child did\n' +
-                'become unexecutable, which is what the other test in this file asserts, but it never DISAPPEARED.\n\n' +
-                '--- WHAT WAS MEASURED (not inferred) ---\n' +
-                `  orphan pid:                       ${orphanPid}\n` +
-                `  its STAT after ${3000}ms:          ${present ? state : '(gone)'}\n` +
-                `  PID 1 comm:                       ${pid1Comm}\n` +
-                `  PID 1 cmdline:                    ${pid1Cmdline}\n\n` +
-                'Two causes, distinguishable by the last two lines. If PID 1 is the Actions runner, the fix is the\n' +
-                'reaper flag: `container.options: --init` on the `e2e` job in .github/workflows/ci.yml (removed?\n' +
-                '`run-child.test.ts` also pins that line). If PID 1 is an init this test does not recognise, the\n' +
-                'container is running without one and no predicate in this suite can substitute for it.',
+            inconclusive !== ''
+                ? noObservation
+                : 'a process whose parent exited was left in the process table, so nothing at PID 1 reaped it.\n' +
+                      'This is Nutzerentscheid D26 ("no process leaks please") failing in the strict sense: the child did\n' +
+                      'become unexecutable, which is what the other test in this file asserts, but it never DISAPPEARED.\n\n' +
+                      '--- WHAT WAS MEASURED (not inferred) ---\n' +
+                      `  orphan pid:                       ${orphanPid}\n` +
+                      `  its STAT after ${3000}ms:          ${present ? state : '(gone)'}\n` +
+                      `  PID 1 comm:                       ${pid1Comm}\n` +
+                      `  PID 1 cmdline:                    ${pid1Cmdline}\n\n` +
+                      'Two causes, distinguishable by the last two lines. If PID 1 is the Actions runner, the fix is the\n' +
+                      'reaper flag: `container.options: --init` on the `e2e` job in .github/workflows/ci.yml (removed?\n' +
+                      '`run-child.test.ts` also pins that line). If PID 1 is an init this test does not recognise, the\n' +
+                      'container is running without one and no predicate in this suite can substitute for it.',
         ).toBe(false);
     });
 });

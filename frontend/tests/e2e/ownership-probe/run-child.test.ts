@@ -379,6 +379,42 @@ function stripYamlComments(text = '') {
     });
 }
 
+/**
+ * The `container:` MAPPING of a job block — the span the reaper pin below is
+ * allowed to read, and deliberately nothing more.
+ *
+ * ## Why the span is part of the assertion
+ *
+ * MEASURED on the previous version of this pin: it sliced the job from its
+ * header to `\n    steps:`, which is `container:` PLUS `env:` PLUS `services:`.
+ * Moving `options: --init` from the job container onto the job's postgres
+ * SERVICE — where a reaper is worth nothing, because the orphan is created
+ * inside the job container — left all 28 tests in this file green. So the fast
+ * half of D26 was satisfiable by the wrong thing, while its own comment claimed
+ * the opposite.
+ *
+ * Therefore: anchor on the job's own `container:` key and stop at the NEXT key
+ * at the job's own four-space indent. The container's children are indented
+ * deeper, `env:`/`services:`/`steps:` are not, and a four-space comment line
+ * (which is not a key) does not end the span either — an early end would make
+ * the pin read short and go red, which is the safe direction, but the message
+ * would then be about a missing flag rather than about the span.
+ *
+ * Returns `{ found, block }` rather than a bare string so the caller can say
+ * "the job no longer runs in a container" and "the container no longer carries
+ * `--init`" — two different faults, and a pin that cannot tell them apart
+ * reports the second when the first happened.
+ */
+function containerMapping(job = '') {
+    const lines = job.split('\n');
+    const start = lines.findIndex((line) => /^ {4}container:/.test(line));
+    if (start === -1) {
+        return { found: false, block: '' };
+    }
+    const next = lines.findIndex((line, index) => index > start && /^ {4}[^#\s]/.test(line));
+    return { found: true, block: lines.slice(start, next === -1 ? lines.length : next).join('\n') };
+}
+
 describe('isSameProcess — the pass-2 identity guard (position 33, L4)', () => {
     /** A row as `readProcessTable` spells one, for the pid given. */
     function row(pid = 0, pgrp = 0, comm = 'node', ppid = 1) {
@@ -480,19 +516,33 @@ describe('position 34 — the pass-2 walk must never be handed an empty table', 
         // the fast half: it runs in the `frontend` job and turns a deleted
         // `options: --init` red in seconds.
         //
-        // What is pinned is the DECISION, not the syntax: the assertion fails for
-        // a removed flag, a renamed job, or a container block that no longer
+        // What is pinned is the DECISION, not the syntax — and the SPAN it is
+        // read from is part of that, not a convenience. The first version sliced
+        // the job from its header to `\n    steps:`, which is `container:` PLUS
+        // `env:` PLUS `services:`; MEASURED, moving `options: --init` onto the
+        // job's postgres service satisfied it (28/28 green) with no reaper in the
+        // job container at all, so the fast half could be met by the wrong thing
+        // while the comment it replaced claimed the opposite. `containerMapping`
+        // reads the container mapping and nothing else.
+        //
+        // So the assertion fails for a removed flag, a renamed job, a job that no
+        // longer runs in a container, and a container block that no longer
         // carries any `--init` at all. Reformatting the options list (array
-        // instead of a string, an extra resource flag) does not.
+        // instead of a string, an extra resource flag) does not. It also does not
+        // fail for a reaper this pin cannot SEE — an `ENTRYPOINT` in the image,
+        // or an `--init` spelled in a form the regex does not match. Stating the
+        // limit is the point; a pin that claims more than it checks is the defect
+        // this paragraph exists to remove.
         const workflow = readFileSync(path.resolve(process.cwd(), '..', '.github/workflows/ci.yml'), 'utf8');
-        const e2eJob = workflow.slice(workflow.indexOf('\n  e2e:\n'));
-        expect(e2eJob.indexOf('\n  e2e:\n'), 'the `e2e` job must still exist in ci.yml').toBeGreaterThan(-1);
-        const containerBlock = stripYamlComments(e2eJob.slice(0, e2eJob.indexOf('\n    steps:')));
-        expect(containerBlock, 'the `e2e` job must still run in a container').toContain('container:');
+        const jobStart = workflow.indexOf('\n  e2e:\n');
+        expect(jobStart, 'the `e2e` job must still exist in ci.yml').toBeGreaterThan(-1);
+        const container = containerMapping(workflow.slice(jobStart));
+        expect(container.found, 'the `e2e` job must still run in a `container:` in ci.yml').toBe(true);
         expect(
-            /--init\b/.test(containerBlock),
+            /--init\b/.test(stripYamlComments(container.block)),
             'Nutzerentscheid D26 requires a reaper at PID 1 in the E2E job container, which is what ' +
-                '`container.options: --init` puts there. It is gone from the `e2e` job in ci.yml. ' +
+                '`container.options: --init` puts there. It is gone from the `e2e` job CONTAINER in ci.yml ' +
+                '(a `--init` anywhere else in the job does not put a reaper in front of the test runner). ' +
                 'Without it, an orphaned child stays in the process table as a `Z` forever — the exact ' +
                 'failure D26 was decided about — and `child-lifetime.spec.ts` will report it in the E2E job.',
         ).toBe(true);
