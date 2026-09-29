@@ -240,7 +240,7 @@ genau der Befund, der beschreibt, wie so etwas aussieht, wenn es niemand bemerkt
 
 ### Offen bei Übergabe
 
-**33 Positionen** (5–37). **17–24 sind verifiziert und freigegeben (2026-09-29, keine critical/high); 25–29 ebenso (nur Zitier-Lows 36–37). CI GRÜN (Run 36537851878, WATCH-EXIT=0) — Zombie-These im echten Container belegt.** Offen: **Position 10** (Konto-Löschung) als Ursache der `users`-Lücke (**+15…+30** pro vollem Lauf, gemessen 2026-09-29, bewusst **nicht** geglättet — liefert die DELETE-Route, ohne die das Ledger diese Art nicht besitzen kann); 22 (Teilaspekt admin-venue → 25/30); 30–35 (Zombie-Fix-Follow-ups inkl. Ein-Token-Regression 34).
+**33 Positionen** (5–37). **17–24 sind verifiziert und freigegeben (2026-09-29, keine critical/high); 25–29 ebenso (nur Zitier-Lows 36–37). CI GRÜN (Run 36537851878, WATCH-EXIT=0) — Zombie-These im echten Container belegt; Welle B ebenso grün (Run 36539885849, alle 4 Jobs).** Offen: **Position 10** (Konto-Löschung) als Ursache der `users`-Lücke (**+15…+30** pro vollem Lauf, gemessen 2026-09-29, bewusst **nicht** geglättet — liefert die DELETE-Route, ohne die das Ledger diese Art nicht besitzen kann); 22 (Teilaspekt admin-venue → 25/30); 30–35 (Zombie-Fix-Follow-ups inkl. Ein-Token-Regression 34).
 
 **Eine Messung ist unentschieden und bleibt es:** der Verifikator bekam **zwei vergleichbare
 Arme** (Parent `b433fd8` **103 passed / 2 failed**, HEAD `263290f` **119 passed / 8 failed**, gleiche
