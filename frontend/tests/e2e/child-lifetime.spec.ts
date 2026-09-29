@@ -349,11 +349,27 @@ test.describe('the child probe process is killed, not left running', { tag: ['@r
  * prints the STAT column and PID 1's own `comm`/`cmdline`, because "no reaper" and
  * "a reaper I do not recognise" are different faults with the same symptom.
  *
- * NOT skipped, and NOT linux-only. The requirement is about the environment, not
- * the kernel: a developer machine's PID 1 (`launchd`, `systemd`) reaps too, so
- * the test is green there and means the same thing. The one environment it
- * cannot pass is a container without an init — which is precisely the fault it
- * exists to report, so a red run here is the correct direction to fail.
+ * NOT skipped on linux, and the platform question is answered by MECHANISM, not
+ * by hope. What the test READS is platform-specific: the classification runs
+ * off `/proc` on linux and off `ps` on darwin (`USE_PROC` in `run-child.ts`),
+ * and both are measured present on the platform that uses them. The two PID-1
+ * diagnosis lines below are a different matter — they come out of `/proc` on
+ * EVERY platform, because darwin has no equivalent of `/proc/1/cmdline` at all.
+ * They are therefore read through an EXISTENCE CHECK, exactly like the sibling
+ * `cmdline` read one line below them already was; unguarded, `readFileSync` on
+ * darwin throws ENOENT and the test ERRORS instead of running.
+ *
+ * What that costs, stated rather than smoothed over: on darwin a failure reports
+ * `(no /proc on this platform)` where PID 1's identity would be, so the run
+ * still says a reaper is missing but not WHICH process failed to be one. That
+ * "the test is green on darwin" is an EXPECTATION from the two mechanisms above
+ * and was NOT measured — a linux container cannot produce it, and an earlier
+ * version of this docblock stated it as a fact on the strength of a read that
+ * would have thrown.
+ *
+ * The one environment it cannot pass is a container without an init — which is
+ * precisely the fault it exists to report, so a red run here is the correct
+ * direction to fail.
  */
 test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
     // The test runner's process tree is this machine's; running the same
@@ -384,14 +400,55 @@ test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@
 
         // The state of PID 1, read while the diagnosis is still being assembled,
         // so the failure message can name the reaper instead of shrugging.
-        const pid1Comm = readFileSync('/proc/1/comm', 'utf8').trim();
-        const pid1Cmdline = fs.existsSync('/proc/1/cmdline') ? readFileSync('/proc/1/cmdline', 'utf8').replace(/\0/g, ' ').trim() : '(unreadable)';
+        //
+        // BOTH reads are existence-checked, and that is not defensive style — it
+        // is the same reasoning the `cmdline` read one line below had already
+        // been given. `/proc` is linux-only, and this docblock used to promise
+        // the test was "NOT skipped, and NOT linux-only" while this very line
+        // threw ENOENT on darwin: the claim and the code contradicted each other
+        // and the code was the one that runs. A missing `/proc` is reported as a
+        // missing `/proc`, which costs the failure message the identity of PID 1
+        // on that platform and costs the test nothing else — the behaviour under
+        // test is `statCodeFor` and the reaper, neither of which is darwin-only.
+        const pid1Comm = fs.existsSync('/proc/1/comm') ? readFileSync('/proc/1/comm', 'utf8').trim() : '(no /proc on this platform)';
+        const pid1Cmdline = fs.existsSync('/proc/1/cmdline') ? readFileSync('/proc/1/cmdline', 'utf8').replace(/\0/g, ' ').trim() : '(no /proc on this platform)';
+
+        // ── Non-vacuity precondition, BEFORE any conclusion is drawn ──
+        //
+        // The poll below infers "the orphan is gone" from `statCodeFor` returning
+        // `''`, and `''` is the driver's single ambiguous answer: it means "no
+        // row" AND "the reader could not look". Those are opposite facts, and
+        // D26's entire claim rests on telling them apart. Reading them the other
+        // way is the fail-OPEN direction — and not a hypothetical one: CI run
+        // 36532030136 had no `ps` in the E2E image, so every read answered `''`
+        // and this test would have reported "reaped" on the strength of a reader
+        // that had never seen a process.
+        //
+        // So the reader is proved FIRST, on this very process — the one pid that
+        // certainly exists and certainly has a readable state. If that fails, the
+        // run stops HERE with a message that names the blind mechanism, and never
+        // reaches the poll that would otherwise call a reaper to witness. The
+        // same precondition in the same style is what `isExecuting` above
+        // (`run-child.test.ts`) and the state-classification test in this file
+        // assert; this one was the odd case out, and it was the one carrying D26.
+        const ownState = statCodeFor(process.pid);
+        expect(
+            ownState,
+            'the process-table reader is BLIND here, so this test cannot observe anything. It answered `\'\'` for ' +
+                "this test runner's own pid, which certainly exists and certainly has a state — that means the mechanism " +
+                'failed (no `ps` binary, no procfs), not that the orphan vanished. This is NOT the D26 failure it ' +
+                'would otherwise look like.',
+        ).not.toBe('');
 
         // Give the kernel time to run the inner shell and reparent the corpse. The
         // wait is for a CAUSE, not for the outcome: if the reaper works the pid
         // is gone long before this, and if it does not, the pid is still there
         // when the poll ends. Polling is what keeps the test from being a
         // race against an arbitrary sleep.
+        //
+        // `''` is now safe to read as "gone", and only because of the precondition
+        // above: the reader demonstrably works on a live pid, so on THIS pid an
+        // empty answer is a missing row rather than a missing mechanism.
         const deadline = Date.now() + 3000;
         let state = '';
         let present = true;
@@ -399,8 +456,15 @@ test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@
             try {
                 state = statCodeFor(orphanPid);
                 present = state !== '';
-            } catch {
-                present = false;
+            } catch (error) {
+                // A THROW is not an answer about the orphan either, and the old
+                // `present = false` here read it as "gone" — the same fail-open
+                // one branch up. The precondition has already ruled out a broken
+                // mechanism, so a throw is unexpected; it is recorded and the
+                // poll continues, and the assertion below fails on the recorded
+                // evidence instead of on an absence nobody observed.
+                present = true;
+                state = `(the reader threw: ${String(error)})`;
             }
             if (!present) {
                 break;

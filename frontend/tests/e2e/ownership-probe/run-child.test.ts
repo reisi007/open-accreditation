@@ -130,21 +130,26 @@ describe('parseProcStat — field alignment, from real kernel lines', () => {
         expect(row.pgrp).toBe(4242);
     });
 
-    it('parses THIS process out of the kernel\'s own output, on linux', () => {
-        if (process.platform !== 'linux') {
-            // Not a skip with a reason string: the darwin path is covered by the
-            // hand-written line above, and pretending the kernel was checked
-            // would be the lie this file exists to avoid.
-            expect(typeof process.pid).toBe('number');
-            return;
-        }
-        const raw = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
-        const row = rowOrThrow(raw);
-        expect(row.pid).toBe(process.pid);
-        expect(row.ppid).toBe(process.ppid);
-        expect(row.state).not.toBe('');
-        expect(row.pgrp).toBeGreaterThan(0);
-    });
+    // A VISIBLE skip, not a degraded assertion. This test used to carry
+    // `if (process.platform !== 'linux') { expect(typeof process.pid).toBe('number'); return; }`,
+    // which reported itself as a pass on darwin while having read nothing from
+    // any kernel — a green line that was about `process.pid`, not about
+    // `/proc`. `it.skipIf` puts the platform in the report as its own line, and
+    // leaves the reader of it able to see that the kernel-alignment check did
+    // not run. The check itself is not lost on darwin: the hand-written kernel
+    // line above exercises the same parser on the same field layout.
+    it.skipIf(process.platform !== 'linux')(
+        'parses THIS process out of the kernel\'s own output [linux only — /proc does not exist on darwin; the ' +
+            'hand-written kernel line above covers the parser on every platform]',
+        () => {
+            const raw = readFileSync(`/proc/${process.pid}/stat`, 'utf8');
+            const row = rowOrThrow(raw);
+            expect(row.pid).toBe(process.pid);
+            expect(row.ppid).toBe(process.ppid);
+            expect(row.state).not.toBe('');
+            expect(row.pgrp).toBeGreaterThan(0);
+        },
+    );
 
     it('returns null rather than a half-parsed row for anything it cannot read', () => {
         // A partial parse yields a row with pid 0 and state '' that LOOKS like
@@ -224,16 +229,35 @@ describe('descendantPids — the walk itself', () => {
         expect(found.filter((pid) => pid === 11).length).toBe(1);
     });
 
-    it('reads the live machine, so a fresh walk is never vacuous on a platform that can be read', () => {
+    it('reads the live machine, so a fresh walk is never vacuous', () => {
+        // UNCONDITIONAL, and that is the whole content of this test. The
+        // previous version wrapped the two assertions in `if (live.size === 0) {
+        // … }` and put a NAMED FAILURE in the empty branch — written as
+        // `expect(process.platform === 'linux' ? 'procfs must be readable' : 'ps
+        // must be readable').toBe('procfs must be readable')`. On linux that
+        // compares a string with itself: it can only ever fail on darwin, so the
+        // branch that fires on a broken reader — the one this test exists for —
+        // was the branch that could not fail.
+        //
+        // MEASURED, on the code as it stood: reducing `freshParentTable()` to
+        // `return NO_TABLE` left the whole file at 29/29 green. The pin for
+        // position 34 therefore had a second half that pinned nothing, and its
+        // own comment ("a named failure is better than an empty assertion that
+        // passes for the wrong reason on the platform it was written for")
+        // described precisely the behaviour it exhibited.
+        //
+        // The tolerance is gone rather than reshaped because there is no
+        // platform this suite runs on that lacks a reader: linux reads `/proc`
+        // and darwin reads `ps` (`USE_PROC` in `run-child.ts`), both measured
+        // present. A platform with neither is a platform where the kill path
+        // silently sweeps nothing on every run — the exact defect of position
+        // 34 — and the right answer there is a red run with a message that
+        // names the mechanism, not a pass. Should a reader-less platform ever
+        // need tolerating, the gate has to be VISIBLE (`it.skipIf`, the idiom
+        // `child-lifetime.spec.ts` uses for its `/proc`-only test), never a
+        // conditional assertion inside the test.
         const live = freshParentTable();
-        if (live.size === 0) {
-            // Unreadable here, and the walk correctly degrades to "signal
-            // nothing". A named failure is better than an empty assertion that
-            // passes for the wrong reason on the platform it was written for.
-            expect(process.platform === 'linux' ? 'procfs must be readable' : 'ps must be readable').toBe('procfs must be readable');
-            return;
-        }
-        expect(live.size).toBeGreaterThan(0);
+        expect(live.size, 'the process table must be readable here; a fresh walk over an empty table is vacuous').toBeGreaterThan(0);
         expect(live.get(process.pid), 'the fresh table must contain this very process').toBe(process.ppid);
     });
 });
@@ -272,17 +296,13 @@ describe('sweepDescendants — the count and the interlock', () => {
         ).toBe(0);
     });
 
-    it('signals nothing at all for the seed-only list the walk returns when it finds nothing', () => {
-        // Ties the two halves together: this is the literal end-to-end of the
-        // vacuous pass, and the assertion is that it is INERT rather than that
-        // it is loud.
-        const recorded = [0];
-        const record = (pid = 0) => {
-            recorded.push(pid);
-        };
-        expect(sweepDescendants(descendantPids(10, parents([])), record)).toBe(0);
-        expect(recorded.slice(1)).toEqual([]);
-    });
+    // The third "nothing to signal" case — the seed-only list the walk returns
+    // when it finds nothing — is asserted in the position-34 block below, which
+    // is where that list is produced and where both empty tables are driven. It
+    // lived here as well, under the name "signals nothing at all for the
+    // seed-only list the walk returns when it finds nothing": the same assertion
+    // with one table instead of two, and a second line in the report for a fact
+    // the other test already carried.
 });
 
 describe('isExecuting — exists AND not a corpse', () => {
@@ -478,18 +498,37 @@ describe('position 34 — the pass-2 walk must never be handed an empty table', 
         ).toBe(true);
     });
 
-    it('sweeps the seed-less list through the real killer only for pids it can prove are positive', () => {
+    it('sweeps the seed-less list through a RECORDER, and signals nothing — the vacuous pass, inert', () => {
         // The other half of the same regression, stated as behaviour: whatever
         // the walk hands over, the sweep's interlock is what keeps it inert. If
-        // the interlock regressed, THIS is the test that would notice — safely,
-        // because the killer here is a recorder rather than `process.kill`.
-        const hand = descendantPids(10, parents([[10, 1]]));
-        expect(hand).toEqual([0]);
+        // the interlock regressed, THIS is the test that would notice.
+        //
+        // Through a RECORDER, and the name now says so. It used to read "through
+        // the real killer" while passing a recorder — the name asserted the
+        // opposite of the test, and it is not a cosmetic wording problem: the
+        // real killer here would be `process.kill(0, 'SIGKILL')`, which signals
+        // EVERY process in this runner's own group. A test that destroys its own
+        // evidence is the reason `sweepDescendants` takes its killer as a
+        // parameter at all.
+        //
+        // This absorbs the near-duplicate that used to sit in the
+        // `sweepDescendants` block above under the name "signals nothing at all
+        // for the seed-only list the walk returns when it finds nothing". Two
+        // tests, one assertion, two different empty tables. The tables are
+        // DIFFERENT inputs, so both are driven here: the empty one is the
+        // vacuous walk position 34 found, and the one holding only the leader
+        // is a real machine that reported the leader and no descendants. What
+        // was duplicated was the assertion, not the input, and one test can
+        // cover both.
         const recorded = [0];
         const record = (pid = 0) => {
             recorded.push(pid);
         };
-        expect(sweepDescendants(hand, record)).toBe(0);
+        for (const table of [parents([]), parents([[10, 1]])]) {
+            const hand = descendantPids(10, table);
+            expect(hand, 'the walk hands over the seed and nothing else').toEqual([0]);
+            expect(sweepDescendants(hand, record)).toBe(0);
+        }
         expect(recorded.slice(1)).toEqual([]);
     });
 });

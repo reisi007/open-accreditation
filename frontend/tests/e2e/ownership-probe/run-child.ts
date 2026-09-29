@@ -1066,12 +1066,31 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // It used to be written `descendantPids(child.pid, readParentTable())` —
     // with NO argument, which resolves to `NO_TABLE`, i.e. an EMPTY map. An
     // empty map has no children, so the walk returned the `[0]` seed and
-    // nothing else, and `sweepDescendants` skipped the `0`. Measured: the pass
-    // issued **zero** SIGKILLs, on every platform, while the whole suite stayed
-    // green. It read as a mechanism and was a no-op — the exact shape of a
-    // green test that proves nothing. `freshParentTable()` makes the read
-    // explicit and unmissable; `run-child.test.ts` pins both halves (the read
-    // finds this process, and no call site may drop the argument).
+    // nothing else, and `sweepDescendants` skipped the `0`. `freshParentTable()`
+    // makes the read explicit and unmissable, and `run-child.test.ts` pins both
+    // halves (the read finds this process, and no call site may drop the
+    // argument).
+    //
+    // ## What this fix is NOT: restored SIGKILLs
+    //
+    // The claim is easy to overstate, and the measurement directly above
+    // contradicts it. The premise does NOT hold in the normal case — by the time
+    // the race resolves the leader is already reaped and its row is gone, so
+    // `isSameProcess` rejected it and the fresh walk was SKIPPED on the very run
+    // that was instrumented. A skipped walk issues no signals whether its table
+    // is empty or full, so the vacuous read was producing **zero** SIGKILLs and
+    // the fixed read produces **zero** SIGKILLs on that same run. The count is
+    // unchanged.
+    //
+    // So the fix buys two things, and neither is a kill. It removes a landmine:
+    // a call that read as a mechanism and was a no-op, one edit away from
+    // mattering, in a file whose whole argument is that a green pass must not
+    // look like work it did not do. And it removes a false CLAIM — the code said
+    // it re-read the machine after the kill, and it did not, and the pin in
+    // `run-child.test.ts` is what stops the docblock from asserting the
+    // capability again on the strength of a branch nobody can reach. Treat the
+    // fresh walk as untested-in-practice for coverage purposes; what is tested is
+    // that the read is real the moment the premise holds.
     if (timeoutMs > 0 && child.pid !== undefined) {
         const leader = readProcessRow(child.pid);
         // `NO_ROW` for "no row", because `readProcessRow`'s `null` and the
