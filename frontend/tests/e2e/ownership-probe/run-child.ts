@@ -43,20 +43,30 @@ import { once } from 'node:events';
  * process whose parent never reaps stays as `Z`. The sweep therefore does not
  * rescue a process the group missed — measured, none was missed — it does the
  * one thing the group cannot: it addresses pids **by identity**, in dependency
- * order, so a descendant that somehow did not inherit the group still dies, and
- * a pid that outlived its group survives as an unreapable corpse rather than as
- * a live writer. It is coverage with a measured cost of zero in the normal case,
- * not a rescue operation. A second, cheaper reason it stays: a reparented
- * zombie cannot be reaped by anybody, and re-signalling it is the only
- * remaining assertion that it stays unexecutable.
+ * order, so a descendant that somehow did not inherit the group still dies. It
+ * is coverage with a measured cost of zero in the normal case, not a rescue
+ * operation.
+ *
+ * Removal has a second owner, and this is where the file's story has to stay
+ * honest. A SIGKILLed process's children are REPARENTED, and a reparented
+ * corpse can only be removed by whatever holds PID 1. In the E2E job that is a
+ * real reaper — Nutzerentscheid D26, `--init` on the job container in
+ * `ci.yml`, proven behaviourally in `child-lifetime.spec.ts` — and on a
+ * developer machine it is `launchd`. Where no reaper exists, the pid lingers as
+ * an unreapable `Z`, and re-signalling it is the only assertion left that it
+ * stays unexecutable. That is why the sweep stays, and it is a different reason
+ * than "the group missed somebody".
  *
  * Therefore: after the group signal, a **descendant sweep** follows. It is a
  * plain recursive walk of the PPID map from the leader, SIGKILLing every pid it
  * finds, then repeating the walk once more in case a process was reparented or
  * spawned into the gap. PPID descent is the only handle available that does not
- * depend on group membership — which is exactly the property that the group
- * cannot be relied on to have finished, since reparenting is what happens when
- * it *has* worked.
+ * depend on group membership — and that is its whole justification, on its own
+ * terms. It is NOT the claim this file used to make. The claim was that PPID
+ * descent is "the property that the group cannot be relied on to have finished",
+ * which is backwards twice over: group membership was measured intact (above),
+ * and what the group signal cannot finish is not membership but REAPING. Reaping
+ * is addressed at PID 1, not by a walk.
  *
  * `SIGKILL` rather than `SIGTERM` is deliberate: `SIGTERM` is a REQUEST, and
  * the failure this module exists to prevent is a process too wedged to answer
@@ -94,6 +104,21 @@ import { once } from 'node:events';
  * sweep all come from the same filesystem and spawn nothing. darwin keeps `ps`.
  * The reason is measured and unpleasant — the CI image has no `ps` — and it is
  * written out at `USE_PROC` below, where the branch is taken.
+ *
+ * ## Which of these helpers are also the TEST's, and why that is not circular
+ *
+ * `isExecuting` used to live in `child-lifetime.spec.ts`, module-private. A
+ * predicate that decides "this process cannot execute any more" was therefore
+ * reachable only by running a whole Playwright runner that spawns a whole
+ * Playwright runner — the test file that was supposed to be unit-testable logic
+ * had no seam, and on darwin the `Z` branch it exists for is never taken
+ * (measured alphabet there: `? R S U`). It lives HERE now, exported, and
+ * `run-child.test.ts` (Vitest) drives it from both sides. The spec imports the
+ * predicate instead of owning it, which is what removes the duplicate: there is
+ * exactly one implementation of the rule, and the E2E spec is one consumer of it
+ * among two. The unit test is the PRIMARY here and the E2E spec the second
+ * consumer, not the other way round — a rule whose only test needs a container
+ * is a rule with no test on a developer machine.
  *
  * ## Why this file has no type annotations
  *
@@ -147,6 +172,19 @@ const NAME_SEED = [''];
 const NO_TABLE = new Map();
 
 /**
+ * The empty process row, used where "there is no row" is a real answer — the
+ * pass-2 identity check gets one whenever the leader is already gone, which is
+ * the MEASURED normal case, not an edge case.
+ *
+ * A named, SEEDED constant rather than a `null` default, and the reason is
+ * mechanical: this directory has no TS annotations (file header), so a
+ * parameter typed by a `null` default infers as `null` and rejects every real
+ * row the caller passes. `pid: 0` is what makes it safe as a value — it can
+ * never match a pid, so "no row" is always a rejection.
+ */
+const NO_ROW = { pid: 0, ppid: 0, pgrp: 0, state: '', comm: '' };
+
+/**
  * ## The one place that decides HOW a process is looked at
  *
  * MEASURED, CI run 36532030136 (2026-09-29): the E2E container has **no `ps`
@@ -157,8 +195,17 @@ const NO_TABLE = new Map();
  * non-zero exit, not `ENOENT` — so `ps` is not on the runner's `PATH`. That is
  * consistent with the image rather than mysterious: `deployment/Dockerfile.e2e`
  * installs an explicit apt list (`git curl xz-utils unzip zip`) that does not
- * contain `procps`, and sets no `ENTRYPOINT`/`CMD`, so `ps` exists only if the
- * base snapshot happens to carry it.
+ * contain `procps`, and defines no `ENTRYPOINT`/`CMD` of its own — it inherits
+ * `CMD ["/usr/local/bin/entrypoint.sh", "serve"]` from the base image
+ * (`deployment/Dockerfile:254`), so `ps` would exist only if the base snapshot
+ * happens to carry it. It does not, as the `ENOENT` above measures.
+ *
+ * The same inheritance is why "the image" is not the whole answer to "what is
+ * PID 1": the E2E job is a GitHub Actions **job container**, and what the runner
+ * puts at PID 1 is a property of the RUNNER's invocation, not of the image.
+ * Measured for the reaping half of the same problem in
+ * `child-lifetime.spec.ts`; the flag that decides it is `ci.yml`'s
+ * `container.options: --init`, and that test fails if it is ever absent.
  *
  * The consequence is larger than "one call site". Both former `ps` paths
  * degraded SILENTLY into the same empty answer, and that answer meant opposite
@@ -242,16 +289,73 @@ export function parseProcStat(raw = '') {
  *
  * ## Why this is exported
  *
- * It is a pure function of one short string and it is the single line the whole
- * "the child is dead" claim rests on. Before this it was an inline regex in a
- * `tests/e2e` spec, module-private and therefore untestable: on darwin the
- * measured state alphabet is `? R S U` — no `Z`, no `X` — so the branch was
- * never even taken locally, and a later edit that deleted the pattern would have
- * left every suite green. It is exported, and its table is asserted, in
- * `child-lifetime.spec.ts`.
+ * It is a pure function of one short string and it is one half of the single line
+ * the whole "the child is dead" claim rests on (the other half is
+ * `isExecuting`, below). Before this it was an inline regex in a `tests/e2e`
+ * spec, module-private and therefore untestable: on darwin the measured state
+ * alphabet is `? R S U` — no `Z`, no `X` — so the branch was never even taken
+ * locally, and a later edit that deleted the pattern would have left every suite
+ * green. It is exported, its table is asserted in `child-lifetime.spec.ts`, and
+ * both halves are unit-tested in `run-child.test.ts`.
  */
 export function isZombieState(state = '') {
     return /^[ZXx]/.test(state);
+}
+
+/**
+ * Can this process still EXECUTE? `false` once it is gone OR once it is a
+ * zombie — the two states in which it provably cannot write anything.
+ *
+ * Three states have to be told apart, and they are not the same two the
+ * original comment listed:
+ *
+ * 1. **`ESRCH` from `kill(pid, 0)`** — the pid does not exist. Done.
+ * 2. **A zombie state** — it exists and cannot run. Also done, and done for the
+ *    strongest possible reason: a zombie has no address space to write from.
+ * 3. **`''` from `statCodeFor`** — the pid passed check 1 but the state could
+ *    not be read. This is the one that used to be missing, and it is the
+ *    dangerous one: it means the mechanism is blind, not that the process is
+ *    gone. It is treated as STILL RUNNING, because the failure mode being
+ *    guarded against here is a false "gone" that would hide a real leak.
+ *
+ * That third case is not hypothetical, and it is what CI run 36532030136 hit
+ * three times: the E2E image has no `ps` binary, so every state read returned
+ * `''` and the check correctly refused to call a process dead. Fail-closed
+ * turned a broken tool into a red run instead of a green lie — the right
+ * direction, but a red run all the same. The fix is a mechanism that answers
+ * without a binary (`/proc`, see `USE_PROC` above), not a softer predicate.
+ *
+ * ## Why the STATE READ is a parameter
+ *
+ * `readState` defaults to `statCodeFor`, so every production caller writes
+ * `isExecuting(pid)` and nothing changes. What the parameter buys is branch 3:
+ * with a real `statCodeFor` that branch is nearly unreachable — a pid that
+ * `kill(pid, 0)` accepts almost always has a readable `/proc/<pid>/stat` — so a
+ * unit test could not drive the one branch that decides a fail-CLOSED reading.
+ * Injecting the reader is how `run-child.test.ts` asserts that `''` means
+ * "assume still running", and `sweepDescendants` below takes its `kill` the
+ * same way. Both seams exist to make the *dangerous* branch reachable without
+ * breaking a process; neither is a hook the production path uses.
+ */
+export function isExecuting(pid = 0, readState = statCodeFor) {
+    if (pid <= 0) {
+        return false;
+    }
+    try {
+        process.kill(pid, 0);
+    } catch (error) {
+        // Narrowed structurally (this directory forbids TS annotations): ESRCH is
+        // "no such process", which is the answer we came for.
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') {
+            return false;
+        }
+        throw error;
+    }
+    const state = readState(pid);
+    if (state === '') {
+        return true;
+    }
+    return !isZombieState(state);
 }
 
 /** Every entry in `/proc`, or nothing at all if it cannot be listed. */
@@ -429,12 +533,14 @@ function readProcessRow(pid = 0) {
  * The single-letter state of `pid`, or `''` for "no answer of any kind".
  *
  * `''` is deliberately ambiguous and deliberately useless on its own: the
- * caller decides what it means, and for the one caller that matters
- * (`isExecuting` in `child-lifetime.spec.ts`) it means "assume it is still
- * running", because the failure being guarded against is a false "gone".
- * Distinguishing "no such process" from "could not look" here would move that
- * decision into this file, where it cannot be read next to the reason it is
- * made.
+ * caller decides what it means. It is `isExecuting` — above, in this file —
+ * that turns it into "assume it is still running", and its docblock is where
+ * that reasoning lives. Duplicating the three-case story here is what made two
+ * copies of one rule in two files.
+ *
+ * The deliberate non-goal is distinguishing "no such process" from "could not
+ * look": doing it here would move the fail-closed decision out of the place
+ * where its reason can be read next to it.
  */
 export function statCodeFor(pid = 0) {
     const row = readProcessRow(pid);
@@ -463,13 +569,45 @@ export function statCodeFor(pid = 0) {
  * for this caller is the same action either way (signal nothing). The callers
  * that DO have to tell "nothing" from "could not look" check
  * `readProcessTable()` themselves, which does distinguish them.
+ *
+ * ## The `= NO_TABLE` default is a LANDMINE, and the call sites are the fix
+ *
+ * Omitting the argument resolves to an empty map, which is indistinguishable
+ * from "the walk found nothing" — so a call written as `readParentTable()` is a
+ * **silently vacuous** walk, not a compile error and not a runtime error. That
+ * is not hypothetical: it is exactly what pass 2 of the sweep did, and it
+ * degraded to zero SIGKILLs while every suite stayed green. So:
+ *
+ * - every call site passes a table, and `run-child.test.ts` PINS that: the test
+ *   reads this file's own source and fails on a single occurrence of
+ *   `readParentTable()` with an empty argument list. A source pin is normally
+ *   the weak kind of test; here it is the strong kind, because the alternative
+ *   is a type error this directory cannot express (no annotations — see the
+ *   file header — so the parameter must carry a default to be typed at all).
+ * - `freshParentTable` below is the ONLY reader-plus-map, so the kill path has
+ *   one shape to get wrong instead of three.
  */
-function readParentTable(table = NO_TABLE) {
+export function readParentTable(table = NO_TABLE) {
     const parents = new Map();
     for (const [pid, row] of table) {
         parents.set(pid, row.ppid);
     }
     return parents;
+}
+
+/**
+ * The parent table from a FRESH read of the machine, or an empty map if this
+ * platform cannot be inspected.
+ *
+ * This is the one place that reads and maps in a single step, and it exists so
+ * that no kill-path caller has to write the `null`-to-empty dance itself. The
+ * `null` is `readProcessTable()`'s "could not look" answer, and it maps to the
+ * same action as "found nothing" — signal nothing — which is safe in the
+ * direction that matters: a blindfold here costs coverage, never a wrong kill.
+ */
+export function freshParentTable() {
+    const table = readProcessTable();
+    return readParentTable(table === null ? NO_TABLE : table);
 }
 
 /**
@@ -479,8 +617,16 @@ function readParentTable(table = NO_TABLE) {
  * children are reparented away and this walk — repeated later — returns
  * nothing, which is why the caller snapshots the result while the leader is
  * still alive and re-signals the snapshot afterwards.
+ *
+ * The return value ALWAYS begins with `PID_SEED`'s `0`, which is never
+ * signalled (`sweepDescendants` skips it). The seed is a typing device, and this
+ * is where its cost is visible: a caller that walks an EMPTY table gets `[0]`
+ * back rather than `[]`, and the difference between "found nothing" and "found
+ * nothing because the table was empty" is invisible to a `length`-only check.
+ * Exported so `run-child.test.ts` can assert the real shape against a synthetic
+ * table — an empty table, a flat set, a three-level tree and a cycle.
  */
-function descendantPids(rootPid = 0, parents = new Map()) {
+export function descendantPids(rootPid = 0, parents = new Map()) {
     const childrenByParent = new Map();
     for (const [pid, ppid] of parents) {
         const existing = childrenByParent.get(ppid);
@@ -513,6 +659,63 @@ function descendantPids(rootPid = 0, parents = new Map()) {
 }
 
 /**
+ * Is the process now occupying `pid` the one this driver started?
+ *
+ * ## The check that was there, and why it is not enough
+ *
+ * The premise check used to be `leader !== null && leader.pgrp === child.pid` —
+ * that is, "the pid is occupied AND it leads a process group of its own". The
+ * first half is necessary and the second is cheap, but together they establish
+ * only that SOME group leader holds this number. They do NOT establish that it
+ * is OURS: a pid that the kernel recycled to a fresh, unrelated group leader
+ * passes both conditions exactly as our own would. A recycled pid becoming a new
+ * group leader is unlikely — `setsid`/`spawn detached` have to happen to be the
+ * next user of that number — but "unlikely" is a probability, and the cost of
+ * the mistake is SIGKILLing a stranger's process subtree, which is the one
+ * outcome in this file that is worse than a red test.
+ *
+ * ## What this adds: a recorded IDENTITY, not an inferred one
+ *
+ * `before` is the leader's row captured at kill time, from the SAME table read
+ * that produced the snapshot — no extra syscall, no extra race. The kernel
+ * offers no true generation counter for a pid, so identity has to be
+ * reconstructed from what does change when a number is recycled: the process's
+ * `comm` and its `pgrp`. A reused pid whose new occupant differs in EITHER is
+ * rejected.
+ *
+ * The honest limit, stated rather than smoothed over: `comm` is a name, not a
+ * uid, and a stranger running the same program in the same group would pass. So
+ * this narrows the window substantially and does not close it. What it does
+ * guarantee is the direction of the remaining error: the walk is skipped, never
+ * entered on a false positive, and the snapshot re-signal below still runs
+ * regardless — so a wrong answer here costs coverage, not a foreign kill.
+ *
+ * Exported and unit-tested because it is a three-line predicate on the
+ * file's most dangerous branch, which is exactly the shape of rule that gets
+ * edited by someone in a hurry. `run-child.test.ts` drives it with a matching
+ * row, a differing `comm`, a differing `pgrp`, a `null` before/after, and — the
+ * case the old check got wrong — a recycled pid that IS a group leader.
+ */
+export function isSameProcess(pid = 0, now = NO_ROW, before = NO_ROW) {
+    // `NO_ROW` rather than `null` as the default, and that is the file header's
+    // rule paying off: a parameter with a `null` default is typed `null` by
+    // inference, which rejects every real row. A seeded row types the parameter,
+    // and it is a safe default by construction — `pid: 0` fails the first check,
+    // so an omitted argument is always a rejection, never an acceptance.
+    if (pid <= 0 || now.pid !== pid || before.pid !== pid) {
+        return false;
+    }
+    if (now.pgrp !== before.pgrp || now.comm !== before.comm) {
+        return false;
+    }
+    // A group leader is its own pgid. This is the cheap part of the old check and
+    // it is kept, because a row whose pgrp is not its own pid means the kernel
+    // has already reparented or regrouped it — never a state in which walking
+    // from it means walking from OUR leader.
+    return now.pgrp === pid;
+}
+
+/**
  * SIGKILL each pid, counting the ones that were actually reachable.
  *
  * An `ESRCH` is not a failure: it means the pid is gone, which is the desired
@@ -521,8 +724,19 @@ function descendantPids(rootPid = 0, parents = new Map()) {
  * the sweep is best-effort coverage of a handle that is not group membership,
  * and the caller reports coverage through `sweptDescendants` rather than
  * through a throw.
+ *
+ * ## Why `kill` is a parameter
+ *
+ * The `pid <= 0` interlock below is the most destructive line in the file if it
+ * ever breaks: `process.kill(0, 'SIGKILL')` signals **every process in the
+ * caller's own group**, and the caller here is a test runner with a group. A
+ * unit test that exercised the interlock against the real `process.kill` would
+ * therefore SIGKILL its own test run on failure — a regression test that
+ * destroys the evidence. Injecting the killer lets the test assert the exact
+ * same thing ("0 and negatives never reach the syscall") with a recorder, and
+ * the real path keeps the real `process.kill`.
  */
-function sweepDescendants(pids = PID_SEED) {
+export function sweepDescendants(pids = PID_SEED, kill = killWithSigkill) {
     let signalled = 0;
     for (const pid of pids) {
         // The `0` guard is a safety interlock, not defensive style: pid 0 means
@@ -532,13 +746,23 @@ function sweepDescendants(pids = PID_SEED) {
             continue;
         }
         try {
-            process.kill(pid, 'SIGKILL');
+            kill(pid);
             signalled += 1;
         } catch {
             // Already gone, or gone between the snapshot and now.
         }
     }
     return signalled;
+}
+
+/**
+ * The real killer, named so it can be a DEFAULT VALUE (the file header's
+ * "parameters carry default values" rule — the alternative would be an
+ * annotation, which is an ESLint parse error in this directory). Throws for an
+ * unknown pid, which is what `sweepDescendants` counts as "nothing to do".
+ */
+function killWithSigkill(pid = 0) {
+    process.kill(pid, 'SIGKILL');
 }
 
 /** The column header a reader needs; also the shape `ps -A -o …` prints. */
@@ -669,6 +893,19 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // exactly the pids the first one saw. A pid does not change when its parent
     // is reaped; a PPID does, which is the entire reason for keeping this.
     const capturedDescendants = PID_SEED.slice();
+    // The leader's own row, read at kill time, so pass 2 can tell "still the
+    // process we started" from "a new occupant of a recycled pid".
+    //
+    // DECLARED HERE, before the timer that writes it — and that placement is
+    // load-bearing, not tidiness. A `let` further down, between the `await` and
+    // the second sweep, is in its TEMPORAL DEAD ZONE for the whole run: the
+    // `setTimeout` callback fires at `timeoutMs` and assigns it before the
+    // function has resumed past the `await`, so the write throws
+    // `ReferenceError: Cannot access 'leaderBefore' before initialization` and
+    // the group signal never goes out at all. MEASURED, not reasoned: the E2E
+    // child-lifetime test failed with exactly that error. Every other mutable in
+    // this function is declared in this block for the same reason.
+    let leaderBefore = null;
 
     if (child.stdout !== null) {
         child.stdout.on('data', (chunk) => {
@@ -708,6 +945,11 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
             // `treeAtKill` and the pids about to be signalled come from one
             // observation of the machine rather than two that can disagree.
             const before = readProcessTable();
+            // The leader's row from the SAME read, kept for the pass-2 identity
+            // check below. Free here — the table is already in hand — and it is
+            // the only answer to "is this pid still OUR process" that does not
+            // require guessing.
+            leaderBefore = before === null ? null : (before.get(child.pid) ?? null);
             if (before === null) {
                 // Stated rather than swallowed: the sweep below will find
                 // nothing, and "nothing" is indistinguishable from "already
@@ -762,7 +1004,7 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // by now been reparented. So the pre-kill snapshot is re-signalled, and a
     // fresh walk is taken against whatever the kernel still reports.
     //
-    // ## The fresh walk is CONDITIONAL, and this is the fix for a real hazard
+    // ## The fresh walk is CONDITIONAL, and it is the only conditional one
     //
     // The snapshot needs no condition: its pids were this child's descendants
     // moments ago, and re-signalling a pid that has since died is the work
@@ -770,15 +1012,14 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // `child.pid` and follows whatever is below it *now*, and a pid is not
     // reserved. If the leader was reaped and its number handed to something
     // else, that fresh walk walks into a stranger's process tree and SIGKILLs
-    // processes that had nothing to do with this test — the one place in this
-    // file that can do damage rather than merely report a failure.
+    // processes that had nothing to do with this test.
     //
-    // So the walk only runs while the premise it rests on still holds: the
-    // leader's pid is still occupied AND still leads a process group of its own.
-    // A group leader is by definition its own pgid, so `pgrp === pid` is a check
-    // the kernel answers for free and that a recycled pid is very unlikely to
-    // pass (it would have to be, coincidentally, a new group leader). When the
-    // premise fails, the pass degrades to the snapshot alone — which is still
+    // So the walk only runs while the premise it rests on still holds, decided
+    // by `isSameProcess` above: the row now at `child.pid` must match the row
+    // captured at kill time in pid, pgrp AND comm. The old check — "occupied and
+    // a group leader" — proved only that SOME group leader holds the number, and
+    // a recycled pid that happens to become a new group leader passed it. When
+    // the premise fails, the pass degrades to the snapshot alone — which is still
     // every pid the sweep ever intended to reach, and the pass reports why it
     // did less rather than doing it silently.
     //
@@ -786,6 +1027,25 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // the kernel to have wrapped the pid space and handed this number to a new
     // process within one timeout, which is why this is rated low — but "very
     // unlikely" is a probability, and a conditional costs two lines.
+    //
+    // ## This is NOT the only place in the file that can signal a stranger
+    //
+    // An earlier version of this comment called the fresh walk "the one place
+    // in this file that can do damage rather than merely report a failure". That
+    // was wrong, and wrong in the direction that makes a reader stop looking.
+    // The unconditional re-signal of `capturedDescendants` at the end of this
+    // pass has the SAME exposure, because a pid is not reserved: had the kernel
+    // handed one of the snapshot's numbers to a new process in the meantime,
+    // that SIGKILL lands on it. So does the pre-kill snapshot, and so does the
+    // group signal — that one needs a recycled pgid that the new leader kept.
+    //
+    // What the conditional buys is therefore not SAFETY, it is a BOUND: the
+    // fresh walk can collect an entire stranger SUBTREE from one recycled
+    // number, while a snapshot pid is a single already-recorded identity,
+    // signalled at most twice. The honest summary is that this file narrows the
+    // blast radius and does not eliminate it — which is why the premise check,
+    // the snapshot and the group signal are reported to the caller as three
+    // separate facts rather than summed into one reassuring number.
     //
     // MEASURED (temporary instrumentation, removed again), one `runChild` call
     // with a 20 s bound on darwin:
@@ -800,11 +1060,39 @@ export async function runChild(command = '', args = ARGS, timeoutMs = 0, env = p
     // one that could collect a stranger's subtree if a pid ever did get reused.
     // What is left — the four captured pids, re-signalled unconditionally — is
     // the half that does real work, and it does not depend on the premise.
+    //
+    // ## The fresh walk READS THE MACHINE (position 34 — this was vacuous)
+    //
+    // It used to be written `descendantPids(child.pid, readParentTable())` —
+    // with NO argument, which resolves to `NO_TABLE`, i.e. an EMPTY map. An
+    // empty map has no children, so the walk returned the `[0]` seed and
+    // nothing else, and `sweepDescendants` skipped the `0`. Measured: the pass
+    // issued **zero** SIGKILLs, on every platform, while the whole suite stayed
+    // green. It read as a mechanism and was a no-op — the exact shape of a
+    // green test that proves nothing. `freshParentTable()` makes the read
+    // explicit and unmissable; `run-child.test.ts` pins both halves (the read
+    // finds this process, and no call site may drop the argument).
     if (timeoutMs > 0 && child.pid !== undefined) {
         const leader = readProcessRow(child.pid);
-        const leaderIsStillOurs = leader !== null && leader.pgrp === child.pid;
+        // `NO_ROW` for "no row", because `readProcessRow`'s `null` and the
+        // guard's seeded default have to agree on what absence looks like.
+        const leaderIsStillOurs = isSameProcess(
+            child.pid,
+            leader === null ? NO_ROW : leader,
+            leaderBefore === null ? NO_ROW : leaderBefore,
+        );
         if (leaderIsStillOurs) {
-            sweptPids += sweepDescendants(descendantPids(child.pid, readParentTable()));
+            const pass2Table = freshParentTable();
+            if (pass2Table.size === 0) {
+                // Stated, not swallowed — same reasoning as the pre-kill read
+                // above. A walk over zero rows cannot kill anybody, and a
+                // diagnosis that cannot tell that from "swept, found nothing" is
+                // the diagnosis that hides a broken mechanism.
+                killNote +=
+                    '\nthe second sweep pass could not read the process table, so its fresh walk had ' +
+                    'nothing to work from; only the pre-kill snapshot was re-signalled.\n';
+            }
+            sweptPids += sweepDescendants(descendantPids(child.pid, pass2Table));
         }
         sweptPids += sweepDescendants(capturedDescendants);
     }

@@ -1059,7 +1059,7 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
      * A VARIABLE key (`post(path, …)`) is not matched and cannot be — a static
      * scan has nothing to compare it against. That direction is fail-open, so it
      * is stated here rather than left to be discovered, and it is a REAL case in
-     * this tree: `ownership.spec.ts:413` posts to a `path` it built from
+     * this tree: `ownership.spec.ts:416` posts to a `path` it built from
      * `E2E_OWNED_TEARDOWN`. It is covered regardless, by the same spec's LITERAL
      * posts to `/api/admin/categories`, `/api/admin/events` and
      * `/api/admin/venues` — which is what the `toContain` assertion on that spec

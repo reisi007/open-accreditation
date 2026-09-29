@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import fs, { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { describeProcessTree, isZombieState, parseProcStat, runChild, statCodeFor } from './ownership-probe/run-child';
+import { describeProcessTree, isExecuting, isZombieState, parseProcStat, runChild, statCodeFor } from './ownership-probe/run-child';
 
 /**
  * ## The child must be KILLED, not merely waited for
@@ -44,19 +46,53 @@ import { describeProcessTree, isZombieState, parseProcStat, runChild, statCodeFo
  *
  * The reason is the CI *environment*, not the driver, and only the second half
  * of that sentence is a measurement. What is measured: the worker survived in
- * state `Z` inside the E2E container, three times. What is NOT measured there:
- * *which* process was PID 1 — an earlier version of this comment asserted
- * `tail -f /dev/null` as though it had been read off the runner, and it had not;
- * `deployment/Dockerfile.e2e` sets no `ENTRYPOINT`/`CMD` at all, so the identity
- * of PID 1 in that job was never established.
+ * state `Z` inside the E2E container, three times, and its `PPID` was `1` — so
+ * it had been reparented to whatever holds PID 1, and that holder had not
+ * reaped it. What is NOT measured there: *which* process that was. An earlier
+ * version of this comment asserted `tail -f /dev/null` as though it had been
+ * read off the runner, and it had not. The reason that number was never
+ * available is structural, and it is worth stating because it decides where the
+ * fix has to go: the E2E job is a GitHub Actions **job container**, and PID 1
+ * in a job container is chosen by the RUNNER's invocation, not by the image.
+ * `deployment/Dockerfile.e2e` defines no `ENTRYPOINT`/`CMD` of its own and
+ * inherits `CMD ["/usr/local/bin/entrypoint.sh", "serve"]` from the base image
+ * (`deployment/Dockerfile:254`) — so "look at the image" cannot answer the
+ * question either.
  *
  * The mechanism needs no particular reaper to be *true*, only a reaper to be
  * *absent*, and the absence is what the `Z` reading shows directly: a SIGKILLed
- * process is not removed from the process table by the kill — only its PARENT
+ * process is not removed from the process table by the kill — only a PARENT
  * removes it, by reaping. With no reaper, the killed worker stays as
  * `<defunct>` forever, and `kill(pid, 0)` keeps SUCCEEDING, because the pid
  * genuinely still exists. On darwin PID 1 is `launchd`, which reaps, so the
  * entry disappears at once — hence green locally, red on the container.
+ *
+ * ## A reaper now EXISTS there (Nutzerentscheid D26: "no process leaks please")
+ *
+ * The strict reading of that decision: a killed child must genuinely DISAPPEAR,
+ * not merely become unexecutable. So the job container now runs with a reaper
+ * at PID 1 — `ci.yml`'s `container.options: --init` — and the `Z` reading above
+ * is no longer the normal case in CI. It is the **absence control**: if a
+ * `Z` shows up, the reaper is gone. The predicates below are therefore NOT
+ * loosened, and the decision does not relax them: a `Z` still satisfies "cannot
+ * execute", so the kill assertion stays valid either way, and a second test
+ * asserts reaping outright by orphaning a real process and watching it leave
+ * the process table. Two postconditions, both fail-closed: "the child cannot
+ * run" AND "an orphan is reaped".
+ *
+ * MEASURED for the mechanism itself, outside CI, on this host with Docker 29.8.1
+ * (`debian:bookworm-slim`, one process exiting right after its parent, so it is
+ * orphaned and then gone):
+ *
+ * ```
+ * without --init : ORPHAN pid=13 STILL-IN-TABLE state=Z   PID1 comm=sleep
+ * with    --init : ORPHAN pid=14 GONE (reaped)           PID1 comm=docker-init
+ * ```
+ *
+ * `docker-init` is the daemon's own tini, and it is chosen over an image
+ * `ENTRYPOINT` precisely because it is in force whatever program the runner
+ * makes PID 1 — an `ENTRYPOINT` the job container overrides would be a line in
+ * a Dockerfile that says nothing about the running system.
  *
  * **A zombie cannot write to the database.** It has no threads left, its address
  * space is gone, and it executes no instructions. The claim this test exists to
@@ -69,7 +105,9 @@ import { describeProcessTree, isZombieState, parseProcStat, runChild, statCodeFo
  * "can this process still execute?" — `false` for a vanished pid AND for a
  * zombie. The `Z` reading is not a loophole; it is the correct answer, and the
  * failure message prints the `STAT` column so a reader can check that claim for
- * themselves instead of taking it on faith.
+ * themselves instead of taking it on faith. With D26 in force it is also the
+ * cheaper of the two postconditions: it is the one that holds even if the
+ * reaper is missing, which is exactly why it cannot be the only one.
  *
  * ## The same environment also has no `ps`
  *
@@ -77,56 +115,39 @@ import { describeProcessTree, isZombieState, parseProcStat, runChild, statCodeFo
  * environment that produces the zombie, the dump tool is not there: CI run
  * 36532030136 failed with `ps failed while describing pid 1567: spawnSync ps
  * ENOENT`. So the classification reads `/proc/<pid>/stat` directly now, and this
- * file holds no process-inspection logic of its own beyond the `kill(pid, 0)`
- * existence probe — which is a syscall and cannot be missing.
+ * file holds no process-inspection logic of its own at all — `isExecuting`,
+ * `isZombieState`, `statCodeFor` and the whole walk are imported from
+ * `run-child.ts`, so there is exactly one implementation of each rule and no
+ * second copy to drift. What remains here is orchestration: what to assert, and
+ * what to print when it is not.
  */
 
 /** How long to wait for the SIGKILL to be observed. Generous on purpose. */
 const DEATH_GRACE_MS = 5000;
 
 /**
- * Can this process still EXECUTE? `false` once it is gone OR once it is a
- * zombie — the two states in which it provably cannot write anything.
+ * `isExecuting` is NOT defined here any more — it is imported from
+ * `ownership-probe/run-child.ts`, where it lives beside `isZombieState` and
+ * `statCodeFor`, the two other halves of the same rule.
  *
- * Three states have to be told apart, and they are not the same two the
- * original comment listed:
+ * It was module-private HERE, and that was the defect position 31 measured: the
+ * predicate that decides "this process cannot execute" was reachable only by
+ * running a spec that spawns a whole Playwright runner — on a platform whose
+ * measured state alphabet (darwin: `? R S U`) never contains the `Z` the rule
+ * exists for. A rule whose only test needs a container has no test on a
+ * developer machine, and deleting the pattern would have left every suite green.
  *
- * 1. **`ESRCH` from `kill(pid, 0)`** — the pid does not exist. Done.
- * 2. **A zombie state** — it exists and cannot run. Also done, and done for the
- *    strongest possible reason: a zombie has no address space to write from.
- * 3. **`''` from `statCodeFor`** — the pid passed check 1 but the state could
- *    not be read. This is the one that used to be missing, and it is the
- *    dangerous one: it means the mechanism is blind, not that the process is
- *    gone. It is treated as STILL RUNNING, because the failure mode being
- *    guarded against here is a false "gone" that would hide a real leak.
+ * It moved to the driver and gained a Vitest unit test
+ * (`ownership-probe/run-child.test.ts`) that drives all three branches — a
+ * vanished pid, a corpse, and the unreadable state that must be read as STILL
+ * RUNNING — from injected inputs, spawning nothing.
  *
- * That third case is not hypothetical, and it is what CI ran 36532030136 hit
- * three times: the E2E image has no `ps` binary, so every state read returned
- * `''` and the check correctly refused to call a process dead. Fail-closed
- * turned a broken tool into a red run instead of a green lie — the right
- * direction, but a red run all the same. The fix is a mechanism that answers
- * without a binary (`/proc`, see `run-child.ts`), not a softer predicate.
+ * What THIS file keeps is the part that genuinely belongs to it: the end-to-end
+ * claim, on a real killed Playwright child, in the real container. A unit test
+ * cannot show that a group SIGKILL reaches a Playwright worker, and a unit test
+ * cannot run inside the job container where the zombie was measured. Two
+ * consumers of ONE rule — the unit test is the primary, this spec the second.
  */
-function isExecuting(pid = 0) {
-    if (pid <= 0) {
-        return false;
-    }
-    try {
-        process.kill(pid, 0);
-    } catch (error) {
-        // Narrowed structurally (this directory forbids TS annotations): ESRCH is
-        // "no such process", which is the answer we came for.
-        if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') {
-            return false;
-        }
-        throw error;
-    }
-    const state = statCodeFor(pid);
-    if (state === '') {
-        return true;
-    }
-    return !isZombieState(state);
-}
 
 /** Poll until the pid can no longer execute, or the grace period runs out. */
 async function waitUntilGone(pid = 0) {
@@ -297,6 +318,117 @@ test.describe('the child probe process is killed, not left running', { tag: ['@r
 });
 
 /**
+ * ## D26: "no process leaks please" — the reaper is in force, PROVEN here
+ *
+ * The decision is strict: an orphaned child must genuinely DISAPPEAR, not merely
+ * become unexecutable. A `--init` line in `ci.yml` is a claim; this test is the
+ * measurement, and it belongs HERE — in the E2E suite — for two reasons that are
+ * both structural:
+ *
+ * - The only place the claim is about is the job container. A Vitest run on the
+ *   runner host cannot observe the container's PID 1, so a unit test could only
+ *   assert the *config* (which `run-child.test.ts` does, separately and for the
+ *   fast job), never the *behaviour*.
+ * - The predicate the other test uses is deliberately satisfied by a `Z`. That
+ *   tolerance is correct and it stays — but it is exactly what makes that test
+ *   unable to distinguish "reaped" from "left as a corpse". This one can, and
+ *   that is its whole job: it holds the system to the STRONGER claim.
+ *
+ * ## What it does, and why each step is necessary
+ *
+ * The orphan has to be a **grandchild whose parent exits first**, so the kernel
+ * reparents it to PID 1; a direct child would be this test runner's own, and
+ * Node would reap it, which would prove nothing about the init. Then it has to
+ * EXIT, so the kernel leaves a `Z` for whoever holds PID 1 to collect. Both
+ * halves are required: a living orphan tests nothing about reaping, and an
+ * unreparented corpse is Node's business, not init's.
+ *
+ * MEASURED outside CI on this host (Docker 29.8.1, the same two lines this test
+ * runs): without a reaper at PID 1 the orphan sits at `state=Z` indefinitely;
+ * with one it is gone from `/proc` entirely. The failure message below therefore
+ * prints the STAT column and PID 1's own `comm`/`cmdline`, because "no reaper" and
+ * "a reaper I do not recognise" are different faults with the same symptom.
+ *
+ * NOT skipped, and NOT linux-only. The requirement is about the environment, not
+ * the kernel: a developer machine's PID 1 (`launchd`, `systemd`) reaps too, so
+ * the test is green there and means the same thing. The one environment it
+ * cannot pass is a container without an init — which is precisely the fault it
+ * exists to report, so a red run here is the correct direction to fail.
+ */
+test.describe('the E2E job reaps orphans — no process leaks (D26)', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
+    // The test runner's process tree is this machine's; running the same
+    // assertion in two browser projects would orphan four processes to prove
+    // one fact. One writer, one measurement.
+    test.beforeEach(async ({}, testInfo) => {
+        test.skip(testInfo.project.name !== 'Desktop Chrome');
+    });
+
+    test('a process orphaned by a dying parent is reaped, not left in the process table', async () => {
+        // The `sh` in the middle is the parent: it forks the inner shell and exits
+        // immediately, so the inner shell is reparented to PID 1 before it exits
+        // itself. `$!` is that inner shell's pid, and it is printed on stdout —
+        // the parent is gone by the time this test can look, so the pid has to
+        // travel out of the dying process.
+        const orphanMaker = await new Promise((resolve) => {
+            const sh = spawn('sh', ['-c', 'sh -c "exit 0" & echo $!; exit 0'], { stdio: ['ignore', 'pipe', 'ignore'] });
+            let out = '';
+            sh.stdout.on('data', (chunk) => {
+                out += chunk.toString('utf8');
+            });
+            once(sh, 'close').then(() => {
+                resolve(out.trim());
+            });
+        });
+        const orphanPid = Number(orphanMaker);
+        expect(orphanPid, `could not read the orphan's pid out of the parent shell (got "${orphanMaker}")`).toBeGreaterThan(0);
+
+        // The state of PID 1, read while the diagnosis is still being assembled,
+        // so the failure message can name the reaper instead of shrugging.
+        const pid1Comm = readFileSync('/proc/1/comm', 'utf8').trim();
+        const pid1Cmdline = fs.existsSync('/proc/1/cmdline') ? readFileSync('/proc/1/cmdline', 'utf8').replace(/\0/g, ' ').trim() : '(unreadable)';
+
+        // Give the kernel time to run the inner shell and reparent the corpse. The
+        // wait is for a CAUSE, not for the outcome: if the reaper works the pid
+        // is gone long before this, and if it does not, the pid is still there
+        // when the poll ends. Polling is what keeps the test from being a
+        // race against an arbitrary sleep.
+        const deadline = Date.now() + 3000;
+        let state = '';
+        let present = true;
+        while (Date.now() < deadline) {
+            try {
+                state = statCodeFor(orphanPid);
+                present = state !== '';
+            } catch {
+                present = false;
+            }
+            if (!present) {
+                break;
+            }
+            await new Promise((resolve) => {
+                setTimeout(resolve, 50);
+            });
+        }
+
+        expect(
+            present,
+            'a process whose parent exited was left in the process table, so nothing at PID 1 reaped it.\n' +
+                'This is Nutzerentscheid D26 ("no process leaks please") failing in the strict sense: the child did\n' +
+                'become unexecutable, which is what the other test in this file asserts, but it never DISAPPEARED.\n\n' +
+                '--- WHAT WAS MEASURED (not inferred) ---\n' +
+                `  orphan pid:                       ${orphanPid}\n` +
+                `  its STAT after ${3000}ms:          ${present ? state : '(gone)'}\n` +
+                `  PID 1 comm:                       ${pid1Comm}\n` +
+                `  PID 1 cmdline:                    ${pid1Cmdline}\n\n` +
+                'Two causes, distinguishable by the last two lines. If PID 1 is the Actions runner, the fix is the\n' +
+                'reaper flag: `container.options: --init` on the `e2e` job in .github/workflows/ci.yml (removed?\n' +
+                '`run-child.test.ts` also pins that line). If PID 1 is an init this test does not recognise, the\n' +
+                'container is running without one and no predicate in this suite can substitute for it.',
+        ).toBe(false);
+    });
+});
+
+/**
  * ## The load-bearing line, tested on its own
  *
  * Everything above rests on one rule — a `Z` process is not executing — and that
@@ -416,10 +548,22 @@ test.describe('the process-state classification is a pure, tested function', { t
             throw new Error(`/proc/${process.pid}/stat did not parse: ${JSON.stringify(raw)}`);
         }
         expect(row.pid).toBe(process.pid);
-        // Cross-checked against the OTHER reader: `statCodeFor` parses this file
-        // through the same function but reads it by pid, so agreement here means
-        // the address-by-pid and the parse-by-content paths see the same state.
-        expect(row.state).toBe(statCodeFor(process.pid));
+        // ONE read, ONE assertion. This compared `row.state` against a SECOND,
+        // INDEPENDENT read of the same file (`statCodeFor(process.pid)`), and
+        // the comment above it described the two as two readers — which is the
+        // defect class this repo keeps catching: a claim about a second source
+        // where there is only one. The window was a genuine microsecond-scale
+        // `S`→`R` transition between the two reads; the flake probability was
+        // negligible and the VALUE was negative, because the assertion could
+        // only ever fail for a reason unrelated to what it claimed to check.
+        //
+        // What it is really about is the PARSER's field alignment, and that is
+        // fully covered by the reads above: `raw` is this kernel's own output,
+        // `row` is what the parser made of it, and a shifted `state`/`ppid`/
+        // `pgrp` is caught right here. `statCodeFor` is exercised on a live pid
+        // in the previous test.
+        expect(row.state).not.toBe('');
+        expect(isZombieState(row.state), `the test runner reports "${row.state}", which must not be a corpse`).toBe(false);
         // ppid and pgrp are the fields the descendant walk and the pass-2
         // condition depend on; a one-field shift would send the sweep into the
         // wrong subtree while every state assertion above still passed.

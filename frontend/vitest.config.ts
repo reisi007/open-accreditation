@@ -30,7 +30,20 @@ export default defineConfig({
     // `scripts/**` as well as `src/**`: the i18n guard's classification logic
     // lives in scripts/po-catalog.mjs (plain ESM, so the guard itself needs no
     // build step) and is covered by a test next to it.
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.ts'],
+    //
+    // `tests/**` as well, and for the same reason: the child-process driver's
+    // decision functions (`isZombieState`, `isExecuting`, the PPID walk, the
+    // sweep) are PURE or take their one impure input as an argument, but they
+    // live under `tests/e2e/`, which Playwright collects and Vitest did not. A
+    // rule reachable only by booting a browser and a backend has no test on a
+    // developer machine — and the state alphabet on darwin (`? R S U`) never
+    // contains the `Z` that rule exists for, so the gap was not even visible
+    // locally. MEASURED before widening: `find tests -name '*.test.ts'` returned
+    // nothing, so the pattern collects no pre-existing file.
+    //
+    // The two runners cannot collide: Playwright's `testMatch` is
+    // `**/*.spec.ts`, so a `*.test.ts` under `tests/` is invisible to it.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.ts', 'tests/**/*.test.ts'],
     setupFiles: ['src/test-setup.tsx'],
     css: true,
     coverage: {

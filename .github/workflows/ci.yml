@@ -351,6 +351,25 @@ jobs:
       # nachlesbar — bit-reproduzierbar ist das Image trotzdem nicht
       # (`composer:2`, nodejs.org-`latest-v26.x`).
       image: ghcr.io/reisi007/accriditation-e2e:latest
+      # ── D26: "no process leaks please" — ein Reaper als PID 1 ──────────────
+      # `--init` setzt den Daemon-eigenen tini (`docker-init`) als PID 1 vor das
+      # Programm, das der Runner startet. Warum HIER und nicht als ENTRYPOINT im
+      # Dockerfile: der E2E-Job ist ein Job-Container, und dessen PID 1 bestimmt
+      # der RUNNER, nicht das Image — ein ENTRYPOINT, den der Runner ersetzt,
+      # waere eine Zeile, die nichts ueber das laufende System sagt. `--init`
+      # gilt unabhaengig davon, welches Programm PID 1 wird.
+      #
+      # Gemessen (Docker 29.8.1, gleiche zwei Zeilen wie der Test in
+      # `frontend/tests/e2e/child-lifetime.spec.ts`): ohne Reaper bleibt der
+      # Waisenkind-Prozess dauerhaft auf `state=Z` in der Prozessliste, mit
+      # Reaper verschwindet er ganz aus `/proc`.
+      #
+      # Der Reaper ersetzt die STAT-Prädikate NICHT (D26 verschärft die Zusage,
+      # sie lockert sie nicht): `isExecuting`/`isZombieState` bleiben als zweite,
+      # fail-closed Postcondition stehen — ein `Z` ist der Beweis, dass der
+      # Reaper FEHLT. Beide Postconditions werden getestet: die Prozess-
+      # Anwesenheit im Spec, die Reaper-Wirkung hier per Pin.
+      options: --init
     env:
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: admin

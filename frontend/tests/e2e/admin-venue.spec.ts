@@ -30,9 +30,11 @@ test.afterEach(async () => {
  * after the submit (the `findCreatedRowId` pattern in `admin-mandant.spec.ts`).
  * The first test does not need that: it deletes its own venue by row locator at
  * the end. The second test deletes NOTHING, so its `E2E Team ${suffix}` and
- * `E2E Heimstadion ${suffix}` rows (+1 team, +1 venue per run, Desktop Chrome
- * only — the second test skips the mobile project) are reclaimed by the serial
- * `globalTeardown` name sweep instead: `E2E_PURGE_MARKERS.teamNames` holds
+ * `E2E Heimstadion ${suffix}` rows (+1 team, +1 venue per run) are reclaimed by
+ * the serial `globalTeardown` name sweep instead. The count is per RUN and not
+ * per project, because the project skip below is DESCRIBE-WIDE: one
+ * `beforeEach` guards both tests, so Mobile Chrome skips this whole file rather
+ * than only its second test. `E2E_PURGE_MARKERS.teamNames` holds
  * `'E2E Team '` and `venueNames` holds `'E2E Heimstadion'`. The ORDER in
  * `E2E_PURGE_SWEEPS` is what makes that work — teams before venues, because the
  * venue is still REFERENCED by the team and a referenced venue answers 409 (the
