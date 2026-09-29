@@ -12,9 +12,14 @@
 > 
 > **Gate-Stand 2026-09-29 (`36552912340`, alle vier Jobs grün):** E2E strikt **142 / 52 skipped / 0 failed** · Backend SQLite **1607 passed** (7892 Assertions) · Backend Postgres **1 skipped + 1606 passed** (7886 Assertions) · Frontend Vitest **42 Files / 405 passed** · `build` ✅ inkl. `check:i18n` (418 Nachrichten) · `lint` ✅.
 > 
-> **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **14 Positionen** in der Batch-Tabelle (5–38). **Offen sind 10 davon:** 5, 6, 8, 9, 10, 12, 13, 14, 22, 38. **Geschlossen, aber stehengeblieben sind 4:**
-> 17, 21, 23, 25 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (Begründung: „Offen bei Übergabe“).
-> 10 offen + 4 stehengeblieben = 14 Zeilen; **aus der Datei nachgezählt**, nicht aus der Prosa.
+> **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **16 Positionen** in der Batch-Tabelle (5–40). **Offen sind 12 davon:** 5, 6, 8, 9, 10, 12, 13, 14, 22, 38, 39, 40. **Geschlossen, aber stehengeblieben sind 4:**
+> 17, 21, 23, 25 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (Begründung: „Offen bei Übergabe").
+> 12 offen + 4 stehengeblieben = 16 Zeilen; **aus der Datei nachgezählt**, nicht aus der Prosa.
+> **39** und **40** sind am 2026-09-29 **neu** aufgenommen und beide aus demselben Vorgang: der F2-Verifikation.
+> **39** ist die umgekehrte Form des grün-aus-Nebenzustand-Musters — hier wird die Suite **rot**, weil
+> jemand eine gewöhnliche `APP_URL` gesetzt hat. **40** widerlegt die Begründung, mit der Position 10
+> als sauber gemeldet war. Beide sind unten begründet; **40** trägt eine Reihenfolge, deren Umkehr
+> drei Specs rot macht.
 > **7** (Nightly) ist mit dem Wave-C-Sweep mit entfernt — geschlossen, verifiziert, ohne Querverweis; ihre Zahlen
 > stehen in den Absätzen darüber und im Wave-C-Abschnitt.
 > **Position 22 trägt zwar `**[x]`
@@ -120,6 +125,8 @@ Re-Verifikators gefangen.
 | **23** | **[x] VERIFIZIERT 2026-09-29 — fixed (Kind-Env-Pin, Mutation rot).** Der verschachtelte Lauf erbt die ganze `process.env` und damit die Messschalter selbst** (medium, 2026-09-28) | S1 | `ownership.spec.ts:90` reicht `{ ...process.env, CI: '' }` durch — der Kind-Lauf braucht nur `E2E_BASE_URL`. **Strukturell** erreicht `E2E_OWNERSHIP=off` auch das Kind, und dessen Teardown wäre neutriert, wodurch Assertion (3) des Treibers fiele. **Heute nur maskiert**, weil `e2e-per-spec-leaks.mjs:110` den Treiber per `--grep-invert` ausschliesst. **Die Gültigkeit eines Tests hängt damit an einem Schalter, den der Treiber nicht kontrolliert.** |
 | **25** | **[x] VERIFIZIERT 2026-09-29 — Docblock + zurückgenommene Negativprobe (Diff auf namespace-isolation leer).** M1: admin-venue-Entscheidung steht nirgends im Repo (medium, 2026-09-29) | S1 | Verifikatorbefund zum Implementierer-Diff: `admin-venue.spec.ts:17-21` trägt leere Ledger-Hooks, UI-erzeugtes Team+Venue (+1/+1 je Lauf, gemessen 2026-09-29) ist reclaimbar aber unregistriert — korrekt nicht gemacht (Auftragserweiterung über das damalige Band 17–24 hinaus; 18–20 und 24 sind seither per §4-Schnitt entfernt), aber nirgends dokumentiert. Fix: ~5-Zeilen-Docblock; `admin-venue.spec.ts` in `UI_CREATE_SITES` aufzunehmen machte das Gate korrekt rot. Natürlicher nächster Kandidat für die Registrierung im **Namens-Lookup**, mit dem `admin-mandant.spec.ts` inzwischen räumt. |
 | **38** | **`ownership.spec.ts` legt sein Team ohne `teams_enabled`-Vorbedingung an — auf einer frischen DB ist der Test rot, bis ein fremder Spec sie eingeschaltet hat** (medium, 2026-09-29) | S1 | **Die einzige Kette aus den vier Befunden der Welle C, deren Ursache **außerhalb** des Codes liegt, den §4 nicht schneidet — der Seeder. Deshalb bleibt sie als Position, statt in einen Docblock zu wandern.** Drei Glieder, alle am Code geprüft: `backend/database/seeders/DatabaseSeeder.php:59` und `:81` legen **beide** Mandanten mit `teams_enabled => false` an (`firstOrCreate` schaltet nichts nach) · `TeamController::assertTeamsEnabled()` (`:284-288`) beantwortet **jedes** `POST /api/admin/mandants/{id}/teams` mit **422** · `ownership.spec.ts:481-574` („a row the teardown CANNOT delete takes the run down with it") ruft genau diese Route (`:524`), **ohne vorher zu prüfen** — anders als `admin-data.ts:422`/`:1146`, die in `ensurePrimaryMandantHasTeam()` vorher auf `teams_enabled: true` setzen. **Es geht nicht still falsch, sondern rot:** ohne Team greift der 409 nicht, `reclaimOwnedRows()` löscht die Venue, und `expect(refused).not.toBeNull()` (`:547`) fällt. **Warum es trotzdem grün aussieht — und das ist der Befund:** `global-setup.ts` schaltet **nichts** frei, es räumt nur das Logo; die Reihenfolge trägt. `admin-mandant.spec.ts:41` ruft den Team-Ensure auf und läuft in der vollen Suite vor `ownership.spec.ts`, also hinterlässt es das Flag. **Der Test ist damit grün aus geerbter Reihenfolge, nicht aus Konstruktion** — dieselbe Fehlerform wie der `withCookie()`-Befund (Position 13) und der Ledger-Befund dieser Session: grün, weil ein Zustand nebenbei gesetzt war. **Belegte Exposition, ohne Lauf abgeleitet:** `ownership.spec.ts:68` trägt `@regression` + `@feature:e2e-hygiene`, `admin-mandant.spec.ts:41` trägt `@smoke` + `@feature:admin:mandant` — `npx playwright test --grep @feature:e2e-hygiene` zieht den Schalter also **nicht**, und das ist auf einer frischen DB genau der rote Aufruf. **Fixrichtung:** die Vorbedingung an die **eigene** Stelle des Specs, mit demselben `PUT`-Schalter, den `admin-data.ts` schon hat — als **Helper**, nicht kopiert (zwei Kopien sind zwei Wahrheiten). **Nicht** in `global-setup.ts`: der ist ausdrücklich *best-effort* und schluckt Fehler (`:45-47`), und ein dort verschluckter Fehler macht die 422 stumm — das wäre die schlechtere Form. **Gefahr beim Umdrehen:** das Flag global zu setzen würde Teams **dauerhaft** aktivieren und damit `features/02-domain-model.md` (Opt-in pro Mandant) in einem Test-Shadow aufweichen; deshalb ist der Spec-Helfer die richtige Form und nicht die bequemere. |
+| **39** | **Die PHPUnit-Suite ist nicht hermetisch: ihr Ergebnis hängt an der gitignorierten `backend/.env` — 520 Fehlschläge durch **eine** normale `APP_URL`** (high, 2026-09-29) | S1 | **Gefunden, weil ein Subagent für seinen E2E-Stack die geteilte `.env` umgeschrieben hat und danach 520 Tests rot waren — ohne dass ein Zeile Produktivcode sich geändert hätte.** (`git status --porcelain` leer; die Suite war Minuten zuvor grün.) **Die Kette, am Code gemessen:** `VerifyLink::for()` baut die Verifikations-URL als `$scheme.'://'.$host.'/verify/'.$token` und leitet das Schema aus `config('app.url')` ab — `VerifyLink.php:25` `parse_url($baseUrl, PHP_URL_SCHEME) ?: 'https'`, gleich `BadgeRenderService.php:814`. **Leeres `APP_URL` ⇒ `https`.** Die Tests behaupten fest `https://verband-a.test/verify/…` und sind deshalb **nur** grün, wenn `APP_URL` leer ist. **Gemessene Fehlschlagkette:** `WalletPassServiceTest` (3 rot) → `Failed asserting that two strings are identical: -'https://verband-a.test/…' +'http://verband-a.test/…'`; das Schema folgt `APP_URL`, also `APP_URL=http://localhost:5173` ⇒ **520 failed / 1131 passed**. **Und die Umkehrung ist der eigentliche Befund:** `VerifyLink.php:15` sagt ausdrücklich *„The scheme always follows `config('app.url')` (https in prod, http in local)"* — **lokal ist `http` also das dokumentierte Richtige**, und die Tests behaupten stattdessen eine prod-spezifische Konfiguration. **Wer die Tests repariert, muss die Hermetizität wählen, nicht den Wert:** kein „`APP_URL` auf https klemmen" — das macht nur diese eine Umgebung grün und lässt den nächsten Entwickler exakt so laufen wie mich. **Warum das über Position 13/38/22 hinausgreift:** alle drei sind *grün aus einem Zustand nebenbei*. Das hier ist die Umkehrung — **rot aus einem Zustand nebenbei** — und dieselbe Ursache: eine Plausibilitätsannahme über die Umgebung, die nie gemessen wurde. **Zusatzlast:** dieselbe Kopplung betrifft vermutlich weitere `config(...)`-Lesewerte in Tests, nicht nur `app.url`; der Auftrag soll das **messen**, nicht auf `APP_URL` begrenzen. |
+| **40** | **Alle vier owner-scoped Antrags-/Unterantrags-Registrierungen im E2E-Ledger sind tot — `applications` und `subApplications` werden suite-weit nie zurückgegeben** (medium, 2026-09-29) | S2 | **Gefunden beim Refutieren von F2, nicht beim Beheben.** Die Bedingung liest ein Feld, das die Resource nicht liefert: `admin-data.ts:763` `if (own.accreditation_id === accreditationId)`, und `ApplicationResource.php:22-29` gibt `id, accreditation, status, priority, reason, created_at` zurück — die Id liegt **verschachtelt** unter `own.accreditation.id`. `undefined === 52` ⇒ `false` ⇒ `rememberOwnedByUser('applications', …)` (`:764`) **läuft nie**. Dasselbe an `:848`, `:924` und `:954` (`own.sub_accreditation_id`, `SubApplicationResource.php:24-32`). **Gemessen** (Wegwerf-Probe, danach gelöscht): `own.accreditation_id=undefined`, `own.accreditation?.id=52`, `(own.accreditation?.id === accreditation.id) => true`, **Ledger `applications=0`**; `account-deletion.spec.ts` **4 passed**. **Folge für den Besitznachweis (D23):** der einzige **lebende** owner-scoped Eintrag ist `userMedia` (`admin-data.ts:837`), weil er die Id aus der Create-Antwort liest. **Und die Begründung des ersten Commits ist damit widerlegt:** „Reste in der DB gemessen: 0" stimmt, aber aus dem **falschen Grund** — die Anträge werden nicht über das Ledger zurückgegeben, sie **reiten auf der `users`-Kaskade**, weil jeder betroffene Helper auch `rememberOwnedUserAccount` aufruft. Gemessen nach allen Proben: `users=1 (e2e=0), applications=0, sub_applications=0, user_media=0`. **Damit sind zwei Quell-Kommentare falsch** — `admin-data.ts:917-920` („the registration is real work, not a placeholder") und `ownership.ts:129-133` („accreditations below is not optional bookkeeping") behaupten Arbeit, die nicht stattfindet: die §3-Formel. **Der naheliegende Fix ist eine Falle, gemessen:** Registrierungen wiederherzählen legt den 422-auf-entschieden-Problemzweig frei (`ApplicationController.php:68`, `SubApplicationController.php:60`, *„Only pending (requested) applications can be withdrawn."*) und macht `approvals.spec.ts`, `wallet.spec.ts` und `badge.spec.ts` **rot**. Reihenfolge zwingend: erst der Helper-Fix (401 bei weggefallenem Konto ⇒ reclaimable, jeder andere Status wirft), dann die Klassifizierung der entschiedenen Zeile, dann die vier Registrierungen. **Umgekehrt ist die Reihenfolge der eine Zug, der drei Specs rot macht.** |
 ### Nicht in diesem Batch
 - **Go-Live** (~20 Positionen: Pre-Prod-Domain, DNS, Caddy, Secrets, Deploy, Backup,
   Prod-Smoke) — liegt per Anweisung unten.
@@ -178,17 +185,20 @@ kleine Suite fährt und `248 failed` sieht, prüfe `php -m | grep gd`, bevor er 
 behandelt** — §4 verbietet das Etikett „pre-existing", und die Diagnose, es sei ein Code-
 Problem, wäre falsch gewesen.
 
-**2. Mailpit ist aus dieser Sandbox nicht erreichbar.** Der Docker-**Socket** funktioniert
-wieder, aber es gibt **keine Bridge-Route in den Namespace**: Container-IP `172.17.0.3` →
-`Connection timed out`, `docker port` meldet `0.0.0.0:1025` → `Connection refused`,
-`--network host` bringt nichts, weil Dockers „host" **nicht** dieser Namespace ist. **Das ist
-kein GD-Fehler**, obwohl es sich so darstellte: `badge.spec.ts`/`wallet.spec.ts` scheitern an
-`ECONNREFUSED 127.0.0.1:8025`, dem **Mailpit-API-Port**, den der Spec liest, um das
-Verifizierungs-Token zu holen (`tests/e2e/helpers/mailpit.ts:12`). `MAILPIT_API_URL` ist
-überschreibbar — das hilft nur, wenn überhaupt etwas erreichbar ist. **Folge fürs Verfahren:**
-der Implementierer eines Frontend-Auftrags kann die E2E-Suite **nicht** fahren; wer das
-umgekehrt liest, hat zwei verschiedene Ursachen für ein „fetch failed" gehalten.
-`docker compose` **fehlte** ebenfalls (vorhanden: `docker-compose-plugin` nachinstalliert).
+**2. ~~Mailpit ist aus dieser Sandbox nicht erreichbar~~ — FALSCH, am 2026-09-29 korrigiert.** Ich habe
+gemessen: `127.0.0.1:1025`/`8025` → `Connection refused`, Container-IP `172.17.0.3` → `Connection
+timed out`, `--network host` wirkungslos — und daraus **„strukturell unerreichbar"** geschlossen und
+als dauerhafte Umgebungsgrenze festgehalten. **Das war ein Namensproblem, kein Netzproblem.**
+`getent hosts dind` → `172.24.0.2`, `dind:8025` **OFFEN**, ebenso `dind:1025` und `dind:5432`. Die
+Ports des Compose-Stacks landen auf dem **`dind`-Container**, nicht auf `localhost`: der
+`--env-file deployment/dev.env`-Weg bindet sie dorthin, und die Sandbox sieht `localhost` nur als
+anderen Namespace. **Konsequenz, die mich trifft:** die **zwei** Mail-Fehlschläge der Suite waren
+**nie** umgebungsbedingt — sie waren über `MAIL_HOST=dind` / `MAILPIT_API_URL=http://dind:8025/api/v1`
+lösbar, und ich habe sie als „bekannte Umgebungsgrenze" verbucht. **Ein Befund, den man nicht
+reproduzieren kann, ist nicht minderwertig — man muss nur zugeben, dass man ihn nicht kann.** Die
+Messung, die ich brauchte, stand im Bericht des **Backend**-Agenten derselben Sitzung
+(`DB_HOST=dind`), ich habe sie nur nicht mit Mailpit verbunden. **`docker compose` fehlte** ebenfalls
+(Plugin nachinstalliert); `ps`/`pkill` fehlen auf diesem Host, Prozesse über `/proc/*/cmdline`.
 
 **3. Ein Fehler, der **weder** Mailpit noch GD ist — und der bleibt.** `BadgeTest > export pdf
 contains template field text and photo` scheitert an einer dompdf-Content-Stream-Assertion
@@ -198,10 +208,27 @@ Dokumentation als akzeptiertes Risiko in `features/`, **nicht** das Etikett „p
 **Ursache ungeklärt** — GD war zum Messzeitpunkt bereits installiert, das schließt die
 einfachste Erklärung aus, ohne die dompdf-Erklärung zu bestätigen.
 
-**Und die Zahl, die daraus folgt:** die Verifikations-Basis für Position 10 war lokal
-`1629 passed / 3 failed`, davon **2 Mailpit, 1 dompdf**. Eine Aussage der Form „alle Tests grün"
-hätte es hier **nicht** gegeben — und ein Verifikator, der die 3 als „die bekannten 3" abhakt,
-übernimmt eine Zählung, die er nicht geprüft hat.
+**Und die Zahl, die daraus folgt — sie widerlegt die Überschrift dieses Abschnitts.** Gemessen am
+2026-09-29, vollständig, ohne Override des Codes:
+
+```
+APP_URL=https://accreditation.test   MAIL_HOST=dind   →   1651 passed, 0 failed, 1 skipped
+APP_URL=https://accreditation.test   (ohne)          →   1649 passed, 2 failed   ← beide Mail
+APP_URL=                             MAIL_HOST=dind   →   1132 passed, 519 failed ← nicht der Mail
+APP_URL=http://localhost:5173        MAIL_HOST=dind   →   1131 passed, 520 failed
+```
+
+**Die Suite ist also nicht grün „trotz einer Umgebungsgrenze" — sie ist mit zwei korrigierten
+Werten vollständig grün, und das war nie gemessen.** Die „2 Mail-Fehlschläge" waren derselbe
+Namensfehler (58/58 grün mit `MAIL_HOST=dind`, gefiltert **und** in der vollen Suite). Der dritte,
+`BadgeTest`/dompdf, war ein **echter** Defekt und ist in `21d4878` behoben. **Die Überschrift
+„Umgebungsmessungen" ist damit selbst irreführend** — sie steht noch, weil sie drei Befunde
+trägt, von denen zwei keine Umgebungsbefunde waren; wer sie liest, hält 519 Fehlschläge für ein
+Sandbox-Problem. **Position 39 ist die Konsequenz**, und sie ist ernster als der Mail-Fehler:
+`APP_URL` muss **exakt** der `.env.example`-Wert sein, und **beide** naheliegenden Abweichungen
+(`http://…` für ein Dev-Server-Setup, leer als „unbekannt") kosten **je ~520 Tests** — einmal über
+`VerifyLink.php:25`, einmal über `EnsureSameOrigin`. **Ein Verifikator, der diese Suite fährt und
+`APP_URL` nicht prüft, fährt entweder 519 grüne oder 519 rote Tests und nennt beides „die Suite".**
 
 ---
 
