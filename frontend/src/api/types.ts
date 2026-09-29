@@ -104,7 +104,54 @@ export interface AdminUser {
     id: number;
     name: string;
     email: string;
+    /**
+     * Loaded by `withCount()` in `UserController::index()`. They exist because
+     * a deletion confirmation has to NAME the number of applications BEFORE
+     * the delete — afterwards the rows are gone and a count read then is
+     * always zero.
+     */
+    applications_count: number;
+    sub_applications_count: number;
     roles: UserRoleAssignment[];
+}
+
+/**
+ * The own account as `GET /api/user/account` reports it: identity plus every
+ * count a deletion confirmation has to name.
+ *
+ * This is the self-service counterpart of `AdminUser` and deliberately a
+ * DIFFERENT resource: the accreditation profile (`PUT /api/user/profile`, see
+ * `User` fields like `title`/`press_id`) is a different feature from account
+ * termination. Naming both "profile" would hide that.
+ */
+export interface AccountSummary {
+    id: number;
+    name: string;
+    email: string;
+    mandant_id: number | null;
+    /** `null` when the mandant row is gone; never a reason to block the page. */
+    mandant_name: string | null;
+    applications_count: number;
+    sub_applications_count: number;
+    media_count: number;
+}
+
+/**
+ * What a deletion actually removed, measured INSIDE the deletion transaction.
+ *
+ * `media_files_left_over` is a `string[]` of storage paths and is NOT an
+ * error: a file that cannot be unlinked must never turn a completed account
+ * deletion into a failed request — the account is gone either way, and the
+ * residue is what an operator has to know about. An empty array is the normal
+ * case; a non-empty one is a WARNING.
+ */
+export interface AccountDeletionResult {
+    applications_deleted: number;
+    sub_applications_deleted: number;
+    media_files_deleted: number;
+    role_assignments_deleted: number;
+    sessions_deleted: number;
+    media_files_left_over: string[];
 }
 
 export interface Category {

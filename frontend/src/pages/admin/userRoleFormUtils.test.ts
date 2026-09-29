@@ -19,6 +19,8 @@ function userWith(roles: Array<{ slug: string; team_id?: number | null }>): Admi
         id: 1,
         name: 'Test User',
         email: 'test@example.test',
+        applications_count: 0,
+        sub_applications_count: 0,
         roles: roles.map((entry) => ({
             role: { slug: entry.slug, name: entry.slug },
             mandant_id: 1,

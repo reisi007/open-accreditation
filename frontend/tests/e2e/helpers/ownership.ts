@@ -127,17 +127,6 @@ const E2E_OWNED = new Map();
  */
 export const E2E_OWNED_TEARDOWN = [
     // ── children first ──────────────────────────────────────────────────────
-    // `users` sits FIRST, not last, and the reason is a constraint rather than a
-    // preference: `users.mandant_id` is `nullOnDelete`, so a user SURVIVES the
-    // mandant delete. Deleting the mandant first would orphan every user that
-    // belonged to it. The order test in `namespace-isolation.spec.ts` is what
-    // found this — it is written against `E2E_OWNED_FK_EDGES`, and a hand-kept
-    // order would not have.
-    //
-    // It is also the one kind with NO delete route (see the bottom of this list),
-    // so today nothing is sent; the position is correct for the day the account
-    // DELETE route lands (board position 10) and needs no change then.
-    { kind: 'users', route: null, actor: 'admin', okStatus: 204, reclaimable: false },
     // An `application` is only withdrawable while it is still `requested`; an
     // approved one answers 422 on the owner route. What takes an approved
     // application is the CASCADE from its accreditation, which is why
@@ -155,6 +144,43 @@ export const E2E_OWNED_TEARDOWN = [
     { kind: 'blacklists', route: '/api/admin/blacklists', actor: 'admin', okStatus: 204, reclaimable: true },
     { kind: 'badgeImages', route: '/api/admin/badge-images', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
     { kind: 'badgeTemplates', route: '/api/admin/badge-templates', actor: 'admin', okStatus: 204, reclaimable: true },
+    // ── accounts LAST of the mandant-scoped kinds, and the reason is NOT the FK graph
+    //
+    // `users.mandant_id` is `nullOnDelete`, so a user SURVIVES the mandant
+    // delete: the order test in `namespace-isolation.spec.ts` (written against
+    // `E2E_OWNED_FK_EDGES`) is what pinned `users` before `mandants`, and this
+    // position satisfies that.
+    //
+    // The binding constraint is the one the FK graph CANNOT see: the three
+    // owner-scoped steps above log in AS the user they delete rows for
+    // (`loginAsUser`), and a deleted account answers 401 to that login. MEASURED
+    // — with `users` first, `profile.spec.ts` failed with "the ownership
+    // teardown could not log in as profile-media-… (status 401); its rows
+    // cannot be given back", i.e. the teardown was UNABLE to return the very
+    // rows it was asked to return. So the account must outlive every kind that
+    // needs it to still exist, and the graph's `cascade` edges say nothing about
+    // that: they are free in both directions as far as the DATABASE is concerned,
+    // and not free at all as far as the SESSIONS are.
+    //
+    // Two further notes:
+    //  - the handle is an EMAIL, not a numeric id: `POST /api/auth/register`
+    //    answers a bare `{message}`, so registration cannot register an id.
+    //    `resolveIdBy` turns the email into the id through the admin list, which
+    //    is also what makes a self-deleting test self-cleaning: the account the
+    //    teardown looks for is already gone, and a gone account is the goal state.
+    //  - `okStatus: 200`, not 204: `UserController::destroy` returns a
+    //    `JsonResponse` with the deletion summary, like `UserMediaController`.
+    //
+    // `creatableHere: false` — NOT because the route is unproven: the preflight
+    // probes it on every run, and the specs that register real users
+    // (`auth.spec.ts`, `admin-users.spec.ts`, `account-deletion.spec.ts`)
+    // exercise create → delete. It is because THIS walk is id-based end to end
+    // (`rememberOwnedRow(step.kind, row.id)` straight off the create response)
+    // and a user's create answers no id at all — the handle is an email, and
+    // turning it back into an id is precisely the resolver the teardown itself
+    // uses. A walk that reused the resolver would be checking the resolver
+    // against itself, not checking a route.
+    { kind: 'users', route: '/api/admin/users', actor: 'admin', okStatus: 200, reclaimable: true, resolveIdBy: 'email', creatableHere: false },
     { kind: 'mandantDomains', route: '/api/admin/mandants/{parentId}/domains', actor: 'admin', okStatus: 204, reclaimable: true },
     { kind: 'mandants', route: '/api/admin/mandants', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
 ];
@@ -400,17 +426,29 @@ export function rememberOwnedByUser(kind = '', id = 0, email = '', password = ''
 }
 
 /**
- * Registers a row of a kind that has NO delete route at all — today only
- * `users`, where the gap is the whole point of the function.
+ * Registers a row of a kind whose CREATE call answers no id — today only
+ * `users`, where `POST /api/auth/register` replies with a bare `{message}`.
  *
- * The email is stored in the `id` slot on purpose: it is the only handle a
- * user row has that the E2E suite itself minted (`POST /api/auth/register`
- * answers a bare `{message}`, so there is no id in the response to keep), and
- * the teardown never addresses it — it COUNTS it and NAMES it, so the residue
- * is visible in the run log instead of being an invisible +15 per run.
+ * ## What changed when the account DELETE route landed
+ *
+ * This used to be `rememberUnreclaimableUser`, and the name was the point: for
+ * months the `users` kind had NO delete route (MEASURED: the admin surface
+ * answered 405), so the helper registered the row and the teardown counted and
+ * NAMED it instead of pretending to delete it. That gap is closed — the route
+ * is `DELETE /api/admin/users/{user}` behind `can:users.delete` — so the row is
+ * genuinely given back, and a name saying "unreclaimable" would now be a lie
+ * the ledger contradicts one entry below.
+ *
+ * The EMAIL is stored in the `id` slot on purpose: it is the only handle the
+ * create call produced, and `resolveIdBy: 'email'` in `E2E_OWNED_TEARDOWN`
+ * turns it into an id at teardown time — by then the account is activated and
+ * therefore visible in the admin list.
  */
-export function rememberUnreclaimableUser(email = '') {
+export function rememberOwnedUserAccount(email = '') {
     const list = E2E_OWNED.get('users');
+    if (list === undefined) {
+        throw new Error('rememberOwnedUserAccount() is not a kind the teardown knows.');
+    }
     list.push({ id: email, parentId: 0 });
 }
 
@@ -540,6 +578,60 @@ export async function reclaimOwnedRows() {
         return sessions.get('admin');
     }
 
+    /**
+     * Resolves a stored EMAIL to the numeric id the delete route addresses.
+     *
+     * `POST /api/auth/register` answers a bare `{message}` — there is no id to
+     * register — so the email is the only handle a user fixture has. This is the
+     * one place that turns it back into an id, and it is deliberately strict:
+     *
+     *  - the search is a LIKE (`UserController@index`), so the result is
+     *    filtered down to an EXACT email match. A substring hit would delete
+     *    somebody else's account, which is the worst possible failure of a
+     *    cleanup helper.
+     *  - no exact match means the account is already gone (the test deleted it
+     *    itself — the self-service flow is its own cleanup) → `null`, and the
+     *    caller counts it as reclaimed.
+     *  - more than one exact match is impossible (emails are unique per
+     *    mandant) and is reported as a FAILURE rather than guessed, because
+     *    guessing here means deleting a row nobody registered.
+     *
+     * It opens the admin session ITSELF through `adminApi()` instead of taking
+     * one as a parameter: the only step with `resolveIdBy` is the `users` step,
+     * whose actor is `admin`, and a parameter would have to be defaulted to
+     * satisfy both parsers (plain-JS lint, strict `tsc`) — a default of `null`
+     * then rejects the real session at the call site (MEASURED: TS2345). A loop
+     * instead of `filter`, for the same reason.
+     */
+    async function resolveUserIdByEmail(email = '') {
+        const session = await adminApi();
+        const response = await session.get(`/api/admin/users?search=${encodeURIComponent(email)}`);
+        if (response.status() !== 200) {
+            throw new Error(
+                `[e2e-ownership] could not resolve the account id for ${email}: the admin user list answered ` +
+                    `${response.status()}. Without the id the users row cannot be given back.`,
+            );
+        }
+        const body = JSON.parse(await response.text());
+        const rows = Array.isArray(body.data) ? body.data : [];
+        const exact = [];
+        for (const row of rows) {
+            if (row && row.email === email) {
+                exact.push(row);
+            }
+        }
+        if (exact.length === 0) {
+            return null;
+        }
+        if (exact.length > 1) {
+            throw new Error(
+                `[e2e-ownership] ${exact.length} accounts answer to the exact email ${email}; refusing to guess ` +
+                    'which one to delete.',
+            );
+        }
+        return exact[0].id;
+    }
+
     try {
         for (const step of E2E_OWNED_TEARDOWN) {
             const list = E2E_OWNED.get(step.kind);
@@ -547,15 +639,14 @@ export async function reclaimOwnedRows() {
                 continue;
             }
             if (!step.reclaimable || step.route === null) {
-                // Named, counted, and never silently dropped — see the `users`
-                // entry in `E2E_OWNED_TEARDOWN`.
+                // Named, counted, and never silently dropped — the net for a
+                // kind whose route does not exist (there is none today; the
+                // branch stays because a plan entry may declare it again).
                 unreclaimable.set(step.kind, list.length);
                 continue;
             }
 
             for (const entry of list) {
-                const url = step.route.replace('{parentId}', String(entry.parentId)) + `/${entry.id}`;
-
                 // Owner-scoped kinds answer only for the owning account, so they
                 // get their OWN session — and an admin session would answer 403,
                 // not 404, which would read as a missing route. One session per
@@ -570,6 +661,19 @@ export async function reclaimOwnedRows() {
                 } else {
                     session = await adminApi();
                 }
+
+                if (step.resolveIdBy === 'email') {
+                    const userId = await resolveUserIdByEmail(entry.id);
+                    if (userId === null) {
+                        // The account is already gone — that is the goal state,
+                        // and for a self-deleting test it is the NORMAL one.
+                        reclaimed += 1;
+                        continue;
+                    }
+                    entry.id = userId;
+                }
+
+                const url = step.route.replace('{parentId}', String(entry.parentId)) + `/${entry.id}`;
 
                 const response = await session.delete(url);
                 const status = response.status();

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MailpitHelper } from './mailpit';
-import { rememberOwnedByUser, rememberOwnedRow, rememberUnreclaimableUser } from './ownership';
+import { rememberOwnedByUser, rememberOwnedRow, rememberOwnedUserAccount } from './ownership';
 import { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
 import { PurgeReclamationFailure } from './purge-failure';
 import { pngFixture } from '../../screenshots/helpers/png-fixtures';
@@ -140,10 +140,10 @@ export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E 
  * for its three form-created rows.
  *
  * Until that lands, this is the ONLY kind the suite creates through the UI that
- * neither a name marker nor an id registration reaches. (`users` is the other
- * kind with no delete route, but `rememberUnreclaimableUser` registers it in the
- * ledger's gap report and it is carried as its own position — a KNOWN growth, not
- * a silent residue.)
+ * neither a name marker nor an id registration reaches. (`users` used to be the
+ * other gap — the account DELETE route landed, so `rememberOwnedUserAccount`
+ * registers those rows and the teardown now really deletes them. It was the LAST
+ * kind the UI-review band count was measured against, and it is closed.)
  */
 
 /**
@@ -663,14 +663,14 @@ export async function ensurePrimaryMandantSubAccreditation() {
  * Registers a throwaway user via the API and activates it through the Mailpit
  * activation link. Returns the credentials for the subsequent UI logins.
  *
- * ## The user itself cannot be given back — and that is registered, not ignored
+ * ## The user itself is given back through the admin account DELETE
  *
- * There is no `DELETE` route for a user (MEASURED: the admin surface answers
- * 405; the only user-scoped DELETE is `/api/user/media/{id}`). So this helper
- * registers the row under the `users` kind, which the teardown reports as an
- * unreclaimable gap rather than pretending to delete it. The MEDIA a later
- * helper uploads for this user IS reclaimable, because that route is
- * owner-scoped and this helper is the one that knows the credentials.
+ * `POST /api/auth/register` answers a bare `{message}` — no id to register — so
+ * the row is registered under the `users` kind BY EMAIL, and the teardown
+ * resolves that to an id through the admin list before it deletes it (see
+ * `rememberOwnedUserAccount` and `resolveIdBy` in `ownership.ts`). The MEDIA a
+ * later helper uploads for this user is reclaimed through its own owner-scoped
+ * route, because that one has the id right there.
  *
  * @returns {Promise<{ email: string; password: string }>}
  */
@@ -687,10 +687,10 @@ export async function registerAndActivateUser() {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
         // No id to register: `POST /api/auth/register` answers a bare
-        // `{message}` (MEASURED, `AuthController::register`), and there is no
-        // user DELETE route to address it with anyway. The email is the only
-        // handle that exists, and it is what the gap report names.
-        rememberUnreclaimableUser(email);
+        // `{message}` (MEASURED, `AuthController::register`). The email is the
+        // only handle that exists; the teardown resolves it to the id the
+        // account DELETE route addresses.
+        rememberOwnedUserAccount(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -734,7 +734,7 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
         if (register.status() !== 201) {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
-        rememberUnreclaimableUser(email);
+        rememberOwnedUserAccount(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);
@@ -795,7 +795,7 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
         if (register.status() !== 201) {
             throw new Error(`User registration failed with status ${register.status()}`);
         }
-        rememberUnreclaimableUser(email);
+        rememberOwnedUserAccount(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);

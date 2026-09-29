@@ -2,7 +2,7 @@ import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { pngFixture } from '../screenshots/helpers/png-fixtures';
-import { reclaimOwnedRows, rememberOwnedByUser, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+import { reclaimOwnedRows, rememberOwnedByUser, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -65,12 +65,11 @@ async function createActivatedSession(prefix = 'profile') {
         if (register.status() !== 201) {
             throw new Error(`register failed with ${register.status()}`);
         }
-        // No user DELETE route exists, so the account itself is the measured gap
-        // — registered so the teardown counts and names it. Its MEDIA is a
-        // different story and IS reclaimable: that route is owner-scoped and
-        // this helper holds the credentials, so the upload sites below register
-        // their own rows.
-        rememberUnreclaimableUser(email);
+        // Registered by email — the account DELETE route exists, and the
+        // teardown resolves the email to its id. The MEDIA is a separate
+        // ownership: that route is owner-scoped, this helper holds the
+        // credentials, and the upload sites below register their own rows.
+        rememberOwnedUserAccount(email);
 
         const mailpit = new MailpitHelper();
         const activationPath = await mailpit.extractActivationPath(email);

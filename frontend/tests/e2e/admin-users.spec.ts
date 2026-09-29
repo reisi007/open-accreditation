@@ -1,7 +1,7 @@
 import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
-import { reclaimOwnedRows, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+import { reclaimOwnedRows, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -45,11 +45,11 @@ test.describe('Admin: Benutzer (P2c)', () => {
                 data: { name: 'E2E Benutzerverwaltung', email, password, password_confirmation: password },
             });
             expect(register.status()).toBe(201);
-            // The one kind with no delete route, registered so the teardown
-            // COUNTS and NAMES it instead of the row being invisible. The role
-            // assignments this test then makes hang off the same user, so there
-            // is nothing else to register.
-            rememberUnreclaimableUser(email);
+            // Registered by email: `register` answers no id, and the teardown
+            // resolves the email to the id the account DELETE route addresses.
+            // The role assignments this test then makes ride the CASCADE from
+            // the user delete, so there is nothing else to register.
+            rememberOwnedUserAccount(email);
 
             const mailpit = new MailpitHelper();
             const activationPath = await mailpit.extractActivationPath(email);

@@ -1,20 +1,33 @@
 import { t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import useSWR from 'swr';
 import { getPortalEvents, getPortalOverview } from '../../api/client';
 import type { PortalEvent, PortalOverview } from '../../api/types';
 import { DeadlineCountdown } from '../../components/DeadlineCountdown';
+import { deletionSuccessMessage, mediaResidueWarning } from '../../logic/accountDeletion';
+import { readAccountDeletedNotice } from '../../logic/accountDeletedNotice';
 import { formatDate } from '../../logic/formatDate';
 import { getHomepageLogo } from '../../logic/homepageLogo';
 
 export function PortalHomePage() {
     const { i18n } = useLingui();
+    const location = useLocation();
     const [teamFilter, setTeamFilter] = useState<number | null>(null);
     const [competitionFilter, setCompetitionFilter] = useState('');
     const [logoFailed, setLogoFailed] = useState(false);
     const [headerFailed, setHeaderFailed] = useState(false);
+
+    /**
+     * The one-shot report of a self-service account deletion, handed over by
+     * `AccountPage` through the router state (see
+     * `logic/accountDeletedNotice.ts` for why the result cannot stay on the
+     * page that produced it). `null` on every ordinary visit, so the block
+     * below renders nothing.
+     */
+    const accountDeleted = readAccountDeletedNotice(location.state);
+    const mediaResidue = accountDeleted ? mediaResidueWarning(accountDeleted.result.media_files_left_over, i18n) : null;
 
     const {
         data: overview,
@@ -69,6 +82,25 @@ export function PortalHomePage() {
 
     return (
         <section className="flex flex-col gap-8">
+            {accountDeleted ? (
+                <div role="alert" className="alert alert-success">
+                    <span>{deletionSuccessMessage(accountDeleted.result, 'self', i18n)}</span>
+                </div>
+            ) : null}
+
+            {/*
+              A file that survived the deletion is a WARNING, never an error:
+              the account is gone either way, and the backend deliberately
+              reports the residue instead of failing the request. Rendering it
+              as an error would tell the user their deletion failed when it
+              succeeded — see `AccountDeletionService`.
+            */}
+            {mediaResidue ? (
+                <div role="alert" className="alert alert-warning">
+                    <span className="break-all">{mediaResidue}</span>
+                </div>
+            ) : null}
+
             {overviewLoading ? <span className="loading loading-spinner loading-lg"></span> : null}
 
             {overviewError ? (

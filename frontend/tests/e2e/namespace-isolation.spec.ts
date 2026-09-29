@@ -766,20 +766,24 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
         expect(duplicates, 'a kind listed twice is deleted twice — the second delete is a silent 404').toEqual([]);
     });
 
-    test('every reclaimable step has a route, and only the known gap has none', () => {
-        // `users` is the one kind with NO delete route (MEASURED: the admin
-        // surface answers 405). It is declared `reclaimable: false` on purpose —
-        // the teardown counts and names it instead of pretending to delete it.
-        // When the account DELETE route lands (board position 10), THIS test goes
-        // red and names the one-line change, instead of the gap quietly closing
-        // while the ledger still believed the row was gone.
+    test('every reclaimable step has a route, and no step is silently unreclaimable', () => {
+        // `users` was, for months, the one kind with NO delete route (MEASURED:
+        // the admin surface answered 405) and was therefore declared
+        // `reclaimable: false` on purpose — the teardown counted and named it
+        // instead of pretending to delete it. The account DELETE route
+        // (`DELETE /api/admin/users/{user}`, board position 10) has landed, so
+        // that gap is closed, and this assertion now forbids a NEW silent one:
+        // a step must either carry a route or say why it has none.
         const wrong = [];
         for (const step of E2E_OWNED_TEARDOWN) {
             if (step.reclaimable && typeof step.route !== 'string') {
                 wrong.push(`${step.kind} is reclaimable but has no route`);
             }
-            if (!step.reclaimable && step.kind !== 'users') {
-                wrong.push(`${step.kind} is marked unreclaimable, but users is the only measured gap`);
+            if (!step.reclaimable) {
+                wrong.push(
+                    `${step.kind} is marked unreclaimable — the account DELETE route closed the last measured ` +
+                        'gap, so this is either a missing route or a missing claim about why there is none',
+                );
             }
         }
         expect(wrong, wrong.join('\n')).toEqual([]);
@@ -794,8 +798,10 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
         // So the expectation is data next to the route it describes, and the kinds
         // whose contract differs from the admin destroy convention are pinned here
         // by name. `userMedia` answers 200 with a `{message}` body
-        // (`UserMediaController::destroy` returns a `JsonResponse`); every other
-        // route answers 204 (`response()->noContent()`), MEASURED row by row.
+        // (`UserMediaController::destroy` returns a `JsonResponse`), `users`
+        // answers 200 with a deletion SUMMARY (`UserController::destroy`), and
+        // every other route answers 204 (`response()->noContent()`), MEASURED row
+        // by row.
         //
         // A new kind with a different contract therefore has to be added to this
         // list in the same commit that adds its route, and the failure says
@@ -810,7 +816,7 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
             nonDefault,
             'these kinds do not answer 204 on delete. If that is still true, the contract is pinned here on ' +
                 'purpose — add it, do not widen the tolerance',
-        ).toEqual(['userMedia=200']);
+        ).toEqual(['userMedia=200', 'users=200']);
 
         // The complement of the promise the ledger-walk test makes. That test walks
         // the plan and creates a row of each kind it can; the kinds it cannot are
@@ -825,6 +831,12 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
         // and nothing said so. The list below is therefore an EXACT one: it names
         // the entries whose create-and-verify round trip happens elsewhere, and
         // adding a kind to the plan without either a fixture or a flag breaks it.
+        //
+        // `users` joined the list when the account DELETE route landed: this walk
+        // is id-based off the create response, and a user's create answers no id
+        // (the handle is an email, resolved by the teardown itself). The list
+        // below is in PLAN order — `users` sits just before the mandant-scoped
+        // steps, after every owner-scoped one.
         const flagged = E2E_OWNED_TEARDOWN.filter((step) => step.creatableHere === false).map((step) => step.kind);
         expect(
             flagged,
@@ -833,7 +845,7 @@ test.describe('the per-test ownership teardown gives rows back in a constraint-l
                 'entry whose reason has gone is a stale claim. NOTE the two mandant-scoped steps (teams, ' +
                 'mandantDomains) are not here: they are skipped for a structural reason (they need a parent ' +
                 'this file does not create) and are registered by their own specs.',
-        ).toEqual(['subAccreditations', 'venues', 'badgeImages', 'mandants']);
+        ).toEqual(['subAccreditations', 'venues', 'badgeImages', 'users', 'mandants']);
     });
 
     test('a restrict or nullOnDelete parent is reclaimed AFTER its child', () => {
@@ -1168,6 +1180,7 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
                 'helper or a spec cannot silently empty the guard',
         ).toEqual([
             'tests/e2e/a11y.spec.ts',
+            'tests/e2e/account-deletion.spec.ts',
             'tests/e2e/accreditation.spec.ts',
             'tests/e2e/admin-category.spec.ts',
             'tests/e2e/admin-event.spec.ts',

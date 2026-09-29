@@ -1,4 +1,8 @@
+export type { AccountDeletionResult, AccountSummary } from './types';
+
 import type {
+    AccountDeletionResult,
+    AccountSummary,
     Accreditation,
     AccreditationScope,
     AdminApplication,
@@ -114,6 +118,21 @@ export const login = (email: string, password: string): Promise<void> =>
 export const logout = (): Promise<void> => request<void>('/api/auth/logout', { method: 'POST' });
 
 export const getMe = (): Promise<User> => request<User>('/api/auth/me');
+
+/**
+ * Self-service account surface (`GET /api/user/account`): own identity plus
+ * the counts the deletion confirmation has to name. No gate by design — the
+ * target is `$request->user()`.
+ */
+export const getAccount = (): Promise<AccountSummary> => request<AccountSummary>('/api/user/account');
+
+/**
+ * Hard-delete the OWN account. The backend clears the JWT cookie on the way
+ * out; revoking the access is Weg A (the account row is gone, so the next
+ * request with that token 401s whatever the cookie does).
+ */
+export const deleteOwnAccount = (): Promise<AccountDeletionResult> =>
+    request<AccountDeletionResult>('/api/user/account', { method: 'DELETE' });
 
 export interface MandantPayload {
     name: string;
@@ -324,6 +343,14 @@ export const updateUserRoles = (userId: number, roles: UserRoleInput[]): Promise
         method: 'PUT',
         body: JSON.stringify({ roles }),
     });
+
+/**
+ * Hard-delete an account (DSGVO). Behind the backend's own `users.delete`
+ * gate and its mandant-scoped `{user}` binding, so a foreign target is a 404 —
+ * the UI gate on top of this is a convenience, never the authorisation.
+ */
+export const deleteUserAccount = (userId: number): Promise<AccountDeletionResult> =>
+    request<AccountDeletionResult>(`/api/admin/users/${userId}`, { method: 'DELETE' });
 
 export interface PortalEventsParams {
     team_id?: number | null;

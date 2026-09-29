@@ -1,7 +1,7 @@
 import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
-import { reclaimOwnedRows, rememberUnreclaimableUser, resetOwnedRows } from './helpers/ownership';
+import { reclaimOwnedRows, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -46,11 +46,10 @@ test.describe('Auth flow (P1b)', () => {
                 data: { name: 'E2E Auth User', email, password, password_confirmation: password },
             });
             expect(register.status()).toBe(201);
-            // No user DELETE route exists (MEASURED: the admin surface answers
-            // 405), so this is registered as the measured gap — counted and named
-            // by the teardown rather than silently accumulating. See
-            // `E2E_OWNED_TEARDOWN`'s `users` entry.
-            rememberUnreclaimableUser(email);
+            // Registered by email: `register` answers a bare `{message}`, and the
+            // teardown resolves the email to the id `DELETE /api/admin/users/{id}`
+            // addresses (see `rememberOwnedUserAccount`).
+            rememberOwnedUserAccount(email);
 
             const mailpit = new MailpitHelper();
             const activationPath = await mailpit.extractActivationPath(email);

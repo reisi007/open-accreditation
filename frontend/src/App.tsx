@@ -23,6 +23,7 @@ import { LoginPage } from './pages/LoginPage';
 import { EventDetailPage } from './pages/portal/EventDetailPage';
 import { PortalHomePage } from './pages/portal/PortalHomePage';
 import { AccreditationsPage } from './pages/AccreditationsPage';
+import { AccountPage } from './pages/AccountPage';
 import { ApplyPage } from './pages/ApplyPage';
 import { MyAccreditationsPage } from './pages/MyAccreditationsPage';
 import { AdminLayout } from './pages/admin/AdminLayout';
@@ -84,6 +85,11 @@ function MobileNavMenu() {
                 {isAuthenticated ? (
                     <li>
                         <Link to="/meine-akkreditierungen">{i18n._(t`Meine Akkreditierungen`)}</Link>
+                    </li>
+                ) : null}
+                {isAuthenticated ? (
+                    <li>
+                        <Link to="/konto">{i18n._(t`Mein Konto`)}</Link>
                     </li>
                 ) : null}
                 {isAdmin ? (
@@ -161,6 +167,11 @@ function RootLayout() {
                     {isAuthenticated ? (
                         <Link to="/meine-akkreditierungen" className="btn btn-ghost btn-sm">
                             {i18n._(t`Meine Akkreditierungen`)}
+                        </Link>
+                    ) : null}
+                    {isAuthenticated ? (
+                        <Link to="/konto" className="btn btn-ghost btn-sm">
+                            {i18n._(t`Mein Konto`)}
                         </Link>
                     ) : null}
                 </div>
@@ -245,6 +256,19 @@ const router = createBrowserRouter([
                         element: (
                             <RequireAuth>
                                 <MyAccreditationsPage />
+                            </RequireAuth>
+                        ),
+                    },
+                    {
+                        // The self-service account area (DSGVO). `RequireAuth`
+                        // and nothing else: `GET`/`DELETE /api/user/account`
+                        // carry no gate because the target is `$request->user()`
+                        // (AccountController). A self-deletion must never depend
+                        // on a permission the user's own role might not hold.
+                        path: 'konto',
+                        element: (
+                            <RequireAuth>
+                                <AccountPage />
                             </RequireAuth>
                         ),
                     },

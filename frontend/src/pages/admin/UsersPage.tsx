@@ -2,9 +2,19 @@ import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { ApiError, listUsers, updateUserRoles } from '../../api/client';
+import {
+    ApiError,
+    deleteUserAccount,
+    listUsers,
+    updateUserRoles,
+    type AccountDeletionResult,
+} from '../../api/client';
 import type { AdminUser, UserRoleAssignment } from '../../api/types';
+import { AccountDeleteDialog } from '../../components/AccountDeleteDialog';
 import { Modal } from '../../components/Modal';
+import { deletionSuccessMessage, mediaResidueWarning } from '../../logic/accountDeletion';
+import { canDeleteUserAccounts } from '../../logic/adminRoles';
+import { useAuth } from '../../logic/useAuth';
 import { RoleForm } from './RoleForm';
 import { buildRolePayload, type RoleFormValues } from './userRoleFormUtils';
 
@@ -29,6 +39,7 @@ function MobileScrollHint() {
 
 export function UsersPage() {
     const { i18n } = useLingui();
+    const { user } = useAuth();
     const [searchInput, setSearchInput] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [page, setPage] = useState(1);
@@ -45,6 +56,55 @@ export function UsersPage() {
 
     const [editUser, setEditUser] = useState<AdminUser | null>(null);
     const [formError, setFormError] = useState<string | null>(null);
+
+    /**
+     * Account termination (DSGVO). The button is rendered only for a role that
+     * holds `users.delete` on the backend (`logic/adminRoles.ts` reads the
+     * matrix); the route is additionally gated by `RequireRoles` in
+     * `App.tsx`. The backend gate stays the authorisation — this is an
+     * affordance, so a role that gains the permission in the matrix must also
+     * be added to `ACCOUNT_DELETER_ROLE_SLUGS`.
+     */
+    const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [deleteResult, setDeleteResult] = useState<AccountDeletionResult | null>(null);
+    const mayDeleteAccounts = canDeleteUserAccounts(user);
+
+    const mediaResidue = deleteResult ? mediaResidueWarning(deleteResult.media_files_left_over, i18n) : null;
+
+    const openDelete = (user: AdminUser) => {
+        setDeleteError(null);
+        setDeleteTarget(user);
+    };
+
+    const closeDelete = () => {
+        if (deleteBusy) {
+            return;
+        }
+        setDeleteError(null);
+        setDeleteTarget(null);
+    };
+
+    const handleDelete = async () => {
+        if (deleteTarget === null) {
+            return;
+        }
+        setDeleteError(null);
+        setDeleteBusy(true);
+        try {
+            const result = await deleteUserAccount(deleteTarget.id);
+            setDeleteTarget(null);
+            setDeleteResult(result);
+            await mutate();
+        } catch (err) {
+            setDeleteError(
+                err instanceof ApiError ? err.message : i18n._(t`Konto konnte nicht gelöscht werden.`),
+            );
+        } finally {
+            setDeleteBusy(false);
+        }
+    };
 
     const openEdit = (user: AdminUser) => {
         setEditUser(user);
@@ -112,6 +172,23 @@ export function UsersPage() {
             {error ? (
                 <div role="alert" className="alert alert-error">
                     <span>{i18n._(t`Benutzer konnten nicht geladen werden.`)}</span>
+                </div>
+            ) : null}
+
+            {deleteResult ? (
+                <div role="alert" className="alert alert-success">
+                    <span>{deletionSuccessMessage(deleteResult, 'admin', i18n)}</span>
+                </div>
+            ) : null}
+
+            {/*
+              A file that survived the deletion is a WARNING, not an error: the
+              account is gone, and the backend reports the residue on purpose so
+              a stuck file can never turn a completed deletion into a failure.
+            */}
+            {mediaResidue ? (
+                <div role="alert" className="alert alert-warning">
+                    <span className="break-all">{mediaResidue}</span>
                 </div>
             ) : null}
 
@@ -193,13 +270,24 @@ export function UsersPage() {
                                                         <div className="flex flex-wrap gap-1">{roleBadges(user.roles)}</div>
                                                     </td>
                                                     <td className="whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-sm btn-outline"
-                                                            onClick={() => openEdit(user)}
-                                                        >
-                                                            {i18n._(t`Rollen bearbeiten`)}
-                                                        </button>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-sm btn-outline"
+                                                                onClick={() => openEdit(user)}
+                                                            >
+                                                                {i18n._(t`Rollen bearbeiten`)}
+                                                            </button>
+                                                            {mayDeleteAccounts ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-sm btn-outline btn-error"
+                                                                    onClick={() => openDelete(user)}
+                                                                >
+                                                                    {i18n._(t`Konto löschen`)}
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -252,6 +340,20 @@ export function UsersPage() {
                         />
                     </div>
                 </Modal>
+            ) : null}
+
+            {deleteTarget ? (
+                <AccountDeleteDialog
+                    title={i18n._(t`Konto löschen`)}
+                    accountName={deleteTarget.name}
+                    accountEmail={deleteTarget.email}
+                    applicationsCount={deleteTarget.applications_count}
+                    subApplicationsCount={deleteTarget.sub_applications_count}
+                    busy={deleteBusy}
+                    error={deleteError}
+                    onConfirm={() => void handleDelete()}
+                    onCancel={closeDelete}
+                />
             ) : null}
         </section>
     );

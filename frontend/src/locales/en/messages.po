@@ -36,14 +36,20 @@ msgstr "{available, plural, one {# slot available} other {# slots available}}"
 #~ msgid "{available} Plätze frei"
 #~ msgstr "{available} slots available"
 
+#: src/logic/accountDeletion.ts
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "{count, plural, one {# Antrag} other {# Anträge}}"
 msgstr "{count, plural, one {# request} other {# requests}}"
+
+#: src/logic/accountDeletion.ts
+msgid "{count, plural, one {# Datei} other {# Dateien}}"
+msgstr "{count, plural, one {# file} other {# files}}"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "{count, plural, one {# Eintrag} other {# Einträge}}"
 msgstr "{count, plural, one {# entry} other {# entries}}"
 
+#: src/logic/accountDeletion.ts
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "{count, plural, one {# Sub-Antrag} other {# Sub-Anträge}}"
 msgstr "{count, plural, one {# sub-request} other {# sub-requests}}"
@@ -105,6 +111,7 @@ msgstr "{totalCount, plural, one {# venue} other {# venues}}"
 #~ msgid "{totalCount} Benutzer"
 #~ msgstr "{totalCount} users"
 
+#: src/components/AccountDeleteDialog.tsx
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/BadgeTemplateForm.tsx
 #: src/pages/admin/CategoryForm.tsx
@@ -137,6 +144,10 @@ msgstr "Denial failed."
 #: src/pages/admin/AdminLayout.tsx
 msgid "Abmelden"
 msgstr "Log out"
+
+#: src/logic/accountDeletion.ts
+msgid "Achtung: Diese Datei konnte nicht gelöscht werden. Bitte den Support kontaktieren:"
+msgstr "Warning: this file could not be deleted. Please contact support:"
 
 #: src/App.tsx
 msgid "Admin"
@@ -280,6 +291,8 @@ msgstr "Application could not be submitted."
 msgid "Antrag konnte nicht zurückgezogen werden."
 msgstr "Application could not be withdrawn."
 
+#: src/components/AccountDeleteDialog.tsx
+#: src/pages/AccountPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Anträge"
 msgstr "Applications"
@@ -494,6 +507,10 @@ msgstr "The field extends beyond the right edge."
 msgid "Das Feld ragt über den unteren Rand hinaus."
 msgstr "The field extends beyond the bottom edge."
 
+#: src/logic/accountDeletion.ts
+msgid "Das Konto wurde gelöscht."
+msgstr "The account was deleted."
+
 #: src/pages/admin/BadgeTemplateForm.tsx
 #~ msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein."
 #~ msgstr "The grid is 5 mm. Set the position and size of the selected field in the properties panel."
@@ -501,6 +518,11 @@ msgstr "The field extends beyond the bottom edge."
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Das Raster hat 5 mm. Position und Größe des gewählten Feldes stellst du im Eigenschaften-Panel ein. Feiner geht es mit den Pfeiltasten auf der Vorschau: 1 mm pro Tastendruck, mit Shift 5 mm."
 msgstr "The grid is 5 mm. Set the position and size of the selected field in the properties panel. Finer steps: the arrow keys on the preview move it by 1 mm per key press, 5 mm with Shift."
+
+#: src/components/AccountDeleteDialog.tsx
+#: src/pages/AccountPage.tsx
+msgid "Dateien"
+msgstr "Files"
 
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Datenfeld ist mehrfach vorhanden."
@@ -524,6 +546,14 @@ msgstr "Date"
 msgid "Deaktivieren"
 msgstr "Deactivate"
 
+#: src/logic/accountDeletion.ts
+msgid "Dein Konto wurde gelöscht."
+msgstr "Your account was deleted."
+
+#: src/pages/AccountPage.tsx
+msgid "Dein Konto, deine Anträge, deine Sub-Anträge und deine hochgeladenen Dateien werden unwiderruflich gelöscht."
+msgstr "Your account, your applications, your sub-applications and your uploaded files will be permanently deleted."
+
 #: src/pages/VerifyPage.tsx
 msgid "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
 msgstr "The code is printed as a QR code on the badge. You can also copy the code from the address of the badge link."
@@ -531,6 +561,10 @@ msgstr "The code is printed as a QR code on the badge. You can also copy the cod
 #: src/App.tsx
 msgid "Die angeforderte Seite existiert nicht."
 msgstr "The requested page does not exist."
+
+#: src/components/AccountDeleteDialog.tsx
+msgid "Die Löschung ist endgültig und kann nicht rückgängig gemacht werden."
+msgstr "The deletion is final and cannot be undone."
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Die Mindestbreite beträgt 10 mm."
@@ -586,6 +620,7 @@ msgstr "Domains"
 msgid "Domäne"
 msgstr "Domain"
 
+#: src/pages/AccountPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BlacklistForm.tsx
 #: src/pages/admin/UsersPage.tsx
@@ -632,6 +667,10 @@ msgstr "Settings"
 #: src/pages/admin/BadgeTemplateForm.tsx
 msgid "Elemente"
 msgstr "Elements"
+
+#: src/components/AccountDeleteDialog.tsx
+msgid "Endgültig löschen"
+msgstr "Delete permanently"
 
 #: src/components/MediaField.tsx
 #: src/pages/admin/MandantDetailPage.tsx
@@ -792,6 +831,10 @@ msgstr "An image source must be selected."
 msgid "Für diesen Antrag kann keine E-Mail gesendet werden."
 msgstr "No email can be sent for this application."
 
+#: src/logic/accountDeletion.ts
+msgid "Gelöscht: {counts}"
+msgstr "Deleted: {counts}"
+
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/ApplyPage.tsx
@@ -925,6 +968,10 @@ msgstr "No mandant context available."
 #~ msgid "Kein Passwort gespeichert."
 #~ msgstr "No password saved."
 
+#: src/pages/AccountPage.tsx
+msgid "Kein Verband"
+msgstr "No association"
+
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/VenuesPage.tsx
 msgid "Keine"
@@ -981,6 +1028,25 @@ msgstr "No events"
 #: src/pages/portal/EventDetailPage.tsx
 msgid "Kontakt"
 msgstr "Contact"
+
+#: src/components/AccountDeleteDialog.tsx
+#: src/pages/AccountPage.tsx
+msgid "Konto"
+msgstr "Account"
+
+#: src/pages/AccountPage.tsx
+msgid "Konto konnte nicht geladen werden."
+msgstr "The account could not be loaded."
+
+#: src/pages/AccountPage.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Konto konnte nicht gelöscht werden."
+msgstr "The account could not be deleted."
+
+#: src/pages/AccountPage.tsx
+#: src/pages/admin/UsersPage.tsx
+msgid "Konto löschen"
+msgstr "Delete account"
 
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Kopfbild"
@@ -1116,10 +1182,19 @@ msgid "Medien"
 msgstr "Media"
 
 #: src/App.tsx
+#: src/pages/AccountPage.tsx
+msgid "Mein Konto"
+msgstr "My account"
+
+#: src/App.tsx
 #: src/pages/ApplyPage.tsx
 #: src/pages/MyAccreditationsPage.tsx
 msgid "Meine Akkreditierungen"
 msgstr "My accreditations"
+
+#: src/pages/AccountPage.tsx
+msgid "Meine Anträge"
+msgstr "My applications"
 
 #: src/App.tsx
 #: src/pages/admin/AdminLayout.tsx
@@ -1139,6 +1214,7 @@ msgstr "At least one field is required."
 msgid "Mindestens eine Rolle muss ausgewählt bleiben."
 msgstr "At least one role must remain selected."
 
+#: src/pages/AccountPage.tsx
 #: src/pages/admin/BadgeTemplateForm.tsx
 #: src/pages/admin/badgeTemplateFormUtils.ts
 #: src/pages/admin/BadgeTemplatesPage.tsx
@@ -1689,6 +1765,8 @@ msgstr "The sub-application could not be submitted."
 msgid "Sub-Antrag konnte nicht zurückgezogen werden."
 msgstr "The sub-application could not be withdrawn."
 
+#: src/components/AccountDeleteDialog.tsx
+#: src/pages/AccountPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Sub-Anträge"
 msgstr "Sub-applications"
@@ -1838,6 +1916,10 @@ msgstr "The events could not be loaded."
 msgid "Veranstaltungskalender"
 msgstr "Event calendar"
 
+#: src/pages/AccountPage.tsx
+msgid "Verband"
+msgstr "Association"
+
 #: src/components/MandantSwitcher.tsx
 msgid "Verband wechseln"
 msgstr "Switch association"
@@ -1965,6 +2047,10 @@ msgstr "Centered"
 #: src/pages/admin/BadgeTemplateForm.tsx
 #~ msgid "Ziehen verschiebt das Feld, die Eckpunkte skalieren es, Pfeiltasten bewegen es um 1 mm (Umschalt = 5 mm)."
 #~ msgstr "Dragging moves the field, its corners resize it, arrow keys move it by 1 mm (Shift = 5 mm)."
+
+#: src/pages/AccountPage.tsx
+msgid "Zu meinen Akkreditierungen"
+msgstr "To my accreditations"
 
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/ApprovalsPage.tsx

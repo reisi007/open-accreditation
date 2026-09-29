@@ -244,6 +244,8 @@ describe('P9 / P11 — free-text columns truncate instead of exploding the row',
             id: 1,
             name: 'Max Mustermann',
             email,
+            applications_count: 0,
+            sub_applications_count: 0,
             roles: [{ role: { slug: 'user', name: 'User' }, mandant_id: null, team_id: null, team: null }],
         });
 
