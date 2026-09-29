@@ -175,8 +175,21 @@ function runSpec(specFile, arm, options = {}) {
     // reclaimed afterwards — otherwise both arms read zero and the attribution
     // is meaningless.
     //
-    // The probe-driven spec is excluded: it spawns a CHILD Playwright run of its
-    // own, which would double-count and add ~15 s per spec.
+    // The probe-driven specs are excluded BY FILE, in the spec list below — they
+    // spawn a CHILD Playwright run of their own, which would double-count and add
+    // ~15 s per spec.
+    //
+    // BY FILE, and not by the `--grep-invert` on a test title that used to sit on
+    // these args. That filter was unreachable MEASURED: it named the title of a
+    // test inside `ownership.spec.ts`, a file the list below already drops, so it
+    // could only ever have matched something in a file this tool does not
+    // measure. Worse, it LOOKED load-bearing: a title grep is not a file
+    // exclusion, it silently stops matching the day somebody renames the test,
+    // and a reader of this function was entitled to believe the driver was
+    // protected by it. `ownership.spec.ts` is also the one spec that must never
+    // run under `E2E_OWNERSHIP=off` — that would neuter its own child's
+    // teardown — and the file list is now the single place that exclusion lives
+    // and can be read.
     const env = {
         ...process.env,
         E2E_PURGE: options.purge === true ? 'on' : 'off',
@@ -185,7 +198,6 @@ function runSpec(specFile, arm, options = {}) {
     const args = [
         'playwright', 'test', `tests/e2e/${specFile}`,
         '--project=Desktop Chrome', '--reporter=line',
-        '--grep-invert', 'ownership ledger gives a half-failed test',
     ];
     try {
         const stdout = execFileSync('npx', args, { encoding: 'utf8', stdio: 'pipe', env });

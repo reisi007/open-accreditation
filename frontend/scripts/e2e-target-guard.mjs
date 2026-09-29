@@ -151,7 +151,6 @@ export async function liveDevStackRefusals(baseUrl, deps) {
 }
 
 /** The real fetch, split out so the exported functions stay injectable. */
-/** The real fetch, split out so the exported functions stay injectable. */
 export async function fetchOk(url) {
     const response = await fetch(url, { redirect: 'manual' });
     return { ok: response.ok, status: response.status };

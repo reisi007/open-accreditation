@@ -1029,6 +1029,46 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
         .map((step) => step.route)
         .filter((route) => !route.includes('{parentId}'));
 
+    /**
+     * Does this source POST to `route` as a WHOLE path literal?
+     *
+     * A named matcher because the rule was written TWICE — once in the guard
+     * below, once in the non-vacuity test further down — and two copies of one
+     * rule is one copy too many in a file whose entire subject is drift.
+     *
+     * The pattern is `post\(\s*(['"`])<route>\1`: a quote CLASS for the opener
+     * (so single, double and backtick all count) and a BACKREFERENCE for the
+     * closer. Both halves were measured against what they replaced:
+     *
+     * - The old `includes` with a single-quoted needle accepted ONE quote form,
+     *   and its only template-literal branch required a CLOSING backtick. A
+     *   double-quoted create, and a line-broken call that puts the route on the
+     *   next line, were both invisible — fail-OPEN, because a spec that creates a
+     *   row and registers nothing would then not be classified as a creator and
+     *   the guard would pass for the wrong reason.
+     * - The backreference is what keeps an ACTION route out: a POST to
+     *   `/api/admin/accreditations/<id>/allocate` creates nothing and must not
+     *   count. A plain prefix match would have counted it — MEASURED, it pulls in
+     *   `sub-accreditation.spec.ts`, whose only create comes from a fixture helper
+     *   that already classifies it.
+     *
+     * The route is interpolated raw, which would err toward MATCHING if a future
+     * route ever carried a regex metacharacter. For this gate that is the strict
+     * direction: more creators classified, never fewer.
+     *
+     * A VARIABLE key (`post(path, …)`) is not matched and cannot be — a static
+     * scan has nothing to compare it against. That direction is fail-open, so it
+     * is stated here rather than left to be discovered, and it is a REAL case in
+     * this tree: `ownership.spec.ts:413` posts to a `path` it built from
+     * `E2E_OWNED_TEARDOWN`. It is covered regardless, by the same spec's LITERAL
+     * posts to `/api/admin/categories`, `/api/admin/events` and
+     * `/api/admin/venues` — which is what the `toContain` assertion on that spec
+     * pins.
+     */
+    function postsToCollectionRoute(code = '', route = '') {
+        return new RegExp(`post\\(\\s*(['"\`])${route}\\1`).test(code);
+    }
+
     test('THE GUARD: a fixture-creating spec has an afterEach that reclaims', () => {
         const offenders = [];
         for (const spec of SPECS) {
@@ -1052,7 +1092,7 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             // the guard then had nothing to complain about (the measured
             // `admin-mandant.spec.ts` hole — see `UI_CREATE_SITES`).
             for (const route of PLAN_COLLECTIONS) {
-                if (spec.code.includes(`post('${route}'`) || spec.code.includes(`post(\`${route}\``)) {
+                if (postsToCollectionRoute(spec.code, route)) {
                     creates = true;
                 }
             }
@@ -1185,12 +1225,27 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
      * way to write a three-argument registration is multi-line (the line gets
      * long), and a substring check for `rememberOwnedRow('mandantDomains'` then
      * fails on CORRECT code — a gate that fails on correct code is a gate people
-     * learn to bypass. Whitespace between the paren and the literal is the only
-     * concession; the kind itself must still be a string LITERAL, because
-     * `rememberOwnedRow(kind, …)` names nothing.
+     * learn to bypass.
+     *
+     * Two deliberate shapes, both measured:
+     *
+     * - `\s*` after the paren, plus a quote CLASS and a BACKREFERENCE for the
+     *   kind, so all three string forms count. The single-quote-only version
+     *   missed a double-quoted or backticked kind, and that direction is
+     *   fail-CLOSED here (the kind reads as unregistered, the gate goes RED) —
+     *   so it was a false alarm rather than a silent pass, but a gate that cries
+     *   wolf on correct code is a gate people learn to switch off. The
+     *   backreference also keeps the kind EXACT: `rememberOwnedRow('teams-legacy'`
+     *   cannot answer for `teams`.
+     * - A VARIABLE kind is not matched, and the resulting direction is
+     *   fail-closed on purpose — the kind reads as unregistered, so the check
+     *   goes red. That is the strict end of the trade, and it is also the
+     *   project's stated convention: `admin-mandant.spec.ts` writes the kind as a
+     *   literal at each create site precisely so this gate can read it, and calls
+     *   a generic `rememberOwnedRow(kind, …)` "a registration of nothing".
      */
     function registerCallIn(code = '', kind = '') {
-        return new RegExp(`rememberOwnedRow\\(\\s*'${kind}'`).test(code);
+        return new RegExp(`rememberOwnedRow\\(\\s*(['"\`])${kind}\\1`).test(code);
     }
 
     function testBlockContaining(code = '', index = 0) {
@@ -1292,7 +1347,7 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
         const creators = [];
         for (const spec of SPECS) {
             for (const route of PLAN_COLLECTIONS) {
-                if (spec.code.includes(`post('${route}'`) || spec.code.includes(`post(\`${route}\``)) {
+                if (postsToCollectionRoute(spec.code, route)) {
                     creators.push(spec.file);
                     break;
                 }

@@ -21,6 +21,32 @@ test.afterEach(async () => {
     await reclaimOwnedRows();
 });
 
+/**
+ * ## The ledger stays EMPTY in this file, and that is a decision, not an oversight
+ *
+ * Nothing below registers a row, so these two hooks never have anything to give
+ * back. Both tests create rows through FORMS, and a create form answers no id —
+ * registering one means looking it up under its exact, worker-stamped name right
+ * after the submit (the `findCreatedRowId` pattern in `admin-mandant.spec.ts`).
+ * The first test does not need that: it deletes its own venue by row locator at
+ * the end. The second test deletes NOTHING, so its `E2E Team ${suffix}` and
+ * `E2E Heimstadion ${suffix}` rows (+1 team, +1 venue per run, Desktop Chrome
+ * only — the second test skips the mobile project) are reclaimed by the serial
+ * `globalTeardown` name sweep instead: `E2E_PURGE_MARKERS.teamNames` holds
+ * `'E2E Team '` and `venueNames` holds `'E2E Heimstadion'`. The ORDER in
+ * `E2E_PURGE_SWEEPS` is what makes that work — teams before venues, because the
+ * venue is still REFERENCED by the team and a referenced venue answers 409 (the
+ * measured F1 failure).
+ *
+ * ## The gate is one table entry away from calling this, and it does
+ *
+ * MEASURED: adding `{spec: 'tests/e2e/admin-venue.spec.ts', kind: 'teams',
+ * controls: ['Team speichern']}` to `UI_CREATE_SITES` turns `THE GUARD: a spec
+ * that creates through the UI registers what it created` RED, naming this file
+ * and that control. The table exists so a claim like this one is CHECKABLE rather
+ * than merely stated — so this paragraph is the record of a known, unaddressed
+ * gap, not a defence of it.
+ */
 
 /**
  * Venue master data (W12).

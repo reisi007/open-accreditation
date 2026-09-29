@@ -95,18 +95,55 @@ export const BADGE_TEMPLATE_PURGE_PREFIXES = ['E2E Ausweis', 'E2E Editor', 'E2E 
  * The one entity kind the serial name sweep CANNOT reach, and why that is stated
  * here rather than left to be discovered.
  *
- * `blacklists` has no name column — it is `email` / `domain` / `note` — so there
- * is no marker to match and no sweep entry that would not also match a
- * hand-made row. The ownership ledger covers the per-test case (the spec holds
- * the id), but a run KILLED before its `afterEach` leaves the row behind and
- * nothing reclaims it.
+ * `blacklists` has no name column — it is `email` / `domain` / `note` plus a
+ * `mandant_id` FK that only cascades when the whole mandant goes (there is no
+ * user FK) — so there is no marker to match, and a sweep entry would either
+ * match nothing or match a hand-made row. `E2E_PURGE_SWEEPS` therefore walks no
+ * `blacklists` collection, and neither `E2E_PURGE_MARKERS` nor the teardown plan
+ * can hand such a row back by name.
  *
- * That is a measured, accepted gap rather than an oversight: exactly ONE helper
- * creates a blacklist row (`createBlacklistEntryApi`, which the coverage guard
- * reports as DEAD — no spec calls it), so the exposure is one row per crash, not
- * one per run. The moment a spec starts creating blacklists through the UI, this
- * paragraph is the thing to revisit — a `note` prefix would be the available
- * lever, at the cost of a human-readable field carrying test markers.
+ * ## What this paragraph used to claim, and why both halves were false
+ *
+ * It presented the exposure as hypothetical: "exactly ONE helper creates a
+ * blacklist row (`createBlacklistEntryApi`, which the coverage guard reports as
+ * DEAD — no spec calls it), so the exposure is one row per crash, not one per
+ * run. The moment a spec starts creating blacklists through the UI, this paragraph
+ * is the thing to revisit." Today:
+ *
+ * - `createBlacklistEntryApi` is **GONE** — deleted 2026-09-28 as dead code for
+ *   exactly the reason the guess above half-observed: it had no caller (see the
+ *   `FIXTURE_CREATORS` docblock in `namespace-isolation.spec.ts`). No helper
+ *   creates a blacklist row at all.
+ * - The moment it named **has already passed**. `approvals.spec.ts:63-69` creates
+ *   one through the UI on every run. This is not a shape the suite might grow
+ *   into; it is the shape it has.
+ *
+ * ## The exposure as it actually stands
+ *
+ * **Happy path: no residue.** The test deletes its own row, at the end, by
+ * LOCATOR — the row whose name is the address it typed. That is the whole
+ * problem in one phrase: the create form answers no id, so the only handle the id
+ * ever has is inside the test, and the DELETE route (id-addressed) is therefore
+ * useless to anything that did not watch the form.
+ *
+ * **Crash path: one orphan per crashed run**, and nothing takes it. The serial
+ * sweep cannot see it, the ledger was never told about it, and no cascade will —
+ * only a mandant delete would, and the E2E mandant stays. So a run that dies
+ * between the create and the delete leaves an `example.test` row that the NEXT
+ * run's teardown cannot address, which is the one failure the ledger exists for.
+ *
+ * The ledger could close this: `E2E_OWNED_TEARDOWN` carries
+ * `{kind: 'blacklists', route: '/api/admin/blacklists', reclaimable: true}` and
+ * the ledger walk in `ownership.spec.ts` exercises that kind on every run. What
+ * is missing is one `rememberOwnedRow('blacklists', id)` in `approvals.spec.ts` —
+ * the same lookup-under-the-exact-stamped-name that `admin-mandant.spec.ts` does
+ * for its three form-created rows.
+ *
+ * Until that lands, this is the ONLY kind the suite creates through the UI that
+ * neither a name marker nor an id registration reaches. (`users` is the other
+ * kind with no delete route, but `rememberUnreclaimableUser` registers it in the
+ * ledger's gap report and it is carried as its own position — a KNOWN growth, not
+ * a silent residue.)
  */
 
 /**

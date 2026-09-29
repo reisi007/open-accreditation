@@ -124,12 +124,15 @@ test.describe('the ownership ledger gives a half-failed test its fixtures back',
      * The environment is passed EXPLICITLY rather than inherited for the one
      * variable that decides whether the child's own teardown runs:
      * `E2E_OWNERSHIP=off` reaching the child would neuter the child's per-test
-     * teardown, assertion (3) below would fail — and the only reason this test
-     * ever passed with that switch set is that
-     * `scripts/e2e-per-spec-leaks.mjs` excludes the driver with `--grep-invert`.
-     * A test whose validity depends on a filter in a different tool is not a test
-     * of the claim; it is a test of that tool's arguments. Pinning the value here
-     * makes the driver honest on its own, under any environment.
+     * teardown, assertion (3) below would fail — and this file used to be
+     * shielded from that switch by accident alone: `scripts/e2e-per-spec-leaks.mjs`
+     * carried a `--grep-invert` naming this describe's title. A test whose
+     * validity depends on a filter in a different tool is not a test of the
+     * claim; it is a test of that tool's arguments. MEASURED, the filter was
+     * dead anyway: the tool drops this FILE by name, so the grep could never
+     * match anything, and the flag has been removed. Pinning the value here is
+     * what makes the driver honest — on its own, under any environment, and with
+     * no flag elsewhere that has to keep existing.
      *
      * `CI: ''` is still passed deliberately: it is what stops the child's reporter
      * from writing to a CI annotations file this repo does not have.
