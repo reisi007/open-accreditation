@@ -87,6 +87,7 @@
 | D22 | Badge-Hintergrund (2026-09-27) | **OFFEN.** `background-color:#ffffff` auf `body`/`@page` wäre technisch der robustere Fix — dann entfiele die Nachbearbeitung komplett. Nimmt den Ausweisen aber den **transparenten** Hintergrund, der für Ausweisspiele auf Folie, Glas und im Siebdruck relevant ist. Produktfrage, nicht technische; die Alpha-Entfernung ist bis dahin Sache des Skripts `scripts/pdf-to-png-vision.sh`. |
 | D23 | **E2E-Fixture-Besitz** (2026-09-28) | **Jeder E2E-Test registriert, was er angelegt hat, und löscht es selbst — auch wenn er halb scheitert.** Drei Fixtures erstellt, das vierte wirft: die drei müssen weg. **Kein Test hinterlässt eine `E2E %`-Zeile.** Ein Sweep über Namensmarker ist **Übergang**, nie Modell. Referenzimplementierung: `portal.reisinger.pictures`. |
 | D24 | **Nur free-Subagenten** (2026-09-29) | Alle Delegationen (Implementer wie Verifikator) laufen auf `free`-Modellen. DeepSeek o. ä. nur auf ausdrückliche Einzelanordnung — der 17–24-Neustart war eine solche Ausnahme, kein Präzedenzfall. |
+| D25 | **Entscheidungen nie in `AGENTS.md`** (2026-09-29) | Agenten-Entscheidungen (D-Reihe) gehören **ausschließlich** in `AGENTS.todo.md`. `AGENTS.md` bleibt frei von Entscheidungs-Einträgen — die D24-Zeile in §5 wurde noch am selben Tag zurückgenommen. |
 
 ### 🗑️ Verworfen (nicht erneut implementieren)
 
