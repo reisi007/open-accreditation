@@ -16,15 +16,50 @@ use Tests\Support\ExtractsPdfContentStream;
  * reach it. A branch that no card can reach is a branch nobody tests; these
  * fixtures build both shapes by hand so it is tested rather than assumed.
  *
- * The payload in every case ends in a byte that `rtrim()` would eat (`0x0d`,
- * `0x20`, `0x00`). That is the whole point of the defect this replaced: a
- * deflate stream may legitimately end in whitespace, and stripping it silently
- * truncates the data. Without this fixture the bug is invisible, because a
- * payload whose last byte happens to be `0x8e` inflates fine.
+ * ## The `rtrim()` guard, and why the fixtures look like nonsense
+ *
+ * The extractor this replaced read a payload with
+ * `rtrim(substr($pdf, $dataStart, $dataEnd - $dataStart))`. `rtrim()` with its
+ * default charlist strips six bytes (`" \t\n\r\0\x0B"`), the payload is
+ * COMPRESSED, and a stripped byte is a byte gone: `gzuncompress()` fails, the
+ * `@` swallows the warning, and the helper returns an EMPTY STRING, so the test
+ * reports a missing field instead of a broken extractor.
+ *
+ * The first version of this file asserted that the payload "ends in a byte
+ * `rtrim()` would eat" and then chose its fixtures on the PLAIN text
+ * (`"Jane Doe\r"`, `"Jane Doe "`, `"Jane Doe\0"`, `"Jane Doe\n"`). That is
+ * false, and measured: the plain text's last byte has no bearing on the
+ * payload's, because the payload is a zlib (RFC 1950) stream — two header
+ * bytes, the deflate data, then a four-byte big-endian **Adler-32** whose LOW
+ * byte is the last byte of the payload.
+ *
+ * | plain          | compressed last byte | does `rtrim()` eat it? |
+ * |----------------|----------------------|-------------------------|
+ * | `"Jane Doe\r"` | `0xC4`               | no                      |
+ * | `"Jane Doe "`  | `0xD7`               | no                      |
+ * | `"Jane Doe\0"` | `0xB7`               | no                      |
+ * | `"Jane Doe\n"` | `0xC1`               | no                      |
+ *
+ * No compression level (−1…9) changes any of that. All four data sets therefore
+ * passed with the broken extractor fully restored — 8/8 green, 0 red. The defect
+ * was being caught elsewhere, by accident, for an unrelated reason.
+ *
+ * The fixtures below are chosen by the last byte of their COMPRESSED payload,
+ * and every data set PINS that byte, so a zlib change fails the premise loudly
+ * instead of quietly turning a fixture into one that no longer reproduces the
+ * defect. The four old fixtures are kept as a NEGATIVE control, so the table
+ * above stays a measured fact instead of a claim; and one of the six charlist
+ * bytes cannot be covered at all — measured, and pinned in its own test so
+ * nobody adds it back believing it works.
  */
 class ExtractsPdfContentStreamTest extends TestCase
 {
     use ExtractsPdfContentStream;
+
+    /**
+     * The six bytes `rtrim()` strips with its default charlist.
+     */
+    private const RTRIM_DEFAULT_CHARS = [' ', "\t", "\n", "\r", "\0", "\x0B"];
 
     /**
      * A PDF whose only stream is the given deflate payload, written the way
@@ -39,27 +74,163 @@ class ExtractsPdfContentStreamTest extends TestCase
         return "%PDF-1.7\n1 0 obj\n".$dictionary."stream\n".$deflated."\nendstream\nendobj\n%%EOF\n";
     }
 
-    public static function trailingByteProvider(): array
+    /**
+     * One data set per byte of `rtrim()`'s default charlist that a zlib payload
+     * can actually be made to end on — five of the six. The sixth, `0x00`, is
+     * reachable but unguardable; see
+     * {@see self::test_the_nul_byte_of_the_adler_trailer_is_not_guardable()}.
+     *
+     * The plaintexts are PDF-content-stream-shaped fragments found by brute
+     * force over their checksum byte. Nothing about THEM is under test: the
+     * subject is the last byte of the COMPRESSED payload, which is what the
+     * first parameter pins.
+     *
+     * @return array<string, array{int, string}>
+     */
+    public static function compressedTrailingByteProvider(): array
     {
         return [
-            'payload ends in CR' => [1, "Jane Doe\r"],
-            'payload ends in space' => [1, 'Jane Doe '],
-            'payload ends in NUL' => [1, "Jane Doe\0"],
-            'payload ends in LF' => [1, "Jane Doe\n"],
+            'CR  (0x0D)' => [0x0D, '8dp'],
+            'TAB (0x09)' => [0x09, 'aaF'],
+            'LF  (0x0A)' => [0x0A, 'aaG'],
+            'VT  (0x0B)' => [0x0B, 'mo.'],
+            'SP  (0x20)' => [0x20, 'tfE'],
         ];
     }
 
-    #[DataProvider('trailingByteProvider')]
-    public function test_it_inflates_a_stream_whose_last_byte_is_whitespace(int $expected, string $plain): void
-    {
+    #[DataProvider('compressedTrailingByteProvider')]
+    public function test_it_inflates_a_stream_whose_compressed_payload_ends_in_a_byte_rtrim_strips(
+        int $expectedLastByte,
+        string $plain,
+    ): void {
         $deflated = (string) gzcompress($plain);
+        $lastByte = ord($deflated[strlen($deflated) - 1]);
+
+        $this->assertSame(
+            $expectedLastByte,
+            $lastByte,
+            'PREMISE: this fixture exists because its COMPRESSED payload ends on a byte '
+            .'`rtrim()` strips. Which byte that is follows from zlib\'s encoding (the low byte '
+            .'of the Adler-32 trailer), NOT from the plaintext — so a zlib change means a new '
+            .'plaintext for this data set, never a deleted assertion.',
+        );
+
+        $this->assertContains(
+            $lastByte,
+            array_map('ord', self::RTRIM_DEFAULT_CHARS),
+            'PREMISE: the pinned byte is not one `rtrim()` strips by default, so the defect this '
+            .'fixture reproduces cannot happen with it.',
+        );
+
+        $this->assertNotSame(
+            $deflated,
+            rtrim($deflated),
+            'PREMISE: `rtrim()` has to actually shorten this payload. Without that, the fixture '
+            .'does not exercise the defect at all — the failure mode this test exists to prevent.',
+        );
 
         $pdf = $this->pdfWithStream($deflated, strlen($deflated));
 
         $this->assertSame(
-            str_replace("\x00", '', $plain),
+            $plain,
             $this->pdfText($pdf),
-            'A trailing whitespace byte in the COMPRESSED payload must not be stripped before inflating.',
+            'A trailing byte in the COMPRESSED payload must not be stripped before inflating.',
+        );
+    }
+
+    /**
+     * The four fixtures the FIRST version of this file used, kept as a negative
+     * control.
+     *
+     * They end in whitespace in the PLAIN text, and `features/badges-qr.md`
+     * said the same kind of thing about the real badge card ("der Content-Stream
+     * des Ausweises endet auf `0d 0a`"). Both statements are false, and this is
+     * where the false half is pinned: the plain text's last byte has no bearing
+     * on the payload's, because the payload is a zlib stream whose last byte is
+     * the low byte of the Adler-32 trailer.
+     *
+     * So these are not weaker versions of the data sets above — they are the
+     * ones that do NOT reproduce the defect, and the assertion is exactly that:
+     * `rtrim()` leaves every one of them untouched, so they inflate correctly
+     * even through the old extractor. Choosing fixtures this way is what
+     * produced a guard that could not fail.
+     *
+     * @return array<string, array{int, string}>
+     */
+    public static function plainTextTrailingWhitespaceProvider(): array
+    {
+        return [
+            'plain ends in CR' => [0xC4, "Jane Doe\r"],
+            'plain ends in space' => [0xD7, 'Jane Doe '],
+            'plain ends in NUL' => [0xB7, "Jane Doe\0"],
+            'plain ends in LF' => [0xC1, "Jane Doe\n"],
+        ];
+    }
+
+    #[DataProvider('plainTextTrailingWhitespaceProvider')]
+    public function test_a_payload_whose_plain_text_ends_in_whitespace_does_not_reproduce_the_defect(
+        int $expectedLastByte,
+        string $plain,
+    ): void {
+        $deflated = (string) gzcompress($plain);
+
+        $this->assertSame(
+            $expectedLastByte,
+            ord($deflated[strlen($deflated) - 1]),
+            'PREMISE: the pinned byte is what this plaintext compresses to today. A zlib change '
+            .'moves it, and the assertion below is then re-measured rather than assumed.',
+        );
+
+        $this->assertSame(
+            $deflated,
+            rtrim($deflated),
+            'Whitespace at the end of the PLAIN text is not the condition this file guards: the '
+            .'compressed payload\'s last byte is a checksum byte, `rtrim()` does not touch it, '
+            .'and the payload inflates fine even with the extractor this file replaced. A guard '
+            .'built from fixtures like these is green against the very defect it claims to catch.',
+        );
+    }
+
+    /**
+     * The one charlist byte this class cannot cover, and the measurement for it.
+     *
+     * `0x00` IS reachable as a compressed payload's last byte (it is the low
+     * byte of the Adler-32 trailer) — but zlib does not fail when that byte is
+     * missing: `gzuncompress()` of the stripped payload still returns the
+     * correct plain text. A data set for it would therefore be GREEN with the
+     * broken extractor restored, which is the exact failure mode this file was
+     * rewritten for: a test that cannot fail while reading as coverage.
+     *
+     * A raw-deflate payload does not rescue it either — there the last byte is
+     * deflate DATA rather than a checksum, but measured `gzdeflate('2gtj')` is
+     * 6 bytes ending in `0x00` and `gzinflate()` of the stripped payload still
+     * succeeds. So the byte is dropped from the provider, deliberately.
+     *
+     * This test exists so the drop is reversible on evidence: if zlib ever
+     * becomes strict here, the assertion fails and `0x00` goes back into the
+     * provider.
+     */
+    public function test_the_nul_byte_of_the_adler_trailer_is_not_guardable(): void
+    {
+        $deflated = (string) gzcompress('IHn');
+
+        $this->assertSame(
+            0x00,
+            ord($deflated[strlen($deflated) - 1]),
+            'PREMISE: this payload really does end on the byte rtrim() strips, so the relaxed '
+            .'zlib behaviour asserted below — not an accidental different byte — is the reason '
+            .'0x00 is absent from the provider.',
+        );
+
+        $this->assertNotSame($deflated, rtrim($deflated), 'PREMISE: `rtrim()` eats that byte.');
+
+        $this->assertSame(
+            'IHn',
+            gzuncompress(rtrim($deflated)),
+            'MEASURED reason for the missing data set: zlib returns the inflated data even with '
+            .'the last byte of the Adler-32 trailer removed, so stripping it costs nothing and '
+            .'no fixture could catch the defect through it. If this assertion starts failing, '
+            .'zlib got strict — put 0x00 back into the provider.',
         );
     }
 

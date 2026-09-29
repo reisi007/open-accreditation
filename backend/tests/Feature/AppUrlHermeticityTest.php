@@ -11,6 +11,7 @@ use App\Support\VerifyLink;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
 use Tests\TestCase;
 
 /**
@@ -82,7 +83,10 @@ use Tests\TestCase;
  *    in-suite request;
  * 4. the documented contract itself — the scheme follows `config('app.url')`
  *    in BOTH directions, so nobody may "fix" the product code to always emit
- *    `https` and silently break real local installs.
+ *    `https` and silently break real local installs;
+ * 5. this file's own docblocks — the two of section 4 are separate elements,
+ *    because an unterminated `/**` once merged them, and nothing else in the
+ *    toolchain notices.
  */
 class AppUrlHermeticityTest extends TestCase
 {
@@ -196,6 +200,8 @@ class AppUrlHermeticityTest extends TestCase
      | ------------------------------------------------------------------- */
 
     /**
+     * The documented contract, in the direction that protects the PRODUCT.
+     *
      * `VerifyLink` documents: *"The scheme always follows `config('app.url')`
      * (https in prod, http in local)"* — and `AuthController::activationUrl()`
      * and `BadgeRenderService` document the same thing.
@@ -206,27 +212,7 @@ class AppUrlHermeticityTest extends TestCase
      * nothing terminates TLS there. So this test is what keeps the suite honest
      * in the other direction too — it fails if someone "repairs" the symptom by
      * making the product always emit `https`.
-     *
-     /**
-     * `config([...])` rather than a second process: the value is what the test
-     * is about, and setting it in-test is visible in the test itself.
-     *
-     * The port case earns its place: the link is built from the *mandant
-     * domain*, so `app.url`'s port never reaches it, and a scheme parsed with
-     * anything coarser than `parse_url()` would come out as `http` glued to the
-     * rest of the URL.
-     *
-     * @return array<string, array{string}>
      */
-    public static function appUrlProvider(): array
-    {
-        return [
-            'https in production' => ['https://akademie.test'],
-            'http behind a plain dev server' => ['http://akademie.test'],
-            'http with a port' => ['http://akademie.test:8000'],
-        ];
-    }
-
     #[DataProvider('appUrlProvider')]
     public function test_the_verify_link_scheme_follows_the_configured_app_url(string $appUrl): void
     {
@@ -249,6 +235,26 @@ class AppUrlHermeticityTest extends TestCase
     }
 
     /**
+     * `config([...])` rather than a second process: the value is what the test
+     * is about, and setting it in-test is visible in the test itself.
+     *
+     * The port case earns its place: the link is built from the *mandant
+     * domain*, so `app.url`'s port never reaches it, and a scheme parsed with
+     * anything coarser than `parse_url()` would come out as `http` glued to the
+     * rest of the URL.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function appUrlProvider(): array
+    {
+        return [
+            'https in production' => ['https://akademie.test'],
+            'http behind a plain dev server' => ['http://akademie.test'],
+            'http with a port' => ['http://akademie.test:8000'],
+        ];
+    }
+
+    /**
      * The other half of the same contract: a mandant WITHOUT a domain falls back
      * to the `config('app.url')` host — and still to the `config('app.url')`
      * scheme. Without this the fallback path would be free to keep a hardcoded
@@ -264,6 +270,78 @@ class AppUrlHermeticityTest extends TestCase
         $url = VerifyLink::for($this->approvedApplication()->fresh());
 
         $this->assertStringStartsWith('http://akademie.test/verify/', $url);
+    }
+
+    /* ---------------------------------------------------------------------
+     | 5 — this file's own docblocks
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The two docblocks of section 4 belong to two different elements.
+     *
+     * An unterminated `/**` once swallowed `appUrlProvider()`'s documentation
+     * into the prose above it: the second opener sat INSIDE the first comment,
+     * the one closing marker ended the OUTER comment instead, and the
+     * provider's `@return` ended up on the next element down. Nothing failed —
+     * `pint --test` was clean and the whole suite was green — which is exactly
+     * why a defect in a docblock outlives the edit that introduced it. (Editing
+     * this very sentence is how the mistake gets made again: a literal closing
+     * marker written into a docblock ends it where you least expect.)
+     *
+     * So the shape is asserted rather than trusted: both elements carry their
+     * OWN docblock, the contract prose is on the test that enforces it, and
+     * the `@return` is on the provider it describes.
+     */
+    public function test_the_contract_prose_and_the_provider_return_are_separate_docblocks(): void
+    {
+        $testDoc = $this->docblockOf('test_the_verify_link_scheme_follows_the_configured_app_url');
+        $providerDoc = $this->docblockOf('appUrlProvider');
+
+        $this->assertStringContainsString(
+            'VerifyLink',
+            $testDoc,
+            'The contract prose documents the test that enforces it. A merged docblock means the '
+            .'test is undocumented and the prose is attached to whatever element comes next.',
+        );
+
+        $this->assertStringNotContainsString(
+            '@return',
+            $testDoc,
+            'The provider\'s return contract belongs on the provider, not on the test it feeds.',
+        );
+
+        $this->assertStringContainsString(
+            '@return array<string, array{string}>',
+            $providerDoc,
+            'appUrlProvider() must carry its own @return. With the open docblock, this one '
+            .'attached to the test method instead and the provider had none.',
+        );
+
+        $this->assertStringNotContainsString(
+            'VerifyLink',
+            $providerDoc,
+            'The contract prose is not the provider\'s — its presence here is the signature of a '
+            .'swallowed docblock.',
+        );
+    }
+
+    /**
+     * The docblock of one method of THIS class, asserted to exist.
+     *
+     * `assertIsString` first on purpose: without it a missing docblock turns
+     * the caller's positive assertions into passes over an empty string, which
+     * is the shape of a guard that stopped guarding.
+     */
+    private function docblockOf(string $method): string
+    {
+        $docblock = (new ReflectionMethod(self::class, $method))->getDocComment();
+
+        $this->assertIsString(
+            $docblock,
+            "AppUrlHermeticityTest::{$method}() has no docblock of its own.",
+        );
+
+        return $docblock;
     }
 
     /* ---------------------------------------------------------------------

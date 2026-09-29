@@ -382,9 +382,29 @@ Kopien desselben Helpers, alle mit
 Byte jedes davon legal sein kann. Trifft es eins, geht ein Byte verloren,
 `gzuncompress()` scheitert, das `@` schluckt die Warnung, und der Helper
 liefert einen **leeren String**: der Test meldet dann ein fehlendes Feld
-(`Expected: … To contain: Jane Doe`) statt eines kaputten Helpers. Der
-Content-Stream des Ausweises endet auf `0d 0a` — genau das ist eingetreten, sobald
-die Porträt-Fixture einen anderen Stream erzeugte.
+(`Expected: … To contain: Jane Doe`) statt eines kaputten Helpers.
+
+**Welches** Byte es war, ist gemessen — und es war ein **einzelnes** `0x0d`,
+nicht das Paar `0d 0a`, das hier früher stand. Der **komprimierte** Payload des
+Ausweis-Content-Streams (232 Byte, `/Filter /FlateDecode`, in diesem Checkout
+gemessen) endete auf `0x0d`; der **entpackte** Strom endete auf `"\nQ\nQ"`, also
+auf `Q` — ein Zeilenumbruch ist in ihm nirgends das letzte Byte. `0x0d` ist das
+niedrige Byte des vier Byte grossen Adler-32-Trailers, den zlib an jedes Payload
+anhängt: eine **Prüfsumme**, kein Inhalt, und sie ändert sich mit dem Inhalt.
+Genau deshalb trat der Fehler erst auf, als die Porträt-Fixture einen anderen
+Stream erzeugte — nicht weil ein Umbruch hinzukam, sondern weil das letzte Byte
+eines **anderen** Payloads zufällig eines der sechs von `rtrim()` gestrippten
+Bytes war.
+
+Dieselbe Verwechslung steckte in der ersten Fassung von
+`ExtractsPdfContentStreamTest`: die Fixtures waren am **Klartext** auf
+Whitespace getrimmt (`"Jane Doe\r"`), was über den **komprimierten** Payload
+nichts sagt — der endet auf `0xC4`, `0xD7`, `0xB7`, `0xC1` und wird von
+`rtrim()` nicht angefasst. Die Suite blieb bei restauriertem Defekt
+**8/8 grün**. Der Test wählt seine Daten deshalb nach dem komprimierten
+letzten Byte und pinnt es als Premisse; die alten vier sind als **Negativkontrolle**
+geblieben, `0x00` ist als eigener, gemessener Ausschluss dokumentiert (zlib
+merkt ein fehlendes Prüfsummen-Byte dort nicht).
 
 Die Grenze ist `/Length N` (dompdf schreibt es auf jedes komprimierte Objekt);
 danach ist der Extraktor eine **Implementierung**:

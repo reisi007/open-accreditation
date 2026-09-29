@@ -210,10 +210,20 @@ class User extends Authenticatable implements JWTSubject
      * login time — the login check is the early filter, this one the
      * continuous one. (Change both together if the rule ever moves.)
      *
-     * The same predicate is the scope of `resolveRouteBindingQuery()` — the
-     * identity check (may this account act here at all?) and the resource check
-     * (is THIS target one of my users?) are deliberately the ONE rule, factored
-     * into `constrainToMandantMembership()` so they cannot drift apart.
+     * The same predicate is the scope of `resolveRouteBindingQuery()`, and BOTH
+     * of them answer the IDENTITY question ("may this account act here at
+     * all?") — deliberately the ONE rule, factored into
+     * `constrainToMandantMembership()` so they cannot drift apart.
+     *
+     * The RESOURCE question ("is THIS target one of my users?") is a
+     * DIFFERENT predicate and is asked somewhere else, by
+     * `UserController::assertMandantScopedTarget()`. The two are deliberately
+     * NOT merged: this one ORs in the global `super_admin` branch, which is
+     * right for the actor — a global super admin really does administer every
+     * mandant — while the resource check leaves that branch out, because such
+     * an account holds no mandant-scoped assignment, appears in no mandant's
+     * user list, and has no scoped role set to be written (F1, see the
+     * binding's docblock).
      *
      * ONE query for both branches: a single `EXISTS` whose predicate is the
      * disjunction "role in this mandant OR global super_admin". The
@@ -244,13 +254,16 @@ class User extends Authenticatable implements JWTSubject
     /**
      * The membership predicate as a query constraint, on a `role_user` query.
      *
-     * ONE definition, two callers: the per-request gate
-     * (`isMemberOfMandant()`, the identity check) and the route binding
-     * (`resolveRouteBindingQuery()`, the resource check). They must not be able
-     * to drift — a row that counts as "belongs to this mandant" for one and not
-     * for the other would either 404 a legitimate target or let a foreign id
-     * resolve, which is exactly the class of bug this file's binding exists to
-     * close.
+     * ONE definition, TWO callers — and both of them ask the IDENTITY
+     * question: the per-request gate (`isMemberOfMandant()`) and the route
+     * binding (`resolveRouteBindingQuery()`). Those two must not be able to
+     * drift; a row that counts as "belongs to this mandant" for one and not for
+     * the other would let an account act where it may not, which is exactly the
+     * class of bug this file's binding exists to close.
+     *
+     * The RESOURCE question is NOT this predicate and must not be folded into
+     * it: `UserController::assertMandantScopedTarget()` asks it separately, and
+     * without the global-`super_admin` branch below.
      *
      * @param  Builder|Relation  $assignments  a `role_user` query of the user in question
      */
@@ -294,8 +307,19 @@ class User extends Authenticatable implements JWTSubject
      * A would stop resolving on B. So the scope is the membership predicate
      * itself — a correlated `EXISTS` over the user's own `role_user` rows
      * ("any role in this mandant OR the global `super_admin`"), which is the
-     * same expression the per-request gate evaluates, so a target that resolves
-     * is a target whose roles the controller may legitimately replace.
+     * same expression the per-request gate evaluates.
+     *
+     * That makes this the IDENTITY check and nothing more (F1, 2026-09-29): it
+     * says the account may act on this host, NOT that it is a target of this
+     * mandant. A global `super_admin` satisfies the predicate on EVERY host and
+     * is in no mandant's user list, so a target that resolves here is not
+     * necessarily one whose roles may be written.
+     * `UserController::assertMandantScopedTarget()` asks that second question —
+     * does the target hold at least one mandant-scoped assignment HERE, with the
+     * global branch left out — before any write; measured without it,
+     * `PUT …/roles` answered 404 for that target while `DELETE` answered 200 and
+     * took the row. The second question is not a stricter version of this one:
+     * a super_admin who ALSO holds an assignment in this mandant passes both.
      *
      * Plain comparisons + nested `EXISTS` — identical SQL on Postgres and
      * SQLite (§2 portability). Without a resolved mandant (seeders, console
