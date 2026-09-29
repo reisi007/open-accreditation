@@ -626,7 +626,7 @@ class BadgeTest extends TestCase
         $this->assertSame('Presse', $row[2]);
         $this->assertSame('Finale', $row[3]);
         $this->assertSame('Akkreditiert', $row[4]);
-        $this->assertStringStartsWith('https://a.test/verify/', $row[5]);
+        $this->assertStringStartsWith($this->expectedVerifyUrlPrefix('a.test'), $row[5]);
     }
 
     public function test_export_csv_only_contains_approved_applications(): void
@@ -692,7 +692,7 @@ class BadgeTest extends TestCase
         $this->assertStringStartsWith("'-", $evilRow[3]);
 
         // The verify URL cell goes through the same helper (unchanged here).
-        $this->assertStringStartsWith('https://a.test/verify/', $evilRow[5]);
+        $this->assertStringStartsWith($this->expectedVerifyUrlPrefix('a.test'), $evilRow[5]);
 
         // A normal name/email stays untouched; the shared category/event are
         // dangerous (`+`/`-`) and sanitized in every row.

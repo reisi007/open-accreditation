@@ -107,7 +107,7 @@ class WalletPassServiceTest extends TestCase
         // Barcode: QR over the verify URL (host chain — mandant domain).
         $token = $application->fresh()->qr_token;
         $this->assertNotNull($token);
-        $this->assertSame('https://verband-a.test/verify/'.$token, $pass['barcode']['message']);
+        $this->assertSame($this->expectedVerifyUrl('verband-a.test', $token), $pass['barcode']['message']);
         $this->assertSame('PKBarcodeFormatQR', $pass['barcode']['format']);
         $this->assertSame('utf-8', $pass['barcode']['messageEncoding']);
     }
@@ -253,7 +253,7 @@ class WalletPassServiceTest extends TestCase
         $pass = $this->applePass($this->service->buildApplePass($sub, 'park'));
 
         $this->assertSame(
-            'https://verband-a.test/verify/'.$sub->application->fresh()->qr_token,
+            $this->expectedVerifyUrl('verband-a.test', $sub->application->fresh()->qr_token),
             $pass['barcode']['message'],
         );
     }
@@ -303,7 +303,7 @@ class WalletPassServiceTest extends TestCase
         $this->assertSame('de', $object['eventName']['defaultValue']['language']);
 
         $this->assertSame(
-            'https://verband-a.test/verify/'.$application->fresh()->qr_token,
+            $this->expectedVerifyUrl('verband-a.test', $application->fresh()->qr_token),
             $object['barcode']['value'],
         );
         $this->assertSame('QR_CODE', $object['barcode']['type']);

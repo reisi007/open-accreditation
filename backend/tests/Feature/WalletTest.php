@@ -156,7 +156,7 @@ class WalletTest extends TestCase
         $pass = json_decode((string) $files['pass.json'], true);
 
         $this->assertSame(
-            'https://verband-a.test/verify/'.$application->fresh()->qr_token,
+            $this->expectedVerifyUrl('verband-a.test', $application->fresh()->qr_token),
             $pass['barcode']['message'],
         );
         $this->assertSame('PKBarcodeFormatQR', $pass['barcode']['format']);
@@ -187,7 +187,7 @@ class WalletTest extends TestCase
         $this->assertSame('Verband A', $object['issuerName']);
         $this->assertSame('QR_CODE', $object['barcode']['type']);
         $this->assertSame(
-            'https://verband-a.test/verify/'.$application->fresh()->qr_token,
+            $this->expectedVerifyUrl('verband-a.test', $application->fresh()->qr_token),
             $object['barcode']['value'],
         );
     }

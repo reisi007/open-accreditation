@@ -51,6 +51,64 @@
             TEST-ONLY-Wert ohne Wirkung ausserhalb von APP_ENV=testing.
         -->
         <env name="JWT_SECRET" value="3ruN6pbSoJb0UcOFYaGZsjIggU2JgfUNi34tcrAnI2o=" force="true"/>
+        <!--
+            APP_URL ist der heavy Pin der Datei, und zwar wegen des HOSTES, nicht
+            wegen des Schemas. Gemessen (Volllauf, 1652 Tests, nur `.env`
+            variiert; `MAIL_HOST=dind` exportiert, weil der MAIL-Pin sonst zwei
+            zusaetzliche Fehlschlage erzeugt — siehe MAIL_* weiter unten):
+
+            | APP_URL                    | failed | Ursache                                    |
+            +============================+========+============================================+
+            | https://accreditation.test |      0 | Referenz                                   |
+            | http://accreditation.test  |     10 | nur Schema (hartkodierte https-Assertions) |
+            | https://localhost:5173     |    515 | nur Host (Loopback)                        |
+            | http://localhost:5173      |    520 | beides                                      |
+            | (leer)                     |    519 | beides                                      |
+            +============================+========+============================================+
+
+            Der Host ist der Grund fuer den Pin und fuer die 515:
+
+            `MakesHttpRequests` praefigiert jede Test-URI mit `config('app.url')`,
+            also bestimmt APP_URL den `Host`-Header JEDER Suite-Anfrage. Ein
+            LOOPBACK-Host (localhost / 127.0.0.1 / ::1 / *.localhost) trifft in
+            `MandantContextMiddleware::handle()` den Dev-Fallback
+            `isLoopback($host) && app()->environment('local','testing')`, der
+            `MandantContext::set(MandantContext::default())` aufruft. `default()`
+            ist null, wenn keine Mandant-Zeile `is_primary` hat (die Factory
+            setzt `is_primary => false`) — und `set(null)` macht
+            `app()->offsetUnset()`, also loescht genau die Mandant, die jeder Test
+            in seinem `setUp()` per `MandantContext::set()` selbst installiert
+            hat. Danach findet jede mandant-gefilterte Query nichts (404) und
+            jeder Gate laeuft gegen `currentId() === null` (403) — 515 Tests.
+            Gegenprobe: derselbe Test mit `https://accreditation.test` behaelt
+            `currentId() === 1` ueber die Anfrage hinweg.
+
+            (leer) ist derselbe Defekt: `url('/api/x')` faellt dann auf
+            `http://localhost` zurueck, also wieder Loopback.
+
+            `force="true"` ist die Eigentums-Deklaration, dieselbe wie bei
+            APP_KEY/JWT_SECRET weiter oben, und die Grenze ist GEMESSEN, nicht
+            behauptet:
+
+              - `.env`  : der Pin gewinnt. Mit und ohne `force`, weil PHPUnit den
+                Wert vor `LoadEnvironmentVariables` in `$_ENV`/putenv legt und
+                Laravels dotenv-Repository immutable ist.
+              - Shell   : der Pin verliert. `APP_URL=http://localhost:5173 php
+                artisan test` setzt `$_SERVER['APP_URL']` schon beim Prozessstart,
+                PHPUnit schreibt mit `force` aber nur `$_ENV`/putenv, und Laravels
+                `Env::getRepository()` fragt den `ServerConstAdapter` ZUERST ab.
+                Gemessen: `config('app.url')` = `http://localhost:5173`, 517
+                failed. Auch `APP_URL= ` (leer) gewinnt gegen den Pin.
+
+            Der Shell-Fall ist damit nicht verdeckt, sondern **erkannt**:
+            `tests/Feature/AppUrlHermeticityTest.php` faellt dann mit zwei
+            Tests um (statt 517 still anderswo rot zu werden) und nennt die
+            Ursache im Message-Text. Das war der Zustand davor nicht: dort hat
+            niemand etwas gesehen. Wer APP_URL fuer einen Test braucht, setzt es
+            im Test per `config(['app.url' => …])` — sichtbar und hermetisch,
+            genau wie `TrustHostsTest` und `QrTokenV2Test` es bereits tun.
+        -->
+        <env name="APP_URL" value="https://accreditation.test" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
@@ -63,6 +121,27 @@
         <env name="DB_URL" value=""/>
 
         <env name="MAIL_MAILER" value="smtp"/>
+        <!--
+            MAIL_HOST/MAIL_PORT zeigen auf 127.0.0.1:1025, also auf einen
+            Mailpit, den es beim Testlauf NICHT gibt. Gemessen: genau zwei Tests
+            der Suite haben `Mail::fake()` vergessen und legten deshalb wirklich
+            SMTP los — `SameOriginGuardTest::test_register_from_a_non_browser_
+            api_client_without_origin_passes()` und `RoleUserScopeUniqueTest::
+            test_the_registration_endpoint_never_leaves_a_second_role_user_row()`.
+            Ohne Mailpit antworteten beide 500 statt 201/201; MIT
+            `MAIL_HOST=dind` exportiert waren sie gruen. Die Suite hing also an
+            einem laufenden Container, nicht an einer Konfiguration. Beide
+            faken die Mail jetzt (`Mail::fake()`) — ihr Gegenstand ist die
+            HTTP-Antwort bzw. die `role_user`-Zeile, nicht der Mailversand.
+
+            RESTBLEIBENDE Luecke, bewusst nicht mitgeaendert: diese Pins zeigen
+            weiterhin auf einen Port, auf dem nichts laufen MUSS. Der naechste
+            Test, der `Mail::fake()` vergisst, haengt wieder an einem laufenden
+            Mail-Catcher. Wer das strukturell schliessen will, setzt
+            `MAIL_MAILER=array` — dann kann ein fehlendes `fake()` gar keinen
+            Socket oeffnen. Das ist eine Design-Entscheidung (beruehrt u. a.
+            `MandantMailerTest`) und wurde hier bewusst nicht getroffen.
+        -->
         <env name="MAIL_HOST" value="127.0.0.1"/>
         <env name="MAIL_PORT" value="1025"/>
         <env name="MAIL_ENCRYPTION" value="null"/>

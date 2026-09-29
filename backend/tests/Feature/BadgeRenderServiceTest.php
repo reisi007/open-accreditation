@@ -623,7 +623,7 @@ class BadgeRenderServiceTest extends TestCase
         $this->mandant->domains()->create(['hostname' => 'alias.test']);
 
         $this->assertStringStartsWith(
-            'https://primary.test/verify/',
+            $this->expectedVerifyUrlPrefix('primary.test'),
             $this->renderer->verifyUrl($this->approvedApplication()),
         );
     }
@@ -635,7 +635,7 @@ class BadgeRenderServiceTest extends TestCase
         $appHost = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
 
         $this->assertStringStartsWith(
-            'https://'.$appHost.'/verify/',
+            $this->expectedVerifyUrlPrefix($appHost),
             $this->renderer->verifyUrl($this->approvedApplication()),
         );
     }

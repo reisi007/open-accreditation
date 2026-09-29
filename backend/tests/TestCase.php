@@ -407,6 +407,52 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * The URL scheme a public link must carry, derived from `config('app.url')`.
+     *
+     * The contract is the one `VerifyLink`/`BadgeRenderService`/`AuthController`
+     * all document: *the scheme always follows `config('app.url')`* — https in
+     * prod, http in local. A local install behind plain http must not be handed
+     * `https://` links (nothing terminates TLS there, so the link in a pass
+     * mail or a PKPASS barcode would be dead on arrival), and an install behind
+     * TLS must not be handed `http://` links. Hardcoding either scheme into an
+     * assertion therefore asserts the *environment*, not the code — MEASURED:
+     * with `APP_URL=http://accreditation.test` exactly 10 tests of this suite
+     * went red on `'https://…/verify/'` vs `'http://…/verify/'` and nothing
+     * about the product had changed.
+     *
+     * The `?: 'https'` mirrors `VerifyLink:25` exactly, so a helper and the
+     * code under test can never disagree about the degenerate case (an
+     * `APP_URL` without a scheme).
+     */
+    protected function appUrlScheme(): string
+    {
+        return parse_url((string) config('app.url'), PHP_URL_SCHEME) ?: 'https';
+    }
+
+    /**
+     * The verify URL a public link is expected to carry, as a prefix.
+     *
+     * Split deliberately into the two parts the code actually decides, so a test
+     * using it still pins the interesting half — the HOST comes from the
+     * mandant's own domain (`verband-a.test`), never from `config('app.url')` —
+     * while the scheme follows the configuration (see `appUrlScheme()`).
+     *
+     * @param  string  $host  the mandant domain hostname the link must point at
+     */
+    protected function expectedVerifyUrlPrefix(string $host): string
+    {
+        return $this->appUrlScheme().'://'.$host.'/verify/';
+    }
+
+    /**
+     * `expectedVerifyUrlPrefix()` plus the signed token — the complete link.
+     */
+    protected function expectedVerifyUrl(string $host, string $token): string
+    {
+        return $this->expectedVerifyUrlPrefix($host).$token;
+    }
+
+    /**
      * Log a user in via the JWT guard and put the token on the wire the way
      * production does — as the httpOnly cookie.
      *

@@ -799,7 +799,7 @@ class QrTokenV2Test extends TestCase
 
         $csv = $response->streamedContent();
 
-        $this->assertStringContainsString('https://verband-a.test/verify/', $csv);
+        $this->assertStringContainsString($this->expectedVerifyUrlPrefix('verband-a.test'), $csv);
         $this->assertStringNotContainsString('akademie.test', $csv);
     }
 

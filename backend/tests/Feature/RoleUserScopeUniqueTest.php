@@ -12,6 +12,7 @@ use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -142,6 +143,16 @@ class RoleUserScopeUniqueTest extends TestCase
 
     public function test_the_registration_endpoint_never_leaves_a_second_role_user_row(): void
     {
+        // The subject is the `role_user` row count, not the mail. Without this
+        // the registration actually opens an SMTP connection to
+        // `MAIL_HOST:MAIL_PORT` as pinned in `phpunit.xml` and a refused
+        // connection surfaces as a 500 — i.e. the test's result depended on
+        // whether a mail catcher happened to be listening. MEASURED: with
+        // nothing on 127.0.0.1:1025 both this test and
+        // `SameOriginGuardTest::test_register_from_a_non_browser_api_client_
+        // without_origin_passes()` answer 500 instead of 201.
+        Mail::fake();
+
         $this->mandantA->domains()->create(['hostname' => 'verband-a.test']);
 
         $payload = [

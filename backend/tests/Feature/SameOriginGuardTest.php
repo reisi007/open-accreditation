@@ -13,6 +13,7 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -572,6 +573,16 @@ class SameOriginGuardTest extends TestCase
 
     public function test_register_from_a_non_browser_api_client_without_origin_passes(): void
     {
+        // The subject is the Origin guard, not the mail. Registration sends an
+        // `ActivationMail`, and without this fake the send really dials
+        // `MAIL_HOST:MAIL_PORT` as pinned in `phpunit.xml`; a refused connection
+        // becomes a 500 and the test's result depended on whether a mail catcher
+        // happened to be listening. MEASURED: 500 instead of 201 with nothing on
+        // 127.0.0.1:1025. The sibling `RoleUserScopeUniqueTest::test_the_
+        // registration_endpoint_never_leaves_a_second_role_user_row()` had the
+        // same ambient dependency.
+        Mail::fake();
+
         $this->asHttpRequest();
 
         $this->postJson('https://'.self::TENANT.'/api/auth/register', [
