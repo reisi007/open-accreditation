@@ -34,15 +34,42 @@ use Illuminate\Validation\ValidationException;
  * `destroy()` sits behind its OWN gate, `users.delete`, deliberately separate
  * from `users.manage`: that one is ROLE ASSIGNMENT, and hanging account
  * termination off it would give whoever may hand out roles the power to end an
- * account. Both are `can:` on the same mandant-scoped route binding, so the
- * deletion cannot reach outside the current mandant.
+ * account.
+ *
+ * ## The route binding is NOT a membership check (F1, 2026-09-29)
+ *
+ * `User::resolveRouteBindingQuery()` reuses ONE predicate for both callers, and
+ * that predicate deliberately ORs in the GLOBAL `super_admin` branch: an
+ * account with a `role_user` row carrying `mandant_id = null` +
+ * `team_id = null` resolves on EVERY mandant's host. That is correct for the
+ * IDENTITY check ("may this account act here at all?") and WRONG as the whole
+ * RESOURCE check ("is this target one of my users?"): a global super_admin
+ * holds no mandant-scoped assignment, appears in NO mandant's user list
+ * (`index()` filters by `forMandant()`), and can never have a scoped role set
+ * written for it. Measured: before the guard below, `PUT …/roles` answered 404
+ * for that target while `DELETE` answered 200 and took the row — a blind,
+ * irreversible IDOR over sequential integer ids, since the actor cannot even
+ * list the target.
+ *
+ * Both write endpoints therefore ask the same question explicitly, in
+ * {@see assertMandantScopedTarget()}, with the same predicate, the same 404 and
+ * the same message. The predicate is also what keeps the invariant "every
+ * mandant-scoped `role_user.mandant_id` equals the account's home mandant"
+ * true (features/auth/01-auth-and-roles.md, "Die Eine-Account-ein-Mandant-Invariante"):
+ * `updateRoles()` can only ever REPLACE an existing assignment, never create
+ * the first one in a second mandant, so a cross-mandant account is unreachable
+ * through the product today — the guard on `destroy()` is defence in depth for
+ * a state the API cannot produce, not a patch on a live hole.
  *
  * Note what "cross-mandant for super_admin" means HERE: the GATE is
  * mandant-independent for him (`Gate::before` grants every gate), exactly like
- * every other permission. The route binding still scopes the TARGET to the
- * current mandant — a super_admin reaches another mandant's users by acting on
- * that mandant's host, which is how the whole admin surface works (D21), not
- * through a second, deletion-only rule.
+ * every other permission. The target scope is what keeps him inside the current
+ * mandant — a super_admin reaches another mandant's users by acting on that
+ * mandant's host, which is how the whole admin surface works (D21), not
+ * through a second, deletion-only rule. The platform-wide `super_admin` itself
+ * is consequently NOT reachable through this route from ANY host (no
+ * mandant-scoped assignment to match); only its own self-service deletion
+ * (`DELETE /api/user/account`) can remove that account.
  */
 class UserController extends Controller
 {
@@ -127,16 +154,7 @@ class UserController extends Controller
     {
         $mandantId = $this->currentMandantId();
 
-        // The target must already be a member of the current mandant: no
-        // mandant-scoped role assignment may be written for a user who is not
-        // a member (a different mandant's user, or a global super_admin with
-        // no scoped assignment here). This keeps role management scoped to
-        // "users of my mandant".
-        abort_unless(
-            $user->roleUserAssignments()->forMandant($mandantId)->exists(),
-            404,
-            'User is not a member of this mandant.',
-        );
+        $this->assertMandantScopedTarget($user, $mandantId);
 
         $allowedRoles = [
             UserRole::MANDANT_ADMIN->value,
@@ -178,10 +196,11 @@ class UserController extends Controller
      * anonymisation, the row and everything referencing it go).
      *
      * Behind its own gate `users.delete` (see the class docblock) and behind
-     * the mandant-scoped `User::resolveRouteBindingQuery()`, so a target of
-     * another mandant is a 404 — the same shape as the roles endpoint, and the
-     * reason no second membership check is needed here: the binding already
-     * answers "is this one of my users".
+     * the SAME explicit target scope `updateRoles()` uses — the route binding
+     * alone is not a membership check, because it also resolves the global
+     * `super_admin` (F1, class docblock). A target without a mandant-scoped
+     * assignment here is therefore a 404 here too: same predicate, same status,
+     * same message as the roles endpoint.
      *
      * The counts in the response are measured INSIDE the deletion transaction,
      * which is what makes them trustworthy: they are the number of rows that
@@ -191,9 +210,11 @@ class UserController extends Controller
      * media_files_deleted, role_assignments_deleted, sessions_deleted,
      * media_files_left_over: string[]}}`.
      */
-    public function destroy(User $user): JsonResponse
+    public function destroy(Request $request, User $user): JsonResponse
     {
-        $summary = $this->deletions->delete($user, 'admin');
+        $this->assertMandantScopedTarget($user, $this->currentMandantId());
+
+        $summary = $this->deletions->delete($user, 'admin', $request->user());
 
         return response()->json([
             'message' => 'Konto gelöscht.',
@@ -206,6 +227,30 @@ class UserController extends Controller
                 'media_files_left_over' => $summary['residue'],
             ],
         ]);
+    }
+
+    /**
+     * The target must hold at least one mandant-scoped `role_user` assignment
+     * in the CURRENT mandant; otherwise 404.
+     *
+     * ONE predicate, TWO callers — `updateRoles()` and `destroy()` — because
+     * the resource check and the identity check are NOT the same question and
+     * the route binding only answers the second one (it ORs in the global
+     * `super_admin` branch, see the class docblock). Two callers of one
+     * predicate cannot drift apart; two inline copies of it would be the very
+     * thing that let `destroy()` skip the check.
+     *
+     * 404, not 403: "you may not act on this target" and "this target does not
+     * exist in your mandant" are the same answer for the caller — a foreign id
+     * must not be distinguishable from an id that never existed.
+     */
+    private function assertMandantScopedTarget(User $user, int $mandantId): void
+    {
+        abort_unless(
+            $user->roleUserAssignments()->forMandant($mandantId)->exists(),
+            404,
+            'User is not a member of this mandant.',
+        );
     }
 
     /**

@@ -54,6 +54,15 @@ use Illuminate\Support\Facades\Log;
  * remain a way to re-identify the deleted person) and it is part of the summary
  * the controller returns, not something the UI has to guess.
  *
+ * ## The record names the ACTOR as well as the target (accepted risk A5)
+ *
+ * There is no `audit_logs` table, so the application log is the only place the
+ * question "who deleted which account" can ever be answered — and that question
+ * has two halves. A line carrying only the target answers "which account",
+ * which is the half a `reason: admin` record could answer on its own. The actor
+ * is passed in by the caller ({@see delete()}) and logged next to it, with
+ * `actor_is_target` stating the relation for the self-service case.
+ *
  * ## A file that will not go is a residue, not a 500
  *
  * The account is gone either way; reporting a server error for a leftover file
@@ -101,10 +110,31 @@ final class AccountDeletionService
      * The order inside is fixed and asserted by tests: sessions + row in ONE
      * transaction, files strictly afterwards.
      *
+     * ## Why `$actor` is a PARAMETER and not `auth()->user()`
+     *
+     * Accepted risk A5 makes this log the ONLY place the question "who deleted
+     * which account" can be answered, so the actor is not optional information —
+     * it is half of what the record exists for. A service that reached into the
+     * auth resolver would make that half invisible at every call site (a reader
+     * of `$this->deletions->delete($user, 'admin')` could not tell who is
+     * recorded), and it would be untestable for the `null` case, which is exactly
+     * the case the payload has to render legibly. An explicit parameter makes
+     * the caller state the actor, and both callers can: the admin route passes
+     * `$request->user()`, the self-service route passes the target itself.
+     *
+     * The parameter is REQUIRED, not defaulted: a new call site that forgets it
+     * is an `ArgumentCountError` at review time, not a silently actor-less entry
+     * in the one log that cannot be reconstructed.
+     *
      * @param  string  $reason  who asked: `self_service` | `admin`
+     * @param  User|null  $actor  the authenticated account that requested the
+     *                            deletion — a different account for an admin
+     *                            deletion, the target itself for self-service,
+     *                            `null` if the caller cannot resolve one (never
+     *                            silently: `actor_is_target` then says `false`)
      * @return array<string, mixed> the summary (see `SUMMARY_SHAPE`)
      */
-    public function delete(User $user, string $reason): array
+    public function delete(User $user, string $reason, ?User $actor): array
     {
         // The reference snapshot is taken INSIDE the transaction that deletes
         // the row, under a row lock — the same F6 reasoning as the mandant
@@ -185,7 +215,7 @@ final class AccountDeletionService
             'residue' => array_keys($failed),
         ];
 
-        $this->log($summary, $reason);
+        $this->log($summary, $reason, $actor);
 
         return $summary;
     }
@@ -195,14 +225,24 @@ final class AccountDeletionService
      *
      * The application log is the ONLY place the question "who deleted which
      * account" can ever be answered — there is no `audit_logs` table. So the
-     * line carries the target id, its email, its mandant and the counts of what
-     * went with the account, plus the residue so a leftover file can be traced
-     * back to this deletion.
+     * line carries BOTH sides of that question: the actor (`actor_user_id` /
+     * `actor_user_email`) and the target (id, email, name, mandant), plus the
+     * counts of what went with the account and the residue so a leftover file
+     * can be traced back to this deletion.
+     *
+     * `actor_is_target` exists so a self-service entry does not have to be
+     * decoded by comparing two ids: it states the relation outright, which is
+     * also what makes an actor-less entry (`null`) distinguishable from a
+     * self-service one — both would otherwise print `actor_user_id: null`
+     * differences that a log reader has to guess at.
      */
-    private function log(array $summary, string $reason): void
+    private function log(array $summary, string $reason, ?User $actor): void
     {
         Log::notice('An account was deleted.', [
             'reason' => $reason,
+            'actor_user_id' => $actor?->id,
+            'actor_user_email' => $actor?->email,
+            'actor_is_target' => $actor !== null && (int) $actor->id === (int) $summary['user_id'],
             'deleted_user_id' => $summary['user_id'],
             'deleted_user_email' => $summary['email'],
             'deleted_user_name' => $summary['name'],

@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\ExtractsPdfContentStream;
 use Tests\TestCase;
 
 /**
@@ -39,6 +40,7 @@ use Tests\TestCase;
  */
 class BadgeRenderServiceTest extends TestCase
 {
+    use ExtractsPdfContentStream;
     use RefreshDatabase;
 
     private Mandant $mandant;
@@ -912,34 +914,9 @@ class BadgeRenderServiceTest extends TestCase
     }
 
     /**
-     * Extract the inflated dompdf content-stream text (see BadgeTest::pdfText).
+     * The inflated dompdf content stream now comes from
+     * {@see ExtractsPdfContentStream} — one implementation for
+     * the four badge suites, because four copies of it drifted into the same
+     * `rtrim()` payload bug.
      */
-    private function pdfText(string $pdf): string
-    {
-        $text = '';
-        $offset = 0;
-
-        while (($start = strpos($pdf, 'stream', $offset)) !== false) {
-            $dataStart = strpos($pdf, "\n", $start) + 1;
-            $dataEnd = strpos($pdf, 'endstream', $dataStart);
-
-            if ($dataEnd === false) {
-                break;
-            }
-
-            $inflated = @gzuncompress(rtrim(substr($pdf, $dataStart, $dataEnd - $dataStart)));
-
-            if ($inflated === false) {
-                $inflated = @gzinflate(rtrim(substr($pdf, $dataStart, $dataEnd - $dataStart)));
-            }
-
-            if ($inflated !== false) {
-                $text .= $inflated;
-            }
-
-            $offset = $dataEnd;
-        }
-
-        return str_replace("\x00", '', $text);
-    }
 }

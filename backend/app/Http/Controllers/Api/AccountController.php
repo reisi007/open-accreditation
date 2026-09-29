@@ -75,13 +75,18 @@ class AccountController extends Controller
      * the cookie does (Weg A in `AccountDeletionRevokesAccessImmediatelyTest`).
      * The cookie is only cleared so the browser stops sending a token that can
      * never succeed again.
+     *
+     * The deletion log (A5) gets `$user` as the actor, i.e. the target is
+     * passed as ITSELF: the record then says so explicitly through
+     * `actor_is_target`, instead of leaving a reader to compare two ids to find
+     * out whether "the actor" was a third party.
      */
     public function destroy(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
 
-        $summary = $this->deletions->delete($user, 'self_service');
+        $summary = $this->deletions->delete($user, 'self_service', $user);
 
         return response()->json([
             'message' => 'Dein Konto und alle zugehörigen Daten wurden gelöscht.',

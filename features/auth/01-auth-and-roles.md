@@ -344,6 +344,18 @@ Semantik:
   halten sie nicht (403 am Route-Gate). Die **Selbstbedienung**
   (`DELETE /api/user/account`) ist keine Rollenfrage und trägt deshalb
   **kein** Gate: ihr Ziel ist `$request->user()`.
+  **Offen (F4, 2026-09-29):** In der ausgelieferten Matrix haben `users.manage`
+  und `users.delete` **identische** Halter (`mandant_admin`, plus `super_admin`
+  über `'*'`), die Trennung ist also eine **Deklaration ohne Wirkungsträger**.
+  Gemessen: ein Tausch des Route-Gates auf `can:users.manage` ließ 30/30 und
+  64/64 grün. `AdminUsersPermissionSeparationTest` nagelt die Trennung fest,
+  indem es eine Matrix benutzt, die sie tatsächlich trennt (beide Richtungen,
+  403 vs. 200) **und** die Deklaration selbst prüft — die zweite Assertion ist
+  die einzige, die heute rot wird. *Produktfrage, nicht im Test entschieden:*
+  eine Rolle, die Rollen vergibt, aber keine Konten beendet (z. B.
+  „Mandant-Manager" neben `mandant_admin`), wäre der natürliche Wirtschaft,
+  die die Begründung trägt. Sie wird **nicht** eingeführt, nur weil ein Test sie
+  bräuchte.
 - Nutzung in Controllern/Policies (P2+): `Gate::allows()`/`Gate::authorize()`
   oder direkt `$user->hasPermission($permission, $mandantId, $teamId)`.
 
@@ -368,13 +380,72 @@ account löschen können"), **harte Löschung** („wirklich löschen wegen DSGV
 |---|---|---|
 | `GET /api/user/account` | **kein** (nur `auth:api`) | `$request->user()` |
 | `DELETE /api/user/account` | **kein** (nur `auth:api`) | `$request->user()` |
-| `DELETE /api/admin/users/{user}` | `can:users.delete` | mandantenscoped via `User::resolveRouteBindingQuery()` (fremd → **404**) |
+| `DELETE /api/admin/users/{user}` | `can:users.delete` | mandantenscoped via `User::resolveRouteBindingQuery()` **plus expliziter Mitgliedschafts-Check** (fremd → **404**) |
 
 Die Selbstbedienung trägt **kein Gate**, weil ihr Ziel der JWT-Inhaber selbst
 ist: ein Gate würde eine Permission des Kontos gegen sich selbst prüfen und
 könnte nur eine zweite Fehlerquelle für einen bereits fixierten Request
 sein. `user` hält nur `accreditations.self` — Selbstbedienung ist damit
 **keine Rollenfrage**.
+
+### Das Route-Binding ist KEINE Mitgliedschaftsprüfung (F1, 2026-09-29)
+
+`User::resolveRouteBindingQuery()` nutzt dasselbe Prädikat wie
+`isMemberOfMandant()` — und das OR-ed bewusst den **globalen `super_admin`-
+Zweig** hinein: ein Konto mit `role_user.mandat_id = null` + `team_id = null`
+löst auf **jedem** Mandanten-Host auf. Für die Identitätsfrage („darf dieses
+Konto hier handeln?") ist das richtig; als vollständige Antwort auf „ist dieses
+Ziel eines meiner User?" ist es falsch.
+
+Gemessen vor dem Fix: `PUT /api/admin/users/{id}/roles` → **404**,
+`DELETE /api/admin/users/{id}` → **200**, Zeile weg. Ein `mandant_admin` konnte
+den plattformweiten `super_admin` hart löschen — irreversibel, kaskadierend und
+blind (fortlaufende Integer-Ids; das Ziel erscheint in `GET /api/admin/users`
+nicht, weil die Liste nach `forMandant()` filtert).
+
+**Beide Schreib-Endpunkte fragen deshalb dieselbe Frage explizit**
+(`UserController::assertMandantScopedTarget()`), mit demselben Prädikat, derselben
+404 und derselben Meldung — eine Prädikats-Definition, zwei Aufrufer, damit sie
+nicht auseinanderlaufen können. `AccountDeletionTest::
+test_a_mandant_admin_may_not_delete_a_global_super_admin` ist der Spiegel des
+Rollen-Tests `AdminUserTest::
+test_update_roles_rejects_global_super_admin_without_mandant_assignment`.
+
+**Folge, die man kennen muss:** der plattformweite `super_admin` ist über
+`DELETE /api/admin/users/{user}` von **keinem** Host aus erreichbar (er hat keine
+mandantenscoped Zuweisung, die das Prädikat treffen könnte) — genau wie bei der
+Rollenvergabe. Löschen kann ihn nur die Selbstbedienung
+(`DELETE /api/user/account`) durch ihn selbst. Das ist die Konsequenz der
+bestehenden Rollen-Semantik, keine Sonderregel nur für die Löschung.
+
+### Die Eine-Account-ein-Mandant-Invariante (F5)
+
+`users.mandant_id` ist der dokumentierte **Heimat-Mandant** und der
+Eindeutigkeitsanker für `(mandant_id, email)`; `NULL` markiert ein **globales**
+Konto. Die Invariante: **jede mandantenscoped `role_user.mandant_id` entspricht
+dem Heimat-Mandant des Kontos.** Der einzige legale `NULL`-Pivot ist der globale
+`super_admin` (`mandant_id = team_id = NULL`) — auf einem globalen Konto
+(`DatabaseSeeder`) ebenso wie auf einem Konto, das zusätzlich einem Mandanten
+angehört (Hybrid-Shape, den die Rollenvergabe bewusst erhält und die Löschung
+bewusst zulässt).
+
+Es gibt **genau drei** `role_user`-Schreibstellen im Backend, und alle drei
+halten die Invariante:
+
+| # | Stelle | Schreibt |
+|---|---|---|
+| 1 | `AuthController::register()` | `users.mandat_id = current` **und** `role_user.mandant_id = $mandant->id` — derselbe Mandant |
+| 2 | `UserController::updateRoles()` | `role_user.mandant_id = $mandantId` (aktueller Mandant), und nur **nach** dem Mitgliedschafts-Check — eine Zuweisung kann damit **ersetzt**, aber nie die **erste** in einem zweiten Mandanten **angelegt** werden |
+| 3 | `DatabaseSeeder` | Bootstrap-Admin: `users.mandant_id = null` **und** `role_user.mandant_id = null` |
+
+Ein Konto mit Zuweisungen in zwei Mandanten ist damit über das Produkt **nicht
+erreichbar**; die Dual-Mandant-Fixture des Verifizierers bestand aus direkten
+Eloquent-Writes. Der Check in `destroy()` ist darum **Defence in Depth** für
+einen Zustand, den die API nicht erzeugen kann — kein Patch auf eine offene
+Lücke. `RoleAssignmentMandantInvariantTest` pinnt alle drei Schreibstellen und
+die Invariante selbst; `test_an_admin_cannot_give_an_account_a_first_assignment_in_a_second_mandant`
+nagelt das Henne-Ei-Problem in beide Richtungen fest (Rollenvergabe **und**
+Löschung, beide 404).
 
 ### Die Anzahl muss VOR dem Löschen existieren
 
@@ -426,11 +497,47 @@ Person wiederzuerkennen) und steht in der Antwort, nicht im Stillen.
 
 Nutzerentscheid: „kein Audit, nur das Anwendungslog" — es gibt **kein**
 `audit_logs`. `AccountDeletionService` schreibt deshalb `Log::notice` mit
-`reason` (`self_service`|`admin`), Ziel-Id, Ziel-Mail, Ziel-Name, Ziel-Mandant
-und den Zählern (`applications_deleted`, `sub_applications_deleted`,
-`media_rows_deleted`, `role_assignments_deleted`, `sessions_deleted`) plus
-`media_files_left_over`. Das ist die **einzige** Stelle, an der die Frage „wer
-hat welches Konto gelöscht" je beantwortet werden kann.
+`reason` (`self_service`|`admin`), **Akteur** (`actor_user_id`,
+`actor_user_email`, `actor_is_target`), Ziel-Id, Ziel-Mail, Ziel-Name,
+Ziel-Mandant und den Zählern (`applications_deleted`,
+`sub_applications_deleted`, `media_rows_deleted`, `role_assignments_deleted`,
+`sessions_deleted`) plus `media_files_left_over`. Das ist die **einzige**
+Stelle, an der die Frage „wer hat welches Konto gelöscht" je beantwortet werden
+kann — und die Frage hat **zwei** Hälften (F3, 2026-09-29): eine Zeile mit
+nur dem Ziel beantwortet „welches Konto", nicht „wer".
+
+**Warum `$actor` ein Parameter ist und nicht `auth()->user()`:** die
+Control-Sichtbarkeit ist der Punkt — wer `$this->deletions->delete($user,
+'admin')` schreibt, muss am Aufrufer stehen sehen, wer protokolliert wird, sonst
+ist die halbe Aussage der Zeile unsichtbar. Der Parameter ist **required**: ein
+neuer Aufrufer, der ihn vergisst, bekommt einen `ArgumentCountError` im Review
+und keine still actor-lose Zeile in dem einen Log, das nicht rekonstruierbar
+ist. Die Selbstbedienung übergibt das Ziel **als sich selbst**; `actor_is_target`
+macht die Beziehung lesbar, statt sie dem Leser über zwei Ids zum
+Vergleich aufzubauen.
+
+Festgenagelt in `AccountDeletionTest`:
+`test_the_deletion_is_logged_with_the_full_payload` (Admin-Pfad, Actor ist ein
+**anderes** Konto — eine Assertion, die nur `actor == target` sieht, wäre auch
+unter der kaputten Signatur grün) und
+`test_the_self_service_deletion_is_logged_as_such` (`actor_is_target: true`).
+
+### Der Nebenläufigkeits-Zweig ist nicht per HTTP erreichbar (F6, 2026-09-29)
+
+`AccountDeletionService::delete()` hat einen Zweig für „die Zeile ist schon
+weg": `deleted => false`, **kein** Log, genullte Zähler. Er deckt genau das
+Fenster ab, das das Route-Binding nicht sieht — das Ziel war aufgelöst, und die
+Zeile verschwindet zwischen dieser Auflösung und dem gelockten Nachlesen in der
+Transaktion.
+
+**Gemessen:** über HTTP ist der Zweig nicht erreichbar. `DELETE
+/api/admin/users/{id}` auf eine entfernte Zeile → **404** aus dem Binding;
+die Selbstbedienung → **401**, weil `JWTGuard::user()` das Subject nicht mehr
+auflösen kann (Weg A). Der Test ruft deshalb den **Service** mit einer
+veralteten Model-Instanz auf und sagt das auch: das ist ein **Zustands**-, kein
+Nebenläufigkeitstest. SQLite `:memory:` kann keine echte Race erzeugen — ein
+zweiter Schreiber findet schlicht keine Zeile, und `lockForUpdate` ist im
+Einzelprozess-SQLite ohnehin nur beratend.
 
 ### Ein hängendes File ist ein Rest, kein 500
 

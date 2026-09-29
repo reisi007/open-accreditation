@@ -21,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\ExtractsPdfContentStream;
 use Tests\TestCase;
 
 /**
@@ -40,6 +41,7 @@ use Tests\TestCase;
  */
 class BadgeTest extends TestCase
 {
+    use ExtractsPdfContentStream;
     use RefreshDatabase;
 
     private Mandant $mandantA;
@@ -451,6 +453,36 @@ class BadgeTest extends TestCase
      | Badge export — PDF
      | ------------------------------------------------------------------- */
 
+    /**
+     * The whole card: the field texts AND both pictures.
+     *
+     * **The picture assertion used to name dompdf's internal label, and it was
+     * wrong for two independent reasons. Both are measured, both are fixed here.**
+     *
+     * 1. It passed for the WRONG IMAGE. The portrait fixture held the literal
+     *    `'fake-portrait-bytes'`, which dompdf cannot decode: it substituted the
+     *    built-in broken-image placeholder (an SVG, drawn as vectors) and embedded
+     *    no XObject for the photo at all. The `/I1 Do` the test found was the QR
+     *    code's. The promise in the old comment ("the portrait and the QR code are
+     *    embedded as image XObjects") was never kept.
+     * 2. It only held on SOME GD BUILDS. dompdf allocates `/I<n>` per embedded
+     *    image, and for a PNG it takes the alpha-splitting path (mask + image, two
+     *    labels) unless the file is colour type 2/4 or a palette with bit depth
+     *    exactly 4 - `Cpdf::addPngFromFile()`:
+     *    `$is_alpha = in_array($color_type, [4, 6]) || ($color_type == 3 && $bit_depth != 4)`.
+     *    The QR is a PALETTE PNG whose bit depth is chosen by GD's quantiser when
+     *    `endroid/qr-code` calls `imagetruecolortopalette($im, false, 16)`: on the
+     *    CI image it came out as 4, so the QR took the single-label path and drew
+     *    `/I1 Do`; here (libgd 2.3.3) it comes out as 1, so the QR draws `/I2 Do`
+     *    and this test was red. Reproduced with two synthetic PNGs: an 8-colour
+     *    palette (bit depth 4) draws `/I1 Do`, a 16-colour one quantised to bit
+     *    depth 8 draws `/I2 Do`. An assertion about an internal counter cannot be
+     *    pinned by a suite that runs on two GD builds.
+     *
+     * What replaces it is numbering-independent and names both pictures: the
+     * content stream draws exactly TWO images, the portrait's own pixel size is
+     * present as an image XObject, and the 512x512 silhouette is not.
+     */
     public function test_export_pdf_contains_template_field_text_and_photo(): void
     {
         $event = $this->mandantA->events()->create(['title' => 'Finale', 'date' => '2026-09-01']);
@@ -481,9 +513,22 @@ class BadgeTest extends TestCase
         $this->assertStringContainsString('Presse', $text);
         $this->assertStringContainsString('Finale', $text);
 
-        // The portrait and the QR code are embedded as image XObjects (the
-        // content stream draws them with `/I1 Do`, `/I2 Do`).
-        $this->assertStringContainsString('/I1 Do', $text);
+        // Exactly two pictures are DRAWN: the portrait and the QR code. WHICH
+        // label each one carries is dompdf's business (see above), the count is
+        // the promise.
+        preg_match_all('#/I\d+ Do\b#', $text, $draws);
+
+        $this->assertCount(2, $draws[0], 'The card must draw both the portrait and the QR code as images.');
+
+        // The portrait is embedded under ITS OWN dimensions (8x8, the fixture's)
+        // - proof that the file on the private disk was decoded.
+        $this->assertStringContainsString('/Width 8', $pdf);
+        $this->assertStringContainsString('/Height 8', $pdf);
+
+        // ... and NOT replaced by the bundled silhouette (512x512), which is
+        // what a missing or undecodable portrait renders instead.
+        $this->assertStringNotContainsString('/Width 512', $pdf);
+        $this->assertStringNotContainsString('/Height 512', $pdf);
     }
 
     public function test_export_pdf_uses_default_template_when_template_id_is_absent(): void
@@ -1049,6 +1094,25 @@ class BadgeTest extends TestCase
         ]);
     }
 
+    /**
+     * A REAL portrait file, not a placeholder string.
+     *
+     * The bytes used to be the literal `'fake-portrait-bytes'`, and that made
+     * this fixture a lie in a way only the PDF showed: dompdf could not decode
+     * them, replaced the `<img>` with its built-in broken-image placeholder (an
+     * SVG, drawn as vector commands) and embedded NO image XObject for the
+     * photo at all. `test_export_pdf_contains_template_field_text_and_photo`
+     * nevertheless passed on CI, because its `/I1 Do` assertion was satisfied
+     * by the QR code's label — see that test's docblock for the measured
+     * reason.
+     *
+     * The bytes are a literal 8x8 opaque PNG (truecolour, colour type 2) rather
+     * than GD output: handing a live `GdImage` into the test process and then
+     * letting dompdf rasterise inside the same request rendered an EMPTY
+     * document here (both libraries keep process-global GD state, and dompdf's
+     * PNG path is GD-backed). A constant decodes identically everywhere and
+     * cannot leak that state.
+     */
     private function storePortrait(User $user): UserMedia
     {
         $media = UserMedia::create([
@@ -1060,7 +1124,7 @@ class BadgeTest extends TestCase
             'original_name' => 'portrait.png',
         ]);
 
-        Storage::disk('private')->put($media->path, 'fake-portrait-bytes');
+        Storage::disk('private')->put($media->path, self::portraitPngBytes());
 
         self::$mediaCount++;
 
@@ -1068,41 +1132,15 @@ class BadgeTest extends TestCase
     }
 
     /**
-     * Extract the (inflated) content stream text of a dompdf PDF so field
-     * texts can be asserted. Content streams are FlateDecode-compressed;
-     * object dictionaries stay uncompressed and are not part of the output.
-     * dompdf encodes text as UTF-16BE (interleaved `\x00` bytes), so null
-     * bytes are stripped before returning.
+     * 8x8, solid colour, 98 bytes — a decodable PNG and nothing more.
      */
-    private function pdfText(string $pdf): string
+    private static function portraitPngBytes(): string
     {
-        $text = '';
-        $offset = 0;
-
-        while (($start = strpos($pdf, 'stream', $offset)) !== false) {
-            $dataStart = strpos($pdf, "\n", $start) + 1;
-            $dataEnd = strpos($pdf, 'endstream', $dataStart);
-
-            if ($dataEnd === false) {
-                break;
-            }
-
-            $data = rtrim(substr($pdf, $dataStart, $dataEnd - $dataStart));
-
-            $inflated = @gzuncompress($data);
-
-            if ($inflated === false) {
-                $inflated = @gzinflate($data);
-            }
-
-            if ($inflated !== false) {
-                $text .= $inflated;
-            }
-
-            $offset = $dataEnd;
-        }
-
-        return str_replace("\x00", '', $text);
+        return base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA'
+            .'FElEQVQImWOs6DnBgA0wYRUdtBIAao8B3A38XoUAAAAASUVORK5CYII=',
+            true,
+        );
     }
 
     private function superAdmin(): User

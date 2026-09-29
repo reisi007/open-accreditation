@@ -337,6 +337,72 @@ zweistufige Pfad bleibt der Primärpfad, Fallback A (`gs -sDEVICE=png16m`,
 ebenfalls deckend) und Fallback B (`sips`, kann keinen Alpha entfernen → Exit 3)
 bleiben, wie sie sind.
 
+### Was ein PDF-Test über „ist das Bild drin" **nicht** behaupten darf (2026-09-29)
+
+`BadgeTest::test_export_pdf_contains_template_field_text_and_photo` behauptete
+zwei Dinge und traf **keine** davon:
+
+1. **Die Porträt-Fixture war unlesbar.** `storePortrait()` schrieb den Literal-
+   String `'fake-portrait-bytes'`. dompdf kann das nicht dekodieren, ersetzt das
+   `<img>` durch seinen eingebauten Broken-Image-Platzhalter (ein **SVG**, als
+   Vektorbefehle gezeichnet) und bettet **gar kein** Bild-XObject für das Foto
+   ein. „The portrait and the QR code are embedded as image XObjects" war nie
+   wahr. Die Fixture ist jetzt eine **echte 8×8-PNG** (truecolour, colour type
+   2) als Base64-Konstante — bewusst **nicht** per GD erzeugt: ein lebendes
+   `GdImage` im Test-Prozess neben dompdfs GD-gestütztem PNG-Pfad rendert hier
+   ein **leeres** Dokument (gemessen), weil beide Bibliotheken prozess-globalen
+   GD-Zustand teilen.
+2. **Die Assertion nannte dompdfs internen Zähler, und der ist GD-Build-
+   abhängig.** dompdf vergibt `/I<n>` pro eingebettetem Bild und nimmt für ein
+   PNG den **Alpha-Split-Pfad** (Maske + Bild, zwei Labels) — ausser bei
+   colour type 2/4 oder einer Palette mit Bit-Tiefe **genau 4**
+   (`Cpdf::addPngFromFile()`:
+   `$is_alpha = in_array($color_type, [4,6]) || ($color_type == 3 && $bit_depth != 4)`).
+   Der QR-Code ist eine **Paletten**-PNG, und ihre Bit-Tiefe wählt GDs
+   Quantisierer, wenn `endroid/qr-code` `imagetruecolortopalette($im, false, 16)`
+   aufruft: auf dem CI-Image **4** (also ein Label, `/I1 Do`, Test grün), hier
+   mit libgd 2.3.3 **1** (also zwei Labels, `/I2 Do`, Test rot). Direkt
+   reproduziert mit zwei synthetischen PNGs: 8-Farb-Palette (Tiefe 4) → `/I1 Do`,
+   16-Farb-Palette (Tiefe 8) → `/I2 Do`. Ein Zählerstand aus einer Fremdbibliothek
+   ist von einer Suite, die auf zwei GD-Builds läuft, nicht festnagelbar.
+
+Der Test behauptet jetzt **nummernunabhängig** und **nennt beide Bilder**: der
+Content-Stream zeichnet **genau zwei** Bilder (`preg_match_all('#/I\d+ Do\b#')`),
+das Porträt steckt mit **eigenen** Pixelmaßen (8×8) als XObject im PDF, und der
+512×512-Platzhalter steckt **nicht** drin. Mutation geprüft: Fixture zurück auf
+`'fake-portrait-bytes'` → genau diese Assertion wird rot.
+
+### Ein gemeinsamer PDF-Extraktor für die vier Badge-Suiten
+
+Dass derselbe Test auf zwei GD-Builds unterschiedlich ausfiel, war nur die
+sichtbare Hälfte. Beim Umschreiben fiel der **Extraktor** selbst auf: vier
+Kopien desselben Helpers, alle mit
+`rtrim(substr(...))` zwischen `stream\n` und `endstream`. `rtrim()` strippt auch
+`\r`, ` ` und `\0` — und der Payload sind **komprimierte** Bytes, deren letztes
+Byte jedes davon legal sein kann. Trifft es eins, geht ein Byte verloren,
+`gzuncompress()` scheitert, das `@` schluckt die Warnung, und der Helper
+liefert einen **leeren String**: der Test meldet dann ein fehlendes Feld
+(`Expected: … To contain: Jane Doe`) statt eines kaputten Helpers. Der
+Content-Stream des Ausweises endet auf `0d 0a` — genau das ist eingetreten, sobald
+die Porträt-Fixture einen anderen Stream erzeugte.
+
+Die Grenze ist `/Length N` (dompdf schreibt es auf jedes komprimierte Objekt);
+danach ist der Extraktor eine **Implementierung**:
+`tests/Support/ExtractsPdfContentStream.php`, von `BadgeTest`,
+`BadgeRenderServiceTest`, `BadgeImageFitGeometryTest` und
+`BadgePageBackgroundTest` geteilt.
+
+Das Wörterbuch ist dabei zwischen dem letzten `obj` und dem `stream`-Keyword
+begrenzt, **nicht** bei einer festen Bytezahl: sonst greift ein 200-Byte-Fenster
+bei zwei dicht aufeinander folgenden Stream-Objekten in das `/Length` des
+**vorherigen** Objekts, und ein First-Match-Regex liest den Payload mit der
+falschen Länge. Genau das liefert
+`ExtractsPdfContentStreamTest::test_it_does_not_mistake_the_endstream_terminator_for_a_stream_keyword`
+— bzw. sein Geschwister mit zwei Streams. Derselbe Test deckt den Fallback
+(`/Length` fehlt, Grenze über `\nendstream`) ab, den **kein** Badge-erreichen
+kann, weil dompdf immer ein `/Length` schreibt: ein Zweig, den keine Karte
+erreicht, ist ein Zweig, den niemand testet.
+
 ### Visuelle Verifikation des gerenderten PDF (`PDF-VISION`)
 
 Ein Badge-PDF ist nur dann visuell prüfbar, wenn daraus **das richtige PNG**

@@ -10,6 +10,7 @@ use App\Models\RoleUser;
 use App\Models\Team;
 use App\Models\User;
 use App\Models\UserMedia;
+use App\Services\AccountDeletionService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,6 +39,14 @@ use Tests\TestCase;
  *     `test_the_deletion_does_not_go_through_the_jwt_blacklist` below pins it
  *     for THIS route: the account is deleted through the service, no blacklist
  *     entry is written, and the token is rejected anyway.
+ *  3. **The admin route names the ACTOR** (accepted risk A5). The application
+ *     log is the only place "who deleted which account" can be answered, and
+ *     that needs two halves: the admin path below asserts an actor that is NOT
+ *     the target, the self-service path asserts `actor_is_target`.
+ *
+ * The target scope of `DELETE /api/admin/users/{user}` is F1 (2026-09-29): the
+ * route binding resolves a global `super_admin` on every mandant's host, so
+ * the route carries the same explicit membership check as the roles endpoint.
  */
 class AccountDeletionTest extends TestCase
 {
@@ -315,7 +324,7 @@ class AccountDeletionTest extends TestCase
      * A global super_admin may delete users of another mandant — but he reaches
      * them through THAT mandant's host, exactly like every other permission he
      * holds mandant-independently. The gate is not what scopes him here: the
-     * route binding is, and it is the same scoping the whole admin surface has
+     * target scope is, and it is the same scoping the whole admin surface has
      * (D21, host-relative with a mandant switcher).
      */
     public function test_a_super_admin_deletes_a_user_of_another_mandant_on_that_mandants_host(): void
@@ -340,6 +349,69 @@ class AccountDeletionTest extends TestCase
         $this->actingAsApi($this->mandantAdmin())
             ->deleteJson('/api/admin/users/999999')
             ->assertStatus(404);
+    }
+
+    /* ---------------------------------------------------------------------
+     | F1: the route binding is NOT a membership check
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `User::resolveRouteBindingQuery()` reuses the IDENTITY predicate
+     * `isMemberOfMandant()`, and that predicate deliberately ORs in the GLOBAL
+     * `super_admin` branch: an account with a `role_user` row carrying
+     * `mandant_id = null` resolves on EVERY mandant's host.
+     *
+     * That is right for "may this account act here at all?" and wrong as the
+     * whole answer to "is this target one of my users?". The platform-wide
+     * super_admin holds no mandant-scoped assignment, appears in NO mandant's
+     * user list (`index()` filters by `forMandant()`) and can never have a
+     * scoped role set written for it. Measured before the fix: `PUT .../roles`
+     * answered 404 for this target while `DELETE` answered 200 and took the
+     * row - irreversible, cascading, and blind (sequential integer ids,
+     * invisible in the listing).
+     *
+     * The mirror of
+     * `AdminUserTest::test_update_roles_rejects_global_super_admin_without_mandant_assignment`:
+     * the roles endpoint already carried the check, the delete endpoint did
+     * not, and the whole 1629-test suite stayed green without it.
+     */
+    public function test_a_mandant_admin_may_not_delete_a_global_super_admin(): void
+    {
+        $global = $this->createGlobalSuperAdmin();
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->deleteJson('/api/admin/users/'.$global->id)
+            ->assertStatus(404);
+
+        // Nothing went: not the account, not his global role row.
+        $this->assertDatabaseHas('users', ['id' => $global->id, 'email' => 'root@example.com']);
+        $this->assertDatabaseHas('role_user', ['user_id' => $global->id, 'mandant_id' => null]);
+    }
+
+    /**
+     * The other direction, because a guard that is too broad is its own defect:
+     * a target that DOES hold a mandant-scoped assignment here stays deletable
+     * even if it additionally carries the global `super_admin` pivot. The check
+     * is membership in the current mandant, not "has no super_admin row".
+     *
+     * (Mirrors `AdminUserTest::test_update_roles_never_touches_global_super_admin_assignment`.)
+     */
+    public function test_a_super_admin_who_also_belongs_to_the_current_mandant_can_still_be_deleted(): void
+    {
+        $hybrid = $this->member($this->mandantA, 'hybrid@example.com');
+
+        RoleUser::create([
+            'user_id' => $hybrid->id,
+            'role_id' => Role::query()->where('slug', UserRole::SUPER_ADMIN->value)->firstOrFail()->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        $this->actingAsApi($this->mandantAdmin())
+            ->deleteJson('/api/admin/users/'.$hybrid->id)
+            ->assertOk();
+
+        $this->assertDatabaseMissing('users', ['id' => $hybrid->id]);
     }
 
     /* ---------------------------------------------------------------------
@@ -390,6 +462,73 @@ class AccountDeletionTest extends TestCase
             ->assertOk();
 
         $this->assertDatabaseMissing('users', ['id' => $target->id]);
+    }
+
+    /* ---------------------------------------------------------------------
+     | The concurrent-delete branch (a STATE test, not a race test)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * `AccountDeletionService::delete()` answers `deleted => false` (no log,
+     * zeroed counts) when the row is already gone: the winner of a real race
+     * ran the same cascade, so there is nothing left for this request to do and
+     * nothing this request may claim as deleted by ITS actor.
+     *
+     * **This is a state test, not a concurrency test.** SQLite `:memory:`
+     * cannot produce a real race: a second writer simply finds no row, and
+     * `lockForUpdate` on a single-process SQLite is advisory at best. What is
+     * pinned here is the branch's CONTRACT for the state a race would produce
+     * (row absent); hosting that state needs two writers, which this suite
+     * deliberately cannot provide.
+     *
+     * **And it cannot be reached through HTTP at all** — measured while writing
+     * this: `DELETE /api/admin/users/{id}` on a removed row answers 404 from the
+     * route binding (`User::resolveRouteBindingQuery()` finds nothing), and the
+     * self-service route answers 401 because `JWTGuard::user()` cannot resolve
+     * the subject any more (Weg A, A6). The branch therefore covers exactly the
+     * window the binding cannot see: the target was resolved, and the row
+     * disappeared between that resolution and the locked re-read inside the
+     * transaction. Which is why the test calls the SERVICE with a stale model
+     * instance instead of pretending a route can reach it.
+     *
+     * Two passes over the same instance: the first deletes, the second finds
+     * the row gone.
+     */
+    public function test_a_second_delete_of_the_same_row_is_a_no_op_and_logs_nothing(): void
+    {
+        $target = $this->member($this->mandantA, 'bereits-weg@example.com');
+        $this->withApplications($target, $this->mandantA, 1);
+        $this->seedSessions($target, 1);
+
+        $targetId = $target->id;
+        $actor = $this->mandantAdmin();
+
+        $deletions = app(AccountDeletionService::class);
+
+        Log::spy();
+
+        $first = $deletions->delete($target, 'admin', $actor);
+
+        $this->assertTrue($first['deleted'], 'PREMISE: the first pass deletes.');
+        $this->assertSame($targetId, $first['user_id']);
+        $this->assertSame(1, $first['counts']['sessions']);
+
+        $second = $deletions->delete($target, 'admin', $actor);
+
+        $this->assertFalse($second['deleted']);
+        $this->assertSame($targetId, $second['user_id'], 'The target id is still reported, so a caller can log it.');
+        $this->assertNull($second['email'], 'Nothing may be read from a row that is gone.');
+        $this->assertNull($second['mandant_id']);
+        $this->assertSame(
+            ['applications' => 0, 'sub_applications' => 0, 'media' => 0, 'role_assignments' => 0, 'sessions' => 0],
+            $second['counts'],
+        );
+        $this->assertSame([], $second['residue']);
+
+        // Exactly ONE record: the first pass may claim the deletion, the second
+        // must not add a second "this actor deleted it" line for a row that was
+        // already gone.
+        Log::shouldHaveReceived('notice')->once();
     }
 
     /* ---------------------------------------------------------------------
@@ -481,8 +620,14 @@ class AccountDeletionTest extends TestCase
     /**
      * There is no `audit_logs` table. The application log is the only place the
      * question "who deleted which account" can ever be answered, so the payload
-     * is pinned: target id, target email, mandant, and the counts of what went
-     * with the account.
+     * is pinned: ACTOR (id + email) and target (id, email, mandant), plus the
+     * counts of what went with the account.
+     *
+     * The actor here is the mandant_admin, a DIFFERENT account from the target.
+     * That is the whole point of the assertion: a payload check that only ever
+     * saw `actor == target` would also be satisfied by a service that quietly
+     * filled the actor fields from the target - the defect this pins (F3, the
+     * signature took no actor at all) would sail through.
      */
     public function test_the_deletion_is_logged_with_the_full_payload(): void
     {
@@ -494,18 +639,25 @@ class AccountDeletionTest extends TestCase
         // assertion about what went with it would be about nothing.
         $targetId = $target->id;
         $mandantId = $this->mandantA->id;
+        $actor = $this->mandantAdmin();
 
         Log::spy();
 
-        $this->actingAsApi($this->mandantAdmin())
-            ->deleteJson('/api/admin/users/'.$target->id)
+        $this->actingAsApi($actor)
+            ->deleteJson('/api/admin/users/'.$targetId)
             ->assertOk();
 
         Log::shouldHaveReceived('notice')->withArgs(
-            function (string $message, array $context) use ($targetId, $mandantId): bool {
+            function (string $message, array $context) use ($targetId, $mandantId, $actor): bool {
                 $this->assertSame('An account was deleted.', $message);
 
+                // The premise: an admin deletion has a THIRD party in it.
+                $this->assertNotSame($actor->id, $targetId, 'PREMISE: the actor must differ from the target.');
+
                 return $context['reason'] === 'admin'
+                    && $context['actor_user_id'] === $actor->id
+                    && $context['actor_user_email'] === $actor->email
+                    && $context['actor_is_target'] === false
                     && $context['deleted_user_id'] === $targetId
                     && $context['deleted_user_email'] === 'weg@example.com'
                     && $context['deleted_user_mandant_id'] === $mandantId
@@ -518,16 +670,31 @@ class AccountDeletionTest extends TestCase
         );
     }
 
+    /**
+     * Self-service: the actor IS the target, and the payload says so instead of
+     * making a log reader compare two ids to find that out.
+     */
     public function test_the_self_service_deletion_is_logged_as_such(): void
     {
         $target = $this->member($this->mandantA);
+
+        $targetId = $target->id;
+        $email = $target->email;
 
         Log::spy();
 
         $this->actingAsApi($target)->deleteJson('/api/user/account')->assertOk();
 
         Log::shouldHaveReceived('notice')->withArgs(
-            fn (string $message, array $context): bool => $context['reason'] === 'self_service',
+            function (string $message, array $context) use ($targetId, $email): bool {
+                $this->assertSame('An account was deleted.', $message);
+
+                return $context['reason'] === 'self_service'
+                    && $context['actor_user_id'] === $targetId
+                    && $context['actor_user_email'] === $email
+                    && $context['actor_is_target'] === true
+                    && $context['deleted_user_id'] === $targetId;
+            },
         );
     }
 
@@ -571,6 +738,33 @@ class AccountDeletionTest extends TestCase
     private function mandantAdmin(): User
     {
         return $this->createUserWithRole(UserRole::MANDANT_ADMIN, $this->mandantA);
+    }
+
+    /**
+     * The platform-wide super admin in its production shape: a GLOBAL account
+     * (`users.mandant_id = null`, matching its global `super_admin` pivot — the
+     * only pairing the three `role_user` write sites can produce, see
+     * `RoleAssignmentMandantInvariantTest`).
+     *
+     * Distinct from `createUserWithRole(SUPER_ADMIN, …)`, which builds the
+     * hybrid shape (home mandant + global pivot) that `superAdmin()` uses as an
+     * actor. The target of F1 needs the real thing.
+     */
+    private function createGlobalSuperAdmin(): User
+    {
+        $user = User::factory()->create([
+            'mandant_id' => null,
+            'email' => 'root@example.com',
+        ]);
+
+        RoleUser::create([
+            'user_id' => $user->id,
+            'role_id' => Role::query()->where('slug', UserRole::SUPER_ADMIN->value)->firstOrFail()->id,
+            'mandant_id' => null,
+            'team_id' => null,
+        ]);
+
+        return $user;
     }
 
     private function superAdmin(): User
