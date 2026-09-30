@@ -452,6 +452,13 @@ Module-spezifische Regeln in per-module `AGENTS.md`:
   Field-Label-Policy.
 - **`backend/AGENTS.md`** — Laravel: Test-Kommando, DB-Setup + Migration-Policy (immer seeden),
   SQLite `:memory:`-Tests, Postgres-Dev, paratest-Konkurrenzregel.
+- **`Agents.headless.md`** — headless/geteilter Host: **ein Arbeitsstrom, höchstens zwei Agenten**
+  (§6 bleibt strenger: eine volle Suite zur Zeit), die vier Namensversuche, bevor ein Dienst als
+  unerreichbar gilt (`dind`, nicht `localhost`), die `APP_URL`-Falle mit **518 Tests in beide
+  Richtungen**, `ps`/`pkill` fehlen, und die Berichtspflicht *gemessen / nur kompiliert / nicht
+  prüfbar hier*. **Vor jedem Verifikationslauf lesen** — nicht als Lektüre, sondern weil jeder
+  Abschnitt aus einem Fehlschlag dieser Maschine stammt und die beiden teuersten (§2.1, §2.2)
+  bereits einmal eine ganze Verifikationsrunde gekostet haben.
 
 ## 10. Security Risk Register (Accepted Risks)
 
