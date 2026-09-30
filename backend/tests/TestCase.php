@@ -118,6 +118,13 @@ abstract class TestCase extends BaseTestCase
 
         $this->purgeFakeDiskRoots();
 
+        // Hand the STRICT-MODE switch back to the environment. A test that
+        // called `forceStrictAuthState()` to prove the wiring must not decide
+        // for the tests that run after it in the same process — the switch is
+        // process-global, and leaking it would make one test's override another
+        // test's environment.
+        self::forceStrictAuthState(null);
+
         parent::tearDown();
     }
 
@@ -599,5 +606,140 @@ abstract class TestCase extends BaseTestCase
     protected function inMemoryJwtTokenIsSet(): bool
     {
         return (new ReflectionProperty(app('tymon.jwt'), 'token'))->getValue(app('tymon.jwt')) !== null;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* STRICT MODE: may a request in this suite be answered out of memory? */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * The environment variable that turns STRICT MODE on.
+     *
+     * Not a `phpunit.xml` default and deliberately not one: an `<env>` entry
+     * there would make every ordinary run pay for the strictness measurement,
+     * and it would also make it impossible to run the *relaxed* suite for a
+     * comparison. The switch has to be something a person types.
+     */
+    public const STRICT_AUTH_STATE_ENV = 'JWT_AUTH_STATE_STRICT';
+
+    /**
+     * The resolved value of the switch, or null while it is undecided.
+     *
+     * `null` means "ask the environment again", which is what lets a test flip
+     * the switch and still see the ambient default afterwards.
+     */
+    private static ?bool $strictAuthState = null;
+
+    /**
+     * STRICT MODE: clear every piece of process-global auth state before each
+     * request, so an authenticated answer can only come from the request.
+     *
+     * ## What it is for
+     *
+     * `auth('api')->login()` leaves a token in the `JWT::$token` singleton, and
+     * the parser falls back to it when the request carries no usable cookie. A
+     * test whose cookie silently stopped being transported is therefore still
+     * **green** — it just answers out of memory. That failure is invisible to
+     * every other mechanism: the status code is right, the assertion passes,
+     * and the suite reports success.
+     *
+     * The only way to see the whole of it at once is to take the memory away:
+     * with this on, the wire is the ONLY source of authentication, and every
+     * test that was leaning on the singleton goes red. It turns a code read
+     * into a whole-suite measurement, and it is how the one remaining hole in
+     * the channel migration was found (`SameOriginGuardTest`, which called
+     * `withUnencryptedCookie()` and asserted a 403 that the singleton produced).
+     *
+     * ## What it costs, MEASURED on this suite
+     *
+     * **Exactly one red test**, and that test is the premise probe
+     * (`JwtCookieChannelTest::test_the_in_memory_token_alone_can_authenticate_a_request`)
+     * — which is *supposed* to fail here: its whole job is to show that the
+     * singleton CAN answer a request, and that is what makes every other "the
+     * 401 above is trustworthy" claim in the suite mean something. It opts out
+     * through `$answersRequestsFromTheInMemoryJwtToken`, and
+     * `JwtAuthStateStrictnessTest` pins the fact that exactly one class does.
+     *
+     * The migration it audits is therefore complete: there is no second class-C
+     * test hiding, and no test that needs a two-sentence excuse.
+     *
+     * It stays opt-in for two reasons. First, the honest number above is a
+     * property of THIS tree, and a future test that legitimately needs the
+     * singleton would otherwise turn the default run red for everybody; the
+     * switch lets the suite say "not today" without deleting the measurement.
+     * Second, the default run is the one CI runs on every push, and it must
+     * measure the product, not the harness.
+     *
+     * ## How to run it
+     *
+     *     JWT_AUTH_STATE_STRICT=1 php artisan test
+     *
+     * Cost per request when it is OFF: one static read and one branch. That is
+     * the whole price of the default run, and the full suite measured within
+     * noise of its previous duration.
+     */
+    public static function strictAuthStateIsEnabled(): bool
+    {
+        return self::$strictAuthState ??= self::resolveStrictAuthState();
+    }
+
+    /**
+     * Force the switch for the rest of this process, or hand it back to the
+     * environment with `null`.
+     *
+     * Public because a test has to be able to prove the wiring, and because the
+     * strict suite itself is easier to trust when the value is a number
+     * somebody wrote down rather than an ambient surprise.
+     */
+    public static function forceStrictAuthState(?bool $enabled): void
+    {
+        self::$strictAuthState = $enabled;
+    }
+
+    /**
+     * Read the switch from the environment, treating the usual spellings of
+     * "on" as on and everything else as off.
+     *
+     * `$_SERVER` first, then `getenv()`: PHPUnit's `<env>` entries and a
+     * `VAR=1 php artisan test` prefix both end up in `$_SERVER`, but only the
+     * latter is guaranteed to reach `getenv()` under every SAPI.
+     */
+    private static function resolveStrictAuthState(): bool
+    {
+        $raw = $_SERVER[self::STRICT_AUTH_STATE_ENV] ?? $_ENV[self::STRICT_AUTH_STATE_ENV] ?? false;
+
+        return in_array(strtolower(trim((string) $raw)), ['1', 'true', 'on', 'yes'], true);
+    }
+
+    /**
+     * Whether a test in this class is allowed to answer its requests from the
+     * in-memory JWT token even in STRICT MODE.
+     *
+     * The default is `false`, and that is the whole point: a test class has to
+     * say out loud that it needs the singleton. Exactly one class does
+     * (`JwtCookieChannelTest`, the premise probe), and
+     * `JwtAuthStateStrictnessTest` fails if that ever becomes two or zero —
+     * "nobody needs it" would mean the measurement itself had been quietly
+     * dropped, which is the same class of failure as a guard nobody reads.
+     */
+    protected static bool $answersRequestsFromTheInMemoryJwtToken = false;
+
+    /**
+     * Clear the in-memory auth state before every request, in STRICT MODE only.
+     *
+     * Overriding `call()` rather than the thirteen verb helpers is deliberate
+     * and it is what makes the measurement COMPLETE: every request in the
+     * suite funnels through `call()` — `getJson()`, `postJson()`,
+     * `json()`, `withHeaders()->post()` and the raw entry point alike — so one
+     * override here covers all of them. Overriding the verbs would leave a
+     * hole exactly where `json()` and `call()` are used.
+     */
+    public function call($method, $uri, $parameters = [], $cookies = [], $files = [], $server = [], $content = null)
+    {
+        if (self::strictAuthStateIsEnabled() && ! static::$answersRequestsFromTheInMemoryJwtToken) {
+            $this->forgetJwtAuthState();
+        }
+
+        return parent::call($method, $uri, $parameters, $cookies, $files, $server, $content);
     }
 }

@@ -273,11 +273,29 @@ class SameOriginGuardTest extends TestCase
         // profile is written.
         $token = auth('api')->login($this->user);
 
-        $this->withUnencryptedCookie(config('jwt.cookie_key_name'), $token)
-            ->withHeader('Origin', 'https://'.self::OTHER_TENANT)
+        // Through the ONE channel, and with the singleton dropped — otherwise
+        // this 403 would not be evidence about the guard at all. MEASURED: with
+        // the cookie call deleted entirely the request still answered 403,
+        // because `auth('api')->login()` had left the token in the
+        // process-global `JWT::$token` and the guard resolved the user from
+        // there. The 403 was the singleton, not the origin check. With the
+        // channel the same probe answers 401 (`auth:api` runs before the
+        // group-appended guard — see `EnsureSameOrigin`'s docblock), which is
+        // what makes the 403 below attributable to the origin mismatch.
+        $this->withJwtCookie($token);
+        $this->forgetJwtAuthState();
+
+        $this->assertFalse(
+            $this->inMemoryJwtTokenIsSet(),
+            'PREMISE: the request must be authenticated through the cookie channel, not out of process-global state.'
+        );
+
+        $this->withHeader('Origin', 'https://'.self::OTHER_TENANT)
             ->postJson('https://'.self::TENANT.'/api/auth/logout')
             ->assertForbidden();
 
+        // `setToken()` is the explicit, non-memoised proof that the blocked
+        // request invalidated nothing — the token itself still authenticates.
         $this->assertNotNull(auth('api')->setToken($token)->authenticate());
     }
 

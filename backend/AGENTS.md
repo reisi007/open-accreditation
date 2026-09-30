@@ -88,6 +88,39 @@ Worker-DBs:
 php artisan test --filter <TestClass>
 ```
 
+### STRICT-MODE: die Auth-Singleton-Messung (2026-09-29)
+
+Zusätzlich zum normalen Lauf gibt es **einen** zweiten, selteneren:
+
+```bash
+JWT_AUTH_STATE_STRICT=1 php artisan test
+```
+
+Der Schalter (`Tests\TestCase::strictAuthStateIsEnabled()`) leert **vor jeder
+Anfrage** den prozessglobalen `JWT::$token` und den Guard-Memo. Damit kann eine
+Anfrage nur noch über die **Draht** authentifiziert sein — und ein Test, dessen
+Cookie stillschweigend nicht mehr transportiert wird, ist **grün**, aber aus dem
+Speicher beantwortet. Dieser Zustand ist für jeden anderen Mechanismus unsichtbar
+(der Statuscode stimmt, die Assertion greift). Genau deshalb ist die Messung
+nicht optional: sie ist der Grund, warum `withJwtCookie()` der einzige Kanal ist
+und warum `ForbiddenJwtCookieChannelTest` existiert.
+
+**Gemessener Preis: null.** Auf diesem Stand liefern relaxter und strikter Lauf
+**dieselbe** Fehlermenge (identische Fehlertest-Namen, nicht nur identische
+Zahlen). Vorher — ohne die Ausnahme für den Premissen-Test — war es **genau
+ein** roter Test, und dieser eine ist der Premissen-Test
+(`JwtCookieChannelTest::test_the_in_memory_token_alone_can_authenticate_a_request`),
+der per `$answersRequestsFromTheInMemoryJwtToken` ausgenommen ist und es auch
+sein MUSS: er beweist, dass der Singleton überhaupt antworten KANN, und ohne ihn
+beweist sein Leeren nichts. `JwtAuthStateStrictnessTest` nagelt fest, dass
+**genau eine** Klasse diese Ausnahme beansprucht — zwei würden die Messung
+ungültig machen, keine hieße, dass der Premissen-Test verschwunden ist.
+
+**Kosten im Normalfall:** ein statischer Read und ein `if` pro Anfrage. Der
+Vollauf liegt damit in der Rauschgrenze seiner bisherigen Dauer. **Nicht** in
+`phpunit.xml` als Default: der Normalfall misst das Produkt, und die
+Ausnahme-Liste soll nicht stillschweigend wachsen können.
+
 ### Datei-Tests: `Storage::fake` und die zwei Race-Arten (STRICT, 2026-09-26)
 
 Die DB ist per `:memory:` prozessisoliert, der **Dateisystem-Bereich nicht** —
@@ -141,3 +174,20 @@ Schema/Queries müssen zwischen **Postgres (Dev/Prod)** und **SQLite
 - Datumsarithmetik über Query-Builder/Eloquent statt roher PG-Funktionen.
 - Wo Postgres-Features nötig sind → Service-Abstraktion + separater
   Integrationstest (in `features/` dokumentieren).
+
+### Das Gate laufen lassen: `DB_HOST=dind`, nicht `localhost` (2026-09-30 gemessen)
+
+Lokal:
+
+```bash
+DB_HOST=dind bash scripts/test-pgsql.sh
+```
+
+`deployment/docker-compose.yml:155` publiziert Postgres per CC-R3 bewusst auf
+`127.0.0.1:5432` — und **das `127.0.0.1` dieser Shell ist nicht der des
+Docker-Namespaces**: `localhost:5432` ist `Connection refused`. Der Port ist auf
+dem `dind`-Container offen (`getent hosts dind` → `172.24.0.2`, `dind:5432` offen,
+gemessen). **Das Gate ist hier also lauffähig**, und `DB_HOST=dind` ist der
+gemessene Weg dorthin — „strukturell unerreichbar" war zweimal eine Vermutung mit
+Bindungswirkung (Details: `Agents.headless.md` §2.1).
+

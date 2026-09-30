@@ -64,9 +64,14 @@ use Tests\TestCase;
  *    in `JWT::unsetToken()`, which empties it. So its "logout revokes" 401 was
  *    produced by *there being no token at all*, not by the blacklist: with the
  *    blacklist entry removed by hand the replay was still 401.
- *    The fix used here is `withUnencryptedCookie()`, which really does put the
- *    token on the wire (measured: 200 with the singleton cleared), so a 401
- *    below can only come from the request being genuinely rejected.
+ *    The channel used here is `Tests\TestCase::withJwtCookie()` — the
+ *    plaintext setter **plus** the credentials switch, and the switch is not
+ *    optional: `withUnencryptedCookie()` on its own is row 3 of the measured
+ *    table in `JwtCookieChannelTest` and answers **401**, because
+ *    `prepareCookiesForJsonRequest()` drops the cookie before it reaches the
+ *    wire. `withJwtCookie()` really does put the token on the wire (measured:
+ *    200 with the singleton cleared), so a 401 below can only come from the
+ *    request being genuinely rejected.
  *
  * Every protected request in this file asserts, immediately before it, that the
  * singleton carries NO token — so no request can be answered out of memory and

@@ -951,13 +951,23 @@ class MandantMembershipTest extends TestCase
 
         $token = auth('api')->login($user);
 
-        // `login()` also SETS the user on the guard instance, and the test suite
-        // reuses one application for every request of a test method (a real
-        // request boots a fresh app, hence a fresh guard). Dropping the user
-        // again restores the production start state of a request: the guard is
-        // unresolved until `auth:api` runs — which is exactly what makes the
-        // public routes provably inert below.
-        auth('api')->forgetUser();
+        // `login()` leaves TWO pieces of process-global state behind, and both
+        // survive between the requests of one test: the token in the
+        // `JWT::$token` singleton, and the user memoised on the `api` guard —
+        // a container singleton, while a real request boots a fresh app and
+        // therefore a fresh guard.
+        //
+        // `forgetJwtAuthState()` drops both, which is what makes the comment
+        // this call used to carry TRUE: the guard is unresolved again until
+        // `auth:api` runs, so a public route below is provably inert and a
+        // 401 can only come from the request. Calling `forgetUser()` alone left
+        // the singleton in place, so the class answered 17 of its own tests
+        // out of memory with the cookie channel completely dead — green, but
+        // for the wrong reason, and blind to a channel break. MEASURED with a
+        // `TestCase::call()` override clearing the singleton before every
+        // request: the class stays green through the channel and through this
+        // call, which is the property that makes it worth having.
+        $this->forgetJwtAuthState();
 
         return $token;
     }

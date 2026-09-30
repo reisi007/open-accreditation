@@ -10,7 +10,7 @@ use SplFileInfo;
 use Tests\TestCase;
 
 /**
- * THE REGRESSION GUARD: the three broken spellings of "send a JWT cookie"
+ * THE REGRESSION GUARD: the four broken spellings of "send a JWT cookie"
  * may not come back into `tests/`.
  *
  * ## Why a textual guard and not just the channel test
@@ -31,14 +31,51 @@ use Tests\TestCase;
  *     401, value on the wire begins `eyJpdiI6`.
  *  2. `withCredentials(` — the switch that turns JSON cookie transport on at
  *     all, so it is REQUIRED, and equally required is pairing it with
- *     `withUnencryptedCookie()`. A test that calls it directly has one of the
- *     four broken combinations (see `JwtCookieChannelTest` for the measured
- *     table). It belongs inside `withJwtCookie()`, alone.
+ *     `withUnencryptedCookie()`. MEASURED: `withCookie()` +
+ *     `withCredentials()` transports a ciphertext, i.e. 401. It belongs
+ *     inside `withJwtCookie()`, alone.
  *  3. `->call(` — `MakesHttpRequests::call()` takes `$cookies` as its third
  *     parameter, defaulting to `[]`; the verb helpers are what fill it in. A
  *     direct `->call($method, $uri)` therefore transports no cookie, and an
  *     access-matrix test written that way asserts 403 while the wire says 401.
  *     MEASURED: `callAsApi()`/`getJson()` → 403, raw `call()` → 401.
+ *  4. `withUnencryptedCookie(` — the plaintext cookie setter. On its own it
+ *     transports nothing (the `withCredentials` switch is what enables
+ *     transport at all), so it is the fourth spelling of the same silent
+ *     drop. MEASURED: 401. This one was missing from the table for a
+ *     while, and the hole was live: `SameOriginGuardTest` called it directly
+ *     and stayed green while its only authentication came from the singleton
+ *     (measured — the same 403 came back with the call deleted entirely).
+ *
+ * ## Ban or pairing? A DECISION, and the reason
+ *
+ * The docblock used to imply that `withUnencryptedCookie(` was only reachable
+ * *paired with* `withCredentials()`, which would have made rule 4 a pairing
+ * check ("these two calls must be near each other") instead of a fourth
+ * banned spelling. It is implemented as a **ban**, for one decisive reason:
+ *
+ * **The thing a pairing check would have to observe is not local to the code
+ * it reads.** `withCredentials()` is a *sticky property of the test instance*
+ * — it is never reset — so "a `withCredentials()` appears near this line" is
+ * not a statement about whether THIS cookie is transported. A pairing check
+ * would pass on a test that enabled the switch three methods earlier for an
+ * unrelated reason, and fail on a correct one that happens to wrap the call
+ * differently. It would read as a guarantee and carry no information.
+ *
+ * A bare ban, by contrast, encodes the invariant that is actually true and
+ * actually wanted: **there is exactly ONE place in `tests/` that configures a
+ * JWT cookie — `withJwtCookie()`** — which is the same single-writer rule the
+ * other three patterns already enforce. Nothing legitimate needs the pairing
+ * spelled out anywhere else: production does not use these helpers at all, and
+ * the one test that MEASURES the variants does it one variant per method
+ * (the stickiness above would make a shared method unmeasurable).
+ *
+ * The pairing is not dropped — it is enforced **where it can be exact**:
+ * `test_the_channel_helper_owns_exactly_one_use_of_each_switch` parses
+ * `withJwtCookie()` out of `TestCase.php` and asserts the plaintext setter and
+ * the credentials switch live in the SAME method. A proximity rule spread
+ * over 100+ files is guesswork; a check on the one method that owns the pair
+ * is a fact.
  *
  * The one legitimate occurrence of each of the first two is inside
  * `withJwtCookie()` itself, and it is checked separately below rather than
@@ -55,15 +92,21 @@ use Tests\TestCase;
 class ForbiddenJwtCookieChannelTest extends TestCase
 {
     /**
-     * The helper that owns the one legal use of both forbidden calls.
+     * The helper that owns the one legal use of both forbidden cookie setters.
      */
     private const CHANNEL_HELPER = 'tests/TestCase.php';
+
+    /**
+     * The file that MEASURES the variants and is therefore allowed to spell
+     * them.
+     */
+    private const MEASUREMENT_FILE = 'tests/Feature/JwtCookieChannelTest.php';
 
     /**
      * Files allowed to CALL the forbidden spellings, each pinned to an exact
      * occurrence count per pattern.
      *
-     * `JwtCookieChannelTest` has to call all three: its whole purpose is to
+     * `JwtCookieChannelTest` has to call all four: its whole purpose is to
      * MEASURE them, and the measured table is the evidence that the guard's
      * premise is real. A guard that forbade the demonstration would be
      * forbidding the proof of its own correctness.
@@ -85,13 +128,24 @@ class ForbiddenJwtCookieChannelTest extends TestCase
         // `withCredentials()` ciphertext, which is one source line carrying
         // both forbidden calls.
         //
-        // 1 → 1: `withJwtCookie()` itself. The one legal use in the whole
-        // suite, and the reason `test_the_channel_helper_owns_exactly_one_use_of_
-        // each_switch` counts it separately instead of the file being exempt by
-        // path — a file-wide exemption would also cover any `withCookie()` that
-        // later appeared in the same file, which is the hole this avoids.
-        'tests/Feature/JwtCookieChannelTest.php' => [0 => 2, 1 => 1, 2 => 1],
-        self::CHANNEL_HELPER => [0 => 0, 1 => 1, 2 => 0],
+        // 1 → 1: `withJwtCookie()`'s own `withCredentials()`.
+        //
+        // 2 → 1: the raw `call()` entry point, measured by
+        // `test_call_without_cookies_is_a_guest_even_with_a_configured_cookie`.
+        //
+        // 3 → 1: the plaintext setter, measured as row 3 of the table —
+        // `withUnencryptedCookie()` alone transports nothing.
+        self::MEASUREMENT_FILE => [0 => 2, 1 => 1, 2 => 1, 3 => 1],
+
+        // 0 → 0 is a POSITIVE statement, not an omission: TestCase.php must
+        // never use the encrypting setter at all.
+        //
+        // 1 → 1 and 3 → 1 are the two halves of the one legal channel, and
+        // `test_the_channel_helper_owns_exactly_one_use_of_each_switch` counts
+        // them separately and additionally asserts they live in the SAME
+        // method — instead of the file being exempt by path, which would also
+        // cover any `withCookie()` that later appeared in the same file.
+        self::CHANNEL_HELPER => [0 => 0, 1 => 1, 2 => 0, 3 => 1],
     ];
 
     /**
@@ -138,6 +192,21 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             'withCookie encrypts the value' => [0, '~(?<!assert)(?<!::)withCookie\s*\(~'],
             'withCredentials belongs to withJwtCookie' => [1, '~(?<!::)withCredentials\s*\(~'],
             'call drops the cookie argument' => [2, '~(?<!::)->call\s*\(~'],
+            // Added 2026-09-29 after the hole was MEASURED rather than read:
+            // injecting this spelling into a test file left the guard at
+            // "5 passed", because the one live instance of it in the suite
+            // (`SameOriginGuardTest`) was a false pass of its own. See
+            // "Ban or pairing?" in the class docblock for why this is a ban and
+            // not a proximity rule.
+            //
+            // The `(?<!::)` lookbehind is the same one the other patterns use: it
+            // keeps `$this->withUnencryptedCookie(` (a forbidden CALL) apart
+            // from a `::`-qualified reference, which transports nothing. It
+            // also cannot match the pattern strings in THIS file — those read
+            // `withUnencryptedCookie\s*\(`, i.e. the characters after the name
+            // are a backslash, not a `(`. A guard that flagged its own
+            // source would be unusable, and would be disabled on first sight.
+            'withUnencryptedCookie belongs to withJwtCookie' => [3, '~(?<!::)withUnencryptedCookie\s*\(~'],
         ]);
     }
 
@@ -177,6 +246,13 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      * allowed to contain the very thing it forbids everywhere else. So the count
      * per exempt file is asserted against the declared number here, and a
      * mismatch names the file.
+     *
+     * The check is driven by `forbiddenCalls()` itself, so a pattern added
+     * without a decision about it is caught here: an exempt file that does not
+     * name a pattern at all is a hole, and the reciprocal loop below is what
+     * says so. That is precisely how the fourth spelling survived — it was
+     * added to the scan list conceptually (it was never scanned for at all)
+     * and no exempt file was ever asked whether it may spell it.
      */
     public function test_the_exemptions_are_pinned_to_an_exact_count(): void
     {
@@ -185,6 +261,12 @@ class ForbiddenJwtCookieChannelTest extends TestCase
         $this->assertNotEmpty(
             self::EXEMPT,
             'PREMISE: the exemption table must not be emptied to silence this guard.'
+        );
+
+        $this->assertSame(
+            array_keys($cases),
+            range(0, count($cases) - 1),
+            'PREMISE: forbiddenCalls() is addressed by pattern index, so its indices must be 0..n-1 with no gaps.'
         );
 
         foreach (self::EXEMPT as $file => $expectedPerPattern) {
@@ -209,6 +291,23 @@ class ForbiddenJwtCookieChannelTest extends TestCase
                     " call `{$pattern}`. It is exempt so the broken spellings can be MEASURED, not so\n".
                     'new tests can use them. If the count changed on purpose, update EXEMPT in '.
                     __CLASS__.' — silently, that is how a guard gets disabled.'
+                );
+            }
+
+            // The reciprocal, and the half that actually caught the fourth
+            // pattern: every forbidden spelling needs a DECISION for this file
+            // — a number (it may be spelled here that often) or an explicit 0
+            // (it may not). `findOffences()` would still scan for a pattern this
+            // file says nothing about, so the guard is not broken by the
+            // omission; what is missing is the reasoning, and a missing
+            // decision is exactly how a spelling slips through a guard.
+            foreach (array_keys($cases) as $patternIndex) {
+                $this->assertArrayHasKey(
+                    $patternIndex,
+                    $expectedPerPattern,
+                    "PREMISE: {$file} says nothing about pattern index {$patternIndex}".
+                    " (`{$cases[$patternIndex][1]}`). Every forbidden spelling needs a number here —\n".
+                    'how often this file may spell it, or 0 for "never". Silence is a decision nobody made.'
                 );
             }
         }
@@ -251,6 +350,117 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             preg_match_all('/withUnencryptedCookie\s*\(/', $withoutDocblocks),
             'The unencrypted cookie call must appear exactly once in TestCase.php — the plaintext channel.'
         );
+
+        $this->assertSame(
+            0,
+            preg_match_all('/(?<!::)->call\s*\(/', $withoutDocblocks),
+            'TestCase.php must not reach for the raw HTTP entry point either; callAsApi() is the wrapper.'
+        );
+    }
+
+    /**
+     * THE PAIRING, checked where it can be exact.
+     *
+     * The ban on `withUnencryptedCookie(` outside this helper is a
+     * single-writer rule, deliberately NOT a proximity rule — see "Ban or
+     * pairing?" in the class docblock for the measurement that rules proximity
+     * out. A ban cannot express one thing, though: whether the two calls that
+     * make the channel work are still TOGETHER. Both are forbidden on their
+     * own, and a `TestCase.php` that satisfied both counts with the credentials
+     * switch in one method and the plaintext setter in another would leave the
+     * suite with no working channel and no red test — the channel test would
+     * still see one of each somewhere in the file.
+     *
+     * So the pairing is asserted on the METHOD rather than on the file, and by
+     * tokenising rather than by regex: a method-body regex breaks the first
+     * time the formatter reindents the file, and a guard that fails on
+     * formatting is a guard that gets commented out.
+     */
+    public function test_the_two_channel_switches_live_in_the_same_method(): void
+    {
+        $body = $this->bodyOfMethod(
+            (string) file_get_contents(base_path(self::CHANNEL_HELPER)),
+            'withJwtCookie'
+        );
+
+        $this->assertNotNull(
+            $body,
+            'withJwtCookie() must exist in '.self::CHANNEL_HELPER.' — the channel has exactly one owner.'
+        );
+
+        $this->assertSame(
+            1,
+            preg_match_all('/(?<!::)withUnencryptedCookie\s*\(/', (string) $body),
+            'The plaintext cookie setter belongs inside withJwtCookie().'
+        );
+
+        $this->assertSame(
+            1,
+            preg_match_all('/(?<!::)withCredentials\s*\(/', (string) $body),
+            'The credentials switch belongs inside withJwtCookie() too, and in the SAME method as the'
+            .' plaintext setter: without it the cookie is not transported at all (MEASURED: 401).'
+        );
+    }
+
+    /**
+     * The source of one method's body, brace-matched, or null when there is
+     * no such method.
+     *
+     * Token-based rather than regex-based for the reason above: this feeds a
+     * guard, and tokens know which `{` opens the method whatever the
+     * indentation is.
+     */
+    private function bodyOfMethod(string $source, string $method): ?string
+    {
+        $tokens = token_get_all($source);
+        $last = count($tokens) - 1;
+
+        for ($i = 0; $i < $last; $i++) {
+            if (! is_array($tokens[$i]) || $tokens[$i][0] !== T_FUNCTION) {
+                continue;
+            }
+
+            $nameAt = null;
+
+            for ($j = $i + 1; $j < $last; $j++) {
+                if (is_array($tokens[$j]) && $tokens[$j][0] === T_STRING) {
+                    $nameAt = $j;
+
+                    break;
+                }
+
+                if ($tokens[$j] === '{') {
+                    break;
+                }
+            }
+
+            if ($nameAt === null || $tokens[$nameAt][1] !== $method) {
+                continue;
+            }
+
+            $depth = 0;
+            $body = '';
+
+            for ($k = $nameAt; $k < $last; $k++) {
+                $text = is_array($tokens[$k]) ? $tokens[$k][1] : $tokens[$k];
+
+                if ($text === '{') {
+                    $depth++;
+                } elseif ($text === '}') {
+                    $depth--;
+
+                    if ($depth === 0) {
+                        return $body;
+                    }
+                }
+
+                $body .= $text;
+            }
+
+            return null;
+        }
+
+        return null;
     }
 
     /**

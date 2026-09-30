@@ -1134,11 +1134,94 @@ class AdminMandantTest extends TestCase
     }
 
     /**
+     * What a super_admin must get on every route of
+     * `mandantScopedRoutesProvider()`, keyed `method uri-template`.
+     *
+     * MEASURED one row at a time, not inferred: super_admin addressing mandantB
+     * while mandantA is the request host, against a cookie-free guest on the
+     * same routes, and against the `isSuperAdmin()` branch removed.
+     *
+     * | route            | super_admin | guest | branch removed |
+     * |------------------|-------------|-------|----------------|
+     * | mandants show    | 200         | 401   | 404            |
+     * | mandants update  | 200         | 401   | 404            |
+     * | mandants destroy | 409         | 401   | 404            |
+     * | domains index    | 200         | 401   | 404            |
+     * | domains store    | 201         | 401   | 404            |
+     * | logo show        | 404         | 401   | 404            |
+     * | logo store       | 422         | 401   | 404            |
+     * | logo destroy     | 204         | 401   | 404            |
+     * | header show      | 404         | 401   | 404            |
+     * | header store     | 422         | 401   | 404            |
+     * | header destroy   | 204         | 401   | 404            |
+     * | teams index      | 200         | 401   | 404            |
+     *
+     * The last column is why the table is exact rather than a `notSame(403)`:
+     * dropping the `isSuperAdmin()` branch of
+     * `ResolvesMandantRouteParameter::assertMandantRouteParameter()` turns every
+     * row into a 404, and the old negative assertion did not notice any of
+     * them. MEASURED with the branch removed: **10 of 12 rows go red** here.
+     * The two that stay green are `logo show` and `header show`, whose answer
+     * is a 404 on their own merits (no brand media stored) and therefore has
+     * nothing left to distinguish — which is exactly why the CRUD rows are the
+     * ones that carry the promise.
+     *
+     * The non-2xx rows are answers on the routes' OWN merits, not refusals of
+     * the caller: no brand media is stored (404), no file was uploaded (422),
+     * and `mandantB` has a team while not being the primary mandant (409).
+     * Deterministic — `MandantFactory` pins `is_primary => false`, and the test
+     * creates the blocking team itself.
+     *
+     * @var array<string, int>
+     */
+    private const SUPER_ADMIN_STATUS = [
+        'get /api/admin/mandants/{id}' => 200,
+        'put /api/admin/mandants/{id}' => 200,
+        'delete /api/admin/mandants/{id}' => 409,
+        'get /api/admin/mandants/{id}/domains' => 200,
+        'post /api/admin/mandants/{id}/domains' => 201,
+        'get /api/admin/mandants/{id}/logo' => 404,
+        'post /api/admin/mandants/{id}/logo' => 422,
+        'delete /api/admin/mandants/{id}/logo' => 204,
+        'get /api/admin/mandants/{id}/header' => 404,
+        'post /api/admin/mandants/{id}/header' => 422,
+        'delete /api/admin/mandants/{id}/header' => 204,
+        'get /api/admin/mandants/{id}/teams' => 200,
+    ];
+
+    /**
      * THE regression: super_admin must keep addressing any mandant from any
      * host. Without this test the guard could be "hardened" by dropping its
      * super_admin branch and the 404 test above would still pass — while the
      * tenant-CRUD surface silently stopped working for the only role that is
      * supposed to have it.
+     *
+     * The assertion is an EXACT status per route, not a negative one, and the
+     * previous version of this test asserted only `assertNotSame(403, …)`. That
+     * was satisfied by a completely unauthenticated request: MEASURED, a
+     * cookie-free guest answers **401 on all twelve** routes, and 401 ≠ 403, so
+     * the assertion held while nobody was logged in at all. The test therefore
+     * could not tell "the super_admin branch works" from "nobody was
+     * authenticated", and it did not notice M4 either: with the branch removed,
+     * all twelve routes answer 404 and the old assertion stayed green on every
+     * one of them.
+     *
+     * Both failure modes are closed by the same move — state what the answer
+     * must be:
+     *
+     *  - a guest's 401 matches no entry, so the test now fails if the request
+     *    is not authenticated at all (that is the honest sibling's job at
+     *    `test_mandant_admin_addressing_a_foreign_mandant_is_refused`, whose
+     *    `assertContains($status, [403, 404])` a guest's 401 already fails):
+     *    MEASURED, all **12** rows go red when the cookie is removed;
+     *  - a removed super_admin branch turns the CRUD routes into 404s that no
+     *    longer match, so M4 goes red here: MEASURED, **10** of 12 rows.
+     *
+     * The three 404/422 rows are NOT super_admin special cases — they are the
+     * same answers the routes give on their own merits (no brand media stored
+     * yet; no file uploaded; the delete guards), and they are listed rather
+     * than waved away so the difference between "refused" and "nothing there"
+     * stays visible.
      */
     #[DataProvider('mandantScopedRoutesProvider')]
     public function test_super_admin_may_address_any_mandant_from_any_host(string $method, string $uri, ?array $data): void
@@ -1150,15 +1233,61 @@ class AdminMandantTest extends TestCase
         // mandantA is the current context, mandantB is addressed. 404 is a
         // legitimate answer for a few of these on their own merits (no brand
         // media stored yet; the is_primary / has-teams delete guards), so the
-        // assertion is deliberately negative: 403 would mean the super_admin
-        // branch of the guard had been tightened away.
+        // expectation is per route rather than one blanket status.
         $status = $this->actingAsApi($this->superAdmin())
             ->json($method, $url, $data ?? [])
             ->getStatusCode();
 
-        $this->assertNotSame(403, $status, "super_admin must not be 403 on {$method} {$url}");
+        $route = strtolower($method).' '.$uri;
+
+        $this->assertArrayHasKey(
+            $route,
+            self::SUPER_ADMIN_STATUS,
+            "PREMISE: `{$route}` has no documented super_admin status. A route added to the provider".
+            ' must be given one here, or this test stops covering it.'
+        );
+
+        $this->assertSame(
+            self::SUPER_ADMIN_STATUS[$route],
+            $status,
+            'super_admin must get '.self::SUPER_ADMIN_STATUS[$route]." on {$method} {$url} — measured on all".
+            ' twelve routes. A 401 means the request was never authenticated at all (a cookie-free'.
+            ' guest answers 401 on every one of them), and a 404 where a 2xx is expected means the'.
+            ' super_admin branch of ResolvesMandantRouteParameter was tightened away.'
+        );
 
         $this->assertDatabaseHas('mandants', ['id' => $this->mandantB->id]);
+    }
+
+    /**
+     * Every mandant-scoped route carries a documented super_admin answer.
+     *
+     * Without this the table above is a list of twelve remembered statuses, and
+     * a thirteenth route added to the provider would fall through
+     * `assertArrayHasKey()` — inside the test method, so the failure would be
+     * loud, but only for whoever happened to run it. Asserting the two sets are
+     * equal makes the drift impossible instead of merely visible: a route
+     * without an entry and an entry without a route are both red, HERE, before
+     * any of them can be answered by a status nobody reasoned about.
+     */
+    public function test_every_mandant_scoped_route_has_a_documented_super_admin_status(): void
+    {
+        $routes = array_map(
+            static fn (array $row): string => strtolower($row[0]).' '.$row[1],
+            self::mandantScopedRoutesProvider()
+        );
+
+        $this->assertSame(
+            [],
+            array_values(array_diff($routes, array_keys(self::SUPER_ADMIN_STATUS))),
+            'A mandant-scoped route has no documented super_admin status in SUPER_ADMIN_STATUS.'
+        );
+
+        $this->assertSame(
+            [],
+            array_values(array_diff(array_keys(self::SUPER_ADMIN_STATUS), $routes)),
+            'SUPER_ADMIN_STATUS documents a route that mandantScopedRoutesProvider() no longer serves.'
+        );
     }
 
     /**

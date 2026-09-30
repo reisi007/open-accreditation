@@ -56,6 +56,21 @@ class JwtCookieChannelTest extends TestCase
     use RefreshDatabase;
 
     /**
+     * The one class in the suite that is allowed to answer its requests from
+     * the in-memory JWT token.
+     *
+     * `test_the_in_memory_token_alone_can_authenticate_a_request` is the
+     * PREMISE of every "the 401 above is trustworthy" claim in this file: it
+     * shows the singleton really can authenticate, so clearing it proves
+     * something. Under `JWT_AUTH_STATE_STRICT=1` (see
+     * `Tests\TestCase::strictAuthStateIsEnabled()`) every request is preceded
+     * by exactly that clearing, so without this flag the premise probe would
+     * contradict the mode it is auditing — and `JwtAuthStateStrictnessTest`
+     * pins that exactly one class claims the exemption.
+     */
+    protected static bool $answersRequestsFromTheInMemoryJwtToken = true;
+
+    /**
      * A valid token, minted WITHOUT touching the `api` guard.
      *
      * `auth('api')->login()` would set the user on the guard instance — a
