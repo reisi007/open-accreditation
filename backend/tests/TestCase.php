@@ -652,16 +652,49 @@ abstract class TestCase extends BaseTestCase
      *
      * ## What it costs, MEASURED on this suite
      *
-     * **Exactly one red test**, and that test is the premise probe
-     * (`JwtCookieChannelTest::test_the_in_memory_token_alone_can_authenticate_a_request`)
-     * — which is *supposed* to fail here: its whole job is to show that the
-     * singleton CAN answer a request, and that is what makes every other "the
-     * 401 above is trustworthy" claim in the suite mean something. It opts out
-     * through `$answersRequestsFromTheInMemoryJwtToken`, and
-     * `JwtAuthStateStrictnessTest` pins the fact that exactly one class does.
+     * **MEASURED on this tree, 2026-09-30: ZERO red tests** — the strict run and
+     * the relaxed run report the same (empty) failure set, 1732 passed / 0
+     * failed / 1 skipped in both. (The count is a property of the TREE, not of
+     * the mode, and it moves whenever tests are added — 1682 was the figure a
+     * few commits earlier. The claim that matters is the empty failure set and
+     * its identity across the two modes; the number is quoted with its date for
+     * the same reason everything else here is.)
      *
-     * The migration it audits is therefore complete: there is no second class-C
-     * test hiding, and no test that needs a two-sentence excuse.
+     * The number is zero rather than one because of the premise probe, and the
+     * direction of that matters: BEFORE its exemption
+     * (`JwtCookieChannelTest::test_the_in_memory_token_alone_can_authenticate_a_request`)
+     * the strict run was **exactly one red** — and that one was the probe
+     * itself, which is *supposed* to be the exception. Its whole job is to show
+     * that the singleton CAN answer a request, and that is what makes every
+     * other "the 401 above is trustworthy" claim in the suite mean something.
+     * It opts out through `$answersRequestsFromTheInMemoryJwtToken`, and
+     * `JwtAuthStateStrictnessTest` pins that exactly one class does. So the one
+     * red test the mode would otherwise have is the one test that is allowed to
+     * use the singleton, on purpose, and it stays green.
+     *
+     * **That number is a measurement, not a gate, and nothing keeps it true.**
+     * Read as a gate it would be a trap in both directions. A *larger* number is
+     * a real regression — some test started answering out of memory — but only
+     * the strict run itself can see it, and only if somebody types the switch.
+     * A *smaller* number than zero is impossible, which is the reassuring half;
+     * the unnerving half is that the number reaching zero is ALSO what a suite
+     * in which the exemption quietly stopped mattering would report, and nothing
+     * inside a run can tell those two apart. So the number is reported with its
+     * mode and its date, never as a threshold.
+     *
+     * What IS enforced by a mechanism is the narrower fact underneath:
+     * `JwtAuthStateStrictnessTest::test_exactly_one_class_is_exempt_from_the_strict_clearing`
+     * pins the EXEMPT SET to exactly one class — and it fails in BOTH
+     * directions, because "two" would mean the mode no longer covers the suite
+     * and "none" would mean the premise probe had been deleted. The red count is
+     * not pinned by anything, deliberately: only a whole run under the switch
+     * produces it. Re-measuring it is `JWT_AUTH_STATE_STRICT=1 php artisan test`,
+     * and any number other than the one above is a finding to READ, not a gate
+     * to satisfy.
+     *
+     * The migration it audits is therefore complete **as of the measurement
+     * above**: no test outside the exempt class is answering out of memory, and
+     * no test needs a two-sentence excuse.
      *
      * It stays opt-in for two reasons. First, the honest number above is a
      * property of THIS tree, and a future test that legitimately needs the
@@ -700,13 +733,41 @@ abstract class TestCase extends BaseTestCase
      * Read the switch from the environment, treating the usual spellings of
      * "on" as on and everything else as off.
      *
-     * `$_SERVER` first, then `getenv()`: PHPUnit's `<env>` entries and a
-     * `VAR=1 php artisan test` prefix both end up in `$_SERVER`, but only the
-     * latter is guaranteed to reach `getenv()` under every SAPI.
+     * Three sources, in precedence order, and the order is the contract: a
+     * value the harness itself placed (PHPUnit config) must win over whatever
+     * the ambient shell happens to carry, or a run on a developer's machine
+     * would silently change the mode the suite is measuring in.
+     *
+     *  - `$_SERVER` — the CLI prefix, which is the documented way to run this:
+     *    `JWT_AUTH_STATE_STRICT=1 php artisan test`. MEASURED (php -r, SAPI
+     *    `cli`, `variables_order=GPCS`): the prefix lands here and in
+     *    `getenv()`.
+     *  - `$_ENV` — a PHPUnit `<env>` entry. `PhpHandler::handleEnvVariables()`
+     *    writes this superglobal explicitly
+     *    (`vendor/phpunit/phpunit/src/TextUI/Configuration/PhpHandler.php:166-167`).
+     *  - `getenv()` — the same values as the two above plus anything a test
+     *    set with `putenv()` and neither superglobal saw.
+     *
+     * Two facts about this order that used to be wrong in the comment above it,
+     * both measured or cited rather than assumed:
+     *
+     *  - `$_ENV` is **not** populated by the environment at all on a default
+     *    CLI. `variables_order` here is `GPCS` (no `E`), so PHP never copies an
+     *    env var into it — the `VAR=1` prefix is invisible to `$_ENV` and only
+     *    `$_SERVER` catches it. Reading `$_ENV` first would be reading a
+     *    guaranteed-empty array in the documented invocation.
+     *  - PHPUnit's `<env>` entries do **not** reach `$_SERVER`: only
+     *    `<server>` entries do (`PhpHandler::handleServerVariables()`,
+     *    `PhpHandler.php:125-130`). This is why the `getenv()` call below is
+     *    load-bearing rather than a third spelling of the first two — it is the
+     *    source that sees an `<env>` entry when the superglobals do not.
      */
     private static function resolveStrictAuthState(): bool
     {
-        $raw = $_SERVER[self::STRICT_AUTH_STATE_ENV] ?? $_ENV[self::STRICT_AUTH_STATE_ENV] ?? false;
+        $raw = $_SERVER[self::STRICT_AUTH_STATE_ENV]
+            ?? $_ENV[self::STRICT_AUTH_STATE_ENV]
+            ?? getenv(self::STRICT_AUTH_STATE_ENV)
+            ?? false;
 
         return in_array(strtolower(trim((string) $raw)), ['1', 'true', 'on', 'yes'], true);
     }

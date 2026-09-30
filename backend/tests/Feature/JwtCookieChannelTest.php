@@ -34,7 +34,7 @@ use Tests\TestCase;
  * moment it means anything, since during a request the parser legitimately
  * caches what it parsed.
  *
- * ## The four measurements this rests on
+ * ## The measurements this rests on
  *
  * All with the singleton cleared and the guard memo dropped, so every status
  * below is a genuinely validated request:
@@ -45,6 +45,33 @@ use Tests\TestCase;
  *   | `withCookie()` + `withCredentials()`             | 401          |
  *   | `withUnencryptedCookie()` (no `withCredentials`) | 401          |
  *   | `withJwtCookie()` = both, unencrypted            | 200          |
+ *   | `->call()` with a configured cookie              | 401          |
+ *
+ * **And four more, reached through the PROPERTIES rather than the calls** —
+ * the second door `ForbiddenJwtCookieChannelTest` rule 5 bans. They are the
+ * same two mechanisms, which is the point: the property spelling is not a new
+ * failure mode, it is an old one with the guard removed.
+ *
+ *   | channel                                                   | /api/auth/me |
+ *   |-----------------------------------------------------------|--------------|
+ *   | `defaultCookies` + `withCredentials`, by hand             | 401          |
+ *   | `unencryptedCookies`, no switch, by hand                 | 401          |
+ *   | `unencryptedCookies` + `withCredentials`, by hand        | **200**      |
+ *   | `defaultCookies` + `withCredentials` + `encryptCookies`  | **200**      |
+ *
+ * The last TWO rows are the ones to read twice. Neither is broken, which is
+ * exactly why neither can be caught by any rule that only reasons about silent
+ * drops: each is a second, hand-built, fully working place where a JWT cookie
+ * gets configured, and the single-writer rule is the only thing standing
+ * between them and a third one tomorrow.
+ *
+ * The fourth row is the one an earlier version of this table did not have,
+ * because `ForbiddenJwtCookieChannelTest` carried a comment asserting that
+ * `encryptCookies` "cannot drop a JWT" and was in the ban only as the helper
+ * that makes the other three work. MEASURED, both halves false: writing `false`
+ * takes the unencrypted branch of `prepareCookiesForRequest()`
+ * (`MakesHttpRequests.php:730-740`), and the encrypting property then hands the
+ * RAW token to the wire. A second open door, not a helper.
  *
  * The ciphertext in row 2 is not a guess: the value arriving at the route
  * begins `eyJpdiI6` (`{"iv":`) where a raw token begins `eyJ0eXAi` (`{"typ":`).
@@ -236,6 +263,141 @@ class JwtCookieChannelTest extends TestCase
         // The supported wrapper for a verb-driven loop.
         $this->clearInMemoryAuthState();
         $this->callAsApi('get', '/api/auth/me')->assertOk();
+    }
+
+    /**
+     * The guard's row 5, MEASURED: the properties are a second door to the same
+     * transport, and TWO of them open a channel that WORKS.
+     *
+     * `ForbiddenJwtCookieChannelTest` bans writing these four properties
+     * directly, and a ban that is not measured is an assertion. So the halves
+     * are measured here, and they come out differently, which is why this is one
+     * method with two spellings rather than two separate "it is broken" claims:
+     *
+     *  - `defaultCookies` + `withCredentials`, by hand: **401**. Identical to
+     *    row 2 above, because writing the property IS what `withCookie()`
+     *    does — `prepareCookiesForRequest()` `encrypt()`s every entry. The
+     *    singleton then answers the test, which is the green-suite hole
+     *    `ForbiddenJwtCookieChannelTest` documents.
+     *  - `unencryptedCookies` + `withCredentials`, by hand: **200**. A real,
+     *    working, hand-built channel — the plaintext passes `encrypt()`'s
+     *    merge untouched and the switch turns transport on. Nothing about it
+     *    looks broken, which is exactly why the ban has to be textual.
+     *
+     * The second half is the reason this is not redundant with rules 1–4: it
+     * cannot be caught by anything that only reasons about failure modes. The
+     * second working spelling is measured separately, in
+     * `test_the_encrypt_flag_is_a_second_working_door`, because it turns on a
+     * different property.
+     */
+    public function test_the_transport_properties_are_a_second_door_to_the_same_channel(): void
+    {
+        $token = $this->mintToken();
+        $name = config('jwt.cookie_key_name');
+
+        // One property write per line, deliberately: the guard counts exempt
+        // occurrences with `preg_match()` per line but pins them with
+        // `preg_match_all()` over the whole file, so two matches on one line
+        // would make those two numbers disagree.
+        $this->defaultCookies[$name] = $token;
+        $this->withCredentials = true;
+        $this->clearInMemoryAuthState();
+
+        $this->getJson('/api/auth/me')->assertUnauthorized();
+
+        // Same token, same switch, the OTHER property: now it arrives.
+        $this->defaultCookies = [];
+        $this->unencryptedCookies[$name] = $token;
+        $this->clearInMemoryAuthState();
+
+        $this->getJson('/api/auth/me')->assertOk();
+    }
+
+    /**
+     * And the third shape: the plaintext property WITHOUT the switch. Which is
+     * row 3 one door down — the value is configured and the request is still a
+     * guest, because the switch is what turns JSON cookie transport on at all.
+     */
+    public function test_the_unencrypted_property_without_the_switch_transports_nothing(): void
+    {
+        $token = $this->mintToken();
+
+        $this->unencryptedCookies[config('jwt.cookie_key_name')] = $token;
+        $this->clearInMemoryAuthState();
+
+        $this->getJson('/api/auth/me')->assertUnauthorized();
+    }
+
+    /**
+     * The fourth row of the property table, and the one the guard's own comment
+     * got wrong: the encrypt flag is a SECOND WORKING DOOR, not the helper that
+     * makes the other three work.
+     *
+     * `prepareCookiesForRequest()` opens with
+     *
+     *     if (! $this->encryptCookies) {
+     *         return array_merge($this->defaultCookies, $this->unencryptedCookies);
+     *     }
+     *
+     * (`vendor/laravel/framework/src/Illuminate/Foundation/Testing/Concerns/MakesHttpRequests.php:730-740`),
+     * so writing `false` into it takes the branch that hands the jar to the wire
+     * UNENCRYPTED. Combine that with the switch and the property that would
+     * otherwise produce a ciphertext produces the raw token instead — MEASURED
+     * here: **200**, and the probe route below sees the token itself.
+     *
+     * Why this matters for the ban and not merely for tidiness: the previous
+     * version of `ForbiddenJwtCookieChannelTest`'s comment kept `encryptCookies`
+     * in the pattern because "a write to it cannot drop a JWT, it is the one
+     * property that makes the other three work". Both halves of that are false
+     * against this measurement — it is not a helper, it opens a channel on its
+     * own — and documenting the row as a harmless exclusion "because it cannot
+     * do harm" would therefore have been worse than saying nothing. The correct
+     * reason is the stronger one: it is a second place that configures a JWT
+     * cookie and answers 200, which is exactly what the single-writer rule
+     * forbids.
+     *
+     * The probe route is not decoration. Without it, a 200 would be consistent
+     * with "the cookie was dropped and something else authenticated" — the
+     * ambiguity this whole file is built to remove.
+     */
+    public function test_the_encrypt_flag_is_a_second_working_door(): void
+    {
+        $token = $this->mintToken();
+        $name = config('jwt.cookie_key_name');
+
+        $seen = null;
+        Route::middleware('api')->get('/__encrypt-flag-probe', function (Request $request) use (&$seen) {
+            $seen = $request->cookie(config('jwt.cookie_key_name'));
+
+            return response()->json(['ok' => true]);
+        });
+
+        // One property write per line, for the reason the sibling test gives:
+        // the guard counts exempt occurrences per LINE and pins them over the
+        // whole file, so two matches on one line would make those numbers
+        // disagree.
+        $this->defaultCookies[$name] = $token;
+        $this->withCredentials = true;
+        $this->encryptCookies = false;
+        $this->clearInMemoryAuthState();
+
+        $this->getJson('/__encrypt-flag-probe')->assertOk();
+
+        // The decisive half: the value on the wire is the RAW token, so this is
+        // a working channel rather than an accident that happens to answer 200.
+        $this->assertSame($token, $seen, 'The encrypt flag must deliver the raw token, not a ciphertext.');
+        $this->assertStringStartsWith('eyJ0eXAi', (string) $seen);
+        $this->assertStringNotContainsString('eyJpdiI6', (string) $seen);
+
+        $this->clearInMemoryAuthState();
+        $this->getJson('/api/auth/me')->assertOk();
+
+        // And the converse, so the row cannot be read as "the flag is inert":
+        // with the switch off, the same three writes transport nothing at all.
+        $this->withCredentials = false;
+        $this->clearInMemoryAuthState();
+
+        $this->getJson('/api/auth/me')->assertUnauthorized();
     }
 
     // ------------------------------------------------ the premise under test --

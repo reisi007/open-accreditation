@@ -140,6 +140,95 @@ class JwtAuthStateStrictnessTest extends TestCase
     }
 
     /**
+     * The resolver reads THREE sources, and the docblock in `TestCase` names all
+     * three. Each is exercised ALONE here, with the other two cleared, so a
+     * dropped source is a red test rather than a line that quietly stops
+     * mattering.
+     *
+     * That is not a hypothetical: the comment used to promise `$_SERVER` and
+     * `getenv()` while the code read `$_SERVER` and `$_ENV`, and nothing tested
+     * EITHER — which is the only reason the disagreement could sit there. A
+     * claim about a private resolver's fallbacks is only a map if somebody walks
+     * the map.
+     *
+     * The three sources, and what each one is FOR:
+     *  - `$_SERVER` — the documented `JWT_AUTH_STATE_STRICT=1 php artisan test`
+     *    prefix (MEASURED: the CLI SAPI copies the environment here).
+     *  - `$_ENV` — a PHPUnit `<env>` entry, which
+     *    `PhpHandler::handleEnvVariables()` writes to this superglobal and NOT to
+     *    `$_SERVER` (`PhpHandler.php:125-130` is `<server>` only).
+     *  - `getenv()` — anything the other two never saw. On this host
+     *    `variables_order` is `GPCS`, so `$_ENV` is provably empty for a CLI
+     *    prefix; if the first source ever stopped carrying it, this is what
+     *    still would.
+     */
+    public function test_each_of_the_three_sources_is_read_on_its_own(): void
+    {
+        $name = TestCase::STRICT_AUTH_STATE_ENV;
+
+        $server = $_SERVER[$name] ?? null;
+        $env = $_ENV[$name] ?? null;
+        $processEnv = getenv($name);
+
+        try {
+            unset($_SERVER[$name], $_ENV[$name]);
+            putenv($name);
+
+            // 1. `$_SERVER` alone.
+            $_SERVER[$name] = '1';
+            self::forceStrictAuthState(null);
+            $this->assertTrue(
+                self::strictAuthStateIsEnabled(),
+                'PREMISE: a value in $_SERVER alone must switch strict mode on — that is the documented CLI prefix.'
+            );
+            unset($_SERVER[$name]);
+
+            // 2. `$_ENV` alone: what a PHPUnit `<env>` entry looks like.
+            $_ENV[$name] = '1';
+            self::forceStrictAuthState(null);
+            $this->assertTrue(
+                self::strictAuthStateIsEnabled(),
+                'A value in $_ENV alone must switch strict mode on — that is the source PHPUnit writes for an <env> entry.'
+            );
+            unset($_ENV[$name]);
+
+            // 3. The process environment alone: the source the docblock
+            //    promised and the code did not read.
+            putenv("{$name}=1");
+            self::forceStrictAuthState(null);
+            $this->assertTrue(
+                self::strictAuthStateIsEnabled(),
+                'A value that reached neither superglobal must still be read from getenv() — it is a listed source, and on a host with variables_order=GPCS it is the only one a PHP-side set() can reach.'
+            );
+
+            // And the negative, because a resolver that answers "on" to
+            // everything is not a resolver. All three cleared at once.
+            putenv($name);
+            self::forceStrictAuthState(null);
+            $this->assertFalse(
+                self::strictAuthStateIsEnabled(),
+                'With all three sources clear the switch must be off, or this test proves nothing about the sources.'
+            );
+        } finally {
+            if ($server === null) {
+                unset($_SERVER[$name]);
+            } else {
+                $_SERVER[$name] = $server;
+            }
+
+            if ($env === null) {
+                unset($_ENV[$name]);
+            } else {
+                $_ENV[$name] = $env;
+            }
+
+            $processEnv === false ? putenv($name) : putenv("{$name}={$processEnv}");
+
+            self::forceStrictAuthState(null);
+        }
+    }
+
+    /**
      * The switch actually clears the memory, and the request then has to
      * authenticate for itself.
      *
