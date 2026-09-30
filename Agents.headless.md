@@ -137,6 +137,45 @@ als grün und nicht als rot.
 Die RAM-Zahlen selbst stehen **bewusst nicht hier**, sondern in der globalen
 `AGENTS.md` — sie sind host-spezifisch und veralten.
 
+### 4.1 Wo die Grenze NICHT gilt — und warum das eine Entscheidung ist
+
+**Nutzerentscheidung 2026-09-30: lokal höchstens zwei Ströme, CI unangetastet.**
+Nicht aus Versehen, und nicht weil die CI es nicht bräuchte — die beiden Seiten
+haben **gemessen verschiedene** Gründe:
+
+| | Dieser Host | GitHub-Runner |
+|---|---|---|
+| RAM | geteilter Container, die Kolonie ist ein Produktionsprozess | eigener, ephemerer Runner |
+| Kürzer Testlauf unter Last | **3–5×** gebläht (14 → 56 ms bei 24 Spinnern auf 18 Kernen) | Rauschen ist toleriert (`retries: 2`, `maxFailures: 10`) |
+| Folge von Parallelität | grüne Ampel **ohne Aussagekraft**, OOM killt `mariadbd` | ein RetRY, ein rerun |
+
+**Playwright steht in BEIDEN CI-Profilen auf `--workers=1` — und hier ist die
+Begründung im Repo selbst widersprüchlich, gefunden beim Schreiben des Kommentars
+in `ci.yml`.** Zwei Kommentare derselben Datei behaupten Unvereinbares über
+dieselbe Login-Drossel:
+
+- `ci.yml:443-450` (Schritt `CACHE_STORE=array`): mit `array` ist der Limiter
+  **zustandslos** → er kann keine 40 Logins akkumulieren → **kein 429**.
+- `ci.yml:540-544` (Run-Step): geteilte CI-IP + 40/min ⇒ parallele Worker
+  erzeugen **429** ⇒ darum `--workers=1`.
+
+Beides kann nicht gelten. `CACHE_STORE=array` ist im Job wirksam, es läuft kein
+`config:cache`, also löst `config/cache.php:18` zur **Request-Zeit** auf — die
+zweite Begründung träfe für genau diesen Job dann nicht mehr. **Welche zutrifft,
+ist nicht gemessen**, weil der einzige Ort, an dem es beobachtbar ist, ein voller
+CI-E2E-Lauf ist.
+
+**Also:** `--workers=1` ist der Zustand, nicht die Begründung. Wer diese Datei
+zitiert, zitiert damit einen Grund, der zwei widersprechende Quellen hat — und
+das ist keiner. Was gemessen ist: der Ratenbegrenzer existiert, und parallele
+Logins sind darauf angewiesen. **`backend-pgsql` läuft unabhängig davon seriell**,
+weil paratest pro Worker eine eigene Test-DB braucht und der Job gegen **eine**
+Wegwerf-DB fährt — diese Begründung ist widerspruchsfrei.
+
+**Regel für Agenten, die hier arbeiten:** „in CI läuft es parallel" ist **kein**
+Argument, eine volle Suite neben eine zweite zu stellen. Auf diesem Host ist der
+zweite Lauf der, der die Aussage der ersten zerstört — nicht der langsamste.
+
 **Reihenfolge ist eine Betriebsregel, kein Vorschlag:** Implementierung →
 Commit → Verifikation. Nie umgekehrt. Ein Verifikator, der in einem Baum mit
 uncommitteter Arbeit mutiert, hat keinen Rückweg (§5(4) in `AGENTS.md`) — das
@@ -162,6 +201,16 @@ Position 5 und Position 6 eine belastbare Abnahme.
 
 ## 6. Werkzeuge und Umgebung
 
+- **`php8.5-gd` verschwindet.** Am 2026-09-30 **zweimal** gemessen: `Installed: (none)`
+  trotz vorhandenem Kandidaten. Ein Lauf zeigte **1672 grün**, der nächste
+  **245 rot** — bei **identischem** Baum. Die Ursache liegt außerhalb des
+  Projekt-Mounts (`/usr` wird bei einem Container-Reset verworfen), nicht im Repo.
+  **Die Folge ist teurer als die 245 Tests:** eine **grüne Zahl aus früher in derselben
+  Sitzung ist kein Beleg über den aktuellen Host.** Wer gegen eine im Board gespeicherte
+  Baseline vergleicht, liest einen Extension-Verlust als Regression und beginnt, die
+  falsche Stelle zu reparieren. **Bei ~245 gleichartigen Bild-Fehlschlägen zuerst
+  `php -m | grep gd`** — nicht die Fehlerstapel. Heilung:
+  `sudo apt-get install -y php8.5-gd`, danach JPEG und PNG prüfen.
 - **`ps` und `pkill` fehlen.** Prozesse über `/proc/*/cmdline` auflisten, per PID
   beenden. Das ist nicht nur eine Notlösung — es ist die Lesart, die
   `frontend/tests/e2e/ownership-probe/run-child.ts` ohnehin braucht, weil es auf

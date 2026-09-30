@@ -45,6 +45,24 @@ concurrency:
   # superseded Push nicht minutenlang CI-Minuten verbrennt.
   cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
+# ==========================================================================
+# CI-Parallelität: die vier Jobs laufen PARALLEL — gewollt (Nutzerentscheid
+# 2026-09-30: CI-Parallelfähigkeit unangetastet, gedeckelt wird nur die lokale
+# Arbeit, höchstens zwei Ströme). „Auf 2 deckeln" wäre nicht nur unerwünscht,
+# sondern nicht umsetzbar: Actions deckt parallele Jobs eines Workflows nicht
+# ab, und `concurrency` (unten) regelt Runs — Abbruch/Queue — nicht Jobs. Es
+# ginge nur über `matrix` + `max-parallel: 2`; das zerlegt das Job-Setup
+# (`backend-pgsql` braucht einen `postgres:17`-Service, `e2e` einen
+# Job-Level-`if`, wo `matrix` nicht verfügbar ist) — nicht beauftragt.
+#
+# Die beiden Serial-Entscheidungen sind **gemessen**, nicht vorsichtig; ihre
+# Belege stehen an den Stellen, wo sie entstehen (eine Kopie hier driftet ab):
+#   * `e2e`/Run-Step — geteilte CI-IP + Login-Drossel 40/min (Zähler im DB-Cache)
+#     ⇒ 429 bei parallelen Workern; sechs Netto-Ausfälle, erst falsch attribuiert.
+#   * `backend-pgsql`/Run-Step — paratest gibt jedem Worker eine eigene Test-DB,
+#     der Job fährt gegen EINE Wegwerf-DB ⇒ nie `--parallel`.
+# Lokal dieselbe Grenze, andere Hälfte der Tabelle: `Agents.headless.md` §4.1.
+# ==========================================================================
 jobs:
   backend:
     name: Backend (PHPUnit + Pint)
