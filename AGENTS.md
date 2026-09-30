@@ -162,7 +162,67 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
   4. **Der Verifikator darf die Arbeit des Implementierers nicht zerstören (STRICT, 2026-09-28).** *Anlass, gemeldet und nicht verschwiegen:* ein Verifikator hat beim Mutationstest `git checkout <datei>` auf eine Datei mit **uncommitteter** Diff-Arbeit ausgeführt und sie **zerstört**. Wiederhergestellt wurde sie aus dem Sitzungsprotokoll des Implementierers (ein `write` + 7 `edit`s + ein Heredoc, alle `oldString` validiert), geprüft an Diffstat, Markern, `tsc`, ESLint und vier grünen Suiten — **aber nicht byteweise gegen das Original**, weil es das nicht mehr gab. **Das ist die eigentliche Lücke:** nicht die Wiederherstellung war gut, sondern dass sie **nötig** war. Ein Verifikator, der in einem **geteilten, uncommitteten** Baum mutiert, hat keinen Rückweg — `git checkout` nimmt den Zustand aus dem **Index**, und der Commit-Stand ist nicht der Arbeitsstand. **Drei zulässige Wege, alle vor dem Mutationstest zu wählen:** (a) **der Build-Agent committet den Implementiererstand vor der Verifikation** — der Normalfall, weil §4 einen Commit ohnehin zur Fertigstellung zählt; (b) der Verifikator arbeitet auf einer **Kopie**; (c) `git stash` **bewusst und dokumentiert**, mit `git stash pop` am Ende. **Nicht** zulässig: `git checkout` / `git restore` / `git reset --hard` auf Pfade mit uncommitteten Änderungen. **Und die Meldepflicht:** passiert es trotzdem, ist es **sofort** und **vollständig** zu melden — dieser Verifikator hat genau das getan, inklusive der Angabe, welche Aussage er danach **nicht** mehr machen kann. Das ist der Grund, warum aus dem Fehler kein dauerhafter Schaden wurde.
 - **Build-Agent (Verifikations-Gate):** akzeptiert ein Verdict nur mit vollständigem Befunde-Bericht; `critical`/`high`-Befunde werden als eigene fix-Todos delegiert und erneut verifiziert.
 
-## 6. AI Operating Rules (STRICT)
+### Modellwahl für Eskalationen — Peak-Regel (STRICT, Nutzerentscheidung 2026-09-30)
+
+**`opencode-go/deepseek-v4.1-flash`** ist das Eskalationsmodell für Korrektur- **und**
+Verifikationsläufe, wenn eine Verifikationsrunde **negativ** zurückkommt (Ausnahme oben).
+**Es kostet Geld und wird ausschließlich mit ausdrücklicher Genehmigung des Nutzers
+eingesetzt.** Diese Datei ist die Genehmigung **nicht** — sie dokumentiert die Regel, die
+agentseitig **vor** jedem Start geprüft wird.
+
+**Peak = doppelter Preis. Deshalb die Regel, und deshalb die Uhr:**
+
+| | Input $/M | Output $/M | Cache-Read |
+|---|---|---|---|
+| **Off-Peak** | **0.15** | **0.60** | 0.003 |
+| **Peak** | 0.30 | 1.20 | 0.006 |
+
+**Peak-Stunden (UTC): `01:00–04:00` und `06:00–10:00`.** Datenquelle:
+`https://raw.githubusercontent.com/all-the-rest/ocgo-price-tracker/main/data/latest.json`,
+Feld `peakHours.deepseekv4.1flash`. **Nicht** aus dem Changelog zitieren — dort steht dieselbe
+Regel in Prosa und driftet eher.
+
+**Wochentage — der Teil, der leicht falsch geht.** Die Datenquelle sagt **„an Wochenenden
+(Sa/So, **Peking-Zeit**) durchgehend Off-Peak"**. Peking ist **UTC+8**, also ist das
+Off-Peak-Wochenende **nicht** „Samstag und Sonntag UTC":
+
+| UTC-Tag | Status |
+|---|---|
+| **Fr** 16:00 → **Sa** 16:00 | durchgehend **OFF** (Peking-Sa) |
+| **Sa** 16:00 → **So** 16:00 | durchgehend **OFF** (Peking-So) |
+| **So** 16:00 → **Mo** 00:00 | zurück auf die Stundenregel — **00:00–01:00 und 04:00–06:00 OFF, 01:00–04:00 und 06:00–10:00 PEAK** |
+| **Mo–Fr**, übrige Stunden | `01:00–04:00` und `06:00–10:00` **PEAK**, sonst OFF |
+
+**Die Umschaltregel:** `deepseek-v4.1-flash` darf **nur** eingesetzt werden, wenn im
+aktuellen Off-Peak-Fenster **noch mindestens 1 Stunde** bis zu seinem Ende bleibt. Sonst
+**Standardmodell**, und der Lauf wartet.
+
+**Vor jedem Start ausführen, nicht aus dem Kopf beantworten** — die Uhr geht, und die
+Regel ist eine Uhr-Regel:
+
+```bash
+python3 -c "
+import datetime,zoneinfo
+PEAK=[(1,4),(6,10)]; SH=zoneinfo.ZoneInfo('Asia/Shanghai')
+p=lambda d: d.astimezone(SH).weekday()<5 and any(a<=d.hour<b for a,b in PEAK)
+n=datetime.datetime.now(datetime.timezone.utc).replace(minute=0,second=0,microsecond=0)
+h=n+datetime.timedelta(hours=1)
+while not p(h): h+=datetime.timedelta(hours=1)
+r=(h-n).total_seconds()/3600
+print(f'{n:%Y-%m-%d %H:%M} UTC  jetzt={\"PEAK\" if p(n) else \"OFF\"}  naechste Peak={h:%Y-%m-%d %H:%M} UTC  Rest={r:.2f}h  -> {\"ERLAUBT\" if r>=1 else \"BLOCKIERT\"}')"
+```
+
+**Zwei Fallen, die beim Ermitteln dieser Daten real passiert sind:**
+- **`jq` ist auf diesem Host nicht installiert.** `jq` liefert dann **stumm nichts** — kein
+  Fehler, keine Ausgabe — und „leer" liest sich wie „nicht vorhanden". Mit Python prüfen, bevor
+  man ein Fehlen behauptet.
+- **`grep` findet Schlüssel, `jq` findet Objekte.** Die erste Suche nach `peakHours` lief ins
+  Leere, weil der Wert ein **verschachteltes Objekt** mit Modellnamen als Schlüssel ist und die
+  erste Abfrage den falschen Pfad hatte.
+
+**Kontextfenster 1.000.000, vision-fähig** (`image` in `capabilities.input`) — die harte
+Bedingung des `model-updater`-Skills ist erfüllt, Kontext und Preis sind also nicht die
+Einschränkung. **Die Einschränkung ist die Uhr.**
 
 - **ESLint Auto-Fix Policy (STRICT):** Always use `npm run lint:fix` (= `eslint . --fix`) instead of plain
   `npm run lint`. Auto-fix handles formatting and trivial rules — never fix those by hand. The plain `lint`
@@ -257,6 +317,23 @@ besitzt.
 
 **Max 3 Fix-Versuche für Tests (STRICT):** Nach 3 erfolglosen Versuchen MUSS der Agent an den Benutzer
 zurückgeben mit einer Analyse. Keine Endlos-Fix-Loops.
+
+**AUSNAHME (Nutzerentscheidung 2026-09-30, allgemein):** Die Grenze gilt **nicht**, wenn eine
+Verifikationsrunde **negativ** zurückkommt (`CHANGES REQUIRED`). In dem Fall wird die Schleife
+fortgesetzt — **aber nur unter zwei Auflagen**, ohne die sie zur Endlosschleife würde:
+1. **Jede Runde endet mit dem Befund**, nicht mit dem Versuch, ihn zu umgehen. Der Build-Agent
+   **berichtet** und legt die Entscheidung offen; er dreht nicht eigenmächtig weiter.
+2. **Kein Befund wird stillschweigend verworfen.** Was eine Runde findet, geht in die Commit-Message
+   **mit Modus und Datum** ein, auch dann, wenn der Code korrekt war und nur die Behauptung nicht
+   (§3). Ein Verwurf muss **begründet** sein, nicht bequem.
+
+**Warum das die richtige Grenze ist** — und der Grund steht in Position 13, gemessen: dort haben
+**vier** Verifikationsrunden `CHANGES REQUIRED` geliefert, und **der Code hat jede Runde gehalten**.
+Gescheitert sind die *Aussagen über* den Code — „28 Randfälle gepinnt", wo **keiner** gepinnt war;
+eine Abnahmezahl, die einem Commit zugeschrieben wurde, der sie ungültig gemacht hatte. Eine Schleife,
+die an **„die Aussage stimmt nicht"** hängen bleibt, ist keine Endlosschleife, sondern die Arbeit,
+die diese Regel überhaupt verlangt. **Umgekehrt gilt sie unverändert:** drei Runden *ohne*
+negatives Verdikt sind weiterhin drei, und dann wird zurückgegeben.
 
 **Visuelle Verifikation / UI-Review (Design-QA, STRICT):** Permanent verpflichtender Workflow nach jeder
 UI-Änderung (FE-Etappen, neue Seiten, Layout-/daisyUI-Anpassungen). Er ist **explizit getrennt** von den
