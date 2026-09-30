@@ -34,8 +34,12 @@ use Tests\TestCase;
  *
  * MEASURED 2026-09-30 on this tree, injecting the two property lines
  * (`defaultCookies[name] = $token` and `withCredentials = true`) into
- * `MandantMembershipTest::withJwt()` — the helper all 24 of that class's tests
- * go through (MEASURED: 24 test methods, no data providers):
+ * `MandantMembershipTest::withJwt()` — the helper 18 of that class's 24 tests
+ * go through (MEASURED 2026-09-30: 24 test methods, no data providers; 18 call
+ * `$this->withJwt(`, 6 do not. Under the injection 17 turn red / 7 stay green,
+ * and the one caller that stays green is
+ * `test_public_routes_are_unaffected_by_a_foreign_cookie`, which drives only
+ * public routes and so does not depend on the channel):
  *
  *   | mode                                | result                                    |
  *   |-------------------------------------|-------------------------------------------|
@@ -60,9 +64,12 @@ use Tests\TestCase;
  *
  * Two numbers in the old text were wrong in the same way, and both are
  * recorded here so neither is carried forward again: the guard was quoted at
- * "7 passed", which was its size at `0572408` — MEASURED on that tree: four
- * patterns, i.e. four data rows, plus three other tests — and it is 58 today;
- * and the injected class was quoted as having 32 tests, which is 24.
+ * "7 passed", and that figure is WRONG on the very commit it names, not stale
+ * — MEASURED 2026-09-30 in a throwaway worktree at `0572408`: the class is
+ * **5 passed (22 assertions)**, three patterns, i.e. three data rows, plus two
+ * other tests. (`ee53ca7` carries the byte-identical guard, so it is 5 there
+ * too.) It is 58 today; and the injected class was quoted as having 32 tests,
+ * which is 24.
  *
  * ## What is forbidden, and the exact mechanism each time
  *
@@ -376,12 +383,12 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             // The acceptance for this pattern was measured on
             // `MandantMembershipTest`, by injecting exactly those two lines into
             // the class's own `withJwt()`
-            // — the helper all 24 of its tests go through (MEASURED: 24 test
-            // methods, no data providers). The numbers, and the commit that is
-            // responsible for them being what they are, live in the class
-            // docblock under "Why the DEFAULT run must see it, and what it sees
-            // NOW"; they are deliberately NOT repeated here, because the two
-            // copies of that figure drifted apart once already (see there).
+            // — the helper 18 of its 24 tests go through (MEASURED 2026-09-30:
+            // 24 test methods, no data providers). The numbers, and the commit
+            // that is responsible for them being what they are, live in the
+            // class docblock under "Why the DEFAULT run must see it, and what it
+            // sees NOW"; they are deliberately NOT repeated here, because the
+            // two copies of that figure drifted apart once already (see there).
             //
             // Eight details, each of which would otherwise be a way through — and
             // four of them were MEASURED wrong before they were right: the offset
@@ -434,30 +441,57 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             //    `??=` needs a QUESTION MARK pair, and with one operator branch
             //    it could not be had — `$this->defaultCookies['a'] ??= $t` is a
             //    WRITE whenever the key is absent, i.e. exactly the leak the
-            //    ban exists for, and it went through. The second branch
-            //    requires at least one offset (`+`, not `*`), which is what
-            //    keeps the legitimate `$t = $this->defaultCookies['a'] ?? null`
-            //    read out of its reach: with `*` that read would be banned too,
-            //    and a ban that cannot tell a read from a write is a ban people
-            //    route around.
-            //  - The BARE `$this->defaultCookies ??= …` stays legal, and not as
-            //    an oversight: all four properties are initialised to a non-null
-            //    value (`MakesHttpRequests.php:30, :37, :58, :67` — `[]`, `[]`,
-            //    `true`, `false`), so `??=` on the property itself can never
-            //    assign anything. A test that first wrote `null` into one of
-            //    them would be caught by that plain `=` line.
+            //    ban exists for, and it went through. The branch requires at
+            //    least one offset (`+`, not `*`), and the reason is what that
+            //    quantifier keeps out: the BARE `$this->defaultCookies ??= …`,
+            //    excluded for the structural reason given in the next bullet.
+            //    Nor is the quantifier what keeps the legitimate
+            //    `$t = $this->defaultCookies['a'] ?? null` read out. What
+            //    separates that read from the write is the branch TAIL — the
+            //    read has `?? null`, not `??=` — and the tail does not move when
+            //    the quantifier does. MEASURED 2026-09-30: `+` → `*` turns
+            //    exactly ONE row red, the bare `??=`, and leaves both `?? null`
+            //    read rows green; the earlier wording claimed `*` would also ban
+            //    the read, and that is refuted by that measurement.
+            //  - The BARE `$this->defaultCookies ??= …` stays legal, and the
+            //    reason is STRUCTURAL, not semantic: the `??=` branch demands at
+            //    least one offset (`+`, not `*`), so the bare form is simply not
+            //    reached by it and cannot be confused with the offset write one
+            //    row above. What this bullet used to say — that the bare `??=`
+            //    cannot assign, on the grounds that all four properties start
+            //    non-null (`MakesHttpRequests.php:30, :37, :58, :67` — `[]`,
+            //    `[]`, `true`, `false`) — has a true premise and a false
+            //    conclusion.
+            //    MEASURED 2026-09-30, that is refuted by `unset()`, a third route
+            //    past "initialised non-null": `unset($this->withCredentials);
+            //    @$this->withCredentials ??= true;` leaves the property `true`,
+            //    and a request built on it answers `/api/auth/me` **200** with
+            //    the `JWT::$token` singleton provably cleared. So the bare `??=`
+            //    IS a write once the property has been unset, and this pattern
+            //    does not catch it; that is a named gap, not a guarantee. It is
+            //    safe to leave uncaught only because MEASURED 2026-09-30 there
+            //    are **0** occurrences of `unset($this-><one of the four>)` in
+            //    `tests/` — the moment one appears, this gap is live. (A test
+            //    that first wrote `null` into a property is still caught by that
+            //    plain `=` line; `unset()` is exactly what that line cannot see.)
             //  - The character class holds NO delimiter, and that is not a
             //    style preference. An earlier version of this line also
             //    excluded the `~` delimiter, which made the WHOLE pattern
             //    INVALID: PHP's PCRE does not allow an unescaped delimiter
             //    inside a character class, so `[^=~]` ended the pattern at the
-            //    `~` and every call below returned false. MEASURED, and the
-            //    failure is the dangerous shape — `findOffences()` asks
-            //    `preg_match(...) !== 1`, so `false` reads as "no match" and the
-            //    guard passes with zero offences. The pin test is what makes it
-            //    loud: `preg_match_all()` also returns false there, and `false`
-            //    is not the pinned number. That backstop is the reason an
-            //    allowance is a NUMBER and not a path.
+            //    `~`, every `preg_match()` below raised
+            //    `Warning: preg_match(): Unknown modifier ']'` and returned
+            //    false. MEASURED 2026-09-30 by reintroducing `[^=~]`: the run is
+            //    **52 failed / 6 passed**, and the scan test is among the red
+            //    with an `ErrorException` — PHPUnit promotes the warning, so the
+            //    failure is LOUD. An earlier version of this comment drew the
+            //    opposite conclusion from the same mechanism: it said `false`
+            //    reads as "no match" and the guard "passes with zero offences".
+            //    `preg_match()` does return false, but the warning-to-exception
+            //    promotion is what actually decides the outcome, and it decides
+            //    red; the pin test is a second net over the same line, not the
+            //    thing that makes this loud. That second net is still the reason
+            //    an allowance is a NUMBER and not a path.
             //
             // `encryptCookies` is in the set, and NOT for the reason the first
             // version of this comment gave. That reason was "a write to it
@@ -476,15 +510,40 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             //
             // What the pattern is NOT able to do, MEASURED 2026-09-30 rather
             // than guessed, because the first draft of this paragraph guessed
-            // and was wrong twice:
+            // and was wrong twice. These are the holes a person can actually
+            // write, named here rather than left for the next reader to find —
+            // they are NOT one:
             //
             //  - A write through a VARIABLE property name goes past it:
             //    `$p = 'defaultCookies'; $this->{$p}[$k] = $t;` is real PHP and
             //    does write the property, and the pattern does not match it — the
             //    `(?<!->)` lookbehind is what excludes `->{`. That is a
             //    deliberate trade (a variable property is a different write, and
-            //    MEASURED: no such spelling exists in `tests/` today), and it is
-            //    the one real hole in this pattern.
+            //    MEASURED 2026-09-30: no such spelling exists in `tests/`).
+            //  - `array_push($this->defaultCookies, $t)` writes the property —
+            //    PHP passes the first argument by reference — and the pattern
+            //    does not match it. MEASURED end to end 2026-09-30 in a
+            //    throwaway probe: the jar ends up `['<name>=<token>']`, the
+            //    switch makes it a transport, and `/api/auth/me` answers **401
+            //    with the singleton provably cleared** — the F1 defect, not a
+            //    write the ban sees.
+            //  - `$ref = &$this->defaultCookies; $ref[$k] = $t;` writes the
+            //    property (MEASURED: the reference assignment really mutates the
+            //    jar) and is not matched.
+            //  - `ReflectionProperty::setValue()` writes the property (MEASURED:
+            //    a set on `unencryptedCookies` really replaces it) and is not
+            //    matched.
+            //  - The bare `??=` after an `unset()` — the last bullet above.
+            //
+            //    All four are assignment-adjacent constructs, not the
+            //    `property <op>= rhs` shape this pattern is written for: a
+            //    function call with a by-reference argument, a reference
+            //    binding and a reflection write are different productions, and
+            //    folding them into the regex would widen its false-positive
+            //    surface, which is the one failure mode this guard has already
+            //    been taught to fear. Their cost is real and is bounded only by
+            //    the measurement: MEASURED 2026-09-30, none of the four occurs
+            //    in `tests/` today (0 each).
             //  - A write inside a CLOSURE or through `call_user_func` is NOT a
             //    hole, and this paragraph used to say it was. The scan matches
             //    per line over the whole file, so a line carrying the write is
@@ -496,7 +555,7 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             //    matched, and correctly so.
             //
             // So the ban is a net over the spellings a person actually writes,
-            // not a proof about the language — and the one hole above is named
+            // not a proof about the language — and the holes above are named
             // here rather than left for the next reader to find.
             'cookie transport properties belong to withJwtCookie' => [4, '~(?<!::)(?<!->)\$\w+->(?:defaultCookies|unencryptedCookies|withCredentials|encryptCookies)(?:(?:[ \t]*\[[^\]\n]*\])+[ \t]*\?\?=|(?:[ \t]*\[[^\]\n]*\])*[ \t]*(?:>>|<<|\*\*|[.+\-*/%&|^])?=(?![=>]))~'],
         ]);
@@ -577,8 +636,8 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      *    49 passed / 9 failed.
      *
      * The other direction is pinned too, and it is the one that matters for the
-     * leaks: MEASURED 2026-09-30, putting this pattern BACK to its `791db7a`
-     * form (one optional offset, a bare `=[^=]` tail) turns 9 rows red as well —
+     * leaks: MEASURED 2026-09-30, putting this pattern BACK to its first form
+     * (one optional offset, a bare `=[^=]` tail) turns 9 rows red as well —
      * the seven leak rows (nested offset, `.=`, `+=`, `**=`, `<<=`, `%=` and
      * the offset `??=`) plus the two `=>` rows. Seven of those nine are writes
      * the ban is supposed to catch and did not, which is the shape of the
@@ -667,8 +726,9 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      * Every row carries its reason, because a row without one is a number
      * waiting to be deleted quietly. Where a row is a deliberate EXCLUSION
      * rather than a safety, its reason says so in those words — see the bare
-     * `??=` row, which is legal because it cannot assign, and the `=>` rows,
-     * which are legal because they are array keys.
+     * `??=` row, which is legal BY CONSTRUCTION (the branch demands an offset)
+     * and NOT because it cannot assign, and the `=>` rows, which are legal
+     * because they are array keys.
      *
      * @return array<string, array{0: string, 1: bool, 2: string}>
      */
@@ -874,7 +934,7 @@ class ForbiddenJwtCookieChannelTest extends TestCase
             ],
             'null-coalescing assignment on the bare property' => [
                 '@this->withCredentials ??= true;', false,
-                'DELIBERATE EXCLUSION, and the only exclusion in this table: all four properties are initialised to a non-null value (MakesHttpRequests.php:30, :37, :58, :67 — [], [], true, false), so a null-coalescing assignment on the property itself can never assign. A test that first wrote null into one of them is caught by that plain = line. The OFFSET form is a write, and it is matched, one row above.',
+                'LEGAL BY CONSTRUCTION, not by semantics: the ??= branch demands an offset (+ not *), so this bare form is left out on purpose and cannot be confused with the offset write above. It is NOT true that the bare form cannot assign — MEASURED 2026-09-30, unset() the property first and this DOES assign (see the pattern comment in forbiddenCalls()). That is a named gap with 0 occurrences in tests/, not a promise. Nor is this row the table\'s only deliberate exclusion: the variable-property row is another write left legal, and the pattern comment names it with the rest.',
             ],
             'less-than-or-equal read' => [
                 '@x = @this->withCredentials <= 1;', false,
@@ -981,7 +1041,7 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      * with one run of spaces, which destroyed every line break inside a
      * multi-line docblock. The stripped copy had fewer lines than the file, so
      * every reported number was short by however many lines had already been
-     * collapsed above it. MEASURED: 989 lines became 834 on
+     * collapsed above it. MEASURED 2026-09-30: 987 lines became 832 on
      * `MandantMembershipTest.php`, and an offence on line 977 was reported as
      * `MandantMembershipTest.php:822`.
      *
@@ -1306,12 +1366,19 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      * reported line number is short by the number of lines already collapsed
      * above it.
      *
-     * The historical measurement, on the tree where the bug was found
-     * (`791db7a`, RELAXED): `MandantMembershipTest.php` stripped to 834 lines
-     * instead of its own, and an offence on real line 977 was reported as
-     * `MandantMembershipTest.php:822` — 155 lines off, pointing at a line that
-     * has nothing to do with it. The docblock right here claimed the opposite,
-     * which is the worst version of that bug: a map that says it is a map.
+     * The historical measurement, on the LAST tree where the bug is live:
+     * `1c0226d` — an ancestor of this commit, reachable from `main` — carries
+     * both the `str_repeat` stripper AND the `MandantMembershipTest.php` that is
+     * still here, which is why the figure is a direct measurement and not a
+     * guess about the past. MEASURED 2026-09-30 by applying that tree's own
+     * `stripComments()` to that file: **987 lines became 832**, and an offence
+     * on real line 977 was reported as `MandantMembershipTest.php:822` — 155
+     * lines off, pointing at a line that has nothing to do with it. (987 is the
+     * guard's own `explode()`-based line numbering; by `substr_count` the same
+     * file is 986 and its stripped copy 831, because the file ends in a newline.
+     * The delta, 155, is the figure that does not depend on the convention.) The
+     * docblock right here claimed the opposite, which is the worst version of
+     * that bug: a map that says it is a map.
      *
      * MEASURED 2026-09-30 on this tree, because the figures that paragraph was
      * written with do not belong to it: `MandantMembershipTest.php` is **986
@@ -1320,9 +1387,10 @@ class ForbiddenJwtCookieChannelTest extends TestCase
      * numbers were written down, so they were wrong on their own tree and not
      * merely out of date. The stripped copy is 986 lines, i.e. equal, which is
      * the property `test_a_reported_line_number_is_a_real_line_of_the_file`
-     * asserts on every run; the historical 977 → 822 pair cannot be re-measured
-     * because the bug it belongs to is fixed, and is quoted here only as the
-     * reason the test exists.
+     * asserts on every run. The `str_repeat` stripper this paragraph documents
+     * is present up to and including `1c0226d` and gone by `695ffb5`, which
+     * replaced it with `preg_replace` — so the 987 → 832 figure above is the
+     * live measurement on `1c0226d`, not a reconstruction.
      *
      * A failure message that names the right FILE but the wrong LINE sends the
      * next person to the wrong place, and this guard's entire value is where it
