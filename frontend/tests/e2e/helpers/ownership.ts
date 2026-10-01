@@ -127,12 +127,22 @@ const E2E_OWNED = new Map();
  */
 export const E2E_OWNED_TEARDOWN = [
     // ── children first ──────────────────────────────────────────────────────
-    // An `application` is only withdrawable while it is still `requested`; an
-    // approved one answers 422 on the owner route. What takes an approved
-    // application is the CASCADE from its accreditation, which is why
-    // `accreditations` below is not optional bookkeeping.
-    { kind: 'applications', route: '/api/applications', actor: 'owner', okStatus: 204, reclaimable: true },
-    { kind: 'subApplications', route: '/api/sub-applications', actor: 'owner', okStatus: 204, reclaimable: true },
+    // An `application` is only withdrawable while it is still `requested`; a
+    // DECIDED one answers 422 on the owner route (MEASURED 2026-10-01 against
+    // the running dev backend, both bodies are listed in
+    // `TEARDOWN_DECIDED_MESSAGES`). What takes a decided row is the CASCADE —
+    // `applications.accreditation_id` and `applications.user_id` are both
+    // `cascade` in `E2E_OWNED_FK_EDGES`, and both parents are registered by
+    // the helpers that create the application.
+    //
+    // So the 422 is a HAND-OVER, not a failure — and `decidedStatus` +
+    // `verifiedBy` are what make that a measured claim instead of the tolerance
+    // this file exists to remove: the row is remembered as CARRIED, and
+    // `verifyCarriedRows` proves after the plan has run that the cascade really
+    // took it. Count a 422 as reclaimed without that proof and this is exactly
+    // the F1 shape — a cleanup that reports success while the row stays.
+    { kind: 'applications', route: '/api/applications', actor: 'owner', okStatus: 204, reclaimable: true, decidedStatus: 422, verifiedBy: '/api/admin/applications' },
+    { kind: 'subApplications', route: '/api/sub-applications', actor: 'owner', okStatus: 204, reclaimable: true, decidedStatus: 422, verifiedBy: '/api/admin/sub-applications' },
     { kind: 'userMedia', route: '/api/user/media', actor: 'owner', okStatus: 200, reclaimable: true },
     { kind: 'subAccreditations', route: '/api/admin/sub-accreditations', actor: 'admin', okStatus: 204, reclaimable: true, creatableHere: false },
     { kind: 'accreditations', route: '/api/admin/accreditations', actor: 'admin', okStatus: 204, reclaimable: true },
@@ -227,6 +237,69 @@ export const TEARDOWN_NOT_FOUND = {
  * ignored the id — which is precisely what the preflight would then report.
  */
 export const TEARDOWN_ROUTE_PROBE_ID = 2147483647;
+
+/**
+ * ## A 422 that means "not now" is not a 422 that means "gone"
+ *
+ * The two owner-scoped withdraw routes answer 422 for exactly one reason: the
+ * row is DECIDED, and the applicant may no longer withdraw it
+ * (`ApplicationController::destroy:68`, `SubApplicationController::destroy:60`).
+ * A decided row is still reclaimable — by the CASCADE from the
+ * `accreditation_id` / `user_id` it holds, both of which this same plan deletes.
+ * So the 422 is a hand-over, and the honest ledger entry is "carried", not
+ * "reclaimed" and not "failed".
+ *
+ * It is tolerated ONLY when the body is one of these two messages, and the list
+ * is literal rather than a `startsWith`: the whole reason the 404 classifier
+ * above exists is that a total tolerance cannot tell the intended answer from a
+ * wrong one, and a substring rule on a German backend sentence is the same
+ * mistake one layer down. MEASURED 2026-10-01, both bodies verbatim:
+ *
+ * | route                                  | body                                                 |
+ * |----------------------------------------|------------------------------------------------------|
+ * | `DELETE /api/applications/{id}`        | `Only pending (requested) applications can be withdrawn.` |
+ * | `DELETE /api/sub-applications/{id}`    | `Only pending (requested) sub-applications can be withdrawn.` |
+ *
+ * `body` is `''` for a body that could not be read. That is `UNKNOWN`, and
+ * `UNKNOWN` is a FAILURE downstream.
+ */
+export const TEARDOWN_DECIDED = {
+    DECIDED: 'decided',
+    UNKNOWN: 'unknown',
+};
+
+const TEARDOWN_DECIDED_MESSAGES = [
+    'Only pending (requested) applications can be withdrawn.',
+    'Only pending (requested) sub-applications can be withdrawn.',
+];
+
+/**
+ * Which of the two this body is. Fail-closed by construction, and read from
+ * the JSON `message` field and from NOTHING else, for the reason the 404
+ * classifier reads only `message`: the debug payload carries an absolute path
+ * and would break the moment the checkout moves.
+ *
+ * The verdict is a WHOLE-MESSAGE match, not a substring: a 422 that merely
+ * mentions "pending" (a validation error, a throttle answering 422) is
+ * `UNKNOWN`, and an `UNKNOWN` 422 fails the run.
+ */
+export function classifyNotWithdrawableBody(body = '') {
+    let parsed = null;
+    try {
+        parsed = JSON.parse(body);
+    } catch {
+        return TEARDOWN_DECIDED.UNKNOWN;
+    }
+    if (parsed === null || typeof parsed !== 'object' || typeof parsed.message !== 'string') {
+        return TEARDOWN_DECIDED.UNKNOWN;
+    }
+    for (const expected of TEARDOWN_DECIDED_MESSAGES) {
+        if (parsed.message === expected) {
+            return TEARDOWN_DECIDED.DECIDED;
+        }
+    }
+    return TEARDOWN_DECIDED.UNKNOWN;
+}
 
 /**
  * Which kind of 404 this body is. Fail-closed by construction, in two places:
@@ -498,6 +571,19 @@ export function ownedRowCount(kind = '') {
  * account, so the teardown logs in as that user. The login is per DISTINCT
  * user, not per row: a test that uploaded three portraits of one user pays one
  * login, not three, which matters because `login` is throttled per IP.
+ *
+ * Three outcomes are possible for those rows, and none of them is a shrug:
+ *
+ * 1. **the DELETE answers `okStatus`** — reclaimed.
+ * 2. **the login answers 401** — the account may be gone. `ownerAccountIsGone`
+ *    decides, with the admin list, and only for an account this suite created
+ *    (see its docblock for the global-account hole this closes). Gone means the
+ *    row went with the `users` cascade, so it is reclaimed without a DELETE;
+ *    still there means the login was refused for another reason, and the run
+ *    goes red rather than counting a leak as a success.
+ * 3. **the DELETE answers 422** — the row is decided, so its owner may no
+ *    longer withdraw it. That is a hand-over to the cascade, recorded in
+ *    `carried` and PROVED by `verifyCarriedRows` after the plan has run.
  */
 export async function reclaimOwnedRows() {
     // Cheap exit for the (many) tests that own nothing: no admin login, no
@@ -551,6 +637,12 @@ export async function reclaimOwnedRows() {
     failures.length = 0;
     const unreclaimable = new Map();
     let reclaimed = 0;
+    // Decided rows the owner route refused, verified AFTER the plan has run.
+    // Collected rather than counted at the moment they are seen: at that
+    // moment the row demonstrably still EXISTS (the cascade that takes it is
+    // steps away), so counting it there would be counting a wish.
+    const carried = [{ kind: '', id: 0, listUrl: '' }];
+    carried.length = 0;
 
     /**
      * Every session this teardown opens, in ONE map: the admin session under the
@@ -632,6 +724,116 @@ export async function reclaimOwnedRows() {
         return exact[0].id;
     }
 
+    /**
+     * Is the owner account GONE — as opposed to merely refusing this login?
+     *
+     * A 401 from `/api/auth/login` means "no such account under this host" OR
+     * "wrong password" (MEASURED: `AuthController::login` answers the same body
+     * and status for both, and the docblock says so — it deliberately removed
+     * the existence oracle). Those two have to be told apart, and the ONLY
+     * probe this harness has is the mandant-scoped admin list. That is enough,
+     * but only under a condition, and the condition is the interesting part:
+     *
+     * - `resolveUserIdByEmail` reads `GET /api/admin/users?search=…`, which
+     *   filters on a mandant-scoped `role_user` row
+     *   (`UserController::index`). A GLOBAL account (`mandant_id = null` — the
+     *   bootstrap `super_admin`) holds no such row, so it is invisible to that
+     *   list: for one of those, "not in the list" would read as "gone" while
+     *   the account and its rows are alive. MEASURED and stated, because it is a
+     *   hole and not an assumption.
+     * - It is nevertheless unreachable for anything this suite creates, and
+     *   this function is what makes that structural rather than hopeful:
+     *   `POST /api/auth/register` binds every account it creates to the CURRENT
+     *   mandant (`AuthController::register`: `'mandant_id' => $mandant->id`)
+     *   and REFUSES an address that collides with a system-wide account
+     *   (the closure in the same `email` rule). So an account this suite
+     *   registered is mandant-scoped by contract, and the admin list is a
+     *   complete probe for it.
+     * - Therefore the "gone" reading requires the ledger to OWN the account
+     *   (`rememberOwnedUserAccount` for the same email). An owner-scoped row
+     *   whose account the test never registered cannot be judged that way —
+     *   nobody knows whether it is mandant-scoped — so this throws instead of
+     *   counting it. That is the fail-closed direction, and it is the direct
+     *   answer to the global-account hole: the harness refuses to guess about
+     *   an account it did not create.
+     *
+     * Measured 2026-10-01: every live owner-scoped registration in the suite
+     * pairs with a `rememberOwnedUserAccount` for the same email —
+     * `admin-data.ts` (all four sites) and `profile.spec.ts` — so this guard
+     * costs nothing today and would only fire on a fixture that registers a row
+     * it cannot account for.
+     */
+    async function ownerAccountIsGone(email = '') {
+        const accounts = E2E_OWNED.get('users') ?? [];
+        let registered = false;
+        for (const account of accounts) {
+            if (account && account.id === email) {
+                registered = true;
+            }
+        }
+        if (!registered) {
+            throw new Error(
+                `[e2e-ownership] the teardown could not log in as ${email} (status 401), and the ledger never `
+                    + 'registered that account — so there is no evidence that it is gone rather than merely refusing '
+                    + 'the login. Counting its rows as reclaimed would be a guess, and this harness does not guess.',
+            );
+        }
+        return (await resolveUserIdByEmail(email)) === null;
+    }
+
+    /**
+     * PROVE that every row the owner route refused as DECIDED really was taken
+     * by the cascade — the step that turns "tolerated" into "measured".
+     *
+     * It has to run after the whole plan, not where the 422 was seen: at that
+     * moment the row still exists (its accreditation and its account are
+     * deleted later in this same run), so an assertion there would fail on
+     * every correctly-behaving teardown. The lists it reads are the mandant-
+     * scoped ADMIN ones, which is what makes the check independent of the owner
+     * session that just failed — and a row that IS still listed is a real leak,
+     * not a tolerance question.
+     */
+    async function verifyCarriedRows(rows = [{ kind: '', id: 0, listUrl: '' }]) {
+        if (rows.length === 0) {
+            return;
+        }
+        const session = await adminApi();
+        const listed = new Map();
+        const survivors = [];
+        for (const row of rows) {
+            if (!listed.has(row.listUrl)) {
+                const response = await session.get(row.listUrl);
+                if (response.status() !== 200) {
+                    throw new PurgeReclamationFailure(
+                        `[e2e-ownership] cannot verify the decided ${row.kind} rows: ${row.listUrl} answered `
+                            + `${response.status()}. Without the list there is no proof that the cascade took them, `
+                            + 'and "the cascade probably did" is not a result.',
+                    );
+                }
+                const body = await response.json();
+                listed.set(row.listUrl, Array.isArray(body.data) ? body.data : []);
+            }
+            const current = listed.get(row.listUrl);
+            for (const entry of current) {
+                if (entry && entry.id === row.id) {
+                    survivors.push(`${row.kind} ${row.id}`);
+                }
+            }
+        }
+        if (survivors.length > 0) {
+            throw new PurgeReclamationFailure(
+                `[e2e-ownership] ${survivors.length} DECIDED row(s) were neither withdrawable by their owner nor `
+                    + 'taken by the cascade from their accreditation or their account — so nothing gave them back '
+                    + `and the NEXT run inherits them:\n${survivors.join('\n')}`,
+            );
+        }
+        reclaimed += rows.length;
+        console.log(
+            `[e2e-ownership] ${rows.length} decided row(s) were carried by the cascade and VERIFIED gone: `
+                + rows.map((row) => `${row.kind} ${row.id}`).join(', '),
+        );
+    }
+
     try {
         for (const step of E2E_OWNED_TEARDOWN) {
             const list = E2E_OWNED.get(step.kind);
@@ -655,9 +857,31 @@ export async function reclaimOwnedRows() {
                 let session = null;
                 if (step.actor === 'owner') {
                     if (!sessions.has(entry.email)) {
-                        sessions.set(entry.email, await loginAsUser(entry.email, entry.password));
+                        const opened = await loginAsUser(entry.email, entry.password);
+                        // `null` means 401 and NOTHING else (see `loginAsUser`):
+                        // either the account is gone — so every row it owned went
+                        // with it through the `users` cascade, and the ledger
+                        // caches that verdict under this email — or the login
+                        // failed for a reason that leaves the rows behind, which
+                        // is a red run rather than a quiet count.
+                        sessions.set(entry.email, opened);
+                        if (opened === null && !(await ownerAccountIsGone(entry.email))) {
+                            throw new Error(
+                                `the ownership teardown could not log in as ${entry.email} (status 401) and the ` +
+                                    'account IS still listed for this mandant — so its rows are still there and ' +
+                                    'this teardown cannot give them back. Refusing to count them as reclaimed.',
+                            );
+                        }
                     }
                     session = sessions.get(entry.email);
+                    if (session === null) {
+                        // The account is gone (established once per owner above),
+                        // and every owner-scoped row has a `cascade` edge from
+                        // `users` in `E2E_OWNED_FK_EDGES` — so this row went with
+                        // it and needs no DELETE of its own.
+                        reclaimed += 1;
+                        continue;
+                    }
                 } else {
                     session = await adminApi();
                 }
@@ -713,15 +937,45 @@ export async function reclaimOwnedRows() {
                     );
                     continue;
                 }
+                if (status === step.decidedStatus && step.verifiedBy !== undefined) {
+                    // The row is DECIDED, so its owner may no longer withdraw it.
+                    // It is not lost: the cascade from its accreditation or from
+                    // its account — both of them steps in this same plan — takes
+                    // it. The proof that it did is `verifyCarriedRows` below, not
+                    // this comment.
+                    if (classifyNotWithdrawableBody(body) === TEARDOWN_DECIDED.DECIDED) {
+                        carried.push({ kind: step.kind, id: entry.id, listUrl: step.verifiedBy });
+                        continue;
+                    }
+                    failures.push(
+                        `DELETE ${url} answered ${status} but NOT with the "this row is decided" body — a 422 that `
+                            + `means something else leaves the ${step.kind} row ${entry.id} behind, and this teardown `
+                            + `does not guess which. Body: ${shortBody}`,
+                    );
+                    continue;
+                }
                 failures.push(
                     `DELETE ${url} answered ${status} (expected ${step.okStatus}/404) — the ${step.kind} row ` +
                         `${entry.id} stays, and the NEXT run inherits it. Body: ${shortBody}`,
                 );
             }
         }
+
+        // The proof for the hand-over above, and it runs LAST on purpose: at the
+        // moment the owner route answered 422 the row demonstrably still
+        // existed, so the only honest moment to ask "is it gone now?" is after
+        // the parents that cascade to it have been deleted.
+        await verifyCarriedRows(carried);
     } finally {
         for (const session of sessions.values()) {
-            await session.dispose();
+            // A `null` here is the "this account is gone" verdict, cached under
+            // its email by the owner branch above. There is no context to
+            // dispose — and calling `.dispose()` on it would throw out of the
+            // `finally` that empties the ledger, which is the one place that
+            // must not be interrupted.
+            if (session !== null) {
+                await session.dispose();
+            }
         }
         // The ledger is EMPTIED here, in the same `finally` that disposes the
         // sessions — so a reclamation failure (thrown just below) cannot poison the
@@ -767,11 +1021,39 @@ export async function reclaimOwnedRows() {
  * `auth('api')->id()` with the row's `user_id` — an admin session is refused
  * with a 403, not merely a 404, so using the wrong session here would look like
  * a missing route.
+ *
+ * ## Why ONE status comes back as `null` and every other one throws
+ *
+ * A 401 during an owner-scoped teardown has two readings that must not be
+ * confused, and they need opposite handling:
+ *
+ *  - **the account is gone** — the test deleted it (that is the goal state of
+ *    `account-deletion.spec.ts` and of the self-service flow), and every row it
+ *    owned went with it through the `users` cascade. Nothing is left to give
+ *    back, so this is a success.
+ *  - **the credentials were refused** — the account is alive and its rows are
+ *    alive, so a teardown that shrugged here would report success over a leak.
+ *
+ * So a 401 is RETURNED (as `null`) and the caller decides with
+ * `ownerAccountIsGone`; everything else still throws. MEASURED 2026-10-01 for
+ * the statuses that are deliberately not swallowed: 403 is
+ * `AuthController::login`'s answer for an account that is not activated yet and
+ * for one that is not a member of this host, 429 is the `login` limiter (40/min
+ * in local, `AppServiceProvider`), and 422 is the validation answer. None of
+ * those three means "the account is gone".
+ *
+ * The return is a union on purpose: `null` is the ONLY way this function says
+ * "refused", so the caller cannot read a status by accident and cannot forget
+ * to classify it.
  */
 async function loginAsUser(email = '', password = '') {
     const { request } = await import('@playwright/test');
     const session = await request.newContext({ baseURL: FRONTEND_BASE_URL });
     const login = await session.post('/api/auth/login', { data: { email, password } });
+    if (login.status() === 401) {
+        await session.dispose();
+        return null;
+    }
     if (login.status() !== 200) {
         await session.dispose();
         throw new Error(

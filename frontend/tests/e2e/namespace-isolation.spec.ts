@@ -1187,6 +1187,12 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             'tests/e2e/admin-users.spec.ts',
             'tests/e2e/approvals.spec.ts',
             'tests/e2e/badge.spec.ts',
+            // The ownership spec itself, since the tests that pin the teardown's
+            // handling of a refused login and of a decided application have to
+            // build those fixtures for real — there is no way to hand a
+            // non-existent applicant a 401. It pays the same ownership hooks as
+            // every other creator, which the guard above already checks.
+            'tests/e2e/ownership.spec.ts',
             'tests/e2e/portal.spec.ts',
             'tests/e2e/sub-accreditation.spec.ts',
             'tests/e2e/wallet.spec.ts',

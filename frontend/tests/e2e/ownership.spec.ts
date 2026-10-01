@@ -1,14 +1,26 @@
-import { expect, test } from '@playwright/test';
+import { expect, request, test } from '@playwright/test';
 import fs from 'node:fs';
-import { loginAdminApi } from './helpers/api-session';
+import { FRONTEND_BASE_URL, loginAdminApi } from './helpers/api-session';
+import {
+    allocateAccreditationApi,
+    ensurePrimaryMandantAccreditation,
+    registerAndActivateUser,
+    registerAndApplyForAccreditation,
+} from './helpers/admin-data';
 import {
     E2E_OWNED_TEARDOWN,
+    TEARDOWN_DECIDED,
     TEARDOWN_NOT_FOUND,
     TEARDOWN_ROUTE_PROBE_ID,
     classifyNotFoundBody,
+    classifyNotWithdrawableBody,
+    ownedRowCount,
+    ownedRows,
     preflightTeardownRoutes,
     reclaimOwnedRows,
+    rememberOwnedByUser,
     rememberOwnedRow,
+    rememberOwnedUserAccount,
     resetOwnedRows,
 } from './helpers/ownership';
 import {
@@ -670,6 +682,327 @@ test.describe('the teardown can tell a gone row from a wrong address', { tag: ['
             `the preflight checked ${preflight.checked.length} of ${reclaimable.length} reclaimable routes — a ` +
                 'partial check is the "looks like coverage" edit',
         ).toBe(reclaimable.length);
+    });
+});
+
+/**
+ * ## A login that fails is not a row that is gone
+ *
+ * The owner-scoped steps have to log in as the account whose rows they delete,
+ * and a login can fail for reasons that have nothing to do with the rows being
+ * gone. The teardown therefore classifies the failure instead of throwing on
+ * sight — and a classifier that is wrong in the *lenient* direction is the worst
+ * defect this harness could ship, because it turns a leak into a green run.
+ *
+ * So both branches are pinned here, against the real backend and with real
+ * fixtures:
+ *
+ * 1. **401 and the account really is gone** → the rows went with it, counted as
+ *    reclaimed, run stays green. `account-deletion.spec.ts` reaches this in the
+ *    full suite; this is the test that says so on its own.
+ * 2. **401 and the account is still there** → the run goes RED. Exercised with a
+ *    deliberately wrong password, which is the honest way to produce "the
+ *    account exists, the login failed".
+ * 3. **any other status** → still red. Exercised with an account that exists but
+ *    was never activated, which the backend answers with 403
+ *    (`AuthController::login`), i.e. a refusal that does NOT mean "gone".
+ */
+test.describe('the teardown tells a gone account from a refused login', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
+    test.setTimeout(120000);
+
+    /** Delete one account by email through the admin route, and report the status. */
+    async function deleteAccountByEmail(email = '') {
+        const api = await loginAdminApi();
+        try {
+            const list = await (await api.get(`/api/admin/users?search=${encodeURIComponent(email)}`)).json();
+            const rows = [];
+            for (const row of list.data ?? []) {
+                if (row && row.email === email) {
+                    rows.push(row);
+                }
+            }
+            let status = 404;
+            for (const row of rows) {
+                status = (await api.delete(`/api/admin/users/${row.id}`)).status();
+            }
+            return status;
+        } finally {
+            await api.dispose();
+        }
+    }
+
+    test('an account the test deleted itself takes its owner-scoped rows with it, and that is not a failure', async () => {
+        // `registerAndApplyForAccreditation` registers the account (by email) and
+        // — since the dead-registration fix — its application (by id, with the
+        // owner's credentials). Deleting the account here is the shape
+        // `account-deletion.spec.ts` exercises through the UI, and it is what
+        // makes the teardown's owner login answer 401.
+        const { accreditation } = await ensurePrimaryMandantAccreditation();
+        const applicant = await registerAndApplyForAccreditation(accreditation.id, 'E2E Ownership Gone');
+
+        const deleted = await deleteAccountByEmail(applicant.email);
+        expect(
+            deleted,
+            'the fixture for this test is an account the test deletes itself — if the delete did not happen, the ' +
+                'teardown below would log in successfully and prove nothing about the 401 branch',
+        ).toBe(200);
+
+        let refused = null;
+        let result = null;
+        try {
+            result = await reclaimOwnedRows();
+        } catch (error) {
+            if (error instanceof Error) {
+                refused = error;
+            }
+        }
+        expect(
+            refused,
+            'the account is gone and every row it owned went with it through the users cascade, so the teardown ' +
+                'must count them and stay green. A red run here means the harness cannot tell a self-deleting ' +
+                'fixture from a leak — and the suite runs account-deletion.spec.ts on every run.',
+        ).toBeNull();
+        // EXACT, not a floor. The ledger held five rows: category, event,
+        // accreditation (from `ensurePrimaryMandantAccreditation`), the account
+        // and its application (from the applicant helper). The application's own
+        // withdrawal was never attempted — the login failed first — so all five
+        // are accounted for by cascade or by the account delete.
+        expect(
+            result?.reclaimed,
+            'the teardown must account for every row this test registered, and for no more',
+        ).toBe(5);
+    });
+
+    test('a login that fails while the account still exists takes the run down', async () => {
+        // The lenient direction, pinned on purpose: a wrong password is the
+        // cheapest honest way to produce "the account exists, the login failed".
+        // If the teardown swallowed that as "the account is gone", this row
+        // would stay behind and the suite would report success — which is the
+        // F1 shape in its purest form.
+        const account = await registerAndActivateUser();
+        // The media id is irrelevant: the login fails before any DELETE is
+        // issued, and a wrong id could only make the test prove something else.
+        rememberOwnedByUser('userMedia', 4242, account.email, 'not-the-password');
+
+        let refused = null;
+        try {
+            try {
+                await reclaimOwnedRows();
+            } catch (error) {
+                if (error instanceof Error) {
+                    refused = error;
+                }
+            }
+            expect(
+                refused,
+                'the account is still listed for this mandant, so its rows are still there and the teardown cannot ' +
+                    'give them back. Reporting success here would be a leak reported as a cleanup.',
+            ).not.toBeNull();
+            expect(refused?.message ?? '', 'the failure must say that the account was found, or a reader cannot tell ' +
+                'this apart from the tolerated case above').toContain('still listed');
+        } finally {
+            // `reclaimOwnedRows` empties the ledger in its `finally`, so the
+            // account it registered is no longer the teardown's business the
+            // moment it throws — this test has to give it back itself, and a
+            // test about not leaking that leaks when it FAILS is worse than one
+            // that never claimed to be about it. Hence the `finally`, and hence
+            // no status assertion in it: this block runs precisely when the
+            // assertions above have already failed, and a second failure would
+            // mask the first (the shape the 409 test above uses for the same
+            // reason). The residual gap is stated rather than hidden — a `users`
+            // row has no name marker, so the serial `globalTeardown` sweep cannot
+            // be the net for it (see the `e2e-rows.mjs` docblock).
+            await deleteAccountByEmail(account.email);
+        }
+    });
+
+    test('a login refused for a reason other than a missing account still takes the run down', async () => {
+        // The account exists, was never activated, so `AuthController::login`
+        // answers 403 — MEASURED, that is the branch for
+        // "Das Konto ist noch nicht aktiviert". Only 401 is the branch that can
+        // mean "the account is gone"; this is the test that keeps 403 out of it.
+        const email = `ownership-unactivated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
+        const password = 'SecurePassw0rd!';
+        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        try {
+            const register = await api.post('/api/auth/register', {
+                data: { name: 'E2E Ownership Unactivated', email, password, password_confirmation: password },
+            });
+            expect(register.status(), 'this test needs a registered account').toBe(201);
+            rememberOwnedUserAccount(email);
+        } finally {
+            await api.dispose();
+        }
+        rememberOwnedByUser('userMedia', 4243, email, password);
+
+        let refused = null;
+        try {
+            try {
+                await reclaimOwnedRows();
+            } catch (error) {
+                if (error instanceof Error) {
+                    refused = error;
+                }
+            }
+            expect(
+                refused,
+                'an unactivated account answers 403, not 401, and it is very much still there — the teardown must ' +
+                    'not read that as "the account is gone"',
+            ).not.toBeNull();
+            expect(refused?.message ?? '', 'the failure must carry the status, so 403 cannot be confused with the ' +
+                'tolerated 401').toContain('403');
+        } finally {
+            // Same reason as the test above: the ledger is empty once the
+            // teardown threw, and this account carries no name marker the serial
+            // sweep could reclaim.
+            await deleteAccountByEmail(email);
+        }
+    });
+});
+
+/**
+ * ## A decided application is handed over to the cascade, and the hand-over is proved
+ *
+ * An applicant may only withdraw an application while it is still `requested`
+ * (`ApplicationController::destroy`, `SubApplicationController::destroy`) — every
+ * application this suite creates is DECIDED before the teardown runs, because
+ * deciding it is what the specs are for. So the owner route answers 422, and
+ * the row is taken by the cascade from its accreditation or its account instead.
+ *
+ * That hand-over is only worth anything if something checks it, which is what
+ * this describe does: the teardown counts a carried row AFTER reading the
+ * mandant-scoped admin list and finding it absent. A row that is still listed is
+ * a failure, not a tolerance question — and the same machinery is what makes the
+ * registration itself observable, which is the defect this describe also pins:
+ * the four `rememberOwnedByUser('applications', …)` calls in `admin-data.ts`
+ * were guarded by `own.accreditation_id === accreditationId`, a field
+ * `ApplicationResource` has never carried (the id is NESTED at
+ * `own.accreditation.id`), so they never ran — silently, because `json()` is
+ * `any` and `tsc` cannot see a comparison that is always false.
+ */
+test.describe('a decided application is carried by the cascade, and the carry is proved', { tag: ['@regression', '@feature:e2e-hygiene'] }, () => {
+    test.setTimeout(120000);
+
+    /** The ids the mandant-scoped admin list still shows for one collection. */
+    async function listedIds(listUrl = '') {
+        const api = await loginAdminApi();
+        try {
+            const rows = (await (await api.get(listUrl)).json()).data ?? [];
+            const ids = [];
+            for (const row of rows) {
+                ids.push(row.id);
+            }
+            return ids;
+        } finally {
+            await api.dispose();
+        }
+    }
+
+    test('the application a fixture created is registered, and a decided one is handed over and verified gone', async () => {
+        const { accreditation } = await ensurePrimaryMandantAccreditation();
+        const applicant = await registerAndApplyForAccreditation(accreditation.id, 'E2E Ownership Decided');
+
+        // THE PIN for the dead registration. Before the fix this was 0, because
+        // the guard compared `own.accreditation_id` — a field the resource does
+        // not carry — against the id it was given, and `undefined === <id>` is
+        // false for every row, forever. An exact 1 rather than a floor: the
+        // helper applies exactly once.
+        expect(
+            ownedRowCount('applications'),
+            'the helper just created an application and must have registered it with the ledger. 0 here is the ' +
+                'measured defect this test exists for: the registration sat behind a condition that never held, so ' +
+                'the teardown steps for applications and subApplications were unreachable suite-wide.',
+        ).toBe(1);
+
+        // The precondition the 401 branch rests on: an owner-scoped row may only
+        // be counted as "the account is gone, so the row went with it" when the
+        // ledger ALSO registered that account. Without this pairing nobody knows
+        // whether the account is mandant-scoped, and the mandant-scoped admin
+        // list cannot see a system-wide one — which is why the teardown refuses
+        // rather than guesses (see `ownerAccountIsGone`). Asserted here because
+        // it is a property of the FIXTURE, and a fixture that stops pairing the
+        // two would otherwise only fail much later, in a teardown.
+        let paired = false;
+        for (const account of ownedRows().get('users') ?? []) {
+            if (account && account.id === applicant.email) {
+                paired = true;
+            }
+        }
+        expect(
+            paired,
+            `every owner-scoped registration must be paired with a rememberOwnedUserAccount for the same email — `
+                + `this one is ${applicant.email} — because that pairing is what makes "the account is gone" a `
+                + 'measurable statement instead of a guess',
+        ).toBe(true);
+
+        // The application really exists, read through the mandant-scoped admin
+        // list rather than through the applicant's own list — the same surface
+        // the verification below reads.
+        const before = await listedIds('/api/admin/applications');
+        expect(ownedRows().get('applications')[0].id).toBeGreaterThan(0);
+
+        // Now decide it, exactly as `approvals.spec.ts` and `badge.spec.ts` do.
+        const allocation = await allocateAccreditationApi(accreditation.id, 'all');
+        expect(allocation.approved, 'the fixture for this test is a DECIDED application').toBe(1);
+
+        const applicationId = ownedRows().get('applications')[0].id;
+        expect(before, 'the application must be listed before it is decided, or "verified gone" proves nothing').toContain(
+            applicationId,
+        );
+
+        let refused = null;
+        let result = null;
+        try {
+            result = await reclaimOwnedRows();
+        } catch (error) {
+            if (error instanceof Error) {
+                refused = error;
+            }
+        }
+        expect(
+            refused,
+            'a decided application answers 422 on the owner route and is taken by the cascade from its ' +
+                'accreditation and its account — both of them steps of this same plan. The teardown has to hand ' +
+                'that over and PROVE it, not refuse the run over a row that is about to disappear anyway.',
+        ).toBeNull();
+
+        expect(
+            await listedIds('/api/admin/applications'),
+            'the decided application must be gone once the teardown has run — this is the proof that turns the ' +
+                '422 tolerance into a measurement',
+        ).not.toContain(applicationId);
+
+        // Five rows, and five reclaimed: category, event and accreditation by their own
+        // routes, the account by its own route, and the application as the
+        // CARRIED row — which is counted only after the proof above, not at the
+        // moment the 422 arrived. An exact number, so a row that quietly stops
+        // being reclaimed cannot hide behind a floor.
+        expect(result?.reclaimed).toBe(5);
+    });
+
+    test('a 422 is tolerated only when it is the backend saying "the row is decided"', async () => {
+        // The classifier, from both ends: the two MEASURED bodies, and bodies
+        // that must NOT classify — a validation 422, a foreign 422, an HTML body
+        // and an empty one. A tolerance that cannot tell the intended answer
+        // from a wrong one is the defect this whole file was written against,
+        // and a substring rule on a German backend sentence would be exactly
+        // that one layer down.
+        expect(classifyNotWithdrawableBody('{"message":"Only pending (requested) applications can be withdrawn."}'))
+            .toBe(TEARDOWN_DECIDED.DECIDED);
+        expect(
+            classifyNotWithdrawableBody(
+                '{"message":"Only pending (requested) sub-applications can be withdrawn."}',
+            ),
+        ).toBe(TEARDOWN_DECIDED.DECIDED);
+        expect(classifyNotWithdrawableBody('<html><body>422 Unprocessable</body></html>')).toBe(TEARDOWN_DECIDED.UNKNOWN);
+        expect(classifyNotWithdrawableBody('')).toBe(TEARDOWN_DECIDED.UNKNOWN);
+        expect(classifyNotWithdrawableBody(JSON.stringify({ error: 'Only pending (requested) applications can be withdrawn.' })))
+            .toBe(TEARDOWN_DECIDED.UNKNOWN);
+        // A near miss: the message mentions the same words in a different
+        // sentence, and a `startsWith` rule would have accepted it.
+        expect(
+            classifyNotWithdrawableBody('{"message":"Only pending (requested) applications can be withdrawn, mostly."}'),
+        ).toBe(TEARDOWN_DECIDED.UNKNOWN);
     });
 });
 

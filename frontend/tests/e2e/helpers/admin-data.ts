@@ -715,6 +715,65 @@ export async function registerAndActivateUser() {
 }
 
 /**
+ * The id of the row an `apply` just created — or a THROW.
+ *
+ * ## Why this exists at all: a registration that could not fail
+ *
+ * The four `rememberOwnedByUser('applications' | 'subApplications', …)` calls in
+ * this file used to read the id off the APPLICANT'S OWN LIST and guard it with
+ * `own.accreditation_id === accreditationId`. `ApplicationResource::toArray()`
+ * has never carried an `accreditation_id` — it returns `id`, `accreditation`,
+ * `status`, `priority`, `reason`, `created_at`, and the parent's id is NESTED at
+ * `own.accreditation.id` (MEASURED against the running dev backend, 2026-10-01:
+ * `accreditation_id` is `undefined`, `accreditation.id` is the id). So the guard
+ * was `undefined === 52`, i.e. false for every row, forever, and the
+ * registration NEVER RAN. `SubApplicationResource` nests the same way
+ * (`own.sub_accreditation.id`), so that guard was dead in the same way.
+ *
+ * Nothing caught it, and that is the part worth remembering: `json()` returns
+ * `any`, so `tsc` had nothing to say, and a registration that silently does
+ * nothing looks exactly like a registration that is not needed. The consequence
+ * was measured — the `applications` and `subApplications` teardown steps were
+ * unreachable suite-wide, and residue was 0 only because every one of those
+ * helpers also registers the ACCOUNT, whose delete cascades the applications
+ * away. Two comments in this file and one in `ownership.ts` claimed the
+ * registrations were "real work"; they were not, and they are corrected here.
+ *
+ * So the shape is: read the id off the response the apply call itself produced
+ * (`AccreditationController::apply` returns the whole resource with 201,
+ * `SubAccreditationController::apply` likewise — both MEASURED), and make a
+ * missing id a hard error. A fixture that cannot register its row must say so.
+ *
+ * `parentId` is the parent the response says the row belongs to and
+ * `expectedParentId` the one the call addressed. They are compared rather than
+ * used as the lookup, which is deliberate: it pins the NESTED shape that the old
+ * guard got wrong, so a resource change fails here instead of turning the
+ * registration into a no-op again.
+ *
+ * @param {number} id the row's id as the response carries it
+ * @param {number} parentId the parent id as the response NESTES it
+ * @param {number} expectedParentId the parent the request addressed
+ * @param {string} what what was being created, for the failure message
+ * @returns {number} the id, when it is a real one
+ */
+function appliedRowId(id = 0, parentId = 0, expectedParentId = 0, what = 'row') {
+    if (typeof id !== 'number' || id <= 0) {
+        throw new Error(
+            `the ${what} create answered no usable id (${String(id)}); the ownership ledger cannot register a row `
+                + 'it has no handle for, and a row nobody registers is a row nobody gives back.',
+        );
+    }
+    if (parentId !== expectedParentId) {
+        throw new Error(
+            `the ${what} create answered a row belonging to parent ${String(parentId)}, not to `
+                + `${String(expectedParentId)} — the fixture would register an id that is not the row it just `
+                + 'created, so this refuses instead.',
+        );
+    }
+    return id;
+}
+
+/**
  * Registers a throwaway user via the API, activates it through the Mailpit
  * activation link, logs in via the API and applies for the given accreditation.
  * The user ends the flow logged out again (each helper call is a fresh,
@@ -752,18 +811,24 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
         if (apply.status() !== 200 && apply.status() !== 201) {
             throw new Error(`Apply failed with status ${apply.status()}`);
         }
-        // The application is owner-scoped: it can only be withdrawn by its own
-        // applicant, and only while it is still `requested` (an approved one
-        // answers 422 — MEASURED). An approved one therefore rides the CASCADE
-        // from the accreditation; this registration covers the `requested` case
-        // and makes the row attributable either way. `id` comes from the
-        // applicant's own list, because `apply` answers `{message}` only.
-        const ownApplications = (await (await api.get('/api/applications')).json()).data ?? [];
-        for (const own of ownApplications) {
-            if (own.accreditation_id === accreditationId) {
-                rememberOwnedByUser('applications', own.id, email, password);
-            }
-        }
+        // The application is owner-scoped: only its own applicant may withdraw
+        // it, and only while it is still `requested` (a decided one answers 422 —
+        // MEASURED, and the teardown hands that case to the cascade and proves
+        // afterwards that the cascade took it). The id comes off the apply
+        // response itself, which carries the whole resource; see
+        // `appliedRowId` for the guard that used to be dead code.
+        const applied = await apply.json();
+        rememberOwnedByUser(
+            'applications',
+            appliedRowId(
+                applied.data.id,
+                applied.data.accreditation?.id,
+                accreditationId,
+                'application',
+            ),
+            email,
+            password,
+        );
 
         const logout = await api.post('/api/auth/logout');
         if (logout.status() !== 200) {
@@ -842,12 +907,18 @@ export async function registerUploadPortraitAndApply(accreditationId = 0, name =
         }
         // Same rule as in `registerAndApplyForAccreditation`: the applicant is
         // the only one who can withdraw it, and only while it is `requested`.
-        const ownApplications = (await (await api.get('/api/applications')).json()).data ?? [];
-        for (const own of ownApplications) {
-            if (own.accreditation_id === accreditationId) {
-                rememberOwnedByUser('applications', own.id, email, password);
-            }
-        }
+        const applied = await apply.json();
+        rememberOwnedByUser(
+            'applications',
+            appliedRowId(
+                applied.data.id,
+                applied.data.accreditation?.id,
+                accreditationId,
+                'application',
+            ),
+            email,
+            password,
+        );
 
         const logout = await api.post('/api/auth/logout');
         if (logout.status() !== 200) {
@@ -914,16 +985,24 @@ export async function ensurePrimaryMandantWalletSetup() {
         if (apply.status() !== 200 && apply.status() !== 201) {
             throw new Error(`Wallet setup main apply failed with status ${apply.status()}`);
         }
-        // This one is `requested` at the moment of the push, so it IS withdrawable
-        // by its owner — the registration is real work, not a placeholder. (It is
-        // approved two steps below, after which only the cascade from the
-        // accreditation can take it, and the teardown reads 404 there.)
-        const ownMain = (await (await userApi.get('/api/applications')).json()).data ?? [];
-        for (const own of ownMain) {
-            if (own.accreditation_id === accreditation.id) {
-                rememberOwnedByUser('applications', own.id, user.email, password);
-            }
-        }
+        // It is `requested` at the moment of the push, so the owner route can
+        // really withdraw it — and it is APPROVED two steps below, after which
+        // the same route answers 422 and the teardown hands the row to the
+        // cascade instead. Registering it here covers both moments; what it does
+        // NOT do is make the row safe on its own, and the comment that used to
+        // sit here claimed otherwise (see `appliedRowId`).
+        const appliedMain = await apply.json();
+        rememberOwnedByUser(
+            'applications',
+            appliedRowId(
+                appliedMain.data.id,
+                appliedMain.data.accreditation?.id,
+                accreditation.id,
+                'wallet main application',
+            ),
+            user.email,
+            password,
+        );
         await userApi.post('/api/auth/logout');
     } finally {
         await userApi.dispose();
@@ -947,13 +1026,23 @@ export async function ensurePrimaryMandantWalletSetup() {
             throw new Error(`Wallet setup sub apply failed with status ${apply.status()}`);
         }
         // `requested` at push time, so the owner route can really withdraw it —
-        // see `SubApplicationController::destroy`, which 422s once it is decided.
-        const ownSubs = (await (await subApi.get('/api/sub-applications')).json()).data ?? [];
-        for (const own of ownSubs) {
-            if (own.sub_accreditation_id === subAccreditation.id) {
-                rememberOwnedByUser('subApplications', own.id, user.email, password);
-            }
-        }
+        // see `SubApplicationController::destroy`, which 422s once it is decided
+        // (approved further down, which is exactly when the teardown hands it to
+        // the cascade). The parent id is NESTED at `sub_accreditation.id`; the old
+        // guard read a flat `sub_accreditation_id` that the resource has never
+        // carried, so it never fired (see `appliedRowId`).
+        const appliedSub = await apply.json();
+        rememberOwnedByUser(
+            'subApplications',
+            appliedRowId(
+                appliedSub.data.id,
+                appliedSub.data.sub_accreditation?.id,
+                subAccreditation.id,
+                'wallet sub-application',
+            ),
+            user.email,
+            password,
+        );
         await subApi.post('/api/auth/logout');
     } finally {
         await subApi.dispose();
