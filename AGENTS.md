@@ -162,6 +162,10 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
   4. **Der Verifikator darf die Arbeit des Implementierers nicht zerstören (STRICT, 2026-09-28).** *Anlass, gemeldet und nicht verschwiegen:* ein Verifikator hat beim Mutationstest `git checkout <datei>` auf eine Datei mit **uncommitteter** Diff-Arbeit ausgeführt und sie **zerstört**. Wiederhergestellt wurde sie aus dem Sitzungsprotokoll des Implementierers (ein `write` + 7 `edit`s + ein Heredoc, alle `oldString` validiert), geprüft an Diffstat, Markern, `tsc`, ESLint und vier grünen Suiten — **aber nicht byteweise gegen das Original**, weil es das nicht mehr gab. **Das ist die eigentliche Lücke:** nicht die Wiederherstellung war gut, sondern dass sie **nötig** war. Ein Verifikator, der in einem **geteilten, uncommitteten** Baum mutiert, hat keinen Rückweg — `git checkout` nimmt den Zustand aus dem **Index**, und der Commit-Stand ist nicht der Arbeitsstand. **Drei zulässige Wege, alle vor dem Mutationstest zu wählen:** (a) **der Build-Agent committet den Implementiererstand vor der Verifikation** — der Normalfall, weil §4 einen Commit ohnehin zur Fertigstellung zählt; (b) der Verifikator arbeitet auf einer **Kopie**; (c) `git stash` **bewusst und dokumentiert**, mit `git stash pop` am Ende. **Nicht** zulässig: `git checkout` / `git restore` / `git reset --hard` auf Pfade mit uncommitteten Änderungen. **Und die Meldepflicht:** passiert es trotzdem, ist es **sofort** und **vollständig** zu melden — dieser Verifikator hat genau das getan, inklusive der Angabe, welche Aussage er danach **nicht** mehr machen kann. Das ist der Grund, warum aus dem Fehler kein dauerhafter Schaden wurde.
 - **Build-Agent (Verifikations-Gate):** akzeptiert ein Verdict nur mit vollständigem Befunde-Bericht; `critical`/`high`-Befunde werden als eigene fix-Todos delegiert und erneut verifiziert.
 
+- **Wem gehört ein Befund — und wem nicht (STRICT, Nutzerentscheid 2026-10-01).** Der Bericht einer Verifikationsrunde ist **Beweismaterial, kein Projektzustand.** Er wird nicht committet und nicht zitiert; was eine Runde findet, steht in der Commit-Message des **Fix-Laufs, der darauf folgt** — **mit Modus und Datum.** Das gilt auch, wenn der Befund des Verifikators **falsch** war: ein widerlegter Befund ist ein Ergebnis und gehört in dieselbe Nachricht, mit dem Befehl, der ihn widerlegt, und nicht in eine eigene Akte. **Ein Verify-Lauf committet nicht** — es sei denn, er hat wirklich Code geändert (etwa, weil er einen Widerspruch zwischen zwei Tests auflösen musste); dann sagt die Message das ausdrücklich und trennt, was Beobachtung und was Änderung war.
+
+  **Warum das so und nicht anders.** Ein Verify-Lauf, der selbst schreibt, konkurriert mit dem Fix-Lauf um dieselbe Aussage über denselben Baum, und der schnellere gewinnt: der Fix-Lauf hat den gefundenen Fehler bereits behoben, wenn der Verify-Lauf über ihn schreibt — und seine Zahl beschreibt dann einen Zustand, den es nicht mehr gibt. Genau das ist in Position 13 fünfmal passiert, jeweils als Zahl über einem Baum, der schon weitergedreht war. **Ein Befund wird von dem Lauf beschriftet, der ihn behandelt, nicht von dem, der ihn fand.**
+
 ### Modellwahl für Eskalationen — Peak-Regel (STRICT, Nutzerentscheidung 2026-09-30)
 
 **`opencode-go/deepseek-v4.1-flash`** ist das Eskalationsmodell für Korrektur- **und**
@@ -223,6 +227,18 @@ print(f'{n:%Y-%m-%d %H:%M} UTC  jetzt={\"PEAK\" if p(n) else \"OFF\"}  naechste 
 **Kontextfenster 1.000.000, vision-fähig** (`image` in `capabilities.input`) — die harte
 Bedingung des `model-updater`-Skills ist erfüllt, Kontext und Preis sind also nicht die
 Einschränkung. **Die Einschränkung ist die Uhr.**
+
+**Die abschließende Runde läuft NICHT auf dem Eskalationsmodell (Nutzerentscheid 2026-10-01).**
+Gemessen in Position 13: die Verifikationsrunde auf `deepseek-v4.1-flash` lieferte auf dem
+teuersten Board **einen Befund, und der war falsch** — sie behauptete, `1c0226d` sei nicht von
+`main` erreichbar; `git branch --contains 1c0226d` sagt `* main`. **Das ist ein Datenpunkt über
+genau das Modell, das die Runde fahren sollte, und er ist billiger zu haben gewesen als die
+Korrekturrunde danach.** Die Eskalation gilt für die **Arbeit**, die ein negativer Befund
+auslöst; das **Verdikt**, das danach zitiert wird, gehört auf das Modell, das die anderen
+Runden gefahren haben. Ein Abschluss, den ein anderes Modell liefert als die Arbeit, die er
+abschließt, prüft nicht dieselbe Sache.
+
+## 6. AI Operating Rules (STRICT)
 
 - **ESLint Auto-Fix Policy (STRICT):** Always use `npm run lint:fix` (= `eslint . --fix`) instead of plain
   `npm run lint`. Auto-fix handles formatting and trivial rules — never fix those by hand. The plain `lint`
@@ -320,12 +336,28 @@ zurückgeben mit einer Analyse. Keine Endlos-Fix-Loops.
 
 **AUSNAHME (Nutzerentscheidung 2026-09-30, allgemein):** Die Grenze gilt **nicht**, wenn eine
 Verifikationsrunde **negativ** zurückkommt (`CHANGES REQUIRED`). In dem Fall wird die Schleife
-fortgesetzt — **aber nur unter zwei Auflagen**, ohne die sie zur Endlosschleife würde:
+fortgesetzt — **aber nur unter drei Auflagen**, ohne die sie zur Endlosschleife würde:
 1. **Jede Runde endet mit dem Befund**, nicht mit dem Versuch, ihn zu umgehen. Der Build-Agent
    **berichtet** und legt die Entscheidung offen; er dreht nicht eigenmächtig weiter.
 2. **Kein Befund wird stillschweigend verworfen.** Was eine Runde findet, geht in die Commit-Message
-   **mit Modus und Datum** ein, auch dann, wenn der Code korrekt war und nur die Behauptung nicht
-   (§3). Ein Verwurf muss **begründet** sein, nicht bequem.
+   **des Fix-Laufs** mit Modus und Datum ein, auch dann, wenn der Code korrekt war und nur die
+   Behauptung nicht (§3 und §5). Ein Verwurf muss **begründet** sein, nicht bequem.
+3. **Obergrenze nach zwei Prosa-Runden (Nutzerentscheid 2026-10-01).** Eine Runde, die **ausschließlich
+   Aussagen über Aussagen** liefert — Zahlen über bereits ersetzte Zahlen, Begründungen über Prosa,
+   ein Wort in einer Commit-Message — zählt als **Prosa-Runde**. Nach **zwei** solchen Runden wird
+   **zurückgegeben**, auch wenn das Verdikt negativ ist: der Bericht geht dem Nutzer mit der
+   Analyse vor, welche Aussagen noch offen sind.
+
+**Warum Auflage 3 nachträglich kam und nicht von Anfang an.** Die Ausnahme ist in Position 13
+über fünf Runden gelaufen, und ihr Fehler zeigte sich erst dort: **sie hat die Endlosschleife nicht
+verhindert, sie in einen Verfahrensbegriff umbenannt.** Fünf Runden, kein einziger Verhaltensfehler
+— aber jede Runde „fand" wieder etwas. Eine Grenze, die an `CHANGES REQUIRED` hängt, misst den
+Zustand des Verfahrens, nicht den des Codes. **Nach zwei Runden, die nur noch Prosa über Prosa
+liefern, ist das Verfahren die Meldung wert, nicht die Arbeit** — und die Meldung ist billiger als
+die sechste Runde.
+
+**Und die Umkehrung gilt unverändert:** drei Runden *ohne* negatives Verdikt sind weiterhin drei,
+und dann wird ohne jede Ausnahme zurückgegeben.
 
 **Warum das die richtige Grenze ist** — und der Grund steht in Position 13, gemessen: dort haben
 **vier** Verifikationsrunden `CHANGES REQUIRED` geliefert, und **der Code hat jede Runde gehalten**.
