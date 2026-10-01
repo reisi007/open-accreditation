@@ -402,20 +402,26 @@ Loop (Schritte 1–4):
    Generation, die das Bild vor dem Überschreiben sichert (unbegrenzte Historie ließe den
    Review-Batch mit jedem Lauf wachsen).
    `node scripts/ui-review-captures.mjs` liefert den Sammelbericht inkl. Δ zur Vorergeneration
-   **und** das `Reproduzierbar:`-Urteil. **Das verlangt, dass JEDE Zeile einen Vorgänger hat —
-   nicht irgendeine:** ein `-g`-Teillauf erzeugt genau die Lücke, um die es hier geht, und würde
-   sonst für reproduzierbar gelten (gemessen: ein Teillauf mit 4 verglichenen und 60 unverglichenen
-   Zeilen meldete „ja"). Das Urteil sagt dazu, wie vielen der Vorgänger fehlt.
+   **und** das `Reproduzierbar:`-Urteil. Das verlangt **zwei** Dinge, und **beide** sind nötig:
+   1. **Jede** Zeile hat einen Vorgänger — nicht irgendeine. Ein `-g`-Teillauf erzeugt genau die
+      Lücke, um die es hier geht, und würde sonst für reproduzierbar gelten (gemessen: ein Teillauf
+      mit 4 verglichenen und 60 unverglichenen Zeilen meldete „ja").
+   2. Der Batch stammt aus **einer** Generation: `runKeys.length === 1`. Gemessen auf dem echten
+      Store nach `-g home`: **60 Zeilen `run-106324` + 4 Zeilen `run-108270`** → „ja". Das ist
+      derselbe Defekt, nur die andere Hälfte: alle Zeilen hatten einen Vorgänger, und der Batch war
+      trotzdem aus zwei Läufen zusammengemischt — genau das, was Schritt 4 erzeugt.
+   Das Urteil nennt im `nein`-Fall **beide** Gründe und wie vielen der Vorgänger fehlt.
 
    **Bandzahl:** die „Bänder" umfassen Sections **und** gedruckte Seiten. **Bandzahl im
    Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird. **Und sie ist
    an den Datenbestand gekoppelt, nicht nur an die Seeds** — und **gemessen trennbar in zwei Treiber**.
    Der Team-Treiber ist **weg**: nach dem Zurückholen von 54 geleakten Teams und 53 Venues fiel
    `admin-mandant-detail` von **23** Bändern auf **4**, `home` von 5/8 auf 0/2, die Gesamtzahl von
-   **51/52 auf 24**. Der **User**-Treiber besteht fort: `admin-users` **4** Bänder bei inzwischen
-   **759** Usern, ~15 pro E2E-Lauf, **keine DELETE-Route** (Position 10). Ein Lauf gegen eine
-   gewachsene Datenbank liefert also **für diese eine Route** mehr Bänder — und zwar für eine, die
-   der Review durchaus ansteuert.
+   **51/52 auf 24**. **Der `users`-Treiber ist inzwischen gemessen weg** — Position 10 hat die
+   DELETE-Route geliefert und nachgemessen: `admin-users` **2 Bänder bei 7 Usern**, ein `@smoke`-Lauf
+   lässt `users` auf **8** steigen (7 Review + 1 Admin), das Ledger gibt zurück, was es erzeugt.
+   Ein Lauf gegen eine gewachsene Datenbank liefert also **für keine** Route mehr Bänder — die
+   Bandzahl hängt nicht mehr am Fremddatenbestand.
 
    Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
 2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
@@ -449,12 +455,12 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    geprüfte Liste **länger** wird. **Seit dem Zurückholen der 54 Teams + 53 Venues ist dieser
    Treiber für `admin-mandant-detail` gemessen weg** (**23 → 4** Bänder bei **1** statt **50**
    Teams), und die Gegenrichtung hält: ein E2E-Lauf hat früher **51 → 52** gekippt, jetzt bleibt
-   die Zahl bei **24**. **Offen bleibt exakt ein Treiber: `users`** — **4** Bänder bei **759** Usern,
-   keine DELETE-Route, also weiter ~15 pro Lauf.
-   **Solange die Bandzahl an Fremddaten hängt, ist sie ein Messwert des Datenbestands, nicht des
-   Verfahrens** — und das gilt jetzt für **eine** Route noch, für die andere ist es gemessen
-   **falsch**. Die Entkopplung ist eine **Purge-Route**, keine Screenshot-Änderung — der Loop ist
-   der Betroffene, nicht die Ursache.
+   die Zahl bei **24**. **Auch der `users`-Treiber ist gemessen weg** — Position 10 lieferte die
+   DELETE-Route, nachgemessen **2 Bänder bei 7 Usern** (ein `@smoke`-Lauf hinterlässt `users = 8`).
+   **Damit hängt die Bandzahl nicht mehr am Fremddatenbestand**, und Abnahme 1 ist erfüllt: **fünf
+   aufeinanderfolgende Läufe ergeben 16/16/16/16/16 Bänder**, `Reproduzierbar: ja` ab dem zweiten.
+   **Beide Treiber sind gemessen weg** — die Bandzahl ist damit eine Eigenschaft des Verfahrens
+   und nicht mehr des Datenbestands.
 2. **Ein Re-Capture erhält das „alt".** *Anlass:* der Harness leerte sein eigenes Verzeichnis,
    gemessen **95 → 4 PNG** — Schritt 4 war damit für *jede* Route unmöglich, auch für die
    gerade neu aufgenommene. **Abnahme:** ein `-g`-Lauf lässt die unbetroffenen Routen
