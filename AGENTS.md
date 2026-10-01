@@ -336,25 +336,24 @@ zurückgeben mit einer Analyse. Keine Endlos-Fix-Loops.
 
 **AUSNAHME (Nutzerentscheidung 2026-09-30, allgemein):** Die Grenze gilt **nicht**, wenn eine
 Verifikationsrunde **negativ** zurückkommt (`CHANGES REQUIRED`). In dem Fall wird die Schleife
-fortgesetzt — **aber nur unter drei Auflagen**, ohne die sie zur Endlosschleife würde:
+fortgesetzt — **aber nur unter zwei Auflagen**, ohne die sie zur Endlosschleife würde:
 1. **Jede Runde endet mit dem Befund**, nicht mit dem Versuch, ihn zu umgehen. Der Build-Agent
    **berichtet** und legt die Entscheidung offen; er dreht nicht eigenmächtig weiter.
 2. **Kein Befund wird stillschweigend verworfen.** Was eine Runde findet, geht in die Commit-Message
    **des Fix-Laufs** mit Modus und Datum ein, auch dann, wenn der Code korrekt war und nur die
    Behauptung nicht (§3 und §5). Ein Verwurf muss **begründet** sein, nicht bequem.
-3. **Obergrenze nach zwei Prosa-Runden (Nutzerentscheid 2026-10-01).** Eine Runde, die **ausschließlich
-   Aussagen über Aussagen** liefert — Zahlen über bereits ersetzte Zahlen, Begründungen über Prosa,
-   ein Wort in einer Commit-Message — zählt als **Prosa-Runde**. Nach **zwei** solchen Runden wird
-   **zurückgegeben**, auch wenn das Verdikt negativ ist: der Bericht geht dem Nutzer mit der
-   Analyse vor, welche Aussagen noch offen sind.
 
-**Warum Auflage 3 nachträglich kam und nicht von Anfang an.** Die Ausnahme ist in Position 13
-über fünf Runden gelaufen, und ihr Fehler zeigte sich erst dort: **sie hat die Endlosschleife nicht
-verhindert, sie in einen Verfahrensbegriff umbenannt.** Fünf Runden, kein einziger Verhaltensfehler
-— aber jede Runde „fand" wieder etwas. Eine Grenze, die an `CHANGES REQUIRED` hängt, misst den
-Zustand des Verfahrens, nicht den des Codes. **Nach zwei Runden, die nur noch Prosa über Prosa
-liefern, ist das Verfahren die Meldung wert, nicht die Arbeit** — und die Meldung ist billiger als
-die sechste Runde.
+**Es gab eine dritte Auflage, und sie ist abgeschafft (Nutzerentscheid 2026-10-01).** Sie lautete:
+nach **zwei Prosa-Runden** — Runden, die ausschließlich Aussagen über Aussagen liefern — Rückgabe
+an den Nutzer, auch bei negativem Verdikt. Die Begründung war nicht schlecht: Position 13 lief über
+fünf Runden **ohne einen einzigen Verhaltensfehler**, und die Ausnahme hatte die Endlosschleife nicht
+verhindert, **sondern in einen Verfahrensbegriff umbenannt**. **Ihr einziger Anwendungsfall hat sie
+nicht überlebt** — Runde 4 und Runde 5 waren genau zwei Prosa-Runden, die Regel verlangte Rückgabe,
+und der Nutzer hat übersteuert. **Warum sie entfernt und nicht präzisiert wurde:** eine Regel, die
+beim ersten Anlass außer Kraft gesetzt wird, hat den Zusatz nicht verdient — und eine weggenommene
+Regel kann niemanden überraschen. **Wer sie neu einführen will, muss zuerst die Frage beantworten,
+was ein Override bedeutet** (einmalig? begründet? für diesen Fall?), denn das ist genau der Teil,
+der gefehlt hat.
 
 **Und die Umkehrung gilt unverändert:** drei Runden *ohne* negatives Verdikt sind weiterhin drei,
 und dann wird ohne jede Ausnahme zurückgegeben.
