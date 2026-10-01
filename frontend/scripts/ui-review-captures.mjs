@@ -30,12 +30,30 @@
  * (first run), not everything was compared (partial re-capture), or the batch is
  * not ONE generation at all (mixed run keys). Only the third of those is easy to
  * miss, because its rows all have predecessors and none of them moved.
+ *
+ * ## The stale-store warning, printed BEFORE anything else
+ *
+ * This report describes the store at `test-artifacts/ui-review`. Before the move
+ * out of `test-results/` the same report described `test-results/ui-review`, and
+ * a checkout that still has a batch there keeps it — untouched, plausible, out of
+ * date, and NOT described by anything this script prints. So the report opens by
+ * naming it: what is at the old path, how old, and where the current one is. See
+ * `scripts/stale-store.mjs` for why this is a hint with an exit route and not a
+ * cleanup.
+ *
+ * It is checked here as well as from the screenshot run's reporter, because the
+ * two readers are different: the reporter catches a reviewer who is about to CAPTURE,
+ * this catches one who is about to REVIEW what is already on disk — and the second
+ * is the moment the wrong directory does damage. `--legacy DIR` moves the lookup
+ * (the reason is testability and the same one `--dir` has: pointing the check at a
+ * synthetic store instead of this checkout's).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { LEGACY_CAPTURE_STORE_DIR, formatStaleStoreHint, inspectStaleCaptureStore } from './stale-store.mjs';
 
 /**
  * The capture store, restated here because this script is plain ESM and must
@@ -83,7 +101,7 @@ export const DEFAULT_DIR = 'test-artifacts/ui-review';
 export const PREVIOUS_DIR = 'prev';
 
 export function parseArgs(argv) {
-    const options = { dir: DEFAULT_DIR, json: false, only: null };
+    const options = { dir: DEFAULT_DIR, json: false, only: null, legacy: null };
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index];
         if (arg === '--dir' || arg === '-d') {
@@ -92,6 +110,12 @@ export function parseArgs(argv) {
                 throw new Error('--dir braucht einen Wert');
             }
             options.dir = argv[index];
+        } else if (arg === '--legacy') {
+            index += 1;
+            if (index >= argv.length) {
+                throw new Error('--legacy braucht einen Wert');
+            }
+            options.legacy = argv[index];
         } else if (arg === '--json') {
             options.json = true;
         } else if (arg === '--only' || arg === '-g') {
@@ -308,17 +332,40 @@ export function whyNot(report) {
     return reasons;
 }
 
+/**
+ * The stale store, looked up under the legacy path — or `null`.
+ *
+ * Resolved from `process.cwd()` unless `--legacy` says otherwise, so the default
+ * is this checkout's real old location. `--dir` does NOT move the lookup: a
+ * reviewer pointing the report at some other store still has a stale batch in
+ * THEIR checkout, and the warning is about the checkout, not about `--dir`.
+ *
+ * @param {{ dir: string, legacy: string|null }} options
+ * @returns {import('./stale-store.mjs').StaleStoreFinding|null}
+ */
+function staleStoreOf(options) {
+    const legacyDir = options.legacy ?? LEGACY_CAPTURE_STORE_DIR;
+    return inspectStaleCaptureStore({
+        legacyRoot: path.resolve(process.cwd(), legacyDir),
+        legacyDir,
+        currentRoot: path.resolve(process.cwd(), options.dir),
+        currentDir: options.dir,
+    });
+}
+
 function main() {
+    const usage =
+        'Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE] [--legacy DIR]\n';
     let options;
     try {
         options = parseArgs(process.argv.slice(2));
     } catch (error) {
         process.stderr.write(`FEHLER: ${error instanceof Error ? error.message : error}\n\n`);
-        process.stderr.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
+        process.stderr.write(usage);
         return 2;
     }
     if (options.help) {
-        process.stdout.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
+        process.stdout.write(usage);
         return 0;
     }
     if (!fs.existsSync(options.dir)) {
@@ -328,11 +375,24 @@ function main() {
         return 2;
     }
 
+    // BEFORE the report, and before the `--json` branch: a stale batch at the old
+    // path is the finding, and a machine consumer has to see it in the JSON too.
+    // Under `--json` the block goes to STDERR, because stdout is the payload —
+    // printing a banner into it would make the output unparsable, which is its own
+    // kind of "looks fine, is wrong".
+    const staleStore = staleStoreOf(options);
+    if (staleStore !== null) {
+        const stream = options.json ? process.stderr : process.stdout;
+        stream.write(`${formatStaleStoreHint(staleStore)}\n`);
+    }
+
     const report = buildReport(options.dir, options.only);
     const { rows, totalBands, totalPreviousBands, hasComparison, changed, captures } = report;
 
     if (options.json) {
-        process.stdout.write(`${JSON.stringify({ root: options.dir, totalBands, rows }, null, 2)}\n`);
+        process.stdout.write(
+            `${JSON.stringify({ root: options.dir, totalBands, staleStore, rows }, null, 2)}\n`,
+        );
         return 0;
     }
 

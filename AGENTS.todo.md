@@ -170,6 +170,71 @@
 
 ---
 
+## 🗓️ Umsetzungsplan — alle offenen Positionen in Wellen (Nutzerentscheid 2026-10-01)
+
+> **„In Wellen müssen alle umgesetzt werden."** Sieben der acht offenen Positionen sind damit
+> beauftragt; **14** bleibt ausgenommen, weil sie ein **externer** Schritt ist (Google-Wallet-
+> Issuer-Zugang) — sie bleibt als offene Position stehen, damit sichtbar bleibt, dass P6 an genau
+> einem Stück hängt, das wir nicht liefern können (Nutzerentscheid 2026-10-01). **Zwei Ströme
+> parallel, disjunkte Ziel-Dateien.**
+
+| Welle | Strom A | Strom B | Trennungslinie |
+|---|---|---|---|
+| **1** | **42** — `phpunit.xml`-Pins | **12** + **38** — Screenshot-/E2E-Harness | `backend/` gegen `frontend/` |
+| **2** | **9** — Druck misst Textbreite selbst | **8** — gerendertes PDF in den Vision-Loop | Backend-Renderer gegen Screenshot-Spec |
+| **3** | **41** — Content-Stream-Wächter | **22** — Ledger-Namens-Lookup | `BadgeTest.php` gegen E2E-Ledger |
+
+**Reihenfolge ist eine Betriebsregel, kein Vorschlag:** Implementieren → **committen** → Verifizieren
+(`Agents.headless.md` §4.1). Ein Verifikator, der in einem Baum mit uncommitteter Arbeit mutiert,
+hat keinen Rückweg — das ist hier bereits einmal passiert.
+
+### Gemeinsame Verifikation bei parallelen Strömen (Nutzerentscheid 2026-10-01) — **was genau das bedeutet**
+
+**Ein** Verifikator prüft **beide** Diffs zusammen — das ist die gewünschte gemeinsame Runde, und
+sie kostet keinen zusätzlichen Lauf. **Die Gates laufen dabei nacheinander, nicht nebeneinander.**
+Der Grund ist gemessen, nicht vermutet (`Agents.headless.md` §5): unter Last bläht jeder Test einer
+Datei um **3–5×** auf (14 → 56 ms bei 24 Spinnern auf 18 Kernen), ein 10-s-Budget reißt, und
+eine Reserve-Teststelle verlor 10 s, obwohl sie intrinsisch ~563 ms kostet. Zwei volle Suiten
+**nebeneinander** kosten also nicht nur Zeit, sie kosten eine **grüne Ampel ohne Aussagekraft** —
+das ist der schlechtere Deal. Gemeinsame Verifikation heißt hier: **ein Urteil über zwei Diffs,
+zwei Messungen in Serie.** Das räumt die Spannung zwischen dem Nutzerentscheid und §6 auf, ohne
+die Messung zu opfern.
+
+### Zwei Zahlenfehler in Zeile 42, gefunden beim Nachzählen — **die Zeile wird nicht geglaubt**
+
+Die Zeile sagt „**26 Fehlschläge** über **9** Keys“ und listet dann **10** Keys, deren Einzelwerte
+sich auf **27** summieren (5+5+3+3+3+2+2+2+1+1). Beide Zahlen sind um eins daneben, und **die
+beiden schlimmsten Fälle sind die um eins daneben** — ein Pin, den man für gemessen hält und der
+nicht existiert, ist schlechter als ein fehlender. **Folge für den Auftrag:** der Implementer
+**misst neu** und trägt die **gemessenen** Zahlen ein; **keine** der beiden Board-Zahlen wird
+übernommen. Die **Absicht** ist eindeutig — die Entscheidung nennt alle 10 Keys —, nur die
+Herleitung ist falsch. *(Genau die Fehlerform, die §3 verbietet: eine Zahl aus einem Baum, den es
+so nicht gab.)*
+
+### Zwei Entscheidungen, interaktiv geklärt 2026-10-01 — beide waren offen, keine wird erfunden
+
+**1. Position 41 — Fixrichtung: ein Wächter gegen die SMask-Zeichnungsanzahl.** Das Board sagt
+ausdrücklich „Fixrichtung ist offen und wird hier nicht erfunden", und nennt beide Kandidaten. Gewählt
+ist der **erste**, weil er die *Positionsunabhängigkeit* herstellt: der heutige `/I<n>`-Zähler hängt
+am GD-Build (dompdfs Alpha-Regel `Cpdf.php:6255` zerlegt ein Paletten-PNG in Maske+Bild, außer die
+Bit-Tiefe ist exakt 4 — **CI: 4, hier: 1**), und der bestehende „Treffer" ist ein **Zufallstreffer**:
+`assertStringContainsString('Jane Doe', $text)` hält nur, weil das letzte Byte des Content-Streams
+`0x0d` ist, und das ist das Low-Byte des **Adler-32-Trailers** — eine Prüfsumme, kein Inhalt. Der
+Zweite wäre ehrlicher, lässt aber die Lücke stehen; die Position trägt die **Lücke**, nicht die
+Lösung, und ein Wächter gegen die SMask-Trennung schließt sie.
+
+**2. `MAIL_MAILER=array` — jetzt umsetzen, zusammen mit Position 42.** `phpunit.xml:145-146` zeigt
+auf `127.0.0.1:1025`, wo **nichts lauscht**; der Docblock `:139-144` benennt das selbst und nennt
+`array` als strukturelle Schließung. Das war als „Design, nicht Reparatur" markiert, weil
+`MailTest.php` / `MandantMailerTest` betroffen sind — **das ist eine Design-Entscheidung, und sie ist
+jetzt gefallen.** Wirkung: ein vergessenes `Mail::fake()` öffnet **gar keinen** Socket, und der
+Mailpit-Skip (`MailTest.php:516`) entfällt. **Der Preis, der dabei in Kauf genommen wird:** die
+gemessene Mailpit-Abhängigkeit der Suite wird unsichtbar, statt sichtbar fehlschlagend zu sein —
+die beiden Tests, die 2026-09-29 ohne `MAIL_HOST=dind` rot wurden (500 statt 201/201), sind dann
+grün, **weil nichts mehr versendet wird**, nicht weil sie faken.
+
+---
+
 ## ✅ Welle C — Zombie-Fix-Nacharbeit (2026-09-29, **abgeschlossen**)
 
 > **Umfang:** die acht Positionen **30, 31, 32, 33, 34, 35, 36, 37** — davon **32(b)** als **D26** weitergeführt. Alle S1, alle im selben Strang

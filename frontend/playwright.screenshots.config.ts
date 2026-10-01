@@ -72,6 +72,22 @@ export default defineConfig({
     workers: process.env.CI ? 2 : 2,
     timeout: 120000,
     reporter: [
+        // FIRST, because it is the only reporter that writes to the terminal and it
+        // has to be read BEFORE the HTML report's own noise. It shouts once per run
+        // when this checkout still carries a capture store at the path the harness
+        // used before the move to `test-artifacts/` — a complete, plausible-looking
+        // but OUTDATED review batch a reviewer could otherwise open by accident.
+        // Silent when there is nothing there, which is the normal case.
+        //
+        // Registered BY PATH on purpose: the entry is a tuple whose NAME is a path, so
+        // Playwright loads the module and `tsc` does not follow it — and the check
+        // behind it is plain ESM (`scripts/stale-store.mjs`, shared with
+        // `scripts/ui-review-captures.mjs`). `tsconfig.node.json` — the project that
+        // type-checks THIS file — has no `allowJs`, so a real import would fail
+        // `tsc -b`. Playwright requires every entry to be a tuple
+        // (`config.reporter[0] must be a tuple`, measured), hence `['./path']` rather
+        // than a bare string. See the reporter's own docblock.
+        ['./tests/screenshots/helpers/stale-store-reporter.ts'],
         ['html', { open: 'never', outputFolder: 'playwright-report/ui-screenshots' }],
     ],
     use: {

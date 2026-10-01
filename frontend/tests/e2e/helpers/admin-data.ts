@@ -6,6 +6,7 @@ import { MailpitHelper } from './mailpit';
 import { rememberOwnedByUser, rememberOwnedRow, rememberOwnedUserAccount } from './ownership';
 import { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
 import { PurgeReclamationFailure } from './purge-failure';
+import { ensureTeamsEnabled } from './teams-enabled';
 import { pngFixture } from '../../screenshots/helpers/png-fixtures';
 
 /**
@@ -17,6 +18,18 @@ import { pngFixture } from '../../screenshots/helpers/png-fixtures';
  */
 export { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
 export { PurgeReclamationFailure } from './purge-failure';
+
+/**
+ * `ensureTeamsEnabled` is re-exported so specs reach the `teams_enabled` switch
+ * from the same module as every other fixture helper — it used to be inline in
+ * TWO places in this file, and two copies of a switch are two truths. The
+ * implementation lives in `teams-enabled.ts` because it needs a TYPE
+ * (`APIRequestContext`) and this directory is linted with the plain-JS parser;
+ * see that file's docblock, including the measured 121 s cost of importing
+ * `@playwright/test` for real from under Vitest, which is also why the switch has
+ * its own module.
+ */
+export { ensureTeamsEnabled } from './teams-enabled';
 
 /**
  * Home venue of the shared `E2E Heimverein *` teams, and the venue the portal
@@ -419,12 +432,7 @@ export async function ensurePrimaryMandantHasTeam() {
             throw new Error('No mandant found for team setup');
         }
 
-        if (!primary.teams_enabled) {
-            const enable = await api.put(`/api/admin/mandants/${primary.id}`, { data: { teams_enabled: true } });
-            if (enable.status() !== 200) {
-                throw new Error(`Enabling teams failed with status ${enable.status()}`);
-            }
-        }
+        await ensureTeamsEnabled(api, primary);
 
         const teamsBody = await (await api.get(`/api/admin/mandants/${primary.id}/teams`)).json();
         const teamsList = teamsBody.data ?? [];
@@ -1232,12 +1240,7 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             throw new Error('No mandant found for portal event setup');
         }
 
-        if (!primary.teams_enabled) {
-            const enable = await api.put(`/api/admin/mandants/${primary.id}`, { data: { teams_enabled: true } });
-            if (enable.status() !== 200) {
-                throw new Error(`Enabling teams failed with status ${enable.status()}`);
-            }
-        }
+        await ensureTeamsEnabled(api, primary);
 
         const teamsBody = await (await api.get(`/api/admin/mandants/${primary.id}/teams`)).json();
         const teamsList = teamsBody.data ?? [];

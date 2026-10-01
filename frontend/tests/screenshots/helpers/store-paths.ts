@@ -41,6 +41,32 @@ export const CAPTURE_STORE_DIR = 'test-artifacts/ui-review';
 /** Playwright's scratch space for the screenshot suite. Configured, not default. */
 export const PLAYWRIGHT_SCRATCH_DIR = 'test-results/ui-screenshots';
 
+/**
+ * WHERE THE STORE USED TO LIVE, and the reason this module knows about it.
+ *
+ * The store was moved here by hand, once, out of `test-results/`. Nothing
+ * versioned that move — the directory is gitignored — so every checkout that
+ * still carries a store from before it keeps a **stale copy** at the old path,
+ * and nothing warned about it. A reviewer who opens that path sees a complete,
+ * plausible-looking, outdated review batch: not an error, but a correctly-looking
+ * wrong finding.
+ *
+ * So the old path is DECLARED here, next to the two that matter, and
+ * `scripts/stale-store.mjs` looks for it and prints a hint with an exit route.
+ * The hint is deliberately not a cleanup: a gitignored directory is forgotten the
+ * moment nobody looks at it, and deleting a batch silently destroys the one copy
+ * somebody may still be comparing against.
+ *
+ * `scripts/stale-store.mjs` restates this string, because plain ESM and the
+ * TS-side import graph cannot share a literal (`tsconfig.node.json` has no
+ * `allowJs`, so `playwright.screenshots.config.ts` cannot reach into a `.mjs`).
+ * `tests/screenshots/helpers/stale-store.test.ts` asserts the two are equal —
+ * the same arrangement `scripts/ui-review-captures.test.ts` uses for
+ * `DEFAULT_DIR`, because a comment cannot tie two literals and a failing
+ * assertion can.
+ */
+export const LEGACY_CAPTURE_STORE_DIR = 'test-results/ui-review';
+
 /** Absolute capture store root. */
 export function captureStoreRoot(): string {
     return path.resolve(process.cwd(), CAPTURE_STORE_DIR);
@@ -49,4 +75,9 @@ export function captureStoreRoot(): string {
 /** Absolute Playwright scratch root. */
 export function playwrightScratchDir(): string {
     return path.resolve(process.cwd(), PLAYWRIGHT_SCRATCH_DIR);
+}
+
+/** Absolute path of the store's location BEFORE it was moved out of `test-results/`. */
+export function legacyCaptureStoreRoot(): string {
+    return path.resolve(process.cwd(), LEGACY_CAPTURE_STORE_DIR);
 }

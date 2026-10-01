@@ -4,6 +4,7 @@ import { FRONTEND_BASE_URL, loginAdminApi } from './helpers/api-session';
 import {
     allocateAccreditationApi,
     ensurePrimaryMandantAccreditation,
+    ensureTeamsEnabled,
     registerAndActivateUser,
     registerAndApplyForAccreditation,
 } from './helpers/admin-data';
@@ -531,13 +532,36 @@ test.describe('the ownership teardown gives back what the test registered', { ta
             expect(primary, 'this test needs a mandant to hang the referencing team on').not.toBeNull();
             mandantId = primary.id;
 
-            const team = (
-                await (
-                    await api.post(`/api/admin/mandants/${mandantId}/teams`, {
-                        data: { name: `E2E Ledger ${suffix}`, slug: suffix, venue_id: venue.id },
-                    })
-                ).json()
-            ).data;
+            // THE PRECONDITION, at this spec's OWN site (Position 38).
+            //
+            // `POST /api/admin/mandants/{id}/teams` answers 422 while the mandant
+            // has `teams_enabled => false`, which is how `DatabaseSeeder` creates
+            // both mandants. This test used to rely on `admin-mandant.spec.ts`
+            // running earlier in the full suite and leaving the flag set — green
+            // from inherited order, not from construction. MEASURED 2026-10-01
+            // with the flag off: 2 of 2 (both browser projects) red, at the
+            // `team.id` dereference below, because a 422 body carries no `data`
+            // and the old `(await …).json()).data` said nothing about it.
+            //
+            // NOT in `global-setup.ts`: that hook is deliberately best-effort and
+            // swallows its errors (`global-setup.ts:45-47`), so a swallowed PUT
+            // there would turn this 422 back into a silent precondition. And NOT
+            // "flip the flag for everyone": teams are opt-in per mandant
+            // (`features/02-domain-model.md`), and the seeder still creates them
+            // disabled — this only turns the switch on for the mandant THIS test
+            // resolved, which is the same thing `ensurePrimaryMandantHasTeam()`
+            // does.
+            await ensureTeamsEnabled(api, primary);
+
+            const teamCreate = await api.post(`/api/admin/mandants/${mandantId}/teams`, {
+                data: { name: `E2E Ledger ${suffix}`, slug: suffix, venue_id: venue.id },
+            });
+            expect(
+                teamCreate.status(),
+                'creating the referencing team must be a 201 — 422 here means `teams_enabled` is off, ' +
+                    'which is what the `ensureTeamsEnabled()` call above exists to prevent',
+            ).toBe(201);
+            const team = (await teamCreate.json()).data;
             teamId = team.id;
 
             rememberOwnedRow('venues', venue.id);
