@@ -6,7 +6,7 @@ import { routes, uiReviewConfig } from './ui-review.config';
 import type { UiReviewClickStep, UiReviewNavStep, UiReviewRoute, UiReviewState, UiReviewViewport } from './ui-review.config';
 import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandant';
 import { contentCountFrom } from './helpers/content-count';
-import { storeRouteCapture } from './helpers/capture-store';
+import { captureDir, readMeta, storeRouteCapture } from './helpers/capture-store';
 import { uiReviewDataset } from './helpers/dataset';
 import { loginViaUi, waitForAppSettled } from './helpers/session';
 
@@ -294,6 +294,140 @@ async function captureSections(page: Page): Promise<SectionCapture> {
     return { bands, measurements: { scrollHeightPx: scrollHeight, viewportHeightPx: viewportHeight } };
 }
 
+/**
+ * What the WRITTEN sidecar must record as `contentCount`, per `text` marker.
+ *
+ * ## Why these are literals and not a derivation
+ *
+ * The line this exists for is the glue in `waitForContent`: whether the MEASURED
+ * value or a constant reaches `<name>.meta.json` is decided there and NOWHERE
+ * else, and nothing asserted it. MEASURED by the verifier on the real store:
+ * restoring the historical `return 1` there left the full screenshot suite at
+ * 94 passed / 1 failed / 65 skipped — byte-identical to the unmutated run, zero
+ * additional red — while the sidecar carried the defect back (`konto` empty
+ * recorded `1` against a page showing `0 Anträge`; `admin-freigaben` empty
+ * recorded `1`, fabricated from a presence marker). A wrong number in a review
+ * artefact behind a green suite is the same failure this harness was rebuilt to
+ * stop.
+ *
+ * So the expectation here is a number a person read off the page and the store,
+ * not a second call into the rule that produced it. Deriving the expectation
+ * with `contentCountFrom()` would be the same input compared with itself: it
+ * would pass for any change to the function AND for any change to the glue, and
+ * it would say nothing about which of the two was wrong. `helpers/content-count.ts`
+ * owns the rule (unit-tested), `helpers/content-count.test.ts` and
+ * `content-count.spec.ts` own the declarations; this owns the WIRE.
+ *
+ * The three entries are every `text` marker the manifest declares today, and the
+ * lookup below is FAIL-CLOSED about it: a fourth `text` marker without an entry
+ * here turns its own capture red rather than passing unmeasured. That is the
+ * same discipline `content-count.spec.ts` applies to the marker list.
+ */
+const MEASURED_TEXT_COUNTS = new Map<string, number | null>([
+    // `/konto` filled — the applicant of `seedMyAccreditationsFilled`, who has
+    // exactly ONE requested application: the page shows "1 Antrag".
+    ['konto/filled', 1],
+    // `/konto` empty — the user of `seedUserWithoutApplication`, who applied for
+    // nothing: the page shows "0 Anträge". This is the entry the historical
+    // `1` contradicted, and the one that makes the mutation red.
+    ['konto/empty', 0],
+    // `admin-freigaben` empty — the PRE-EXISTING presence marker
+    // ("Keine Anträge vorhanden."). `null` is the value that matters: a marker
+    // that measures presence has no quantity, and `1` here is exactly the
+    // fabrication the rule refuses. A naive implementation records the number
+    // of matches it happened to make.
+    ['admin-freigaben/empty', null],
+]);
+
+/**
+ * Read the capture's sidecar back off disk and require the recorded
+ * `contentCount` — the number the reviewer will read instead of the pixels.
+ *
+ * ## Why it reads the FILE and not the returned object
+ *
+ * `storeRouteCapture()` returns the meta it wrote, and comparing that object
+ * against the variable passed into it proves only that a function returned its
+ * argument. The sidecar is a separate artefact on disk, read by a reviewer and
+ * by `scripts/ui-review-captures.mjs`; a value that never reaches the file is a
+ * green run over a batch that says the wrong thing. So this opens
+ * `<state>/<viewport>/<route>.meta.json` again and asserts on what is in it.
+ *
+ * ## Why it lives HERE and not in the two other spec files
+ *
+ * `store-guard.spec.ts` and `content-count.spec.ts` are both, by their own
+ * docblocks, browser-free and capture-free — one owns the store's PATHS, the
+ * other the manifest's DECLARATIONS. Neither can read a sidecar that no capture
+ * has written yet: a spec that opened the store without capturing would be
+ * asserting on whatever the previous run (or a parallel worker) left there, and
+ * under `fullyParallel` with two workers it would race the very capture it is
+ * meant to check. The only place that owns "a capture was just taken" is the
+ * capture itself, so that is where the check on the capture's own sidecar
+ * belongs — and it costs no extra test, it is part of "this capture succeeded".
+ *
+ * ## What it covers, and what it deliberately does not pin
+ *
+ *  - a `textCount` marker (`konto` both states) → the exact measured number;
+ *  - a presence marker (`admin-freigaben` empty) → exactly `null`;
+ *  - a `role` marker (every other route) → the recorded value must be the
+ *    MEASURED element count: a number, and at least the `min` the postcondition
+ *    itself waited for. Measured on the real store, `admin-freigaben` filled
+ *    records **30** (5 pending applications × 6 columns) — deliberately NOT
+ *    hardcoded: that number is a function of the dataset's shape, so pinning it
+ *    would turn a new table column or a new seeded application into a red
+ *    screenshot suite for a reason that has nothing to do with the glue.
+ */
+function assertRecordedContentCount(
+    route: UiReviewRoute,
+    state: UiReviewState,
+    viewport: UiReviewViewport,
+): void {
+    const where = `"${route.name}" (${state}, ${viewport})`;
+    const dir = captureDir(state, viewport);
+    const written = readMeta(dir, route.name);
+    if (written === null) {
+        throw new Error(
+            `${where} stored its capture but left no sidecar at ${path.join(dir, `${route.name}.meta.json`)}. ` +
+                'Every capture records what it measured; a review batch cannot be checked without it.',
+        );
+    }
+
+    const content = route.content[state];
+    if (content?.text === undefined) {
+        // A `role` marker: the sidecar must carry the number of elements the
+        // postcondition matched, never `null` (which would say "nothing was
+        // measured" on a capture whose marker DID match) and never a constant
+        // below the `min` the same postcondition waited for.
+        if (typeof written.contentCount !== 'number') {
+            throw new Error(
+                `${where} waits for the "${content?.role}" marker, so its sidecar must record how many ` +
+                    `elements matched — it records ${JSON.stringify(written.contentCount)}. A \`null\` there ` +
+                    'means "nothing measured", and the marker matched.',
+            );
+        }
+        expect(
+            written.contentCount,
+            `${where} records the element count its "${content?.role}" postcondition measured`,
+        ).toBeGreaterThanOrEqual(content?.min ?? 1);
+        return;
+    }
+
+    const key = `${route.name}/${state}`;
+    const expected = MEASURED_TEXT_COUNTS.get(key);
+    // Fail-closed, and the message says what to do: a new `text` marker without
+    // a measured number here would otherwise pass through unrecorded.
+    expect(
+        expected,
+        `${where} declares the text marker "${content.text}", so the sidecar's contentCount is decided ` +
+            `here — but "${key}" has no entry in MEASURED_TEXT_COUNTS. Capture it once, read the number off ` +
+            `test-artifacts/ui-review/${state}/${viewport}/${route.name}.meta.json, and add it.`,
+    ).not.toBeUndefined();
+    expect(
+        written.contentCount,
+        `${where} recorded contentCount ${JSON.stringify(written.contentCount)} on the page showing ` +
+            `"${content.text}".`,
+    ).toBe(expected);
+}
+
 async function settleAndCapture(
     page: Page,
     route: UiReviewRoute,
@@ -352,6 +486,11 @@ async function settleAndCapture(
         contentCount,
         pathname: new URL(page.url()).pathname,
     });
+    // Read the sidecar back off disk and require the number the reviewer will
+    // read there. This is the only place that owns "a capture was just taken",
+    // which is why the check on the capture's own sidecar lives here rather
+    // than in a spec that would have to trust a previous run's files.
+    assertRecordedContentCount(route, state, viewport);
     console.log(
         `[ui-review] ${route.name} (${state}, ${viewport}): ${meta.bands} band(s), ` +
             `${meta.scrollHeightPx}px page, ${JSON.stringify(meta.entityIds)} → ` +
