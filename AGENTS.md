@@ -374,8 +374,9 @@ funktionalen Playwright-E2E-Tests: eigener Ordner `frontend/tests/screenshots/` 
 Quelle der Wahrheit für Routes × States × Viewports; generischer Spec
 `ui-screenshots.spec.ts`, alle Tests mit Tag `@screenshot`), eigene Config
 `playwright.screenshots.config.ts` (outputDir `test-results/ui-screenshots` = **Scratch**, das
-Playwright leert; die Captures liegen in `test-results/ui-review/` daneben, siehe Schritt 1;
-Desktop Chrome 1920×950 + Mobile Chrome/Galaxy A55; fix 2 Worker wegen Backend-Login-Throttle).
+Playwright leert; die Captures liegen in **`test-artifacts/ui-review/`** — **ganz außerhalb** von
+`test-results/`, siehe Schritt 1; Desktop Chrome 1920×950 + Mobile Chrome/Galaxy A55; fix 2 Worker
+wegen Backend-Login-Throttle).
 Ausführen NUR via
 `cd frontend && pnpm test:screenshots` (= `playwright test -c playwright.screenshots.config.ts`) — läuft
 **nicht** in der Standard-E2E-Suite (`playwright.config.ts` / `tests/e2e`) und **nicht** im CI-E2E-Job.
@@ -400,7 +401,11 @@ Loop (Schritte 1–4):
    `bands` / `scrollHeightPx` / `dataset` / `runKey` / `entityIds`, und **`prev/<datei>`** — **eine**
    Generation, die das Bild vor dem Überschreiben sichert (unbegrenzte Historie ließe den
    Review-Batch mit jedem Lauf wachsen).
-   `node scripts/ui-review-captures.mjs` liefert den Sammelbericht inkl. Δ zur Vorergeneration.
+   `node scripts/ui-review-captures.mjs` liefert den Sammelbericht inkl. Δ zur Vorergeneration
+   **und** das `Reproduzierbar:`-Urteil. **Das verlangt, dass JEDE Zeile einen Vorgänger hat —
+   nicht irgendeine:** ein `-g`-Teillauf erzeugt genau die Lücke, um die es hier geht, und würde
+   sonst für reproduzierbar gelten (gemessen: ein Teillauf mit 4 verglichenen und 60 unverglichenen
+   Zeilen meldete „ja"). Das Urteil sagt dazu, wie vielen der Vorgänger fehlt.
 
    **Bandzahl:** die „Bänder" umfassen Sections **und** gedruckte Seiten. **Bandzahl im
    Findings-Report nennen** — sie ist das Mass, mit dem ein Batch überprüfbar wird. **Und sie ist
