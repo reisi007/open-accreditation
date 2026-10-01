@@ -72,6 +72,35 @@ import type { UiReviewState, UiReviewViewport } from '../ui-review.config';
  * and pages with one function, and the printed pages (`<route>-pdf-1.png`) follow
  * the same shape. AGENTS.md §7 quotes the old spelling and needs this one-word
  * correction.
+ *
+ * ## What the path does NOT prove, and where that is checked instead
+ *
+ * Moving the store out of `test-results/` is what protects it from the runner's
+ * wipe, and it says nothing about this file's own behaviour. MEASURED 2026-10-01
+ * on the tree that already had the new path: a `-g` run left the store
+ * bit-identical (9/9 files, same SHA-256), so the 95 → 4 PNG deletion did not
+ * reproduce — because its cause, the store sitting inside the wipe, was already
+ * gone. That makes the *number* stale rather than the property unverified, and
+ * the property is what the fix loop depends on.
+ *
+ * So the property is now asserted as behaviour, not as a path:
+ * `tests/screenshots/store-partial-recapture.spec.ts` runs `storeRouteCapture()`
+ * over a seeded batch, re-takes ONE route, and requires (a) every other route's
+ * files to be unchanged by digest and (b) the re-taken route to have its
+ * previous generation in `prev/` with the OLD bytes in it. Three mutations were
+ * run against that spec to confirm it is not vacuous:
+ *
+ *   - `archiveExisting()` deleting instead of archiving → 4 failed
+ *   - `storeArtifact()` archiving AFTER the write    → 4 failed
+ *     ("home-sec-1.png must still exist", "band 5 is gone from the current
+ *     generation" — the second is the surplus sweep losing its input)
+ *   - the store path moved back under `test-results/` → 2 failed, on the
+ *     containment assertion rather than on a digest
+ *
+ * The last one is the reason the spec asserts the CONTAINMENT RELATIONSHIP
+ * (scratch inside `test-results/`, store outside it) instead of two string
+ * literals: a string comparison passed for `test-results/ui-review/`, a sibling
+ * of the scratch that the runner's wipe still reaches.
  */
 
 /** Sub-directory of a capture directory that holds the PREVIOUS generation. */
@@ -207,6 +236,21 @@ export interface RouteCaptureInput {
     pathname: string;
     compareWith?: string;
     visionNote?: string;
+    /**
+     * Where the capture is written. Defaults to `captureDir(state, viewport)`.
+     *
+     * The three primitives below (`storeArtifact`, `storePngSeries`, `storeMeta`)
+     * have always taken a directory, because the print check stores into the same
+     * place the DOM captures do (`badge-print.ts` receives `dir` from the spec).
+     * `storeRouteCapture` was the one function that derived it — which made the
+     * COMPOSED write path (full page + series + sidecar, in the order §7's
+     * acceptance depends on) untestable without writing into the real review
+     * batch. An override is the same shape the siblings already have, and
+     * `tests/screenshots/store-partial-recapture.spec.ts` is its only caller: it
+     * writes into Playwright's own scratch space, which the runner wipes, so a
+     * test of the store can never destroy the evidence it is about.
+     */
+    dir?: string;
 }
 
 /** Absolute path of the capture directory for one state × viewport. */
@@ -306,7 +350,7 @@ export function storeMeta(dir: string, meta: CaptureMeta): void {
  * is the run's record of how far the page reached).
  */
 export function storeRouteCapture(input: RouteCaptureInput): CaptureMeta {
-    const dir = captureDir(input.state, input.viewport);
+    const dir = input.dir ?? captureDir(input.state, input.viewport);
     const { route, bands } = input;
 
     storeArtifact(dir, `${route}.png`, input.fullPage);

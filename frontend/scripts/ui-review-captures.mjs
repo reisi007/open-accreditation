@@ -18,6 +18,12 @@
  *
  * Exit code 0 always: a difference in band counts is information for a human, not
  * a CI failure. (The capture run itself fails loudly when a capture is broken.)
+ * The one thing printed as a VERDICT rather than as a list of numbers is
+ * `Reproduzierbar` — §7's acceptance criterion 1 ("three runs in a row produce
+ * the same section count") as a single readable line, derived by `isReproducible`
+ * and tested in `ui-review-captures.test.ts` against a synthetic store. It stays
+ * a line and not an exit code on purpose: a moved page height is a fact about the
+ * DATA, and the harness cannot tell a data change from a layout regression.
  */
 
 import fs from 'node:fs';
@@ -53,6 +59,17 @@ import { fileURLToPath } from 'node:url';
  * that `parseArgs([])` really defaults to it rather than to a third literal.
  * That test runs in `pnpm test:run` — the vitest suite, on every change — which
  * is the gate the old comment implied and never had.
+ *
+ * ## What the test file covers beyond the path
+ *
+ * The path was the *only* thing it checked, which left the report itself
+ * untested — a script whose output nobody has read is the twin of the bug above
+ * one level up. `buildReport()` and `isReproducible()` are therefore exported and
+ * driven over a synthetic store (`tmp/ui-review-*`): the previous-generation
+ * lookup, the delta, the total, the `--only` filter, and the reproducibility
+ * verdict in all three of its states (no predecessor / unchanged / changed).
+ * Building the store in a temp dir is what makes that possible without a
+ * browser, a backend and a database.
  */
 export const DEFAULT_DIR = 'test-artifacts/ui-review';
 
@@ -125,28 +142,35 @@ function collect(root) {
     return entries;
 }
 
-function main() {
-    let options;
-    try {
-        options = parseArgs(process.argv.slice(2));
-    } catch (error) {
-        process.stderr.write(`FEHLER: ${error instanceof Error ? error.message : error}\n\n`);
-        process.stderr.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
-        return 2;
-    }
-    if (options.help) {
-        process.stdout.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
-        return 0;
-    }
-    if (!fs.existsSync(options.dir)) {
-        process.stderr.write(
-            `FEHLER: ${options.dir} existiert nicht — zuerst "pnpm test:screenshots" laufen lassen.\n`,
-        );
-        return 2;
-    }
-
-    const all = collect(options.dir);
-    const entries = options.only === null ? all : all.filter((entry) => entry.meta.route.includes(options.only));
+/**
+ * The report AS DATA, so the numbers can be tested without running a capture.
+ *
+ * ## Why this split exists
+ *
+ * `main()` used to compute and print in one function, which made the whole
+ * comparison untestable: the only way to learn what the script reports for a
+ * given store was to produce that store, i.e. to run the screenshot harness with
+ * a browser, a backend and a database. That is the same gap `scripts/po-catalog.mjs`
+ * had and closed the same way — the computation is a pure function of a
+ * directory, so it is exported and `ui-review-captures.test.ts` drives it over a
+ * synthetic store with known sidecars.
+ *
+ * What that buys is exactly the property §7's acceptance criterion 1 rests on:
+ * "the section count is written NEXT TO THE IMAGES, because a batch is
+ * untraceable later without it". A number nobody has checked is a comment, and
+ * this is the number — `bands`, its `previousBands` and the `delta` between
+ * them are what a reviewer reads to decide whether a batch is comparable with the
+ * one before it.
+ *
+ * Pure: it reads the store and returns. No printing, no exit code, no
+ * `process.exitCode` — the printing stays in `main()`.
+ *
+ * @param {string} root  store root (`<state>/<viewport>/*.meta.json`)
+ * @param {string|null} only  substring filter on the route name, or null for all
+ */
+export function buildReport(root, only = null) {
+    const all = collect(root);
+    const entries = only === null ? all : all.filter((entry) => entry.meta.route.includes(only));
     entries.sort((left, right) =>
         `${left.meta.state}/${left.meta.viewport}/${left.meta.route}`.localeCompare(
             `${right.meta.state}/${right.meta.viewport}/${right.meta.route}`,
@@ -171,9 +195,65 @@ function main() {
         };
     });
 
-    const totalBands = rows.reduce((sum, row) => sum + row.bands, 0);
-    const totalPrevious = rows.reduce((sum, row) => sum + (row.previousBands ?? 0), 0);
-    const changed = rows.filter((row) => row.delta !== null && row.delta !== 0);
+    return {
+        root,
+        captures: rows.length,
+        totalBands: rows.reduce((sum, row) => sum + row.bands, 0),
+        totalPreviousBands: rows.reduce((sum, row) => sum + (row.previousBands ?? 0), 0),
+        /** True when at least one capture has a predecessor to be compared with. */
+        hasComparison: rows.some((row) => row.previousBands !== null),
+        /** Only the captures whose band count MOVED — a 0 delta is not a change. */
+        changed: rows.filter((row) => row.delta !== null && row.delta !== 0),
+        rows,
+    };
+}
+
+/**
+ * Whether every capture has the SAME band count as its predecessor.
+ *
+ * This is the §7 acceptance criterion 1 as a predicate: "three runs in a row
+ * produce the same section count". The number next to the images is the record;
+ * this is the check, and it is deliberately a function rather than a sentence in
+ * a report — a reviewer comparing two batches should not have to re-derive it.
+ *
+ * Honest about its own limit, which is stated in the report output too: a stable
+ * delta proves the PAGE HEIGHTS did not move, not that the data behind them is
+ * fixed. `helpers/dataset.ts` is what fixes the data; this only says the two
+ * agree.
+ */
+export function isReproducible(report) {
+    // EVERY row needs a predecessor, not ONE. `hasComparison` alone was the
+    // vacuous-true this function was written to avoid, in a narrower form: a
+    // PARTIAL re-capture (`-g <route>`) leaves the other routes' current sidecars
+    // in place with no `prev/` beside them, so one compared row was enough to
+    // report "Reproduzierbar: ja" for a batch where 60 of 64 captures had never
+    // been seen twice. MEASURED 2026-10-01 on a store built by a `-g konto` run
+    // over a full one: 4 rows with a predecessor, 60 without, verdict "ja".
+    return report.rows.length > 0 && report.rows.every((row) => row.previousBands !== null) && report.changed.length === 0;
+}
+
+function main() {
+    let options;
+    try {
+        options = parseArgs(process.argv.slice(2));
+    } catch (error) {
+        process.stderr.write(`FEHLER: ${error instanceof Error ? error.message : error}\n\n`);
+        process.stderr.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
+        return 2;
+    }
+    if (options.help) {
+        process.stdout.write('Aufruf: node scripts/ui-review-captures.mjs [--dir DIR] [--json] [--only ROUTE]\n');
+        return 0;
+    }
+    if (!fs.existsSync(options.dir)) {
+        process.stderr.write(
+            `FEHLER: ${options.dir} existiert nicht — zuerst "pnpm test:screenshots" laufen lassen.\n`,
+        );
+        return 2;
+    }
+
+    const report = buildReport(options.dir, options.only);
+    const { rows, totalBands, totalPreviousBands, hasComparison, changed, captures } = report;
 
     if (options.json) {
         process.stdout.write(`${JSON.stringify({ root: options.dir, totalBands, rows }, null, 2)}\n`);
@@ -181,15 +261,21 @@ function main() {
     }
 
     process.stdout.write(`Store        : ${options.dir}\n`);
-    process.stdout.write(`Captures     : ${rows.length}\n`);
+    process.stdout.write(`Captures     : ${captures}\n`);
     process.stdout.write(
         `Bänder total : ${totalBands}` +
-            (rows.some((row) => row.previousBands !== null) ? ` (vorher ${totalPrevious})` : ' (kein Vergleich — erster Lauf)') +
+            (hasComparison ? ` (vorher ${totalPreviousBands})` : ' (kein Vergleich — erster Lauf)') +
             '\n',
     );
     process.stdout.write(
-        `Run-Key      : ${[...new Set(rows.map((row) => row.runKey))].join(', ') || '—'}\n\n`,
+        `Reproduzierbar: ${isReproducible(report) ? 'ja' : 'nein'}` +
+            (rows.every((row) => row.previousBands !== null)
+                ? ''
+                : ` (${rows.filter((row) => row.previousBands === null).length} von ${rows.length} ohne Vorergeneration — ` +
+                  'Lauf 1 oder partieller Re-Capture)') +
+            '\n',
     );
+    process.stdout.write(`Run-Key      : ${[...new Set(rows.map((row) => row.runKey))].join(', ') || '—'}\n\n`);
     for (const row of rows) {
         const bands = String(row.bands).padStart(3);
         const previous = row.previousBands === null ? '  –' : String(row.previousBands).padStart(3);

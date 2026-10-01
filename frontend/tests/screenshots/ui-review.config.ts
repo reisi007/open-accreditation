@@ -502,6 +502,66 @@ export const uiReviewConfig: UiReviewConfig = {
             },
         },
         {
+            name: 'konto',
+            path: '/konto',
+            content: {
+                // The COUNT, not the page's headings — and that is the whole
+                // point of this entry. The two states render an IDENTICAL card
+                // structure; the only difference a reviewer can see is the number
+                // in "Meine Anträge" (1 Antrag vs 0 Anträge). A marker on the h1 or
+                // on a card title would therefore pass in BOTH states while the
+                // capture showed the wrong one, which is the same "spinner
+                // photographed as content" failure one level up. Naming the count
+                // makes the postcondition say what the capture is FOR: this is the
+                // route that shows the numbers a deletion would take.
+                filled: {
+                    scope: 'main',
+                    text: '1 Antrag',
+                    note: 'the applications count in the "Meine Anträge" card (AccountPage.tsx:127), ' +
+                        'rendered from the `applicant` dataset user — who has exactly ONE requested ' +
+                        'application. Not the h1 "Mein Konto" (`:89`), which sits OUTSIDE the ' +
+                        '`account && !isLoading && !error` guard and is therefore on screen while the ' +
+                        'fetch is still in flight, and not the card title, which is present in both ' +
+                        'states. A `text` marker and not a `cell`/role one: the value is a `<dd>` in a ' +
+                        'plain `<dl>`, which carries no ARIA role, so there is no semantic handle for it ' +
+                        '— the same situation `admin-freigaben` documents for its tab bodies. The German ' +
+                        'singular ("1 Antrag") is the load-bearing half: the sibling states of this page ' +
+                        'differ in exactly that word, and a substring match would be satisfied by both.',
+                },
+                empty: {
+                    scope: 'main',
+                    text: '0 Anträge',
+                    note: 'the same count for the dataset user that applies for NOTHING ' +
+                        '(`seedUserWithoutApplication`), i.e. the state a freshly registered user is in. ' +
+                        'Zero is the design-QA case worth capturing: it is what exercises the plural ' +
+                        'branch of the label and shows whether an empty account reads as "nothing to ' +
+                        'delete" or as a broken count. Distinct from `filled` by the `0`/`1`, not by the ' +
+                        'wording around it.',
+                },
+            },
+            states: ['filled', 'empty'],
+            auth: 'user',
+            tenant: { empty: 'primary' },
+            nav: [{ kind: 'click', scope: 'banner', role: 'link', name: 'Mein Konto' }],
+            seeds: {
+                filled: () => seedMyAccreditationsFilled(),
+                empty: () => seedUserWithoutApplication(),
+            },
+            note: 'Self-service account area (identity, the counts a deletion would take, the deletion ' +
+                'itself — AccountPage.tsx, added in f0f86ce). It was outside the design-QA loop until this ' +
+                'entry, i.e. §7 step 4 could not review a change to it at all. NO `emptyMock`: the ' +
+                'empty state is a different USER (`empty.localhost` is unreachable in local dev — F6, see ' +
+                'the module header — and the page is mandant-agnostic anyway), so both states run on the ' +
+                'primary tenant and differ only in the seeded user, exactly like `meine-akkreditierungen`. ' +
+                'KNOWN GAP, named rather than papered over: the CONFIRM DIALOG (`AccountDeleteDialog`, ' +
+                'reached by clicking "Konto löschen") is NOT captured. It is the one irreversible action ' +
+                'on the page and the most layout-sensitive surface it has, and adding it is a separate ' +
+                'route entry (desktop-only, as the other dialog routes are) rather than a state of this ' +
+                'one — the manifest\'s `states` mean data states of ONE page, and a modal is a different ' +
+                'page. Deleting the account is deliberately NOT what this route asserts: a capture that ' +
+                'clicked through would destroy the fixture every other route logs in with.',
+        },
+        {
             name: 'apply',
             path: '/apply/:accreditationId',
             content: {
