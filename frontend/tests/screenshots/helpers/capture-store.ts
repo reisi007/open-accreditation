@@ -91,11 +91,27 @@ import type { UiReviewState, UiReviewViewport } from '../ui-review.config';
  * run against that spec to confirm it is not vacuous:
  *
  *   - `archiveExisting()` deleting instead of archiving → 4 failed
- *   - `storeArtifact()` archiving AFTER the write    → 4 failed
- *     ("home-sec-1.png must still exist", "band 5 is gone from the current
- *     generation" — the second is the surplus sweep losing its input)
+ *   - `storeArtifact()` archiving AFTER the write    → 2 failed, NOT 4
  *   - the store path moved back under `test-results/` → 2 failed, on the
  *     containment assertion rather than on a digest
+ *
+ * RE-MEASURED 2026-10-01, because the second line above used to read "4 failed"
+ * and named two symptoms. Only the FIRST symptom is real, and only the count's
+ * half is wrong: `prev/` holds the NEW bytes where the test wants the old
+ * (`Expected "admin-categories/gen1" / Received "admin-categories/gen2-longer"`,
+ * `store-partial-recapture.spec.ts:216`) — which fires before the band
+ * assertions, so "home-sec-1.png must still exist" is never even reached.
+ *
+ * The second named symptom — "band 5 is gone from the current generation" — does
+ * NOT occur, and it cannot: the surplus sweep in `storePngSeries` calls
+ * `archiveExisting` DIRECTLY, so it never passes through `storeArtifact` and its
+ * ordering is not the mutated one. The shrinking-page test therefore passes on
+ * this mutation. Archive-after-write costs the `prev/` test alone, i.e. 1 test ×
+ * 2 projects; delete-instead-of-archive is what takes the sweep down with it,
+ * which is why that one measures 4.
+ *
+ * Both were mutated IN PLACE and restored; the uncommitted tree this block
+ * describes is why that is the only safe order (`AGENTS.md` §5(4)).
  *
  * The last one is the reason the spec asserts the CONTAINMENT RELATIONSHIP
  * (scratch inside `test-results/`, store outside it) instead of two string
@@ -191,7 +207,8 @@ export interface CaptureMeta {
     entityIds: Record<string, number>;
     /**
      * HOW MUCH of the route's content marker was on screen when the shutter
-     * fired — the count the postcondition actually measured, not a declared one.
+     * fired — the count the postcondition actually MEASURED, never a declared
+     * one — and `null` where the marker measures PRESENCE rather than quantity.
      *
      * A separate field from `entityIds` because the two answer different
      * questions: "which row" and "how many". `admin-users` is the case that made
@@ -201,8 +218,22 @@ export interface CaptureMeta {
      * rendered. `dataset.users` holds the mandant total, but the page PAGINATES
      * (`UsersPage.tsx`), so the total is not what the reviewer is looking at
      * either. This is the rendered count, read from the content postcondition.
+     *
+     * ## `null` is a value here, not a gap
+     *
+     * MEASURED 2026-10-01: this field was a literal `1` for every `text`
+     * postcondition, so all four `/konto` EMPTY captures recorded
+     * `contentCount: 1` while the page displayed `0 Anträge` — a number in the
+     * sidecar that the pixels contradict, which is the one thing a sidecar exists
+     * to prevent. `/konto` is the route that was ADDED so the count would be
+     * auditable, and its empty state carried the wrong one.
+     *
+     * The number is therefore parsed out of the text the page rendered
+     * (`UiReviewContent.textCount`, `helpers/content-count.ts`), and a marker
+     * that carries no number records `null`. `1` would have kept the type and
+     * lost the meaning: it is precisely the quantity such a page does not show.
      */
-    contentCount: number;
+    contentCount: number | null;
     /** The pathname the capture was taken at — the manifest's route, postconditioned. */
     pathname: string;
     /**
@@ -231,8 +262,11 @@ export interface RouteCaptureInput {
     runKey: string;
     dataset: Record<string, number>;
     entityIds: Record<string, number>;
-    /** The measured content marker count — see `CaptureMeta.contentCount`. */
-    contentCount: number;
+    /**
+     * The measured content marker count, or `null` where the marker only proves
+     * presence — see `CaptureMeta.contentCount` for why that is a value here.
+     */
+    contentCount: number | null;
     pathname: string;
     compareWith?: string;
     visionNote?: string;
@@ -266,7 +300,19 @@ function isErrnoException(error: unknown, code: string): boolean {
     return error instanceof Error && 'code' in error && error.code === code;
 }
 
-function escapeRegExp(value: string): string {
+/**
+ * Escapes the regexp metacharacters in a literal, so a route (or file base)
+ * name is matched as itself.
+ *
+ * EXPORTED because the store's own membership rule is needed by the spec that
+ * asserts the store's behaviour, and two implementations of "match this name
+ * literally" is how the two came to disagree: `store-partial-recapture.spec.ts`
+ * interpolated the route straight into a `RegExp` while this module escaped it.
+ * For every name in the manifest today the two agree — the route names carry no
+ * metacharacter — which is exactly why the disagreement is cheap to fix now and
+ * why it should not be carried.
+ */
+export function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 

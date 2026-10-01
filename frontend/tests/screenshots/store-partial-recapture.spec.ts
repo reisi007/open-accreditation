@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { PREVIOUS_DIR_NAME, storeRouteCapture } from './helpers/capture-store';
-import { CAPTURE_STORE_DIR, PLAYWRIGHT_SCRATCH_DIR, captureStoreRoot, playwrightScratchDir } from './helpers/store-paths';
+import { PREVIOUS_DIR_NAME, escapeRegExp, storeRouteCapture } from './helpers/capture-store';
+import { PLAYWRIGHT_SCRATCH_DIR, captureStoreRoot, playwrightScratchDir } from './helpers/store-paths';
 
 /**
  * The §7 acceptance criterion for a PARTIAL re-capture, as a test.
@@ -93,14 +93,26 @@ function fingerprintTree(root: string): Map<string, string> {
  * for a route: the full page, the sidecar, the section series, the printed-page
  * series. Anchored on the whole suffix, so `admin-mandants` does not claim
  * `admin-mandants-new-sec-1.png`.
+ *
+ * The route name goes through `escapeRegExp` — the SAME helper
+ * `helpers/capture-store.ts` uses for its series pattern — because a route name
+ * is a literal here, not a pattern. Without it `.` and `+` would match any
+ * character, so `admin.badge` would also claim `adminXbadge-sec-1.png` and the
+ * "untouched" set would silently grow a neighbour's files: a false RED the day a
+ * route with a dot in its name is added, and a test that would then be asserting
+ * the wrong thing while looking stricter. The anchoring below is what prevents
+ * the PREFIX collision; escaping is what prevents the metacharacter one, and the
+ * two are different jobs. `escapeRegExp` is imported rather than re-implemented
+ * for exactly the reason the module docblock of the store says it is exported.
  */
 function belongsToRoute(file: string, route: string): boolean {
     const base = path.basename(file);
+    const literal = escapeRegExp(route);
     return (
         base === `${route}.png` ||
         base === `${route}.meta.json` ||
-        new RegExp(`^${route}-sec-\\d+\\.png$`).test(base) ||
-        new RegExp(`^${route}-pdf-\\d+\\.png$`).test(base)
+        new RegExp(`^${literal}-sec-\\d+\\.png$`).test(base) ||
+        new RegExp(`^${literal}-pdf-\\d+\\.png$`).test(base)
     );
 }
 
@@ -283,10 +295,15 @@ test.describe('a partial re-capture keeps the rest of the batch — §7 step 4',
         //    what stops a partial run from deleting it (the 95 → 4 PNG
         //    measurement, and `store-guard.spec.ts` owns that invariant).
         //
-        // Written as a containment check on the resolved paths rather than as a
-        // string comparison, because the string comparison is the version that
-        // passed for `test-results/ui-review/` (a sibling of the scratch, i.e.
-        // outside the scratch but inside the tree the runner wipes).
+        // Written as containment checks on the RESOLVED paths. A third assertion
+        // used to sit right here — `CAPTURE_STORE_DIR.split('/')[0] !== 'test-results'`
+        // — two lines below the comment that says why a string comparison is the
+        // wrong shape. It was a verbatim duplicate of `store-guard.spec.ts:29` and
+        // strictly weaker than the two below it: it passes for
+        // `test-results/ui-review/` (a sibling of the scratch, i.e. outside the
+        // scratch but inside the tree the runner wipes). Deleted rather than kept
+        // "for symmetry", because a reader who has just been told not to write
+        // that check should not meet it two lines later.
         const resolvedScratch = path.resolve(process.cwd(), PLAYWRIGHT_SCRATCH_DIR);
         const resolvedStore = captureStoreRoot();
         expect(
@@ -297,6 +314,33 @@ test.describe('a partial re-capture keeps the rest of the batch — §7 step 4',
             resolvedStore.startsWith(`${path.resolve(process.cwd(), 'test-results')}${path.sep}`),
             'the review batch must live outside test-results/ — that is the protection against a partial run',
         ).toBe(false);
-        expect(CAPTURE_STORE_DIR.split('/')[0]).not.toBe('test-results');
+    });
+
+    test('a route name is matched as a LITERAL, not as a regexp', () => {
+        // The membership test above is what "untouched" means for every
+        // untouched-route assertion in this file, so its own rule needs its own
+        // test: the manifest's route names carry no regexp metacharacter today,
+        // which is exactly why an unescaped interpolation is invisible until the
+        // first route with a dot arrives — and then it is a false RED on a store
+        // that behaves correctly. Two kinds of collision, checked separately:
+        //
+        //  - PREFIX (`admin-mandants` vs `admin-mandants-new`): what the `^…$`
+        //    anchoring is for, and what it already handled;
+        //  - METACHARACTER (`admin.badge` vs `adminXbadge`): what `escapeRegExp`
+        //    is for, and what anchoring alone does NOT handle — the pattern still
+        //    matches, it just matches the wrong file.
+        const route = 'admin.badge';
+        expect(belongsToRoute(`${route}.png`, route)).toBe(true);
+        expect(belongsToRoute(`${route}.meta.json`, route)).toBe(true);
+        expect(belongsToRoute(`${route}-sec-1.png`, route)).toBe(true);
+        expect(belongsToRoute(`${route}-pdf-1.png`, route)).toBe(true);
+
+        // The prefix neighbour, which the anchoring catches.
+        expect(belongsToRoute(`${route}-new-sec-1.png`, route)).toBe(false);
+        // The metacharacter neighbour, which anchoring alone does NOT catch:
+        // unescaped, `.` matches `X` and this claims a file of a route that does
+        // not exist.
+        expect(belongsToRoute('adminXbadge-sec-1.png', route)).toBe(false);
+        expect(belongsToRoute('adminXbadge-pdf-2.png', route)).toBe(false);
     });
 });

@@ -372,6 +372,76 @@ describe('isReproducible — §7 acceptance criterion 1 as a predicate', () => {
         ).toEqual(['admin-users', 'home']);
     });
 
+    it('is FALSE when every row has a predecessor but the batch is TWO RUNS', () => {
+        // The residual half of the defect above, and the one that survived its
+        // fix: a partial re-capture that lands on a route which HAD been
+        // re-captured before gives every row a predecessor while the rows still
+        // come from two different runs. MEASURED 2026-10-01 on the real store
+        // after a `-g home` run: **60 rows `run-76874` + 4 rows `run-79538`, 0
+        // rows without a predecessor, 0 changed → "Reproduzierbar: ja"**. The 60
+        // are last run's numbers, so the verdict described a batch that does not
+        // exist — and this is the state §7 step 4 creates on purpose.
+        const root = makeStore();
+        writeCapture(
+            root,
+            'filled',
+            'desktop',
+            { route: 'home', bands: 2, runKey: 'run-76874' },
+            { route: 'home', bands: 2, runKey: 'run-76874' },
+        );
+        writeCapture(
+            root,
+            'filled',
+            'mobile',
+            { route: 'home', bands: 2, runKey: 'run-79538' },
+            { route: 'home', bands: 2, runKey: 'run-79538' },
+        );
+        writeCapture(
+            root,
+            'empty',
+            'desktop',
+            { route: 'konto', bands: 0, runKey: 'run-76874' },
+            { route: 'konto', bands: 0, runKey: 'run-76874' },
+        );
+
+        const report = buildReport(root);
+        // The two conditions that DO hold, stated so the failure below cannot be
+        // mistaken for the first-run case: this is not "nothing was compared".
+        expect(report.rows.every((row) => row.previousBands !== null), 'every row HAS a predecessor').toBe(true);
+        expect(report.changed, 'and nothing moved').toEqual([]);
+        expect(report.runKeys).toEqual(['run-76874', 'run-79538']);
+        expect(isReproducible(report), 'yet the batch is two generations, so no').toBe(false);
+    });
+
+    it('the CLI names BOTH run keys when the batch mixes generations', () => {
+        // The count of missing predecessors is already in the parenthetical; the
+        // KEYS are what a reviewer needs here, because "run-79538" is the `-g`
+        // run and everything else is last run's. A bare "nein" here reads as a
+        // layout regression on a page that was never touched.
+        const root = makeStore();
+        writeCapture(
+            root,
+            'filled',
+            'desktop',
+            { route: 'home', bands: 2, runKey: 'run-76874' },
+            { route: 'home', bands: 2, runKey: 'run-76874' },
+        );
+        writeCapture(
+            root,
+            'filled',
+            'mobile',
+            { route: 'home', bands: 2, runKey: 'run-79538' },
+            { route: 'home', bands: 2, runKey: 'run-79538' },
+        );
+
+        const result = spawnSync(process.execPath, [scriptPath(), '--dir', root], { encoding: 'utf8' });
+        expect(result.stdout).toContain('Reproduzierbar: nein (');
+        expect(result.stdout).toContain('2 Lauf-Keys im Batch (run-76874, run-79538)');
+        expect(result.stdout).not.toContain('ohne Vorergeneration');
+        // …and the evidence line agrees with the verdict.
+        expect(result.stdout).toContain('Run-Key      : run-76874, run-79538');
+    });
+
     it('the CLI names how many rows lack a predecessor, so "nein" is actionable', () => {
         // A bare "nein" on a store that a partial re-capture just touched would
         // read as a defect in the page. The count says which situation it is.

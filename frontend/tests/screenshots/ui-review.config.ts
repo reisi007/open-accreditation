@@ -212,6 +212,23 @@ export interface UiReviewContent {
     min?: number;
     /** Plain-text marker for pages whose settled marker carries no role. Exact. */
     text?: string;
+    /**
+     * Turns the `text` marker into a COUNT marker: the pattern's FIRST capture
+     * group must wrap the number the page displays, and that number — read out of
+     * the matched element, not out of the manifest — is what the sidecar's
+     * `contentCount` records (see `helpers/content-count.ts`).
+     *
+     * Required wherever the marker's whole point is a QUANTITY, which is
+     * `/konto`: its two states are distinguished by `1 Antrag` vs `0 Anträge` and
+     * by nothing else a reviewer can see. Without this the harness can assert
+     * presence only, and the sidecar has to say "there is one of these" — which on
+     * the empty state is a number the page does not show (MEASURED 2026-10-01:
+     * `contentCount: 1` on all four `/konto` empty captures while the page read 0).
+     *
+     * Deliberately WITHOUT the `g`/`y` flag: the pattern object is shared across
+     * captures and `exec` on a global/sticky regexp resumes at `lastIndex`.
+     */
+    textCount?: RegExp;
     /** Why THIS marker. Required — the declaration is the contract. */
     note: string;
 }
@@ -517,6 +534,9 @@ export const uiReviewConfig: UiReviewConfig = {
                 filled: {
                     scope: 'main',
                     text: '1 Antrag',
+                    // The quantity, so the sidecar records the number the page
+                    // SHOWS rather than "a marker was found" (helpers/content-count.ts).
+                    textCount: /(\d+)/,
                     note: 'the applications count in the "Meine Anträge" card (AccountPage.tsx:127), ' +
                         'rendered from the `applicant` dataset user — who has exactly ONE requested ' +
                         'application. Not the h1 "Mein Konto" (`:89`), which sits OUTSIDE the ' +
@@ -526,11 +546,18 @@ export const uiReviewConfig: UiReviewConfig = {
                         'plain `<dl>`, which carries no ARIA role, so there is no semantic handle for it ' +
                         '— the same situation `admin-freigaben` documents for its tab bodies. The German ' +
                         'singular ("1 Antrag") is the load-bearing half: the sibling states of this page ' +
-                        'differ in exactly that word, and a substring match would be satisfied by both.',
+                        'differ in exactly that word, and a substring match would be satisfied by both. ' +
+                        '`textCount` is what makes the SIDEcar say 1 here and 0 in `empty` — without it ' +
+                        'both states recorded a hardcoded 1, i.e. the empty state carried a number the page ' +
+                        'contradicts (MEASURED 2026-10-01).',
                 },
                 empty: {
                     scope: 'main',
                     text: '0 Anträge',
+                    // Same rule as `filled` — and this is where the old hardcoded
+                    // `1` was visible: the marker matched, so the capture passed,
+                    // while the sidecar claimed a quantity the page contradicts.
+                    textCount: /(\d+)/,
                     note: 'the same count for the dataset user that applies for NOTHING ' +
                         '(`seedUserWithoutApplication`), i.e. the state a freshly registered user is in. ' +
                         'Zero is the design-QA case worth capturing: it is what exercises the plural ' +

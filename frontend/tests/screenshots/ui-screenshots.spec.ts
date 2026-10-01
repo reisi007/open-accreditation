@@ -5,6 +5,7 @@ import process from 'node:process';
 import { routes, uiReviewConfig } from './ui-review.config';
 import type { UiReviewClickStep, UiReviewNavStep, UiReviewRoute, UiReviewState, UiReviewViewport } from './ui-review.config';
 import { EMPTY_MANDANT_ORIGIN, ensureEmptyMandant } from './helpers/empty-mandant';
+import { contentCountFrom } from './helpers/content-count';
 import { storeRouteCapture } from './helpers/capture-store';
 import { uiReviewDataset } from './helpers/dataset';
 import { loginViaUi, waitForAppSettled } from './helpers/session';
@@ -133,13 +134,24 @@ interface SectionCapture {
  * 2. the explicit `toHaveCount(0)` on the spinner afterwards, so a future page
  *    that renders its empty state while loading is caught by a name in the error
  *    message instead of a silent wrong capture.
+ *
+ * ## What the return value is, and what it is not
+ *
+ * `number | null`: the count the postcondition MEASURED, never a declared one.
+ * A `role` marker measures how many elements matched; a `text` marker can only
+ * assert presence, and records `null` unless the manifest declares the marker a
+ * COUNT marker (`textCount`), in which case the number is parsed out of the
+ * element's rendered text. It used to be a literal `1` for every `text` marker —
+ * MEASURED 2026-10-01: all four `/konto` empty captures recorded
+ * `contentCount: 1` while the page displayed `0 Anträge`. See
+ * `helpers/content-count.ts`.
  */
 async function waitForContent(
     page: Page,
     route: UiReviewRoute,
     state: UiReviewState,
     seed: Record<string, unknown>,
-): Promise<number> {
+): Promise<number | null> {
     const content = route.content[state];
     if (content === undefined) {
         throw new Error(
@@ -169,8 +181,13 @@ async function waitForContent(
     const min = content.min ?? 1;
     const where = `"${route.name}" (${state}) shows the content it was captured for`;
     if (content.text !== undefined) {
-        await expect(container.getByText(content.text, { exact: true }), where).toBeVisible();
-        return 1;
+        const marker = container.getByText(content.text, { exact: true });
+        await expect(marker, where).toBeVisible();
+        // The element the postcondition matched, not the manifest literal — the
+        // sidecar's number has to come from the page. `.innerText()` on the same
+        // locator `toBeVisible()` just required to resolve to exactly one
+        // element, so there is no `.first()` here to pick the wrong one with.
+        return contentCountFrom(await marker.innerText(), content, `"${route.name}" (${state})`);
     }
     if (content.role === undefined) {
         throw new Error(
@@ -329,7 +346,9 @@ async function settleAndCapture(
         // mandant total (a number, `userCount`) while this is the rendered page.
         // Before this field existed, a credentials-only seed left that route with
         // `entityIds: {}` and NO number anywhere saying against how many users
-        // the capture was rendered.
+        // the capture was rendered. It is `null` — not a number — where the
+        // marker only proves PRESENCE, because a count nobody measured is worse
+        // than no count (`helpers/content-count.ts`).
         contentCount,
         pathname: new URL(page.url()).pathname,
     });

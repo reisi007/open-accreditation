@@ -24,6 +24,12 @@
  * and tested in `ui-review-captures.test.ts` against a synthetic store. It stays
  * a line and not an exit code on purpose: a moved page height is a fact about the
  * DATA, and the harness cannot tell a data change from a layout regression.
+ *
+ * It says `nein` — with the reason, from `whyNot` — for three different
+ * situations, and the three are not the same finding: nothing was compared twice
+ * (first run), not everything was compared (partial re-capture), or the batch is
+ * not ONE generation at all (mixed run keys). Only the third of those is easy to
+ * miss, because its rows all have predecessors and none of them moved.
  */
 
 import fs from 'node:fs';
@@ -67,9 +73,9 @@ import { fileURLToPath } from 'node:url';
  * one level up. `buildReport()` and `isReproducible()` are therefore exported and
  * driven over a synthetic store (`tmp/ui-review-*`): the previous-generation
  * lookup, the delta, the total, the `--only` filter, and the reproducibility
- * verdict in all three of its states (no predecessor / unchanged / changed).
- * Building the store in a temp dir is what makes that possible without a
- * browser, a backend and a database.
+ * verdict in each of its four states (no predecessor / some rows without a
+ * predecessor / mixed run generations / unchanged). Building the store in a temp
+ * dir is what makes that possible without a browser, a backend and a database.
  */
 export const DEFAULT_DIR = 'test-artifacts/ui-review';
 
@@ -204,8 +210,26 @@ export function buildReport(root, only = null) {
         hasComparison: rows.some((row) => row.previousBands !== null),
         /** Only the captures whose band count MOVED — a 0 delta is not a change. */
         changed: rows.filter((row) => row.delta !== null && row.delta !== 0),
+        /**
+         * The distinct capture runs the current generation is made of, in
+         * first-seen order. `length === 1` is "the whole batch is ONE run" —
+         * see `isReproducible`, which is where that matters.
+         */
+        runKeys: runKeysOf(rows),
         rows,
     };
+}
+
+/**
+ * The distinct run keys in `rows`, in first-seen order.
+ *
+ * A single entry means every capture on disk was written by the SAME capture
+ * run; more than one means the current generation is a MIX — which §7 step 4
+ * produces on purpose (`pnpm test:screenshots -g <route>` re-takes one route and
+ * leaves the rest of the previous run's sidecars exactly where they are).
+ */
+export function runKeysOf(rows) {
+    return [...new Set(rows.map((row) => row.runKey))];
 }
 
 /**
@@ -216,20 +240,72 @@ export function buildReport(root, only = null) {
  * this is the check, and it is deliberately a function rather than a sentence in
  * a report — a reviewer comparing two batches should not have to re-derive it.
  *
+ * Three conditions, and the second one is the one this file was wrong about:
+ * EVERY row needs a predecessor, the whole batch must come from ONE run, and
+ * nothing moved.
+ *
+ * 1. **Every row needs a predecessor, not one.** `hasComparison` alone was the
+ *    vacuous-true this function was written to avoid, in a narrower form: a
+ *    PARTIAL re-capture (`-g <route>`) leaves the other routes' current sidecars
+ *    in place with no `prev/` beside them, so one compared row was enough to
+ *    report "Reproduzierbar: ja" for a batch where 60 of 64 captures had never
+ *    been seen twice. MEASURED 2026-10-01 on a store built by a `-g konto` run
+ *    over a full one: 4 rows with a predecessor, 60 without, verdict "ja".
+ *
+ * 2. **One generation, not just one comparison each.** Fixing (1) closed the
+ *    vacuous form but left its other half: a partial run that lands on a route
+ *    which HAD been re-captured before gives every row a predecessor while the
+ *    rows still come from two different runs. MEASURED 2026-10-01 on the real
+ *    store after a `-g home` run: **60 rows `run-76874` + 4 rows `run-79538`, 0
+ *    rows without a predecessor, 0 changed → "Reproduzierbar: ja"**. Those 60
+ *    rows are last run's numbers, so the verdict described a batch that does not
+ *    exist. `runKeys.length === 1` is that condition, and the `Run-Key` line of
+ *    the report already printed the evidence.
+ *
+ * 3. **Nothing moved** — the original comparison.
+ *
  * Honest about its own limit, which is stated in the report output too: a stable
  * delta proves the PAGE HEIGHTS did not move, not that the data behind them is
  * fixed. `helpers/dataset.ts` is what fixes the data; this only says the two
  * agree.
  */
 export function isReproducible(report) {
-    // EVERY row needs a predecessor, not ONE. `hasComparison` alone was the
-    // vacuous-true this function was written to avoid, in a narrower form: a
-    // PARTIAL re-capture (`-g <route>`) leaves the other routes' current sidecars
-    // in place with no `prev/` beside them, so one compared row was enough to
-    // report "Reproduzierbar: ja" for a batch where 60 of 64 captures had never
-    // been seen twice. MEASURED 2026-10-01 on a store built by a `-g konto` run
-    // over a full one: 4 rows with a predecessor, 60 without, verdict "ja".
-    return report.rows.length > 0 && report.rows.every((row) => row.previousBands !== null) && report.changed.length === 0;
+    return (
+        report.rows.length > 0 &&
+        report.rows.every((row) => row.previousBands !== null) &&
+        report.runKeys.length === 1 &&
+        report.changed.length === 0
+    );
+}
+
+/**
+ * Why the verdict is `nein`, one clause per unmet condition, in the order the
+ * conditions are stated on `isReproducible`.
+ *
+ * A bare `nein` is not actionable: on a store a partial re-capture just touched
+ * it reads as a defect in the page, while it is really a statement about which
+ * routes THIS run covered. So the clause names the situation, and the run-key
+ * clause names the keys — the same evidence the `Run-Key` line carries, repeated
+ * where the verdict is read.
+ */
+export function whyNot(report) {
+    const reasons = [];
+    const withoutPrevious = report.rows.filter((row) => row.previousBands === null);
+    if (withoutPrevious.length > 0) {
+        reasons.push(
+            `${withoutPrevious.length} von ${report.rows.length} ohne Vorergeneration — Lauf 1 oder partieller Re-Capture`,
+        );
+    }
+    if (report.runKeys.length > 1) {
+        reasons.push(
+            `${report.runKeys.length} Lauf-Keys im Batch (${report.runKeys.join(', ')}) — ` +
+                'partieller Re-Capture, übersprungene Route oder Fehlschlag: der Batch ist keine EINHEITLICHE Generation',
+        );
+    }
+    if (report.changed.length > 0) {
+        reasons.push(`${report.changed.length} mit geänderter Bandzahl — siehe Liste unten`);
+    }
+    return reasons;
 }
 
 function main() {
@@ -267,15 +343,8 @@ function main() {
             (hasComparison ? ` (vorher ${totalPreviousBands})` : ' (kein Vergleich — erster Lauf)') +
             '\n',
     );
-    process.stdout.write(
-        `Reproduzierbar: ${isReproducible(report) ? 'ja' : 'nein'}` +
-            (rows.every((row) => row.previousBands !== null)
-                ? ''
-                : ` (${rows.filter((row) => row.previousBands === null).length} von ${rows.length} ohne Vorergeneration — ` +
-                  'Lauf 1 oder partieller Re-Capture)') +
-            '\n',
-    );
-    process.stdout.write(`Run-Key      : ${[...new Set(rows.map((row) => row.runKey))].join(', ') || '—'}\n\n`);
+    process.stdout.write(`Reproduzierbar: ${isReproducible(report) ? 'ja' : `nein (${whyNot(report).join('; ')})`}\n`);
+    process.stdout.write(`Run-Key      : ${report.runKeys.join(', ') || '—'}\n\n`);
     for (const row of rows) {
         const bands = String(row.bands).padStart(3);
         const previous = row.previousBands === null ? '  –' : String(row.previousBands).padStart(3);
