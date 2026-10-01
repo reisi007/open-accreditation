@@ -122,16 +122,21 @@ class AuthCookieSecurityTest extends TestCase
         // The live config of the test process: before WP-1-f the value was
         // `null` (an unset env var with no default), i.e. the cookie was NOT
         // Secure in any environment.
+        //
+        // `null` for SESSION_SECURE_COOKIE means "remove it from the process
+        // environment": `phpunit.xml` pins it (position 42), so without the
+        // removal every evaluation below would read the pin and the derivation
+        // this test is about would be unobservable.
         $this->assertTrue(config('session.secure'));
 
-        $this->assertTrue($this->sessionSecureWithEnv(['APP_ENV' => 'production']));
-        $this->assertTrue($this->sessionSecureWithEnv(['APP_ENV' => 'testing']));
-        $this->assertTrue($this->sessionSecureWithEnv([]));
+        $this->assertTrue($this->sessionSecureWithEnv(['APP_ENV' => 'production', 'SESSION_SECURE_COOKIE' => null]));
+        $this->assertTrue($this->sessionSecureWithEnv(['APP_ENV' => 'testing', 'SESSION_SECURE_COOKIE' => null]));
+        $this->assertTrue($this->sessionSecureWithEnv(['SESSION_SECURE_COOKIE' => null]));
     }
 
     public function test_session_cookie_is_not_secure_in_local_by_default(): void
     {
-        $this->assertFalse($this->sessionSecureWithEnv(['APP_ENV' => 'local']));
+        $this->assertFalse($this->sessionSecureWithEnv(['APP_ENV' => 'local', 'SESSION_SECURE_COOKIE' => null]));
     }
 
     public function test_session_secure_cookie_env_var_wins_over_the_default(): void
@@ -145,6 +150,31 @@ class AuthCookieSecurityTest extends TestCase
             'APP_ENV' => 'production',
             'SESSION_SECURE_COOKIE' => 'false',
         ]));
+    }
+
+    /**
+     * The suite pin, and that it is the one the live config answers with.
+     *
+     * `phpunit.xml` pins `SESSION_SECURE_COOKIE=true` so that the assertion in
+     * `test_session_cookie_is_secure_outside_local_by_default()` is decided by
+     * the suite and not by the developer's `.env`. This test is the other half
+     * of that pin: it holds the pin itself in place, so deleting it turns this
+     * red instead of quietly handing the decision back to the `.env`.
+     */
+    public function test_the_session_secure_decision_is_the_suite_pin_and_not_the_env_file(): void
+    {
+        $phpunit = file_get_contents(base_path('phpunit.xml'));
+
+        $this->assertIsString($phpunit, 'phpunit.xml is not readable.');
+
+        $this->assertStringContainsString(
+            '<env name="SESSION_SECURE_COOKIE" value="true" verbatim="true"/>',
+            $phpunit,
+            'without this pin the `assertTrue(config(\'session.secure\'))` above is decided by '
+            .'backend/.env, which is exactly the hermeticity defect position 42 exists to close.',
+        );
+
+        $this->assertTrue(config('session.secure'));
     }
 
     /**
@@ -195,6 +225,16 @@ class AuthCookieSecurityTest extends TestCase
      * The dotenv repository is immutable and was already populated from
      * `.env`/`phpunit.xml`, so it is dropped and rebuilt from the temporarily
      * adjusted superglobals; the previous state is restored afterwards.
+     *
+     * A `null` value means **remove the variable** for the evaluation, not set
+     * it to an empty string — `env()` maps the literal `(null)` to `null` and
+     * an empty string to `''`, and the two are different answers for a default
+     * this file is trying to observe. This is needed because `phpunit.xml`
+     * pins `SESSION_SECURE_COOKIE` (position 42); without the removal, every
+     * evaluation would read the pin and the `APP_ENV`-conditional derivation
+     * would be unobservable.
+     *
+     * @param  array<string, string|null>  $overrides
      */
     private function sessionSecureWithEnv(array $overrides): mixed
     {
@@ -202,6 +242,14 @@ class AuthCookieSecurityTest extends TestCase
 
         foreach ($overrides as $key => $value) {
             $original[$key] = [$_SERVER[$key] ?? null, $_ENV[$key] ?? null, getenv($key)];
+
+            if ($value === null) {
+                unset($_SERVER[$key], $_ENV[$key]);
+                putenv($key);
+
+                continue;
+            }
+
             $_SERVER[$key] = $value;
             $_ENV[$key] = $value;
             putenv($key.'='.$value);

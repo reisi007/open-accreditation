@@ -20,9 +20,6 @@ use App\Services\AllocationService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Content;
-use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
@@ -35,6 +32,21 @@ use Tests\TestCase;
  * Every dispatch runs through `MandantMailerService`: the test mandants carry
  * no `smtp_config`, so all sends take the default-mailer fallback, which is
  * captured by `Mail::fake()`.
+ *
+ * ## The Mailpit probe that used to live here is gone (2026-10-01)
+ *
+ * `test_real_smtp_delivery_reaches_mailpit_when_available()` opened a socket
+ * to `127.0.0.1:1025`, delivered through `Mail::mailer('smtp')` and searched
+ * the Mailpit HTTP API for the message. It carried **two** skips (no SMTP port,
+ * no HTTP API) and asserted exactly one thing — that a container was running.
+ *
+ * `phpunit.xml` now pins `MAIL_MAILER=array`, so the mailer the suite uses is
+ * an `ArrayTransport` and the probe exercised a mailer no test path takes any
+ * more. Under that pin it could only ever skip; it could never fail. A test
+ * that cannot fail is not a gate, so it was removed together with its skips —
+ * and the suite's dependence on a running mail catcher is closed at the config
+ * level instead (`AuthController`'s `Mail::to(...)->send()` goes through the
+ * default mailer, which under `array` cannot open a socket at all).
  */
 class MailTest extends TestCase
 {
@@ -502,54 +514,6 @@ class MailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$foreignApplication->id.'/resend')
             ->assertStatus(404);
-    }
-
-    /* ---------------------------------------------------------------------
-     | Mailpit integration (optional, real delivery)
-     | ------------------------------------------------------------------- */
-
-    public function test_real_smtp_delivery_reaches_mailpit_when_available(): void
-    {
-        $smtp = @fsockopen('127.0.0.1', 1025, $errno, $errstr, 1);
-
-        if ($smtp === false) {
-            $this->markTestSkipped('Mailpit (127.0.0.1:1025) is not reachable.');
-        }
-
-        fclose($smtp);
-
-        $recipient = 'mailpit-check-'.now()->getTimestamp().'@example.com';
-
-        $mailable = new class($recipient) extends Mailable
-        {
-            public function __construct(public string $recipient) {}
-
-            public function envelope(): Envelope
-            {
-                return new Envelope(subject: 'Mailpit integration check');
-            }
-
-            public function content(): Content
-            {
-                return new Content(htmlString: '<p>integration check body</p>');
-            }
-        };
-
-        $mailable->to($recipient);
-
-        Mail::mailer('smtp')->send($mailable);
-
-        $context = stream_context_create(['http' => ['timeout' => 2]]);
-        $response = @file_get_contents('http://127.0.0.1:8025/api/v1/search?query=to:'.$recipient, false, $context);
-
-        if ($response === false) {
-            $this->markTestSkipped('Mailpit API (127.0.0.1:8025) is not reachable.');
-        }
-
-        $payload = json_decode((string) $response, true);
-        $messages = is_array($payload) ? ($payload['messages'] ?? []) : [];
-
-        $this->assertNotEmpty($messages, 'No message found in Mailpit for '.$recipient);
     }
 
     /* ---------------------------------------------------------------------

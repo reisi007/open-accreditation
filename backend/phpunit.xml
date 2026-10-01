@@ -116,31 +116,177 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
 
+        <!--
+            Hermetizitaet der Rest-Exposition (Position 42, 2026-10-01).
+
+            `config/` liest 162 `env()`-Keys, dieser Block pinnt 21 davon; 147
+            bleiben ungepinnt und lesen damit weiterhin die `.env` des
+            Entwicklers. Das ist Absicht — der Zweck ist nicht, alle 147 zu
+            pinnen, sondern die **gemessene** Zahl nicht an eine Config-Datei zu
+            delegieren. Gemessen ueber den Volllauf, jeweils nur `backend/.env`
+            variiert, am Repo unveraendert (Referenz: 1732 passed / 0 failed /
+            1 skipped; alle Laeufe mit `APP_URL=https://accreditation.test`):
+
+            TRUSTED_HOSTS              -> 5   ^(.+\.)?verband-live\.example\.com$
+              APP_PREVIOUS_KEYS          -> 35  Roh-base64-Schluessel, 32 Byte
+              REQUIRE_ORIGIN_HEADER      -> 3   true
+              TRUSTED_PROXIES            -> 3   10.0.0.0/8,192.168.0.0/16
+              JWT_CROSS_SITE_COOKIE      -> 5   true
+              SESSION_SECURE_COOKIE      -> 1   false
+              SESSION_ENCRYPT            -> 5   true
+              MEDIA_ROOT                 -> 1   /srv/media/accreditation
+              MANDANTS_FALLBACK_MANDANT  -> 0   hauptverband
+              WALLET_PASS_TYPE_ID        -> 1   pass.com.accreditation.verband
+
+            Zwei dieser Zeilen brauchen ihre Anmerkung, weil die Zahl nicht die
+            ganze Aussage ist:
+
+            - `APP_PREVIOUS_KEYS`: die 35 sind **nicht** "ein zusaetzlicher
+              Schluessel", sondern ein Wert, den Laravel ablehnt. Der Provider
+              parst ein `base64:`-Praefix (`EncryptionServiceProvider::
+              parseKey()`), und `Encrypter::previousKeys()` wirft fuer alles
+              andere `RuntimeException: Unsupported cipher or incorrect key
+              length` — auch fuer ein 32-Byte-Schluessel OHNE Praefix
+              (`base64_encode()` als Klartext ist 44 Zeichen). Mit einem von
+              Laravel akzeptierten Wert (`base64:` + 32 Byte) gemessen: **0
+              failed** (4 von 5 Volllaeufen; ein Lauf meldete dieselben 35 und
+              liess sich in vier weiteren nicht reproduzieren — siehe
+              `tests/Feature/PHPUnitEnvPinningTest.php`). Der Pin ist deshalb
+              der Leerwert, nicht ein Schluessel: er stellt `previous_keys` auf
+              `[]`, exakt wie im ausgelieferten Zustand.
+            - `MANDANTS_FALLBACK_MANDANT`: die Wirkung ist **an den Slug
+              gebunden** — `MandantContext::default()` faellt nur dann auf
+              `MandantContext::hostnames()`-Mandanten zurueck, wenn der Wert
+              auf eine Mandant-Zeile passt. Ein Slug, den kein Test anlegt
+              (`hauptverband`), faellt mit 0 failed durch; ein Slug, den die
+              Factories anlegen (`verband-a`), mit **2 failed**
+              (`MandantHostHeaderResolutionTest`, `MandantMediaSelfServiceTest`).
+              Der Pin macht die Exposure unabhaengig vom Zufall der Slugs.
+
+            Nicht `force="true"`, ausser bei den drei Pins weiter oben: Laravels
+            `Env::getRepository()` ist immutable und liest zuerst `$_SERVER`,
+            dann `$_ENV`, dann `putenv`. Ein `<env>`-Pin landet nur in
+            `$_ENV`/`putenv` — gegen die `.env` des Entwicklers gewinnt er
+            damit trotzdem (Dotenv kann einen bereits gesetzten Namen nicht
+            ueberschreiben, `LoadEnvironmentVariables` benutzt genau diese
+            Repository), gegen einen **Shell-Export** nicht
+            (`APP_URL=… php artisan test` landet in `$_SERVER`). Fuer diese
+            zehn Keys ist der Shell-Fall nicht gemessen; wer ihn braucht,
+            setzt `force="true"` — die Entscheidung gehoert zu
+            `AppUrlHermeticityTest`, nicht hierher.
+
+            `verbatim="true"` ist bei den booleschen Pins **kein** Kosmetik.
+            Gemessen: PHPUnit liest `value="false"` ueber
+            `Xml\Loader::valueFromString()` als den **bool** `false`, und
+            `PhpHandler` schreibt daraufhin `putenv('KEY=')` — also einen
+            **leeren** String. `config('security.require_origin_header')`
+            liefert dann `''` statt `false`. Mit `verbatim="true"` bleibt die
+            Zeichenkette `'false'` erhalten, und Laravels `Env::getOption()`
+            bildet sie so ab, wie es ein Wert aus der `.env` auch tut (`false`
+            -> `false`, `(empty)` -> `''`, `(null)` -> `null`). Das ist der
+            Punkt: der Pin soll sich wie ein `.env`-Wert verhalten, nicht wie
+            ein Umweg durch die XML-Typisierung. Die Leerwert-Pins brauchen kein
+            `verbatim` — `value=""` ist in beiden Lesen ein Leerstring.
+        -->
+        <env name="TRUSTED_HOSTS" value=""/>
+        <env name="TRUSTED_PROXIES" value=""/>
+        <env name="REQUIRE_ORIGIN_HEADER" value="false" verbatim="true"/>
+        <env name="APP_PREVIOUS_KEYS" value=""/>
+        <env name="JWT_CROSS_SITE_COOKIE" value="false" verbatim="true"/>
+        <!--
+            `secure` ist sonst an `APP_ENV` gekoppelt
+            (`env('SESSION_SECURE_COOKIE', env('APP_ENV', 'production') !==
+            'local')`). Der Pin ist `true`, weil `AuthCookieSecurityTest` genau
+            das im gebooteten Config der Suite **behauptet** — unter
+            `APP_ENV=testing` ist der Default `true`, und ohne Pin haengt die
+            Behauptung an der `.env`. Die andere Haelfte des Vertrags (in
+            `local` NICHT secure) laesst sich mit diesem Pin nicht mehr ueber
+            den gebooteten Config messen, sondern nur ueber `config([...])` in
+            `AuthCookieSecurityTest` selbst. `verbatim="true"` siehe den
+            `verbatim`-Absatz im Blockkommentar oben.
+        -->
+        <env name="SESSION_SECURE_COOKIE" value="true" verbatim="true"/>
+        <env name="SESSION_ENCRYPT" value="false" verbatim="true"/>
+        <!--
+            Leerwert, NICHT der Pfad: `filesystems.php:67` ist
+            `env('MEDIA_ROOT') ?: storage_path('app/media')`, und das `?:`
+            existiert genau fuer diesen Fall. `env('MEDIA_ROOT', …)` haette
+            `''` geliefert und den Disk-Write relativ zum Prozess-CWD gemacht.
+        -->
+        <env name="MEDIA_ROOT" value=""/>
+        <env name="MANDANTS_FALLBACK_MANDANT" value=""/>
+        <!--
+            Der ausgelieferte Default, bewusst **als Pin**: `WalletPassServiceTest`
+            behauptet `pass.accriditation.test` als Wert von `passTypeIdentifier`,
+            und genau diese Behauptung war vorher an die `.env` gehaengt. Der
+            Pin macht sie wieder deterministisch — ohne ihn genuegt ein
+            `WALLET_PASS_TYPE_ID` aus der `.env`, um das pkpass unbemerkt
+            umzubenennen.
+        -->
+        <env name="WALLET_PASS_TYPE_ID" value="pass.accriditation.test"/>
+
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
 
-        <env name="MAIL_MAILER" value="smtp"/>
+        <env name="MAIL_MAILER" value="array"/>
         <!--
-            MAIL_HOST/MAIL_PORT zeigen auf 127.0.0.1:1025, also auf einen
-            Mailpit, den es beim Testlauf NICHT gibt. Gemessen: genau zwei Tests
-            der Suite haben `Mail::fake()` vergessen und legten deshalb wirklich
-            SMTP los — `SameOriginGuardTest::test_register_from_a_non_browser_
-            api_client_without_origin_passes()` und `RoleUserScopeUniqueTest::
-            test_the_registration_endpoint_never_leaves_a_second_role_user_row()`.
-            Ohne Mailpit antworteten beide 500 statt 201/201; MIT
-            `MAIL_HOST=dind` exportiert waren sie gruen. Die Suite hing also an
-            einem laufenden Container, nicht an einer Konfiguration. Beide
-            faken die Mail jetzt (`Mail::fake()`) — ihr Gegenstand ist die
-            HTTP-Antwort bzw. die `role_user`-Zeile, nicht der Mailversand.
+            `array`, nicht `smtp` (Nutzerentscheid 2026-10-01, umgesetzt mit
+            Position 42).
 
-            RESTBLEIBENDE Luecke, bewusst nicht mitgeaendert: diese Pins zeigen
-            weiterhin auf einen Port, auf dem nichts laufen MUSS. Der naechste
-            Test, der `Mail::fake()` vergisst, haengt wieder an einem laufenden
-            Mail-Catcher. Wer das strukturell schliessen will, setzt
-            `MAIL_MAILER=array` — dann kann ein fehlendes `fake()` gar keinen
-            Socket oeffnen. Das ist eine Design-Entscheidung (beruehrt u. a.
-            `MandantMailerTest`) und wurde hier bewusst nicht getroffen.
+            DER BISHERIGE ZUSTAND: `MAIL_HOST=127.0.0.1` / `MAIL_PORT=1025`
+            zeigten auf einen Mailpit, den es beim Testlauf nicht gibt. Genau
+            zwei Tests der Suite hatten `Mail::fake()` vergessen und legten
+            wirklich SMTP los — `SameOriginGuardTest::test_register_from_a_non_
+            browser_api_client_without_origin_passes()` und
+            `RoleUserScopeUniqueTest::test_the_registration_endpoint_never_
+            leaves_a_second_role_user_row()`. Ohne Mailpit antworteten beide
+            500 statt 201/201; mit `MAIL_HOST=dind` exportiert waren sie gruen.
+            Die Suite hing also an einem laufenden Container. Beide faken die
+            Mail jetzt (`Mail::fake()`) — ihr Gegenstand ist die HTTP-Antwort
+            bzw. die `role_user`-Zeile, nicht der Mailversand.
+
+            WAS `array` AENDERT: `AuthController.php:127` sendet ueber
+            `Mail::to(...)->send()`, also ueber den **Default**-Mailer. Mit
+            `array` ist das ein `ArrayTransport` — ein vergessenes
+            `Mail::fake()` kann dort gar keinen Socket oeffnen, unabhaengig
+            davon, ob auf Port 1025 etwas lauscht. Die Abhaengigkeit der Suite
+            von einem laufenden Mail-Catcher ist damit strukturell geschlossen,
+            nicht mehr durch Disziplin.
+
+            WAS `array` NICHT schliesst — und der Grund, warum MAIL_HOST/MAIL_PORT
+            hier stehen bleiben: `MandantMailerService::send()` nennt den
+            Mailer **explizit** (`Mail::mailer('smtp')`, `:54`), nicht den
+            Default. Dieser Pfad laeuft also weiter ueber den `smtp`-Mailer und
+            weiter ueber MAIL_HOST:MAIL_PORT.
+
+            GEMESSEN, nicht behauptet: **132** Aufrufe dieses Pfades gehen
+            ohne `Mail::fake()` durch (`AllocationTest` 62,
+            `AllocationQrTokenQueryTest` 16, `AllocationAtomicityTest` 15,
+            `AllocationQrTokenUpgradeTest` 8, `SubAccreditationRevocationTest` 6,
+            `MandantMailerTest` 25), und jeder davon **wirft in diesem Zustand
+            `TransportException: Connection could not be established with host
+            "127.0.0.1:1025"`** — der Sende-Versuch wird von `send()` als
+            `Throwable` geschluckt und geloggt, also ist die Suite gruen. Das
+            heisst: `array` schliesst den einen Pfad, der die Suite sichtbar rot
+            machen konnte (500 statt 201, die zwei Tests oben), aber **nicht**
+            jeden. Wer diese 132 stummen Connect-Versuche schliessen will,
+            braucht `Mail::mailer()` ohne Namensargument in
+            `MandantMailerService::send()` — das ist eine Produktentscheidung
+            und wurde hier bewusst nicht getroffen.
+
+            Die Behauptung "die Suite oeffnet keinen Socket mehr" waere also
+            zu gross; sie steht hier nicht. MAIL_HOST/MAIL_PORT bleiben, weil
+            `config/mail.php` den `smtp`-Mailer daraus baut — ohne sie laege er
+            wieder in der `.env`.
+
+            Der Preis, ausdruecklich in Kauf genommen: die Mailpit-Abhaengigkeit
+            der Suite ist jetzt **unsichtbar**, statt sichtbar fehlschlagend zu
+            sein. Die beiden Tests oben sind gruen, weil nichts mehr versendet
+            wird — nicht (nur) weil sie faken. Der Mailpit-Sonde-Test in
+            `MailTest` ist mit dieser Entscheidung entfernt: er pruefte einen
+            Mailer, den die Suite nicht mehr benutzt, und konnte unter
+            `MAIL_MAILER=array` nur noch ueberspringen, nie fehlschlagen.
         -->
         <env name="MAIL_HOST" value="127.0.0.1"/>
         <env name="MAIL_PORT" value="1025"/>

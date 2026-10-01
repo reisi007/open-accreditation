@@ -286,9 +286,11 @@ class MediaPathServiceTest extends TestCase
         $this->assertFalse($disk['serve']);
         $this->assertSame(MediaPathService::DISK, 'media');
 
-        // The media root defaults to storage/app/media. The test environment
-        // leaves MEDIA_ROOT unset, so the booted config must already resolve
-        // to the default here.
+        // The media root defaults to storage/app/media. `phpunit.xml` pins
+        // `MEDIA_ROOT` to the BLANK value, so the booted config must already
+        // resolve to the default here — the assertion is deliberately made
+        // against the booted config and not against a `config([...])`
+        // override, because "the pin is in force" is the property under test.
         $this->assertSame(storage_path('app/media'), $disk['root']);
 
         // `.env.example` ships `MEDIA_ROOT=` (present but blank). Re-evaluate
