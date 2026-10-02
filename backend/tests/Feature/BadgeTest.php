@@ -460,15 +460,24 @@ class BadgeTest extends TestCase
      *
      * ## The field texts, and what an accident they used to be (Position 41)
      *
-     * `assertStringContainsString('Jane Doe', $text)` used to hold only because
-     * the LAST BYTE of the card's compressed content-stream payload happened to
-     * be `0x0d` — the low byte of the four-byte **Adler-32 trailer** zlib
-     * appends to every payload. With the `rtrim()`-based extractor restored, that
-     * byte is stripped, `gzuncompress()` fails, the `@` swallows the warning and
-     * `pdfText()` returns the EMPTY STRING — so the assertion held without the
-     * name being on the card at all. MEASURED on a real export of this fixture
-     * (SHA `d2e7331`): payload 232 bytes, last byte `0x0d`, trailer
-     * `0x1B8E5B0D`, inflated stream 444 bytes ending `"\nQ\nQ"`.
+     * MEASURED on a real export of this fixture (SHA `d2e7331`): the card's
+     * compressed content-stream payload is 232 bytes, its LAST BYTE is `0x0d`
+     * — the low byte of the four-byte **Adler-32 trailer** zlib appends to every
+     * payload (`0x1B8E5B0D`) — and the inflated stream is 444 bytes ending
+     * `"\nQ\nQ"`.
+     *
+     * That trailing `0x0d` is where the old `rtrim()`-based extractor and this
+     * assertion met, and the direction of the accident is a FAILED test, not a
+     * silent pass. With the `rtrim()`-based extractor restored the byte is
+     * stripped, `gzuncompress()` fails, the `@` swallows the warning and
+     * `pdfText()` returns LESS text (the EMPTY STRING) — so
+     * `assertStringContainsString('Jane Doe', $text)` FALLS: the field-text
+     * assertion could never have been green without the name — it was a false
+     * NEGATIVE caused by the extractor, not a false pass (measured by restoring
+     * the `rtrim()` extractor; the trait names the same failure as "a missing
+     * field instead of a broken extractor"). On the committed `/Length`-bounded
+     * extractor `$text` carries the real operand `[(Jane Doe)]`, and the
+     * assertion is green because the name genuinely is on the card.
      *
      * That hole is closed from two sides, and both are load-bearing:
      *   - the extractor is `/Length`-bounded (`ExtractsPdfContentStream`), and
