@@ -27,7 +27,7 @@
 > (418 Nachrichten) · `lint` ✅. **Lokal gemessen (derselbe Tag, nach der Konto-Löschung):** die beiden Backend-Zahlen oben.
 > **Frontend und E2E wurden lokal nicht nachgefahren** — dort steht weiter die CI-Zahl, und wer sie als frisch liest, irrt.
 > 
-> **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **13 Positionen** in der Batch-Tabelle (8–45). **Neu aufgenommen: 45.** **Geschlossen, aber stehengeblieben sind 4:**
+> **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **13 Positionen** in der Batch-Tabelle (8–45). **Neu aufgenommen: 45.** **GATE 1 GRÜN (Lauf `37000171539`, SHA `7f6f071`, 2026-10-02):** SQLite **1741 passed** · Postgres **1740 passed + 1 skipped** (= dieselben 1741) · Vitest **51 Dateien** · E2E **157 passed / 57 skipped / 0 failed** · `check:i18n` **436** · Pint/Lint/Build clean. **12 und 38 gelten damit als umgesetzt und geprüft.** **Geschlossen, aber stehengeblieben sind 4:**
 > 17, 21, 23, 25 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (Begründung: „Offen bei Übergabe").
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-02):** 13 Zeilen = **8 offen** (8, 9, 14, 22, 41, 42, 45 · und **38** bis zum Verdict) + 4 stehengeblieben + **1 im Umsatz** (12). **12 und 38 sind implementiert und committet** (`3b9ecd8`), gelten aber bis zum Verdict der laufenden Verifikationsrunde als offen — eine Position, deren Umsetzung gemessen ist, deren **Verifikation** aber fehlt, ist nicht abgeschlossen.
 > **Position 10 ist am 2026-09-30 per §4 entfernt** — drei Verifikationsrunden, Verdict **`APPROVED`**, kein critical/high. Ihre Befunde sind **nicht** ins Board gewandert, sondern in `features/auth/01-auth-and-roles.md` (F1-Wächter, F3-Akteur, F5-Invariante, F6-Zustandstest, F4s **offene** Produktfrage) und `features/badges-qr.md` (Content-Stream-Defekt, `/Length`-Extraktor); beides vom Sweep-Agenten **am Code verifiziert**, nicht geglaubt.
@@ -208,10 +208,22 @@ die CI antworten zu lassen.
 Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` (`retries: 0`,
 `maxFailures: 1`) maßgeblich.
 
-**Erster Gate-Durchlauf, 2026-10-02:** Der Nightly `36992762738` (09:57 UTC) ist **grün**, aber er
-lief gegen `9ec00d1` — **vor** den Wellen-1-Commits. Er ist damit **kein** Beleg für diese Arbeit,
-und genau das ist die Falle: ein grüner Lauf auf einem älteren SHA liest sich wie eine Freigabe, die
-es nicht gibt. Der Lauf, der Welle 1 prüft, steht noch aus.
+**Erster Gate-Durchlauf, 2026-10-02: GRÜN, SHA `7f6f071`.** Lauf `37000171539`, alle vier Jobs:
+
+| Gate | Ergebnis |
+|---|---|
+| Backend SQLite | **1741 passed**, 8741 Assertions |
+| Backend Postgres | **1740 passed**, 8735 Assertions, **1 skipped** |
+| Vitest | **51 Dateien** passed |
+| E2E (volle Suite, verzeihend) | **157 passed / 57 skipped / 0 failed**, 2.2 min |
+| `build` inkl. `check:i18n` | ✅ 436 Nachrichten |
+| Pint, Lint | clean |
+
+**`1741 + 0 = 1740 + 1` — beide Engines zählen dieselben 1741 Tests, und die Differenz ist genau der dokumentierte `AllocationAtomicityTest`-Skip.** Die §2-Regel „beide Engines, deckungsgleich" ist damit **neu gemessen**, nicht aus einer Board-Zahl übernommen. (Der `AGENTS.md`-Snapshot `1732/1731` war durch Welle 1 überholt: +9 Tests aus den neuen Pins, −1 Skip durch den entfallenen Mailpit-Probe.)
+
+**Die `ERROR`-Zeilen im Postgres-Log sind kein Befund:** sie stammen aus dem Schritt `Stop containers` (Tear-down), nicht aus dem Testlauf. Wer sie liest, hält einen grünen Job für rot.
+
+**Was dieser Lauf beweist und was nicht:** grün gegen **einen** Push auf **einem** Runner. Nicht geprüft ist das Verhalten unter **Fremdlast** (`Agents.headless.md` §5), und der Lauf ersetzt den strikten Nightly nicht — er ist das verzeihende Profil (`retries: 2`, `maxFailures: 10`).
 
 **Position 8 ist womöglich schon erledigt — am Code geprüft, nicht geglaubt (§3).** `frontend/tests/screenshots/badge-print.spec.ts` + `helpers/badge-print.ts` erfüllen den Vertrag der Zeile **Klausel für Klausel**: (a) PDF über den **echten** Export-Weg (`POST …/badges/export`, nie `renderPdf()`), (b) Rasterung über `scripts/pdf-to-png-vision.sh`, (c) PNGs **neben** dem Editor-Capture (`compareWith: EDITOR_ROUTE`), (d) `printVisionNote()` sagt wörtlich „TWO VIEWS OF THE SAME BADGE TEMPLATE". Dazu zwei Dinge, die die Zeile nicht verlangt hat: ein **401-Beweis vor dem Login** (der Export ist session-gegatet, nicht ambient offen) und die **Seitenanzahl-Postcondition, die das Backend nicht hat** (`buffers.length !== expectedPages` wirft) — genau die Lücke, die §7 nennt. Geliefert in `3c1fbe3`, also in einer **früheren** Welle. **Es wird keine Arbeit erfunden:** die Position gilt als `ALREADY-SATISFIED`, sobald die Verifikationsrunde das bestätigt; ein Lauf gegen den echten Store ist der einzige offene Rest, und der Store ist gitignored und auf diesem Host nicht vorhanden — das ist ein **benanntes Gate**, kein Claim.
 
