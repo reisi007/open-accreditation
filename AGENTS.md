@@ -419,17 +419,21 @@ Loop (Schritte 1–4):
    Bandzahl hängt nicht mehr am Fremddatenbestand.
 
    Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
-2. **Vision-Analyse:** Die PNG-Pfade werden dem **`vision`-Subagenten** übergeben (§5: visuelle Prüfungen
-   immer via vision-Subagent). Max. **10 Bilder pro Batch**; Batching-Reihenfolge: erst nach State
-   (`filled` → `empty`), dann Viewport (desktop → mobile). Geprüft wird gegen die Checklist des
+2. **Vision-Analyse:** Die PNG-Pfade liest **das Modell selbst** — jedes konfigurierte Modell ist
+   vision-fähig, einen Vision-Subagenten braucht dieser Loop nicht (den früheren `vision`-Subagenten
+   gibt es nicht mehr). **Nur** subjektive oder feingranulare Bilder — Design-Aussage, Stimmung, ein
+   einzelnes Detail — gehen an **`vision-creative`** (Skill `vision-agents`: eskalieren, nicht
+   squinten). Max. **10 Bilder pro Batch**; Batching-Reihenfolge: erst nach State (`filled` →
+   `empty`), dann Viewport (desktop → mobile). Geprüft wird gegen die Checklist des
    **UI-Review-Skills**
    (`/Users/florianreisinger/dev/agents-skills/.agents/skills/ui-review/references/ui-review-checklist.md`).
 3. **Findings-Report:** Konsolidierter Bericht je Befund `Severity | Screenshot | Finding | Suggested fix`
    (Template im Skill: `references/findings-report.md`); Severities `critical/high/medium/low`;
-   **`critical`/`high` blockieren das Verdict `APPROVED`** (→ eigene Fix-Todos, wie §5 Verifikations-Gate).
+   **`critical`/`high` blockieren das Verdict `APPROVED`** (→ eigene Fix-Todos, wie das
+   Verifikations-Gate im Skill **`build-verify`**; §5 Build-Agent Punkt 4).
 4. **Fix-Loop:** Fixes delegieren (Implementer + separater Verifikator, §5) → **Re-Capture nur der
-   betroffenen Routen** (`cd frontend && pnpm test:screenshots -g <routenname>`) → `vision`-Subagent
-   vergleicht **old vs new** und bestätigt die Behebung bzw. meldet neue Befunde; gesamten betroffenen
+   betroffenen Routen** (`cd frontend && pnpm test:screenshots -g <routenname>`) → **old vs new**
+   wird verglichen, die Behebung bestätigt bzw. neue Befunde gemeldet; gesamten betroffenen
    Batch re-verifizieren, bevor der Loop geschlossen wird.
 
 **Wann ein Verdict dieses Loops überhaupt etwas bedeutet (STRICT).** Drei Voraussetzungen.
@@ -469,7 +473,7 @@ als **Abnahmeprüfung** formuliert, nicht als Behauptung darüber, was der Harne
    Verdict.
 
 **Abgrenzung (STRICT):** Dieser visuelle Loop ist **kein funktionaler Test** — er asserted kein Verhalten,
-sondern erzeugt ausschließlich Pixel zur Design-QA durch den vision-Subagenten. Er gate **nicht** CI oder
+sondern erzeugt ausschließlich Pixel zur Design-QA durch das vision-fähige Modell. Er gate **nicht** CI oder
 Deployment; funktional verbindlich bleiben ausschließlich die E2E-Suiten dieses §7.
 
 **PDFs statt Screenshots (`PDF-VISION`).** Für **Badge-/Ausweis-PDFs** (dompdf) ist
@@ -490,7 +494,7 @@ bash scripts/pdf-to-png-vision.sh <file.pdf> [-o OUTDIR] [-d DENSITY] [--keep-st
 Es prüft seine Werkzeuge namentlich, kündigt jeden Fallback **laut** an, verifiziert das Ergebnis
 und beendet sich ungleich 0, wenn etwas fehlt oder das Bild nicht vertrauenswürdig ist
 (u. a. Exit 3, wenn nur `sips` verfügbar ist — das kann keinen
-Alpha entfernen). Danach die PNGs wie oben an den `vision`-Subagenten, Checkliste: QR-Position,
+Alpha entfernen). Danach die PNGs wie oben geprüft, Checkliste: QR-Position,
 Feld-Überlappung, Abschneiden, Kontrast, Font-Skalierung. Messwerte, Render-Vertrag und die
 Stolperfallen: `features/badges-qr.md` → „Visuelle Verifikation des gerenderten PDF".
 
@@ -523,8 +527,8 @@ Graustufen-σ im 1-%-Rand) — eine **leere oder schwarze** Seite gilt nicht meh
 **Drei Grenzen, die bleiben — und keine davon durch Absenken der Schwelle heilen:**
 
 1. **σ misst Tinte, nicht Lesbarkeit.** 9771 Tintenpixel bei 0,06 % Kontrast lesen 0,00109, auf
-   Weiss 0,00063 — beide **um** der Schwelle. Solche Seiten sind unbrauchbar und werden dem
-   `vision`-Agenten gemeldet oder nicht; zu entscheiden ist das **nicht** diese Postcondition. Ein
+   Weiss 0,00063 — beide **um** der Schwelle. Solche Seiten sind unbrauchbar und werden der
+   visuellen Prüfung gemeldet oder nicht; zu entscheiden ist das **nicht** diese Postcondition. Ein
    Kontrast-Verdikt wäre eine **zweite** und ist **nicht** gebaut.
 2. **Ein Dekorrahmen maskiert fehlenden Inhalt.** Ein 1-pt-Rahmen, 1 pt eingerückt, ohne Text und
    ohne QR, misst **0,049…0,111** und gilt als „Inhalt" — ein **Fail-open**, und zwar gegen genau
@@ -552,7 +556,7 @@ Editor **unsichtbar**. **Ein Editor-Screenshot kann einen dompdf-Fehler prinzipi
 - **Postcondition, die dem Backend fehlt:** Seiten == freigegebene Anträge. `BadgeExportService`
   rendert eine A6-Karte pro Antrag ohne jede Prüfung; ein Verband exportiert 500 Ausweise, und
   **niemand schaut auf jedes einzelne**.
-- **Der Auftrag an `vision` lautet ausdrücklich: „zwei Ansichten derselben Vorlage, Editor gegen
+- **Der Auftrag an die Prüfung lautet ausdrücklich: „zwei Ansichten derselben Vorlage, Editor gegen
   Druck."** **Ein Defekt in genau einer Ansicht ist der Befund.** Die PNGs liegen **neben** den
   Editor-Aufnahmen, damit beide in **einem** Batch liegen.
 - **Grenze, die nicht zu schönreden ist:** der Loop prüft **eine** Vorlage, der Export **viele** —

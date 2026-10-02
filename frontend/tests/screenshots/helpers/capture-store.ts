@@ -111,7 +111,8 @@ import type { UiReviewState, UiReviewViewport } from '../ui-review.config';
  * which is why that one measures 4.
  *
  * Both were mutated IN PLACE and restored; the uncommitted tree this block
- * describes is why that is the only safe order (`AGENTS.md` §5(4)).
+ * describes is why that is the only safe order (a verifier never destroys
+ * uncommitted work — skill `build-verify`, agents-skills).
  *
  * The last one is the reason the spec asserts the CONTAINMENT RELATIONSHIP
  * (scratch inside `test-results/`, store outside it) instead of two string
