@@ -12,8 +12,12 @@ import { PLAYWRIGHT_SCRATCH_DIR, captureStoreRoot, playwrightScratchDir } from '
  * AGENTS.md §7, step 4, prescribes the fix loop:
  *
  *   > Fixes delegieren → Re-Capture **nur der betroffenen Routen**
- *   > (`pnpm test:screenshots -g <routenname>`) → `vision`-Subagent
- *   > vergleicht old vs new
+ *   > (`cd frontend && pnpm test:screenshots -g <routenname>`) → **old vs new**
+ *   > wird verglichen
+ *
+ * (Quoted as AGENTS.md §7 step 4 reads since D28: the model reads the PNGs
+ * itself — there is no vision subagent in this loop; only subjective images go
+ * to `vision-creative`.)
  *
  * The second half of that sentence needs BOTH halves of the comparison to exist
  * on disk afterwards: every UNTOUCHED route's capture byte-for-byte, and the
@@ -220,7 +224,7 @@ test.describe('a partial re-capture keeps the rest of the batch — §7 step 4',
             bytesFor(RETAKEN, 'gen2-longer').toString('utf8'),
         );
 
-        // 4. The previous generation's bands survive too — the vision subagent
+        // 4. The previous generation's bands survive too — the reviewer
         //    compares bands, not just the full page (§7: a page several
         //    viewports tall is unreadable as one scaled image).
         for (const index of [1, 2]) {

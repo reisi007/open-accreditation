@@ -12,8 +12,10 @@ import type { UiReviewState, UiReviewViewport } from '../ui-review.config';
  * ## Why this file exists: a partial re-capture used to destroy the rest
  *
  * AGENTS.md §7 step 4 prescribes the fix loop: "Fixes delegieren → Re-Capture
- * **nur der betroffenen Routen** (`pnpm test:screenshots -g <routenname>`) →
- * `vision`-Subagent vergleicht old vs new". The second half of that sentence was
+ * **nur der betroffenen Routen** (`cd frontend && pnpm test:screenshots
+ * -g <routenname>`) → **old vs new vergleichen** (der Reviewer liest die PNGs
+ * selbst, D28 — es gibt keinen `vision`-Subagenten in diesem Loop). The second
+ * half of that sentence was
  * impossible, because the harness deleted its own evidence.
  *
  * MEASURED (Playwright 1.63.0, this repo): the runner deletes its configured
@@ -53,7 +55,7 @@ import type { UiReviewState, UiReviewViewport } from '../ui-review.config';
  *    therefore leaves BOTH halves of the comparison on disk: the untouched
  *    routes byte-for-byte as before, and the re-taken route as
  *    `prev/<name>.png` (old) next to `<name>.png` (new) — the exact pair the
- *    vision subagent needs. `prev/` is one generation deep on purpose: a fix
+ *    reviewer compares (the model reads the PNGs itself, D28). `prev/` is one generation deep on purpose: a fix
  *    loop compares against "the previous capture", and an unbounded history
  *    would make the review batch grow with every run.
  *

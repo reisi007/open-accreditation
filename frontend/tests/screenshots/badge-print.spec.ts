@@ -30,7 +30,8 @@ import { loginViaUi } from './helpers/session';
  * - rasterising goes through `scripts/pdf-to-png-vision.sh` (its own
  *   postcondition checks the alpha channel / opacity);
  * - the PNGs are stored NEXT TO the editor capture, so both views of that
- *   template reach the vision subagent in ONE batch.
+ *   template reach the reviewer in ONE batch (the model reads the PNGs
+ *   itself, D28).
  *
  * ## What this does and does not promise
  *

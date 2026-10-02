@@ -907,7 +907,8 @@ function readRecordedDataset(runKey: string): UiReviewDatasetArtifact | null {
  * MEASURED before the change: the file carried 5 cleartext passwords
  * (`SecurePassw0rd!`) and 2 QR verification tokens. `test-results/` is
  * gitignored, so nothing was ever committed — but the directory is exactly what
- * gets handed to a reviewer or a `vision` subagent as a batch, and a password
+ * gets handed to a reviewer as a batch (the model reads the PNGs itself,
+ * D28 — there is no `vision` subagent in this loop), and a password
  * does not belong in it. So the secret classes are now *structurally* absent:
  * `recordDataset` cannot write them, and `assertNoSecretsInArtifact` throws if a
  * future field smuggles one in.

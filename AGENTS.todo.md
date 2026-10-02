@@ -318,6 +318,10 @@ Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` (`retries:
 (`Agents.headless.md` §4.1). Ein Verifikator, der in einem Baum mit uncommitteter Arbeit mutiert,
 hat keinen Rückweg — das ist hier bereits einmal passiert.
 
+### 🔴 OFFEN: E2E (Playwright) Job rot — Mailpit `no message … within 15000ms` (2026-10-02)
+
+E2E (Playwright) Job rot: Mailpit `no message … within 15000ms` in self-delete/approve-Specs (Run 37059095379); war schon vor den Doku-Commits rot → pre-existing, Umgebung/Test-Timing untersuchen, kein Code-Defekt annehmen bevor Umgebung geprüft ist.
+
 ### Gemeinsame Verifikation bei parallelen Strömen (Nutzerentscheid 2026-10-01) — **was genau das bedeutet**
 
 **Ein** Verifikator prüft **beide** Diffs zusammen — das ist die gewünschte gemeinsame Runde, und

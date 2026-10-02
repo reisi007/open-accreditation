@@ -295,7 +295,8 @@ export async function capturePrintedBadges(params: {
 }
 
 /**
- * The instruction handed to the vision subagent for these files. It says the one
+ * The instruction handed to the reviewer with these files (the model reads the
+ * PNGs itself, D28). It says the one
  * thing that makes the pair readable: these are TWO VIEWS OF THE SAME TEMPLATE —
  * browser editor against printed paper — and a defect that shows up in only one
  * of them is the finding.
