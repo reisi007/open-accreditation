@@ -40,7 +40,54 @@ final class WalletPassService
 {
     private const ALLOWED_TYPES = ['main', 'park', 'seat'];
 
+    /**
+     * MIME type of the Apple `.pkpass` download AND its approval-mail
+     * attachment — one constant, so the download contract and the mail
+     * contract cannot drift apart (P6).
+     */
+    public const APPLE_CONTENT_TYPE = 'application/vnd.apple.pkpass';
+
+    /**
+     * MIME type of the Google Wallet payload (EventTicketObject JSON or
+     * `savetowallet` JWT) — the download endpoint streams it, the approval
+     * mail attaches it.
+     */
+    public const GOOGLE_CONTENT_TYPE = 'application/json';
+
     public function __construct(private readonly QrTokenService $tokens) {}
+
+    /**
+     * The Apple `.pkpass` filename for a subject — `accreditation-{id}.pkpass`
+     * for a main application, `park-{id}.pkpass` / `seat-{id}.pkpass` for a
+     * sub-application. `WalletController` streams with it and the approval
+     * mails attach with it, so "the file you download" and "the file in your
+     * inbox" carry the same name (P6, one contract).
+     */
+    public function appleFilename(Application|SubApplication $subject, string $type = 'main'): string
+    {
+        return $this->filenamePrefix($subject, $type).'.pkpass';
+    }
+
+    /**
+     * The Google payload filename for a subject — `accreditation-{id}.json`
+     * for a main application (the download endpoint streams the payload
+     * inline without a `Content-Disposition`, so only the mail attachment
+     * materializes this name), `park-{id}.json` / `seat-{id}.json` for a
+     * sub-application.
+     */
+    public function googleFilename(Application|SubApplication $subject, string $type = 'main'): string
+    {
+        return $this->filenamePrefix($subject, $type).'.json';
+    }
+
+    private function filenamePrefix(Application|SubApplication $subject, string $type): string
+    {
+        if ($subject instanceof Application) {
+            return 'accreditation-'.$subject->getKey();
+        }
+
+        return ($type === 'seat' ? 'seat' : 'park').'-'.$subject->getKey();
+    }
 
     /**
      * Build the Apple Wallet pass binary (.pkpass ZIP) for one application

@@ -182,9 +182,85 @@ $eventDate;`). Die Event-Date ist bewusst nur Fallback. Dies ist eine
 Produkt-Semantik-Entscheidung und im Code (`WalletPassService::context`) sowie
 hier festgehalten.
 
+## Mail-Anhang (P6, Nutzerentscheidung 2026-10-02)
+
+**Entscheidung:** Der Pass wird **als Anhang der Freigabe-Mail** geliefert,
+**zusätzlich** zum Download-Endpunkt. Ein automatisierter Import in Apple/Google
+Wallet ist E2E nicht testbar — geprüft wird die **Gültigkeit der erzeugten
+Datei**, am tatsächlich versandten Anhang (`WalletMailAttachmentTest`).
+
+- **Zwei Mails, ein Anhangssatz.** `ApplicationApprovedMail` (automatische
+  Freigabe: `AllocationService` nach dem Commit) und `PassMail`
+  (Admin-Resend: `AdminApplicationController`) hängen **beide** den Apple-
+  `.pkpass` **und** die Google-Datei an, über
+  `AbstractApplicationMail::buildWalletAttachments()`.
+- **Ein Vertrag zwischen Download und Anhang.** Dateiname und MIME kommen aus
+  `WalletPassService`: `APPLE_CONTENT_TYPE` / `GOOGLE_CONTENT_TYPE` und
+  `appleFilename()` / `googleFilename()` (`accreditation-{id}.pkpass` bzw.
+  `.json` für eine Main-Application; `park-{id}` / `seat-{id}` für eine
+  Sub-Application). `WalletController` streamt mit denselben Werten — die
+  Datei im Postfach und die Datei aus dem Download sind derselbe Name/Typ.
+- **Fail-safe.** Jedes Format wird in einem eigenen `try` gebaut; ein
+  Baufehler wird per `Log::warning('Wallet pass could not be attached to the
+  mail', …)` protokolliert und das Format **übersprungen**, nie geworfen. Die
+  Mail geht raus, auch wenn ein Pass fehlt (`MandantMailerService` würde sonst
+  den ganzen Versand verwerfen).
+- **Fehlende Credentials sind kein Fehler.** Ohne Certs/Keys wird der
+  kontrolliert degradierte Pass angehängt (Unsigned-`.pkpass` bzw. Preview-
+  JSON) — das ist der Sinn der Degradation.
+- **Nur `approved`.** Beide Aufrufer mailen ausschließlich genehmigte Zeilen;
+  die zusätzliche Statusprüfung verhindert, dass eine zwischen Commit und
+  Versand widerrufene Zeile (R-D4-Race) noch einen Pass mitschickt.
+- **Benannter Rest — Sub-Approvals.** Park-/Sitzkarten-Freigaben laufen über
+  `SubAllocationService`, das **keine** Mail versendet (`SubAccreditationTest`
+  nagelt diese Lücke fest). Solange es keinen Sub-Freigabe-Mailweg gibt, kann
+  ein Sub-Pass **nicht angehängt** werden — der Download-Endpunkt
+  `/api/sub-applications/{id}/wallet` bleibt der einzige Weg. Offener Follow-up,
+  nicht stillschweigend ausgelassen.
+- **Verhältnis zu Position 45 (Queue/DLQ).** Die Anhänge entstehen **zur
+  Versandzeit** in `attachments()`, nicht im Mailable-Zustand und nicht im
+  Queue-Payload. Die geplante Queue-/DLQ-Umstellung von `MandantMailerService`
+  wird dadurch nicht präjudiziert.
+
+## Lieferweg vs. installierbare Wallet — der GAP (Nutzerentscheid 2026-10-02)
+
+**Entscheidung:** Der Lieferweg ist die **erzeugte Datei** (`.pkpass`/Google-JSON)
+als Mail-Anhang — ein **scannbares Dokument**. Die inhaltliche Gültigkeit geht
+gegen **uns**: der Barcode kodiert die Verify-URL, geprüft über `QrTokenService`
++ `VerifyController` — **wir sind die Quelle der Wahrheit für die
+Akkreditierung**.
+
+**Was wir nicht sind — der GAP:** die Wallet-*Installation* ist eine **zweite,
+unabhängige Vertrauensfrage**, und in beiden Fällen antwortet nicht der Absender:
+
+- **Apple:** iOS prüft die PKCS#7-Signatur des `.pkpass` gegen Apples
+  **WWDR-Kette**. Das Pass-Type-ID-Zertifikat wird **von Apple** ausgestellt; eine
+  eigene Kette, der iOS vertraut, existiert nicht — **Selbstsignieren ist
+  ausgeschlossen.**
+- **Google:** der Pass lebt **bei Google**, adressiert als
+  `{issuerId}.{classId}.{objectId}`. Issuer-Account + Service-Account sind der
+  Ausweis, mit dem Google das `savetowallet`-JWT einem Konto zuordnet — es gibt
+  keine „eigene" Google Wallet.
+
+**Status: aktuell nicht geplant.** Ohne externe Credentials bleibt der Pass
+**strukturvalide und scanbar, aber nicht installierbar** — genau dafür existiert
+die kontrollierte Degradation. Die Zusage ist damit ausdrücklich auf das
+**scannbare Dokument** begrenzt. Ein späterer Ausbau ist möglich (die Code-Seite
+baut die signierte Form bereits, sobald Credentials vorliegen), aber er ist eine
+**Zusage-Erweiterung**, kein offener Defekt; Position 14 ist mit dieser
+Begründung aus der offenen Liste entfernt (`AGENTS.todo.md`,
+„Nicht in diesem Batch").
+
 ## Invarianten (nicht regredieren)
 
+- Der Pass ist ein **scannbares Dokument**; die Wallet-*Installation* ist **nicht
+  zugesagt** (kein externer Issuer). Der unsignierte/Preview-Zustand ist die
+  Zusage, kein Fehler — nicht „wegrepanieren".
 - Keine Zertifikate/Keys im Repo — Signatur/JWT erfolgt nur bei konfigurierten
   Credentials; sonst strukturvalides Unsigned-Bundle bzw. JSON-Preview.
 - `relevantDate` = `deadline_end` (Event als Fallback) — nicht invertieren.
 - QR verifiziert immer die genehmigte Main-Application (auch bei Park-/Sitzkarten).
+- Download und Mail-Anhang teilen Dateiname/MIME (`WalletPassService`-
+  Konstanten/Methoden) — nicht auseinanderziehen (P6).
+- Ein Pass-Baufehler darf die Freigabe-Mail nie kippen (fail-safe: geloggt und
+  übersprungen, nie geworfen).

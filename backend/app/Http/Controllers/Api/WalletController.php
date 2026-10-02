@@ -62,7 +62,7 @@ class WalletController extends Controller
 
         return $this->appleResponse(
             fn (): string => $this->wallet->buildApplePass($application, 'main'),
-            'accreditation-'.$application->id,
+            $this->wallet->appleFilename($application),
         );
     }
 
@@ -77,7 +77,7 @@ class WalletController extends Controller
             abort(500, 'Could not generate the wallet pass.');
         }
 
-        return response($payload, 200, ['Content-Type' => 'application/json']);
+        return response($payload, 200, ['Content-Type' => WalletPassService::GOOGLE_CONTENT_TYPE]);
     }
 
     public function subApple(Request $request, SubApplication $subApplication): Response|JsonResponse
@@ -87,10 +87,13 @@ class WalletController extends Controller
 
         return $this->appleResponse(
             fn (): string => $this->wallet->buildApplePass($subApplication, $type),
-            $type.'-'.$subApplication->id,
+            $this->wallet->appleFilename($subApplication, $type),
         );
     }
 
+    /**
+     * @param  callable(): string  $build
+     */
     private function appleResponse(callable $build, string $filename): Response|JsonResponse
     {
         try {
@@ -101,8 +104,8 @@ class WalletController extends Controller
         }
 
         return response($pass, 200, [
-            'Content-Type' => 'application/vnd.apple.pkpass',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'.pkpass"',
+            'Content-Type' => WalletPassService::APPLE_CONTENT_TYPE,
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 

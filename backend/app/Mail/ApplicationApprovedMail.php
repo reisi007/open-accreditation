@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Application;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 
@@ -25,6 +26,17 @@ class ApplicationApprovedMail extends AbstractApplicationMail
         return new Envelope(
             subject: 'Dein Antrag wurde freigegeben',
         );
+    }
+
+    /**
+     * P6: the wallet passes ride along as attachments (plus the download
+     * endpoint) — see {@see AbstractApplicationMail::buildWalletAttachments()}.
+     *
+     * @return list<Attachment>
+     */
+    public function attachments(): array
+    {
+        return $this->buildWalletAttachments($this->application);
     }
 
     public function content(): Content

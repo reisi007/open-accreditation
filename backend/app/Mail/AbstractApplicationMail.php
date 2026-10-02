@@ -3,9 +3,13 @@
 namespace App\Mail;
 
 use App\Models\Application;
+use App\Services\WalletPassService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Shared plumbing for the P5 applicant notifications (approval, denial,
@@ -24,6 +28,15 @@ use Illuminate\Queue\SerializesModels;
 abstract class AbstractApplicationMail extends Mailable
 {
     use Queueable, SerializesModels;
+
+    /**
+     * The wallet-pass payloads that were actually attached, mirrored for
+     * inspection (`Mail::fake()` never invokes `attachments()`, so the tests
+     * read this after calling it).
+     *
+     * @var list<array{name: string, mime: string, data: string}>
+     */
+    public array $walletAttachments = [];
 
     /**
      * Load the accreditation context, bind the applicant as recipient and
@@ -59,5 +72,86 @@ abstract class AbstractApplicationMail extends Mailable
             'eventTitle' => $application->accreditation?->event?->title,
             'teamName' => $application->accreditation?->team?->name,
         ];
+    }
+
+    /**
+     * P6: the wallet passes as mail attachments — the Apple `.pkpass` and the
+     * Google payload, named and typed exactly like the download endpoint
+     * (`WalletPassService::appleFilename()` / its `*_CONTENT_TYPE` constants are
+     * the single contract for both).
+     *
+     * ## Fail-safe, by design
+     *
+     * The approval mail is the notification; the pass is a convenience. A pass
+     * that cannot be built must never take the mail down, so each format is
+     * built in its own `try`: on failure the format is logged via `Log::warning`
+     * and SKIPPED, never rethrown. `MandantMailerService` wraps the whole send
+     * in `catch (Throwable)` and would otherwise drop the mail entirely.
+     *
+     * ## Missing credentials are NOT a failure
+     *
+     * Without certificates/keys `WalletPassService` degrades deliberately: an
+     * UNSIGNED `.pkpass` (no `signature`) and a preview `EventTicketObject`
+     * JSON. Those degraded files ARE attached — that is the point of the
+     * degradation, and the mail stays a usable pass/reference.
+     *
+     * ## Only approved applications carry a pass
+     *
+     * Both callers only ever mail approved rows; the guard also keeps a row
+     * that lost its approval between the commit and the send (R-D4 race) from
+     * shipping a pass.
+     *
+     * @return list<Attachment>
+     */
+    protected function buildWalletAttachments(Application $application): array
+    {
+        $this->walletAttachments = [];
+
+        if ($application->status !== 'approved') {
+            return [];
+        }
+
+        $wallet = app(WalletPassService::class);
+
+        /** @var list<array{name: string, mime: string, build: callable(): string}> $formats */
+        $formats = [
+            [
+                'name' => $wallet->appleFilename($application),
+                'mime' => WalletPassService::APPLE_CONTENT_TYPE,
+                'build' => fn (): string => $wallet->buildApplePass($application, 'main'),
+            ],
+            [
+                'name' => $wallet->googleFilename($application),
+                'mime' => WalletPassService::GOOGLE_CONTENT_TYPE,
+                'build' => fn (): string => $wallet->buildGooglePass($application, 'main'),
+            ],
+        ];
+
+        $attachments = [];
+
+        foreach ($formats as $format) {
+            try {
+                $data = $format['build']();
+            } catch (Throwable $e) {
+                Log::warning('Wallet pass could not be attached to the mail', [
+                    'application_id' => $application->getKey(),
+                    'attachment' => $format['name'],
+                    'error' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            $this->walletAttachments[] = [
+                'name' => $format['name'],
+                'mime' => $format['mime'],
+                'data' => $data,
+            ];
+
+            $attachments[] = Attachment::fromData(fn (): string => $data, $format['name'])
+                ->withMime($format['mime']);
+        }
+
+        return $attachments;
     }
 }
