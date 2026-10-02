@@ -164,6 +164,68 @@ dort gibt es zwei strikt zu trennende Fehlerbilder:
    konkurriert weiterhin um CPU/DB-Verbindungen). Scoped-Runs (`--filter`)
    zweier Subagenten mit disjunkten Klassen sind unkritisch.
 
+## Queues & Scheduler — **die Tabellen und Befehle existieren bereits (2026-10-02)**
+
+**Vor dem Bau von irgendetwas: `jobs` und `failed_jobs` liegen seit Projektbeginn in der Migration und
+werden von null Code benutzt.** `database/migrations/0001_01_01_000002_create_jobs_table.php` legt
+`jobs` (`:14-22`, mit `attempts`, `available_at`, `reserved_at` — **Deckelung und Backoff sind
+eingebaut**) und `failed_jobs` (`:37-47`) an. `config/queue.php:123-127` zeigt `failed` bereits auf
+`failed_jobs`. **Eine eigene Outbox-Tabelle ist damit die falsche Antwort** — sie stellte eine zweite
+Wahrheit neben eine vorhandene.
+
+**Für Mail-Zustellung mit Wiederholung und Dead-Letter gilt:**
+
+| Bedarf | Bereits vorhanden |
+|---|---|
+| Zustellauftrag in die Queue | `ShouldQueue` + `dispatch()` |
+| Retries deckeln | `public int $tries` (die Suite pinnt `QUEUE_CONNECTION=sync`, sie sieht keinen Worker) |
+| Backoff zwischen Versuchen | `backoff()` — oder `release()` |
+| **Senden erst nach Commit** | **`config/queue.php:44` auf `after_commit => true` setzen** |
+| Dead Letter Queue | `failed_jobs` + `queue:failed` |
+| **manueller Requeue** | **`queue:retry`** |
+| Aufräumen | `queue:forget`, `queue:prune-failed` |
+| Worker | `queue:work --tries=3 --timeout=…` |
+| Scheduler | `schedule:run` (60-s-Takt) / `schedule:work` |
+
+**`after_commit` ist die eine Zeile, die „Status und Zustellung in derselben Transaktion" ausdrückt** —
+Freigabe persistiert, Mail raus, und wenn die Transaktion zurückgerollt wird, ist die Mail nie
+gegangen. Das ist kein Detail, es ist die Zusage.
+
+### Der Betrieb ist nicht im Code, er ist im Supervisor — und er ist kopierbar
+
+**`php artisan queue:work` und `schedule:run` laufen nicht von selbst.** `Schedule::command()`
+registriert nur. In **keiner** Umgebung dieses Repos wird ein Scheduler gestartet — das ist Position 46
+im Board, und es ist eine Lücke im **zugesagten** Produkt (`features/accreditation/01-allocation-engine.md:408`).
+
+**Die Referenz existiert:** `portal.reisinger.pictures/deployment/backend-supervisor.sh`. Bei der
+Übernahme **mit Namensanpassung** (die PID-Pfade `portal-queue-*` kollidieren sonst mit einer
+Portal-Installation auf demselben Host). Sechs Details, deren Weglassen den Fehler wieder einführt:
+
+- `QUEUE_CONNECTION` muss `database` sein — **sonst Abbruch beim Start**, damit der Fehler jetzt und nicht
+  Stunden später laut wird.
+- `DB_QUEUE_CONNECTION` muss `DB_CONNECTION` entsprechen — Queue und DB in derselben Transaktion.
+- **`QUEUE_WORKER_TIMEOUT` < `DB_QUEUE_RETRY_AFTER`**, fail-closed — verhindert doppelte Reservierung
+  eines hängenden Jobs; sonst fällt das erst unter Last auf.
+- **Stale PIDs beim Start löschen** — sonst lässt ein Container-Neustart eine alte PID gesund aussehen,
+  während der neue Supervisor noch startet.
+- Worker in einer **Restart-Schleife** mit PID-Marker — ein toter Worker darf die Zustellung nicht
+  stillstehen lassen.
+- `schedule:run` im **60-s-Takt**; ein fehlgeschlagener Lauf darf den nächsten nicht verhindern.
+
+**Und zwei Dinge über „Skript starten" hinaus:** der **Healthcheck verlangt FPM + Supervisor + Worker +
+Scheduler** als laufend — ein toter Worker muss den Container **ungesund** machen, sonst ist ein stiller
+Zustellungsstillstand ein „gesundes" Deployment. Und **Migration/Seed/Admin laufen `… || exit 1`**, bevor
+Worker, Scheduler und FPM starten: **Compose-Start → Gate → Supervisor → FPM.**
+
+`portal.reisinger.pictures/features/infrastructure/29-production-operations-runbook.md:217` warnt
+ausdrücklich davor, zu einem „naked background `queue:work`" zurückzufallen — **das ist die Falle, in die
+ein Eigenbau tappt.** Und dieselbe Datei hält fest: dass die Binaries **im Image** liegen, ist
+Build-Log-Evidenz, **kein** Live-Nachweis — ein echter Stack-Start bleibt ein Betriebsschritt.
+
+**Mandanten-Isolation auf `failed_jobs`:** die Tabelle hat **keine `mandant_id`-Spalte**. Ein
+`mandant_admin` darf ausschließlich Briefe **seines** Mandanten sehen; die Zuordnung aus dem
+`payload`-Blob zu gewinnen wäre zerbrechlich.
+
 ## Portabilitätsregel (CRITICAL)
 
 Schema/Queries müssen zwischen **Postgres (Dev/Prod)** und **SQLite
