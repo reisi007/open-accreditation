@@ -21,6 +21,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ExtractsPdfContentStream;
 use Tests\TestCase;
 
@@ -454,7 +456,32 @@ class BadgeTest extends TestCase
      | ------------------------------------------------------------------- */
 
     /**
-     * The whole card: the field texts AND both pictures.
+     * The whole card: the field texts AND the portrait.
+     *
+     * ## The field texts, and what an accident they used to be (Position 41)
+     *
+     * `assertStringContainsString('Jane Doe', $text)` used to hold only because
+     * the LAST BYTE of the card's compressed content-stream payload happened to
+     * be `0x0d` — the low byte of the four-byte **Adler-32 trailer** zlib
+     * appends to every payload. With the `rtrim()`-based extractor restored, that
+     * byte is stripped, `gzuncompress()` fails, the `@` swallows the warning and
+     * `pdfText()` returns the EMPTY STRING — so the assertion held without the
+     * name being on the card at all. MEASURED on a real export of this fixture
+     * (SHA `d2e7331`): payload 232 bytes, last byte `0x0d`, trailer
+     * `0x1B8E5B0D`, inflated stream 444 bytes ending `"\nQ\nQ"`.
+     *
+     * That hole is closed from two sides, and both are load-bearing:
+     *   - the extractor is `/Length`-bounded (`ExtractsPdfContentStream`), and
+     *     `ExtractsPdfContentStreamTest` pins the extractor itself, including a
+     *     negative control for the fixtures that would NOT have caught it;
+     *   - the assertions below name the **PDF text-showing operand**, not a bare
+     *     byte sequence. `Jane Doe` could in principle occur anywhere in the
+     *     inflated bytes; `[(Jane Doe)]` is a text operand of the content
+     *     stream, and it disappears the moment the layout stops asking for the
+     *     field (pinned by
+     *     {@see self::test_the_field_text_assertions_fail_when_the_template_omits_the_field()}).
+     *
+     * ## The portrait
      *
      * **The picture assertion used to name dompdf's internal label, and it was
      * wrong for two independent reasons. Both are measured, both are fixed here.**
@@ -479,26 +506,14 @@ class BadgeTest extends TestCase
      *    depth 8 draws `/I2 Do`. An assertion about an internal counter cannot be
      *    pinned by a suite that runs on two GD builds.
      *
-     * What replaces it is numbering-independent and names both pictures: the
-     * content stream draws exactly TWO images, the portrait's own pixel size is
-     * present as an image XObject, and the 512x512 silhouette is not.
+     * The drawing count this test used to carry is NOT here — it is
+     * {@see self::test_export_pdf_draws_each_embedded_picture_exactly_once_across_the_alpha_mask_split()},
+     * which is the guard Position 41 asked for and which stands on its own, so a
+     * failing field text can no longer make it unreachable.
      */
     public function test_export_pdf_contains_template_field_text_and_photo(): void
     {
-        $event = $this->mandantA->events()->create(['title' => 'Finale', 'date' => '2026-09-01']);
-        $accreditation = $this->createAccreditation(['quota' => 5, 'scope' => 'event', 'event_id' => $event->id]);
-        $jane = User::factory()->create(['name' => 'Jane Doe', 'email' => 'jane@example.com']);
-        $this->makeApplication($accreditation, $jane, ['status' => 'approved']);
-        $this->storePortrait($jane);
-
-        $template = $this->createTemplate(['name' => 'Presseausweis']);
-        $template->update(['layout' => $this->fullLayout()]);
-
-        $response = $this->actingAsApi($this->superAdmin())
-            ->postJson('/api/admin/accreditations/'.$accreditation->id.'/badges/export', [
-                'format' => 'pdf',
-                'template_id' => $template->id,
-            ]);
+        $response = $this->exportCard($this->fullLayout());
 
         $response->assertOk()
             ->assertHeader('Content-Type', 'application/pdf')
@@ -508,17 +523,14 @@ class BadgeTest extends TestCase
 
         $this->assertStringStartsWith('%PDF-', $pdf);
 
+        // Text-showing OPERANDS, not bare substrings: `[(Jane Doe)]` is what the
+        // content stream contains, and it cannot be satisfied by a checksum byte
+        // or by anything outside the operator.
         $text = $this->pdfText($pdf);
-        $this->assertStringContainsString('Jane Doe', $text);
-        $this->assertStringContainsString('Presse', $text);
-        $this->assertStringContainsString('Finale', $text);
 
-        // Exactly two pictures are DRAWN: the portrait and the QR code. WHICH
-        // label each one carries is dompdf's business (see above), the count is
-        // the promise.
-        preg_match_all('#/I\d+ Do\b#', $text, $draws);
-
-        $this->assertCount(2, $draws[0], 'The card must draw both the portrait and the QR code as images.');
+        $this->assertStringContainsString('[(Jane Doe)]', $text);
+        $this->assertStringContainsString('[(Presse)]', $text);
+        $this->assertStringContainsString('[(Finale)]', $text);
 
         // The portrait is embedded under ITS OWN dimensions (8x8, the fixture's)
         // - proof that the file on the private disk was decoded.
@@ -529,6 +541,236 @@ class BadgeTest extends TestCase
         // what a missing or undecodable portrait renders instead.
         $this->assertStringNotContainsString('/Width 512', $pdf);
         $this->assertStringNotContainsString('/Height 512', $pdf);
+    }
+
+    /**
+     * The card draws each embedded picture exactly once — across the alpha split.
+     *
+     * This is the guard Position 41 asked for (board decision 2026-10-02: "ein
+     * Wächter gegen die SMask-Zeichnungsanzahl"), and it is deliberately NOT an
+     * `/I<n>` counter. See {@see self::cardPictureStructure()} for the measured
+     * structure and the reason.
+     *
+     * It is its own test method rather than an assertion inside the field-text
+     * test, because under the defect that produced Position 41 the FIRST
+     * assertion of that method fired and the draw assertion at the end was never
+     * reached: a guard that only runs when everything before it passed is not a
+     * second guard.
+     */
+    public function test_export_pdf_draws_each_embedded_picture_exactly_once_across_the_alpha_mask_split(): void
+    {
+        $pdf = $this->renderApprovedCardPdf($this->fullLayout());
+
+        $structure = $this->cardPictureStructure($pdf, $this->pdfText($pdf));
+
+        $this->assertSame(
+            [],
+            $structure['violations'],
+            "The card's picture structure is broken:\n - ".implode("\n - ", $structure['violations']),
+        );
+
+        // The two numbers the decision is about, restated so a red run says which
+        // one moved: the DRAW count is host-independent, the REGISTERED-OBJECT
+        // count is not, and nothing here reads it.
+        $this->assertCount(2, $structure['draws'], 'The content stream must draw two pictures.');
+        $this->assertCount(2, $structure['pictures'], 'The card must embed two picture XObjects.');
+    }
+
+    /**
+     * THE HOST-INDEPENDENCE PROOF, runnable without CI.
+     *
+     * Both shapes are byte-level facts about what dompdf writes, taken from a
+     * real export of this fixture:
+     *
+     * - `split` (measured here, libgd 2.3.3, QR palette bit depth 1): three
+     *   registered image XObjects — portrait, the mask dompdf separated out of
+     *   the QR, and the QR itself, which carries `/SMask <mask> 0 R`.
+     * - `unsplit` (measured on the CI image, QR palette bit depth 4): two
+     *   registered image XObjects and no `/SMask` anywhere.
+     *
+     * The registered-object count differs (3 vs 2) — that is the counter which
+     * cannot be pinned. The verdict must not: both shapes have to come back
+     * clean. That is the whole reason this guard counts drawings.
+     */
+    #[DataProvider('gdBuildShapesProvider')]
+    public function test_the_picture_guard_gives_the_same_verdict_on_both_gd_builds(string $shape): void
+    {
+        $drawn = ['I1', 'I3'];
+        $objects = [
+            'I1' => '/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB',
+        ];
+
+        if ($shape === 'split') {
+            // dompdf registers the mask as a resource too (`Cpdf::o_image()`:2327)
+            // but never draws it — measured, see `cardPictureStructure()`.
+            $objects['I2'] = '/Type /XObject /Subtype /Image /Width 300 /Height 300 /ColorSpace /DeviceGray';
+            $objects['I3'] = '/Type /XObject /Subtype /Image /Width 300 /Height 300 /SMask @I2@ 0 R /ColorSpace /DeviceRGB';
+        } else {
+            $drawn = ['I1', 'I2'];
+            $objects['I2'] = '/Type /XObject /Subtype /Image /Width 300 /Height 300 /ColorSpace /DeviceRGB';
+        }
+
+        $pdf = $this->syntheticCardPdf($objects, $drawn);
+        $structure = $this->cardPictureStructure($pdf, $this->pdfText($pdf));
+
+        $this->assertSame(
+            $shape === 'split' ? 3 : 2,
+            count($structure['registered']),
+            'PREMISE: the two GD builds really do register a different number of image '
+            .'XObjects. If this number is equal on both shapes, the fixture no longer '
+            .'reproduces the difference the guard has to survive.',
+        );
+
+        $this->assertSame([], $structure['violations'], implode("\n", $structure['violations']));
+        $this->assertCount(2, $structure['draws']);
+        $this->assertCount(2, $structure['pictures']);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function gdBuildShapesProvider(): array
+    {
+        return [
+            'alpha split (libgd 2.3.3 here: palette bit depth 1)' => ['split'],
+            'no alpha split (CI image: palette bit depth 4)' => ['unsplit'],
+        ];
+    }
+
+    /**
+     * THE GUARD BITES, on a real card: a template without the `photo` row.
+     *
+     * Same renderer, same fixture, one layout entry removed. The QR is still
+     * drawn, the portrait is neither embedded nor drawn — and the guard says so
+     * instead of passing. This is the mutation proof for the draw count, run
+     * through the production path rather than through a hand-built PDF.
+     */
+    public function test_the_picture_guard_reports_a_card_whose_portrait_is_never_drawn(): void
+    {
+        $withoutPhoto = array_values(array_filter(
+            $this->fullLayout(),
+            static fn (array $row): bool => $row['field'] !== 'photo',
+        ));
+
+        $this->assertCount(
+            3,
+            $withoutPhoto,
+            'PREMISE: the negative fixture really is the full layout minus its photo row — '
+            .'otherwise this test proves nothing about a missing picture.',
+        );
+
+        $pdf = $this->renderApprovedCardPdf($withoutPhoto);
+        $structure = $this->cardPictureStructure($pdf, $this->pdfText($pdf));
+
+        $this->assertCount(1, $structure['draws'], 'PREMISE: only the QR is drawn now.');
+        $this->assertCount(1, $structure['pictures'], 'PREMISE: only the QR is embedded now.');
+        $this->assertNotSame([], $structure['violations'], 'The guard must report a card that draws one picture.');
+        $this->assertStringContainsString(
+            'must draw exactly TWO pictures',
+            implode("\n", $structure['violations']),
+            'The draw count is the rule that has to fire here.',
+        );
+        $this->assertStringContainsString(
+            'must embed exactly TWO pictures',
+            implode("\n", $structure['violations']),
+        );
+    }
+
+    /**
+     * THE SMask RULES BITE — three ways, on hand-built PDFs.
+     *
+     * dompdf never produces these on purpose, so no card can reach them; a rule
+     * no card can reach is a rule nobody tests. Each case carries a premise
+     * assertion for the property it is supposed to demonstrate, and a synthetic
+     * fixture chosen because it triggers exactly one of them.
+     *
+     * @see self::gdBuildShapesProvider() for the two shapes a HEALTHY card has.
+     */
+    #[DataProvider('brokenPictureShapesProvider')]
+    public function test_the_picture_guard_catches_a_broken_draw(string $case, array $objects, array $drawn, string $expectedRule): void
+    {
+        $pdf = $this->syntheticCardPdf($objects, $drawn);
+        $structure = $this->cardPictureStructure($pdf, $this->pdfText($pdf));
+
+        $this->assertNotSame(
+            [],
+            $structure['violations'],
+            "The guard reported nothing for the '{$case}' shape. A guard that cannot fail is "
+            .'worse than an honest gap — see `features/badges-qr.md:355-373`.',
+        );
+
+        $this->assertStringContainsString(
+            $expectedRule,
+            implode("\n", $structure['violations']),
+            "The '{$case}' shape must trip its own rule.",
+        );
+    }
+
+    /**
+     * @return array<string, array{string, array<string, string>, list<string>, string}>
+     */
+    public static function brokenPictureShapesProvider(): array
+    {
+        $portrait = '/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB';
+        $mask = '/Type /XObject /Subtype /Image /Width 300 /Height 300 /ColorSpace /DeviceGray';
+        $qr = '/Type /XObject /Subtype /Image /Width 300 /Height 300 /SMask @I2@ 0 R /ColorSpace /DeviceRGB';
+
+        return [
+            // dompdf's own mask object drawn as if it were a picture.
+            'the alpha mask is drawn' => [
+                'the alpha mask is drawn',
+                ['I1' => $portrait, 'I2' => $mask, 'I3' => $qr],
+                ['I1', 'I2', 'I3'],
+                'is the alpha mask dompdf separated out of a picture',
+            ],
+            // Embedded, registered, never drawn — the silent variant of the defect
+            // the old `/I<n>` assertion had, in the direction a count misses.
+            'an embedded picture is never drawn' => [
+                'an embedded picture is never drawn',
+                ['I1' => $portrait, 'I2' => $mask, 'I3' => $qr],
+                ['I3'],
+                'is an embedded picture and must be drawn exactly once',
+            ],
+            // A drawing operation on a label the page does not register: a count
+            // of `Do` alone would call this two pictures.
+            'a draw without a registered image' => [
+                'a draw without a registered image',
+                ['I1' => $portrait, 'I2' => $mask, 'I3' => $qr],
+                ['I1', 'I9'],
+                'which the page does not register as an image XObject',
+            ],
+        ];
+    }
+
+    /**
+     * The field-text assertions, measured against a layout that stops asking for
+     * the field — the proof that `[(Jane Doe)]` is a content assertion and not a
+     * checksum byte.
+     */
+    public function test_the_field_text_assertions_fail_when_the_template_omits_the_field(): void
+    {
+        $withoutName = array_values(array_filter(
+            $this->fullLayout(),
+            static fn (array $row): bool => $row['field'] !== 'name',
+        ));
+
+        $this->assertCount(3, $withoutName, 'PREMISE: the negative fixture is the full layout minus its name row.');
+
+        $text = $this->pdfText($this->renderApprovedCardPdf($withoutName));
+
+        $this->assertStringNotContainsString(
+            '[(Jane Doe)]',
+            $text,
+            'PREMISE: without the `name` row the text-showing operand is gone — so the assertion in '
+            .'test_export_pdf_contains_template_field_text_and_photo() is sensitive to the template '
+            .'and not to a payload byte. If this fails, `Jane Doe` is reaching the test by some other '
+            .'route and that assertion needs to know.',
+        );
+
+        // The rows that are still there are unaffected — this is a defect in the
+        // template, not in the renderer.
+        $this->assertStringContainsString('[(Presse)]', $text);
+        $this->assertStringContainsString('[(Finale)]', $text);
     }
 
     public function test_export_pdf_uses_default_template_when_template_id_is_absent(): void
@@ -1024,6 +1266,301 @@ class BadgeTest extends TestCase
     private static int $categorySeq = 0;
 
     private static int $mediaCount = 0;
+
+    /**
+     * POST the PDF export for one approved application, once, with the given
+     * template layout. Every card fixture in this file goes through here, so the
+     * four picture tests differ ONLY in their layout.
+     */
+    private function exportCard(array $layout): TestResponse
+    {
+        $event = $this->mandantA->events()->create(['title' => 'Finale', 'date' => '2026-09-01']);
+        $accreditation = $this->createAccreditation(['quota' => 5, 'scope' => 'event', 'event_id' => $event->id]);
+        $jane = User::factory()->create(['name' => 'Jane Doe', 'email' => 'jane@example.com']);
+        $this->makeApplication($accreditation, $jane, ['status' => 'approved']);
+        $this->storePortrait($jane);
+
+        $template = $this->createTemplate(['name' => 'Presseausweis']);
+        $template->update(['layout' => $layout]);
+
+        return $this->actingAsApi($this->superAdmin())
+            ->postJson('/api/admin/accreditations/'.$accreditation->id.'/badges/export', [
+                'format' => 'pdf',
+                'template_id' => $template->id,
+            ]);
+    }
+
+    /**
+     * The raw PDF of that card, with the export itself already checked for 200.
+     */
+    private function renderApprovedCardPdf(array $layout): string
+    {
+        return $this->exportCard($layout)->assertOk()->streamedContent();
+    }
+
+    /**
+     * The picture structure of a card: what is EMBEDDED, what is DRAWN, and
+     * every rule that does not hold.
+     *
+     * ## Why this counts drawings and not `/I<n>` labels (Position 41)
+     *
+     * dompdf separates an alpha PNG into a mask plus a base image and registers
+     * BOTH as page resources — `Cpdf::o_image()`:
+     *
+     *     if (isset($options['masked']) && $options['masked']) {
+     *         $info['SMask'] = ($this->numObj - 1) . ' 0 R';
+     *     }
+     *
+     * … but it only ever DRAWS the base one. Whether the split happens at all is
+     * `$is_alpha` in `Cpdf::addPngFromFile()`:6255,
+     * `in_array($color_type, [4, 6]) || ($color_type == 3 && $bit_depth != 4)`,
+     * and the QR code is a PALETTE PNG whose bit depth the GD quantiser picks —
+     * measured 4 on the CI image, 1 here (libgd 2.3.3). So the number of
+     * registered image objects is **2 or 3 depending on the host**, while the
+     * number of `Do` operations is **2 either way**. An `/I<n>` assertion is
+     * therefore green on one build and red on the other; a draw count is not.
+     *
+     * MEASURED on this host (real export of `fullLayout()`, SHA `d2e7331`):
+     *
+     * | object | what                                    | registered as | drawn |
+     * |--------|-----------------------------------------|---------------|-------|
+     * | 13     | portrait 8x8, `/DeviceRGB`, no SMask    | `/I1`         | yes   |
+     * | 16     | QR mask 300x300, `/DeviceGray`          | `/I2`         | NEVER |
+     * | 17     | QR 300x300, `/SMask 16 0 R`, `/DeviceRGB`| `/I3`        | yes   |
+     *
+     * So object 16 is registered, is never drawn, and is not a picture — it is
+     * the mask of object 17. That classification is what makes the guard
+     * host-independent: it splits the registered objects into pictures and alpha
+     * masks, and holds both to rules that hold on either build.
+     *
+     * The rules, in the order they are reported:
+     *
+     * 1. the content stream draws exactly TWO pictures (portrait + QR);
+     * 2. every drawn label is registered as an image XObject;
+     * 3. an alpha mask is drawn ZERO times (it is bookkeeping, not a picture);
+     * 4. every embedded picture is drawn EXACTLY once;
+     * 5. the card embeds exactly TWO picture XObjects.
+     *
+     * Rule 1 and 5 are what a count alone would have said; 2–4 are what it could
+     * not. Each is made to fail, in
+     * {@see self::test_the_picture_guard_catches_a_broken_draw()} and
+     * {@see self::test_the_picture_guard_reports_a_card_whose_portrait_is_never_drawn()}.
+     *
+     * @return array{draws: list<string>, pictures: list<string>, masks: list<int>, registered: list<int>, violations: list<string>}
+     */
+    private function cardPictureStructure(string $pdf, string $contentStream): array
+    {
+        $resources = $this->pageImageResources($pdf);
+
+        // label => object number, for objects that really are images.
+        $labels = [];
+        foreach ($resources as $label => $objectNumber) {
+            $dictionary = $this->pdfObjectDictionary($pdf, $objectNumber);
+
+            if ($dictionary !== null && str_contains($dictionary, '/Subtype /Image')) {
+                $labels[$objectNumber] = $label;
+            }
+        }
+
+        // Object numbers that some other image names in ITS `/SMask` — those are
+        // masks, not pictures. Measured above: 16 is named by 17.
+        $masks = [];
+        foreach (array_keys($labels) as $objectNumber) {
+            $dictionary = $this->pdfObjectDictionary($pdf, $objectNumber);
+
+            if ($dictionary !== null && preg_match('#/SMask\s+(\d+)\s+0\s+R#', $dictionary, $matches) === 1) {
+                $masks[(int) $matches[1]] = true;
+            }
+        }
+
+        preg_match_all('#/([A-Za-z0-9_.-]+)\s+Do\b#', $contentStream, $drawMatches);
+        $draws = $drawMatches[1];
+
+        $pictures = [];
+        foreach ($labels as $objectNumber => $label) {
+            if (! isset($masks[$objectNumber])) {
+                $pictures[] = $label;
+            }
+        }
+
+        $drawnPerLabel = array_count_values($draws);
+        $violations = [];
+
+        if (count($draws) !== 2) {
+            $violations[] = sprintf(
+                'The content stream must draw exactly TWO pictures (portrait + QR); it drew %d [%s].',
+                count($draws),
+                implode(', ', $draws),
+            );
+        }
+
+        foreach ($draws as $label) {
+            $objectNumber = $resources[$label] ?? null;
+
+            if ($objectNumber === null || ! isset($labels[$objectNumber])) {
+                $violations[] = sprintf(
+                    'The content stream draws /%s, which the page does not register as an image XObject.',
+                    $label,
+                );
+            }
+        }
+
+        foreach ($labels as $objectNumber => $label) {
+            $drawn = $drawnPerLabel[$label] ?? 0;
+
+            if (isset($masks[$objectNumber])) {
+                if ($drawn > 0) {
+                    $violations[] = sprintf(
+                        '/%s is the alpha mask dompdf separated out of a picture, not a picture itself, '
+                        .'but it was drawn %d time(s).',
+                        $label,
+                        $drawn,
+                    );
+                }
+
+                continue;
+            }
+
+            if ($drawn !== 1) {
+                $violations[] = sprintf(
+                    '/%s is an embedded picture and must be drawn exactly once; it was drawn %d time(s).',
+                    $label,
+                    $drawn,
+                );
+            }
+        }
+
+        if (count($pictures) !== 2) {
+            $violations[] = sprintf(
+                'The card must embed exactly TWO pictures (portrait + QR) as image XObjects; it embedded %d [%s].',
+                count($pictures),
+                implode(', ', $pictures),
+            );
+        }
+
+        return [
+            'draws' => $draws,
+            'pictures' => $pictures,
+            'masks' => array_keys($masks),
+            'registered' => array_keys($labels),
+            'violations' => $violations,
+        ];
+    }
+
+    /**
+     * Every `/XObject` name the page's resource dictionary maps to an object, as
+     * `label => object number`.
+     *
+     * @return array<string, int>
+     */
+    private function pageImageResources(string $pdf): array
+    {
+        // dompdf writes the resource dictionary of the page tree in the clear —
+        // only stream PAYLOADS are compressed, so this is readable here.
+        if (preg_match('#/XObject\s*<<(.*?)>>#s', $pdf, $matches) !== 1) {
+            return [];
+        }
+
+        preg_match_all('#/([A-Za-z0-9_.-]+)\s+(\d+)\s+0\s+R#', $matches[1], $entries, PREG_SET_ORDER);
+
+        $resources = [];
+        foreach ($entries as [, $label, $objectNumber]) {
+            $resources[$label] = (int) $objectNumber;
+        }
+
+        return $resources;
+    }
+
+    /**
+     * One indirect object's dictionary as plain text, or `null` when the object
+     * is not in the file.
+     */
+    private function pdfObjectDictionary(string $pdf, int $objectNumber): ?string
+    {
+        $start = strpos($pdf, $objectNumber.' 0 obj');
+
+        if ($start === false) {
+            return null;
+        }
+
+        $dictionary = substr($pdf, $start + strlen((string) $objectNumber.' 0 obj'));
+
+        // Never read into the payload: an object with stream data ends its
+        // dictionary at `stream`.
+        $stream = strpos($dictionary, 'stream');
+
+        if ($stream !== false) {
+            $dictionary = substr($dictionary, 0, $stream);
+        }
+
+        $end = strpos($dictionary, '>>');
+
+        return $end === false ? $dictionary : substr($dictionary, 0, $end);
+    }
+
+    /**
+     * A hand-built PDF of the shape dompdf writes, for the picture structures a
+     * real card cannot produce.
+     *
+     * The content stream is FLATE-compressed like the real one: `pdfText()` drops
+     * a stream it cannot inflate, so an uncompressed fixture would silently
+     * deliver an empty content stream and every draw assertion in it would be
+     * vacuous.
+     *
+     * Object numbers are assigned from 13 upwards, the first number the real card
+     * uses. A dictionary that has to point at a sibling — the `/SMask` of a split
+     * image — writes `@I2@` for "whatever object `/I2` got", because hardcoding
+     * the number would tie the fixture to the insertion order: a wrong reference
+     * is not a mask at all, and the mask rule would then be reported as untested
+     * rather than as broken.
+     *
+     * @param  array<string, string>  $objects  resource label => image dictionary
+     * @param  list<string>  $drawn  labels the content stream draws
+     */
+    private function syntheticCardPdf(array $objects, array $drawn): string
+    {
+        $pdf = "%PDF-1.7\n";
+        $resources = '';
+        $numberByLabel = [];
+        $objectNumber = 13;
+
+        foreach (array_keys($objects) as $label) {
+            $numberByLabel[$label] = $objectNumber;
+            $objectNumber++;
+        }
+
+        foreach ($objects as $label => $dictionary) {
+            $number = $numberByLabel[$label];
+
+            $resources .= sprintf("/%s %d 0 R\n", $label, $number);
+            $dictionary = str_replace(
+                array_map(static fn (string $l): string => '@'.$l.'@', array_keys($numberByLabel)),
+                array_map(static fn (int $n): string => (string) $n, $numberByLabel),
+                $dictionary,
+            );
+
+            $pdf .= sprintf("%d 0 obj\n<< %s >>\nendobj\n", $number, $dictionary);
+        }
+
+        $contentStream = '';
+        foreach ($drawn as $label) {
+            $contentStream .= sprintf("/%s Do\n", $label);
+        }
+
+        $deflated = (string) gzcompress($contentStream);
+
+        $pdf .= sprintf(
+            "3 0 obj\n<< /Type /Pages /Resources << /XObject <<\n%s>> >> >>\nendobj\n",
+            $resources,
+        );
+        $pdf .= sprintf(
+            "7 0 obj\n<< /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+            strlen($deflated),
+            $deflated,
+        );
+
+        return $pdf."%%EOF\n";
+    }
 
     private function createAccreditation(array $attributes = []): Accreditation
     {
