@@ -184,7 +184,34 @@
 | **2** | **9** — Druck misst Textbreite selbst | ~~**8**~~ — **siehe unten: vermutlich `ALREADY-SATISFIED`** | Backend-Renderer gegen Screenshot-Spec |
 | **3** | **41** — Content-Stream-Wächter | **22** — Ledger-Namens-Lookup | `BadgeTest.php` gegen E2E-Ledger |
 
-**Stand der Wellen:** Welle 1 **implementiert und committet** (`3b9ecd8`, `c46ba63`, `7d2fe56`) — Verifikationsrunde läuft. Welle 2 und 3 warten auf ihr Verdict, weil eine volle Suite nicht neben einer zweiten laufen darf (`Agents.headless.md` §4).
+**Stand der Wellen:** Welle 1 **implementiert und committet** (`3b9ecd8`, `c46ba63`, `7d2fe56`).
+
+### 🚦 Das Gate zwischen den Wellen — „CI muss grün werden" (Nutzerentscheid 2026-10-02)
+
+**Explizit geplant und ausgeführt, nicht nebenbei.** Volle Suiten laufen **in CI**, nicht lokal —
+der GitHub-Runner ist ephemer und hat eigenen RAM, dieser Host nicht (`Agents.headless.md` §3a).
+
+| Schritt | Was |
+|---|---|
+| 1 | Implementierung committen, **pushen** (explizite Pfade, nie `git add -A`) |
+| 2 | `gh run list` **einmal** lesen, bis der Lauf für **diesen** SHA existiert |
+| 3 | Ergebnis **mit SHA** nennen — nie „läuft in CI", nie „wird schon passen" |
+| 4 | **Rot ⇒ Vorrang vor aller neuer Arbeit** (§5(6)f): analysieren, isoliert fixen, grün pushen, erst dann die nächste Welle |
+
+**Ein Block gilt für „fertig", nicht für „verifiziert."** Fertig = implementiert, getestet,
+committet. Verifiziert = von jemand **anderem** geprüft. Der Unterschied ist der ganze Punkt: die
+volle Suite ist lokal der Grund, eine Welle nicht fertigzumachen — sie ist der Grund, zu pushen und
+die CI antworten zu lassen.
+
+**Grenze, die nicht zu schönreden ist:** CI beweist nicht, was unter **Fremdlast** passiert
+(`Agents.headless.md` §5), und sie ersetzt den strikten Nightly nicht — sie ist der verzeihende
+Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` (`retries: 0`,
+`maxFailures: 1`) maßgeblich.
+
+**Erster Gate-Durchlauf, 2026-10-02:** Der Nightly `36992762738` (09:57 UTC) ist **grün**, aber er
+lief gegen `9ec00d1` — **vor** den Wellen-1-Commits. Er ist damit **kein** Beleg für diese Arbeit,
+und genau das ist die Falle: ein grüner Lauf auf einem älteren SHA liest sich wie eine Freigabe, die
+es nicht gibt. Der Lauf, der Welle 1 prüft, steht noch aus.
 
 **Position 8 ist womöglich schon erledigt — am Code geprüft, nicht geglaubt (§3).** `frontend/tests/screenshots/badge-print.spec.ts` + `helpers/badge-print.ts` erfüllen den Vertrag der Zeile **Klausel für Klausel**: (a) PDF über den **echten** Export-Weg (`POST …/badges/export`, nie `renderPdf()`), (b) Rasterung über `scripts/pdf-to-png-vision.sh`, (c) PNGs **neben** dem Editor-Capture (`compareWith: EDITOR_ROUTE`), (d) `printVisionNote()` sagt wörtlich „TWO VIEWS OF THE SAME BADGE TEMPLATE". Dazu zwei Dinge, die die Zeile nicht verlangt hat: ein **401-Beweis vor dem Login** (der Export ist session-gegatet, nicht ambient offen) und die **Seitenanzahl-Postcondition, die das Backend nicht hat** (`buffers.length !== expectedPages` wirft) — genau die Lücke, die §7 nennt. Geliefert in `3c1fbe3`, also in einer **früheren** Welle. **Es wird keine Arbeit erfunden:** die Position gilt als `ALREADY-SATISFIED`, sobald die Verifikationsrunde das bestätigt; ein Lauf gegen den echten Store ist der einzige offene Rest, und der Store ist gitignored und auf diesem Host nicht vorhanden — das ist ein **benanntes Gate**, kein Claim.
 

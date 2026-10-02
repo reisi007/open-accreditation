@@ -100,18 +100,70 @@ Umgebungszustand, kein Projektzustand.
 
 | Prüfbar headless | Gate, das hier offen bleibt |
 |---|---|
-| Backend-Suite SQLite (`:memory:``) | — |
-| Backend-Suite PostgreSQL via `DB_HOST=dind scripts/test-pgsql.sh` | der CI-Job `backend-pgsql` auf dem GitHub-Runner |
+| **Relevante** Backend-Tests per `--filter` (SQLite `:memory:`) | die volle Suite → **CI** (§3a) |
 | `vendor/bin/pint --test`, `pnpm lint`, `pnpm build` inkl. `check:i18n` | — |
-| Vitest (`pnpm test:run`) | — |
-| Playwright-Specs einzeln, `--workers=1`, mit `MAILPIT_API_URL` auf `dind` | die volle Suite und das strikte Nightly-Profil |
-| Postgres-Gate, Vitest, Build, Screenshot-Harness (gegen laufenden Stack) | das Design-QA-Capturing unter **Fremdlast** — siehe §5 |
+| **Relevante** Vitest-Dateien per Filter | die volle Vitest-Suite → **CI** (§3a) |
+| Playwright-Specs einzeln, `--workers=1`, mit `MAILPIT_API_URL` auf `dind` | die volle Suite, das Postgres-Gate und das strikte Nightly-Profil → **CI** (§3a) |
+| Postgres-Gate via `DB_HOST=dind scripts/test-pgsql.sh` **bei Bedarf, nicht routinemäßig** | der CI-Job `backend-pgsql` auf dem GitHub-Runner |
+| Screenshot-Harness (gegen laufenden Stack) | das Design-QA-Capturing unter **Fremdlast** — siehe §5 |
 
 **Eine Unterscheidung, die hier leicht falsch getroffen wird:** „Mailpit nicht
 erreichbar" heißt **nicht** „Mail-Feature ungeprüft". `MAIL_HOST=dind`
 (`php`) bzw. `MAILPIT_API_URL=http://dind:8025/api/v1` (Playwright) stellen
 beides her. Ein nicht gelaufener Test wird als **nicht gelaufen** geführt, nicht
 als grün und nicht als rot.
+
+---
+
+## 3a. Die CI-Lokalisierung: lokal **relevante** Tests, in CI **alles** (Nutzerentscheid 2026-10-02)
+
+**Der Host ist teuer, CI ist kostenlos.** Diese Regel ist die Antwort auf einen Ablauf, der auf diesem
+Host gemessen zu lange gedauert hat: eine Verifikationsrunde, die **alle** Gates lokal fährt —
+volle Backend-Suite, Postgres-Gate, Vitest, Build, Lint **und** Mutationsproben — ist genau die Sorte
+Lauf, der §4 verbietet, weil er neben nichts anderem laufen darf. Sie macht den Agenten zum
+Blocker, und ein Blocker, der auf eine eigene Freigabe wartet, hält jede Welle an.
+
+| Was | Wo | Warum |
+|---|---|---|
+| **Relevante Tests** (die, die die Änderung betrifft) | **lokal** | schnell, gezielt, beantwortet die Frage „habe ich etwas gebrochen?" |
+| **Volle Suiten, Postgres-Gate, striktes Nightly-Profil** | **CI** | der GitHub-Runner ist ephemer und **eigener** RAM; hier kostet derselbe Lauf eine ganze Welle |
+
+**Die Regel:** Ein Agent fährt lokal **nicht** die volle Suite. Er fährt den **Filter**, der zur
+Änderung gehört, und **pusht** — CI ist das Gate, das alles fährt. Was lokal nicht gemessen wurde,
+ist **nicht** behauptet, sondern als **CI-Gate** benannt (§7 Punkt 3).
+
+**„Immer wieder nachsehen, ob der Lauf nicht eh grün ist."** Das ist ausdrücklich erwünscht und
+kein Polling-Ungeheuer: **vor** jedem neuen Schritt wird `gh run list` **einmal** gelesen. Ist der
+vorige Lauf grün, gilt er als Messung für den Stand, den er gebaut hat — und **nur** für diesen.
+Grün auf `9ec00d1` sagt **nichts** über `0b4ec2f`, das danach kam; das ist dieselbe Form wie eine
+Board-Zahl aus einem Baum, den es nicht mehr gibt, nur in CI statt im Board.
+
+### Das Gate zwischen den Wellen — explizit geplant, nie nebenbei
+
+**Zwischen jeder Welle steht ein benannter Punkt: „CI muss grün werden."** Er ist **kein**
+Nebenprodukt des Pushens, sondern ein **Schritt mit eigenem Nachweis**:
+
+1. Implementierung committen → **pushen** (explizite Pfade, nie `git add -A`).
+2. `gh run list` **einmal** lesen, bis der Lauf für diesen SHA existiert.
+3. Das Ergebnis **mit SHA nennen**. Kein „läuft in CI", kein „wird schon passen".
+4. **Rot ⇒ hat Vorrang vor allen neuer Arbeit** (§5(6)f). Analysieren, isoliert fixen, grün
+   pushen, **erst dann** die nächste Welle.
+
+**Ein Block gilt für „fertig", nicht für „verifiziert."** Der Unterschied ist der ganze Punkt:
+*fertig* heißt implementiert, getestet, committet. *Verifiziert* heißt von ** jemand anderem
+geprüft. Was lokal teuer ist (die volle Suite), ist darum **kein** Grund, eine Welle nicht
+fertigzumachen — es ist ein Grund, sie zu pushen und die CI antworten zu lassen.
+
+**Was das an §4 ändert und was nicht.** §4 (eine volle Suite zur Zeit) gilt **unverändert** für
+das, was **lokal** läuft — und das ist nach dieser Regel nur noch der **Filter**, nicht die Suite.
+§6 (Verifikationsläufe sequenziell) gilt ebenso unverändert. Was entfällt, ist der Grund, sie
+aufzuschieben: es gibt jetzt einen Ort, an dem die volle Suite **parallel zum eigenen Arbeiten**
+läuft, ohne dass ihr Ergebnis von Fremdlast zerstört wird — der GitHub-Runner hat keine.
+
+**Grenze, die nicht zu schönreden ist:** CI prüft **einen** Push auf **einem** Runner. Sie beweist
+nicht, was unter **Fremdlast** passiert (§5 dieser Datei), und sie ersetzt den strikten Nightly nicht
+— sie ist der verzeihende Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` mit
+`retries: 0`, `maxFailures: 1` maßgeblich, und das fährt weiter der Nightly.
 
 ---
 
