@@ -248,6 +248,20 @@ Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` (`retries:
 
 **Das ist das Argument für die CI-Lokalisierung in einem Vorfall.** §4 verbietet das Etikett „pre-existing": der Fehler wird behoben, nicht dokumentiert.
 
+**Gate 4, 2026-10-02, SHA `ab4c0c7`, Lauf `37034641045`: grün, alle vier Jobs. Der Gate-3-Fehler ist damit behoben und geschlossen — nicht etikettiert.**
+
+| Gate | Ergebnis |
+|---|---|
+| Backend SQLite | **1771 passed**, 9047 Assertions |
+| Backend Postgres | **1770 passed**, 9041 Assertions, **1 skipped** |
+| Vitest | **52 Dateien** passed |
+| E2E (volle Suite, verzeihend) | **157 passed**, 3.0 min |
+| `build` inkl. `check:i18n` | ✅ 436 Nachrichten |
+
+**`1771 + 0 = 1770 + 1` — beide Engines zählen dieselben 1771 Tests, die Differenz ist der dokumentierte `AllocationAtomicityTest`-Skip.** Der Postgres-Test, der Gate 3 rot machte, läuft jetzt auf **beiden** Engines. Der Fix ist `ab4c0c7`: `splitV2Payload()` spiegelt `QrTokenService::parse()` (outside-in), die Segment-Anzahl wird als Relation behauptet statt als Konstante, sieben Id-Paare sind über einen Datenprovider als **dotted** gepinnt, und drei Tamper-Tests haben einen Control bekommen (der unveränderte Payload muss verifizieren) — sonst wären sie aus dem falschen Grund grün. `QrTokenService` selbst wurde **nicht** angefasst: es war korrekt, und der eigene Kommentar `:178-181` sagt warum.
+
+**Der Lauf trug drei Commits — `799e330` (Position 9), `cb44bce` (Board-Doku Gate 3) und `ab4c0c7` (Qr-Fix) —, also *einen* Baum und nicht einen Commit.** Der Vorschlag, den Qr-Fix getrennt zu pushen, war damit hinfällig: CI antwortet auf den Baum. Gemessen wurde zuerst lokal (SQLite `--filter QrTokenV2Test` **35/311**, Postgres `dind` **35/311**, Pint clean) und dann in diesem Lauf.
+
 ### 🔧 Vorübergehende Anweisung 2026-10-02: `deepseek-v4.1-flash` für neue Subagenten
 
 **Ausdrückliche Nutzergenehmigung, und ausdrücklich „temporär".** `AGENTS.md` §5 verlangt vor jedem Einsatz den **Uhren-Check** (nicht aus dem Kopf). Gemessen am 2026-10-02, 16:00 UTC:
