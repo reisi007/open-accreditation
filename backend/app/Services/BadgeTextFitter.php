@@ -62,8 +62,12 @@ use Dompdf\FontMetrics;
  *
  * `MM_TO_PT` is 72/25.4 = 2.834645669, so a **40 × 8 mm box is 113.3858 ×
  * 22.6772 pt** and one line of DejaVu Sans at size `s` costs `1.53648 × s` pt.
- * One line therefore needs `s ≤ 22.6772 / 1.53648 = 14.7599 pt` — the box
- * cannot print 14 pt, let alone two lines of it (2 × 21.5107 = 43.0214 pt).
+ * One line therefore needs `s ≤ 22.6772 / 1.53648 = 14.7599 pt`, so a single
+ * SHORT line does print at 14 pt (21.5107 pt tall). What fails at 14 pt is a
+ * line WIDER than the box: `Max Mustermann` measures 121.478 pt against
+ * 113.3858 pt, so it is forced to WRAP, and TWO lines of it are 2 × 21.5107 =
+ * 43.0214 pt tall — taller than the 22.6772 pt box. The defect is a width
+ * overflow that only becomes a height overflow because of the wrap.
  * A 63-character name in that box first fits at **5 pt** (2 lines). For a
  * text of unbounded length there is no size at which wrapping helps; that is a
  * limit of the geometry, not an open question, and {@see fit()} reports it as
@@ -520,7 +524,9 @@ final class BadgeTextFitter
      * `getTextWidth()` keeps a `static $cache` whose KEY is
      * `canvasClass/font/size/wordSpacing/charSpacing` (`FontMetrics.php:294-320`);
      * the text is only a SECOND level of that key, and the cache is skipped for
-     * strings of 50 characters or more. Two consequences for this class:
+     * strings of 51 characters or more (`$useCache = !isset($text[50])` is set at
+     * index 50, i.e. length 51; length 50 is still cached). Two consequences for
+     * this class:
      * (1) our field values are arbitrary tenant data and routinely exceed 50
      * characters, so dompdf's cache does nothing for them — the memo below is
      * what keeps the bisection affordable; (2) the cache is `static`, so it is
