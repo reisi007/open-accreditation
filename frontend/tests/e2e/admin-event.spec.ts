@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
-import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+import { findCreatedRowId } from './helpers/created-row';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -72,6 +73,14 @@ test.describe('Admin: Events (P2b)', () => {
         await adminMain.getByLabel('Frist Ende', { exact: true }).fill('2026-08-20');
         await adminMain.getByRole('button', { name: 'Event erstellen' }).click();
         await expect(adminMain.getByRole('row', { name: new RegExp(uniqueTitle) })).toBeVisible();
+        // Registered here, BEFORE the edit — the ledger stores the id, so the
+        // later title change cannot make the row unaddressable, and a failure in
+        // the edit, the resend or the delete leaves the event owned instead of to
+        // the serial name sweep (Position 22). `uniqueTitle` is the key, because
+        // that is the only handle the form submit leaves, and `editedTitle`
+        // CONTAINS it — which is also why the lookup must be exact rather than a
+        // prefix search.
+        rememberOwnedRow('events', await findCreatedRowId('/api/admin/events', 'title', uniqueTitle, 'events'));
 
         // Edit the event. The row locator must not be built from `uniqueTitle`:
         // `editedTitle` contains it, so a `RegExp(uniqueTitle)` also matches the

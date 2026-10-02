@@ -67,12 +67,22 @@ export default tseslint.config(
     //     `import type` is erased, so the module has no runtime dependency on
     //     `@playwright/test` (whose real import costs 121 s under Vitest, vs 526 ms
     //     in plain node). See that file's own docblock.
+    //   `helpers/created-row-lookup.ts` — the created-row lookup behind the
+    //     per-test ownership ledger, for the same reason on both counts: it takes
+    //     an `APIRequestContext` and its value column is `unknown`, which is what
+    //     keeps the comparison a strict `===` instead of a coercion, and it opens
+    //     no session, so vitest can drive it. Its self-logging wrapper sits in
+    //     `helpers/created-row.ts` (plain ES2020, no parameters typed) precisely
+    //     because THAT one does import the session.
     //   `teams-precondition.test.ts` — its test of the above, which needs the same
     //     types plus `import type` for them.
+    //   `created-row-lookup.test.ts` — same reason again.
     files: [
       'tests/screenshots/**/*.ts',
       'tests/e2e/helpers/teams-enabled.ts',
+      'tests/e2e/helpers/created-row-lookup.ts',
       'tests/e2e/teams-precondition.test.ts',
+      'tests/e2e/created-row-lookup.test.ts',
     ],
     languageOptions: {
       parser: tsParser,

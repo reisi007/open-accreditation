@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+import { findCreatedRowId, findCreatedRowIdByNumber } from './helpers/created-row';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -66,6 +67,19 @@ test.describe('Admin Freigaben (P3e)', () => {
         await main.getByRole('button', { name: 'Blacklist-Eintrag anlegen' }).click();
         const blacklistRow = main.getByRole('row', { name: new RegExp(applicantD.email) });
         await expect(blacklistRow).toBeVisible();
+        // Registered right after the submit, i.e. BEFORE the seven approval steps
+        // below — a failure in any one of them used to leave this row to the serial
+        // name sweep, which cannot even see `blacklists` (it has no name column,
+        // only an email), so the leak was unbounded (Position 22).
+        //
+        // The key is the applicant's EMAIL, which is unique per mandant by the
+        // backend's `(mandant_id, email)` constraint — so an exact match names one
+        // row, and `BlacklistController::index` is `->forMandant(…)`, so no other
+        // mandant's entry is in the list at all.
+        rememberOwnedRow(
+            'blacklists',
+            await findCreatedRowId('/api/admin/blacklists', 'email', applicantD.email, 'blacklists'),
+        );
         await expect(main.getByText('1 Eintrag', { exact: true })).toBeVisible();
 
         // 2) Anträge tab: filter by the accreditation and see all four rows.
@@ -156,7 +170,11 @@ test.describe('Admin Freigaben (P3e)', () => {
     });
 
     test('admin creates, edits and deletes a sub-accreditation via the admin modal', { tag: ['@feature:accreditation'] }, async ({ page }) => {
-        const { categoryName } = await ensurePrimaryMandantAccreditation();
+        // `accreditation` was not destructured before Position 22: nothing needed
+        // it, because the sub-accreditation this test creates was never registered.
+        // It is the lookup key now (see below), and it is the row the ledger
+        // deletes this one through.
+        const { accreditation, categoryName } = await ensurePrimaryMandantAccreditation();
 
         // Direct admin-URL load is the allowed route-guard exception: the
         // guest is redirected to /login and returns to /admin/accreditations
@@ -193,6 +211,34 @@ test.describe('Admin Freigaben (P3e)', () => {
         const subArticle = listDialog.locator('article', { hasText: 'Parkkarte' });
         await expect(subArticle).toBeVisible();
         await expect(subArticle.getByText('Quota 3')).toBeVisible();
+
+        // Registered before the quota edit and the delete below (Position 22).
+        //
+        // ## Why this row is keyed by `accreditation_id` and not by a name
+        //
+        // Because it HAS no name. `SubAccreditationResource` carries `id`,
+        // `accreditation_id`, `type`, `quota`, `applications_count`, `available`,
+        // `deadline_start`, `deadline_end`, `auto_approve` and `active` — and
+        // `type` is `'park'` for every park sub-accreditation in the mandant, so
+        // keying on it would make the helper throw on a second one (a row another
+        // spec created). `accreditation_id` is unique HERE and by construction: the
+        // accreditation was created by `ensurePrimaryMandantAccreditation()` at the
+        // top of THIS test — it is a fresh row, registered, that no other spec
+        // hangs a sub-accreditation off. Should that ever stop being true, the
+        // lookup throws instead of deleting somebody else's sub-accreditation,
+        // which is the fail-closed direction.
+        //
+        // Hence the numeric wrapper: the comparison is `===`, so the expected
+        // value must be the NUMBER the resource carries, not its string.
+        rememberOwnedRow(
+            'subAccreditations',
+            await findCreatedRowIdByNumber(
+                '/api/admin/sub-accreditations',
+                'accreditation_id',
+                accreditation.id,
+                'subAccreditations',
+            ),
+        );
 
         // Edit the quota to 4.
         await subArticle.getByRole('button', { name: 'Bearbeiten' }).click();

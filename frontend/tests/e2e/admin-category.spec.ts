@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
-import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+import { findCreatedRowId } from './helpers/created-row';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -67,6 +68,17 @@ test.describe('Admin: Kategorien (P2b)', () => {
         await adminMain.getByLabel('Slug', { exact: true }).fill(uniqueSlug);
         await adminMain.getByRole('button', { name: 'Kategorie erstellen' }).click();
         await expect(adminMain.getByRole('row', { name: new RegExp(uniqueName) })).toBeVisible();
+        // Registered IMMEDIATELY after the submit and BEFORE the rename three
+        // lines down. Two reasons, both the same reason: the ledger stores the
+        // id, so the later rename cannot make the row unaddressable — and a
+        // failure anywhere between here and the UI delete at the bottom cannot
+        // leave the row to the serial name sweep (Position 22). The lookup key is
+        // the name AS TYPED, because that is the only handle a form submit
+        // leaves; see `helpers/created-row.ts`.
+        rememberOwnedRow(
+            'categories',
+            await findCreatedRowId('/api/admin/categories', 'name', uniqueName, 'categories'),
+        );
 
         // Edit the category.
         await adminMain.getByRole('row', { name: new RegExp(uniqueSlug) }).getByRole('button', { name: 'Bearbeiten' }).click();
@@ -84,6 +96,14 @@ test.describe('Admin: Kategorien (P2b)', () => {
         const teamRow = adminMain.getByRole('row', { name: new RegExp(teamName) });
         await expect(teamRow).toBeVisible();
         await expect(teamRow.getByText('Team-Override')).toBeVisible();
+        // The second create, registered the same way. It is the row that makes the
+        // half-failure guarantee visible: if the delete at the bottom never runs,
+        // BOTH rows are still owned — this one since it was created, the first one
+        // since its own submit.
+        rememberOwnedRow(
+            'categories',
+            await findCreatedRowId('/api/admin/categories', 'name', teamName, 'categories'),
+        );
 
         // Delete both categories (confirm dialog).
         page.on('dialog', (dialog) => void dialog.accept());

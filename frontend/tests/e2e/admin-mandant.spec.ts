@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { acquirePrimaryMandantLogoLock, loginAdminApi, uniqueSuffix } from './helpers/admin-data';
+import { findCreatedRowId } from './helpers/created-row';
 import { pngFixture } from '../screenshots/helpers/png-fixtures';
 import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
@@ -61,50 +62,22 @@ test.describe('Admin: Mandanten (P2a)', () => {
          * by prefix, which is exactly why the leak stays invisible for a whole
          * run.
          *
-         * The lookup is by exact value and not by prefix, because `uniqueSuffix()`
-         * stamps every one of these names per worker — a prefix search would
-         * return a sibling's row and register the WRONG id, which is a worse
-         * failure than no registration at all.
+         * ## Why this file imports it instead of keeping its own copy
          *
-         * ## Why it returns the id and does NOT register it
+         * This WAS the private helper, defined inline in this test. It is now
+         * `findCreatedRowId` from `tests/e2e/helpers/created-row.ts`, because
+         * Position 22 needed the same lookup in five more specs and a second copy
+         * would have been a second truth about the one rule that decides whether a
+         * UI-created row can be given back. The docblock that used to live here
+         * moved with it, together with the two reasons the call sites — and not
+         * this function — carry the `rememberOwnedRow('<kind>', …)` call: the kind
+         * is a LITERAL there, so the gate in `namespace-isolation.spec.ts` can
+         * read which kinds a test registers, and the ordering the ledger depends
+         * on (create, then immediately register) stays visible in the test body.
          *
-         * The `rememberOwnedRow('<kind>', …)` call is written at each create site
-         * instead of inside here, for two reasons: the kind is a LITERAL at the
-         * call site, so the gate in `namespace-isolation.spec.ts` can read which
-         * kinds a test registers (a generic `rememberOwnedRow(kind, …)` reads as a
-         * registration of nothing); and the ordering the ledger depends on —
-         * create, then immediately register — is visible in the test body.
-         *
-         * ## Why a short-lived session
-         *
-         * One call per create, right after its submit, so the third create
-         * throwing cannot lose the first two rows: that is the half-failure
-         * guarantee, and a session held across all three would put a live
-         * resource between a create and its registration. `login` is throttled
-         * per IP; three sessions it is.
+         * `tests/e2e/created-row-lookup.test.ts` fails if this copy ever comes
+         * back.
          */
-        async function findCreatedRowId(listUrl = '', key = '', value = '', kind = '') {
-            const api = await loginAdminApi();
-            try {
-                const rows = (await (await api.get(listUrl)).json()).data ?? [];
-                for (const row of rows) {
-                    if (row[key] === value) {
-                        return row.id;
-                    }
-                }
-            } finally {
-                await api.dispose();
-            }
-            // Throwing rather than warning is the point: a lookup that finds
-            // nothing means the form and the API disagree, and the row is
-            // already in the database. Carrying on would leave it behind with a
-            // green test on top of it.
-            throw new Error(
-                `the form for a ${kind} reported success, but no row in ${listUrl} carries ${key} ` +
-                    `"${value}". Its id is therefore unknown, so it cannot be given back, and this test ` +
-                    'refuses to continue on top of a row it would leak.',
-            );
-        }
 
         // Initial guest load is the only allowed page.goto.
         await page.goto('/');

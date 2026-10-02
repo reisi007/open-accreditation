@@ -1005,11 +1005,24 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
      * (`PLAN_COLLECTIONS`): a spec that POSTs to a collection route of the
      * teardown plan is a creator **whether or not it registers anything**. That
      * is what makes this file a gate rather than a note.
+     *
+     * ## And the table only works because the lookup it names exists ONCE
+     *
+     * Every row below is satisfied the same way: a submit, then
+     * `findCreatedRowId(listUrl, key, value, kind)` under the EXACT name the test
+     * typed, then `rememberOwnedRow('<kind>', …)` with the kind as a literal.
+     * That lookup is `tests/e2e/helpers/created-row.ts` — ONE module, shared by
+     * all of these specs, and the reason `admin-mandant.spec.ts` no longer keeps
+     * a private copy of what it was the first user of. A second copy would be a
+     * second truth about the one rule that decides whether a UI-created row can be
+     * given back, and the table below could not see the difference:
+     * `tests/e2e/created-row-lookup.test.ts` is what sees it.
      */
     const UI_CREATE_SITES = [
         {
             spec: 'tests/e2e/admin-mandant.spec.ts',
             kind: 'mandants',
+            creates: 1,
             controls: ['Mandant erstellen', 'Teams aktivieren'],
             note: 'the "create mandant" form; the id is only in the URL, so the spec looks it up by its ' +
                 'exact, worker-stamped name right after the submit.',
@@ -1017,15 +1030,93 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
         {
             spec: 'tests/e2e/admin-mandant.spec.ts',
             kind: 'mandantDomains',
+            creates: 1,
             controls: ['Domain hinzufügen'],
             note: "the detail page's domain form, registered immediately after the submit.",
         },
         {
             spec: 'tests/e2e/admin-mandant.spec.ts',
             kind: 'teams',
+            creates: 1,
             controls: ['Team speichern'],
             note: "the detail page's team form — the only create in the suite that needs a mandant-scoped " +
                 'parentId, which is why the lookup takes the mandant id as an argument.',
+        },
+        // ── Position 22: the specs whose ledger hook existed but was EMPTY ──────
+        //
+        // Five specs created rows through a FORM and deleted them through the UI,
+        // so their `afterEach` had nothing to give back and a mid-test failure left
+        // the rows to the serial name sweep — the F1 shape the ledger exists to
+        // end. The fix is one lookup under the EXACT, worker-stamped name right
+        // after each submit (`helpers/created-row.ts`), and each entry below is the
+        // registration that makes the ledger hook real.
+        //
+        // One entry PER CREATE, not one per (spec, kind): `testBlockContaining`
+        // below resolves the control to the test that clicks it, so a spec that
+        // creates the same kind in two tests (`admin-venue.spec.ts`, two venues)
+        // needs two entries or the second test is never checked. Both entries name
+        // a control that occurs in exactly one test block — see `the UI-create table
+        // has no dead entry`, which fails if a control moves or disappears.
+        {
+            spec: 'tests/e2e/admin-category.spec.ts',
+            kind: 'categories',
+            creates: 2,
+            controls: ['Kategorie erstellen'],
+            note: 'the mandant-level category form AND the team-level one — two creates in ONE test, hence ' +
+                '`creates: 2` rather than a second entry: the scan resolves a control to its enclosing TEST ' +
+                'block, so a second entry on the same control would have asked the same question twice.',
+        },
+        {
+            spec: 'tests/e2e/admin-event.spec.ts',
+            kind: 'events',
+            creates: 1,
+            controls: ['Event erstellen'],
+            note: 'the event form; the key is the title AS TYPED, because the spec renames the event two steps ' +
+                'later and `editedTitle` CONTAINS `uniqueTitle` — which is also why the lookup must be exact.',
+        },
+        {
+            spec: 'tests/e2e/admin-venue.spec.ts',
+            kind: 'venues',
+            creates: 1,
+            controls: ['Spielort erstellen'],
+            note: "the venues page's own create form, in the test that renames, deactivates and then deletes " +
+                'its venue through the UI.',
+        },
+        {
+            spec: 'tests/e2e/admin-venue.spec.ts',
+            kind: 'venues',
+            creates: 1,
+            controls: ['neu anlegen'],
+            note: "the INLINE create inside the team form — the combobox option that creates the venue instead " +
+                'of selecting one. A second, separate create in the same file, which is why it needs its own ' +
+                'entry; this is the `+1 venue per run` row that used to be unreachable at all.',
+        },
+        {
+            spec: 'tests/e2e/admin-venue.spec.ts',
+            kind: 'teams',
+            creates: 1,
+            controls: ['Team speichern'],
+            note: 'the team form of the same test, and the second `teams` create in the suite. Registered WITH ' +
+                'its mandant: the DELETE route is `/api/admin/mandants/{parentId}/teams`, so a missing parentId ' +
+                'makes the teardown address mandant 0 and count the 404 as reclaimed.',
+        },
+        {
+            spec: 'tests/e2e/approvals.spec.ts',
+            kind: 'blacklists',
+            creates: 1,
+            controls: ['Blacklist-Eintrag anlegen'],
+            note: 'the blacklist form, created seven approval steps before the UI delete. The serial sweep ' +
+                'cannot reach this kind at all — it has no name column — so an unregistered row here was ' +
+                'never merely late, it was unbounded.',
+        },
+        {
+            spec: 'tests/e2e/approvals.spec.ts',
+            kind: 'subAccreditations',
+            creates: 1,
+            controls: ['Sub-Akkreditierung erstellen'],
+            note: 'the admin modal in the second test of the file. Keyed by `accreditation_id` rather than by a ' +
+                'name because `SubAccreditationResource` has none that is unique — see the spec for the whole ' +
+                'argument and why the numeric wrapper is the one used.',
         },
     ];
 
@@ -1238,7 +1329,7 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
     const TEST_BLOCK_OPENER = /\n[ \t]*test(?:\.[A-Za-z]+)?\(/g;
 
     /**
-     * Does this source register a row of `kind` with the ledger?
+     * Does this source register a row of `kind` with the ledger, and HOW MANY?
      *
      * A REGEX rather than a substring, and the reason is measured: the natural
      * way to write a three-argument registration is multi-line (the line gets
@@ -1262,9 +1353,38 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
      *   project's stated convention: `admin-mandant.spec.ts` writes the kind as a
      *   literal at each create site precisely so this gate can read it, and calls
      *   a generic `rememberOwnedRow(kind, …)` "a registration of nothing".
+     *
+     * ## Why the COUNT and not a boolean
+     *
+     * MEASURED, and this is why the count was added rather than the boolean being
+     * left alone: `admin-category.spec.ts` creates TWO categories in ONE test and
+     * registers both. Deleting the FIRST registration — the empty-hook position's
+     * smaller cousin, "the test registers its rows, but not all of them" — left
+     * the block-level check GREEN (28 passed), because the second registration is
+     * in the same block and `registerCallIn` only asks whether ONE exists. The
+     * run was green over a spec that had stopped giving back a row.
+     *
+     * So `UI_CREATE_SITES` now carries a `creates` count next to its `controls`,
+     * and the guard asks for that many registrations. The count is DATA because
+     * the only other candidate — how often the control string occurs in the block
+     * — is wrong: `'neu anlegen'` occurs TWICE in `admin-venue.spec.ts`'s second
+     * test, and the second occurrence is the assertion that the option is NOT
+     * offered. Deriving the number from the text would have demanded two venue
+     * registrations there.
      */
+    function registrationsIn(code = '', kind = '') {
+        // A FRESH regex per call: a module-scope `/g` pattern carries `lastIndex`
+        // between calls, which is exactly how a second call would read zero.
+        const pattern = new RegExp(`rememberOwnedRow\\(\\s*(['"\`])${kind}\\1`, 'g');
+        let count = 0;
+        while (pattern.exec(code) !== null) {
+            count += 1;
+        }
+        return count;
+    }
+
     function registerCallIn(code = '', kind = '') {
-        return new RegExp(`rememberOwnedRow\\(\\s*(['"\`])${kind}\\1`).test(code);
+        return registrationsIn(code, kind) > 0;
     }
 
     function testBlockContaining(code = '', index = 0) {
@@ -1327,6 +1447,27 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
                         'green. (A registration in a SIBLING test does not count: the ledger is emptied per ' +
                         'test.)',
                 );
+                continue;
+            }
+            // …and ENOUGH of them: one per create, not one per test. MEASURED — with
+            // the boolean alone, deleting ONE of `admin-category.spec.ts`'s two
+            // registrations left this gate GREEN (28 passed), because the other
+            // one is in the same block. A spec that registers some of its rows is
+            // a spec that leaks the rest, and that is the failure the board
+            // recorded, one step smaller.
+            //
+            // The count is read on the FIRST control's block: a site whose controls
+            // sit in different tests (`admin-venue.spec.ts`, two venues) has one
+            // entry per test, so its block is the one its own `creates` describes.
+            const block = testBlockContaining(spec.code, spec.code.indexOf(site.controls[0]));
+            const found = registrationsIn(block, site.kind);
+            if (found < site.creates) {
+                offenders.push(
+                    `  ${site.spec}  creates ${site.creates} ${site.kind} row(s) through the UI in ONE test but ` +
+                        `that test registers ${found}. Every create needs its own registration: they are not ` +
+                        'interchangeable, and the ones nobody registered survive this test and the next run ' +
+                        'inherits them. (Raise `creates` if the test really creates more.)',
+                );
             }
         }
         expect(
@@ -1356,6 +1497,38 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             'UI_CREATE_SITES entries whose control is not in the spec any more — dead coverage that hides a ' +
                 'spec that stopped registering',
         ).toEqual([]);
+
+        // …and `creates` has to be a real count on every entry. This is NOT a
+        // style assertion: the guard compares `registrations < site.creates`, and
+        // against `undefined` every comparison is FALSE — so an entry that forgot
+        // the field would silently satisfy the guard it exists to enforce. That
+        // is the fail-OPEN direction, and it is the one direction this check may
+        // never take.
+        const uncounted = UI_CREATE_SITES.filter(
+            (site) => !Number.isInteger(site.creates) || site.creates < 1,
+        ).map((site) => `${site.spec} (${site.kind})`);
+        expect(
+            uncounted,
+            'UI_CREATE_SITES entries with no positive integer `creates` — the per-create count in the guard above ' +
+                'compares against it, so a missing value makes that comparison vacuously pass',
+        ).toEqual([]);
+
+        // Non-vacuity from the other side: the table must actually contain the
+        // creates this position added, or the guard would be checking three
+        // entries and looking thorough. Named explicitly, so adding a spec is a
+        // visible edit here rather than a silent one.
+        expect(UI_CREATE_SITES.map((site) => `${site.spec} → ${site.kind}`).sort()).toEqual([
+            'tests/e2e/admin-category.spec.ts → categories',
+            'tests/e2e/admin-event.spec.ts → events',
+            'tests/e2e/admin-mandant.spec.ts → mandantDomains',
+            'tests/e2e/admin-mandant.spec.ts → mandants',
+            'tests/e2e/admin-mandant.spec.ts → teams',
+            'tests/e2e/admin-venue.spec.ts → teams',
+            'tests/e2e/admin-venue.spec.ts → venues',
+            'tests/e2e/admin-venue.spec.ts → venues',
+            'tests/e2e/approvals.spec.ts → blacklists',
+            'tests/e2e/approvals.spec.ts → subAccreditations',
+        ]);
     });
 
     test('a raw create POST makes a spec a creator even with no registration at all', () => {

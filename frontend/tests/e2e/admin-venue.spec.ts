@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { uniqueSuffix } from './helpers/admin-data';
-import { reclaimOwnedRows, resetOwnedRows } from './helpers/ownership';
+import { findCreatedRowId } from './helpers/created-row';
+import { reclaimOwnedRows, rememberOwnedRow, resetOwnedRows } from './helpers/ownership';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -22,32 +23,44 @@ test.afterEach(async () => {
 });
 
 /**
- * ## The ledger stays EMPTY in this file, and that is a decision, not an oversight
+ * ## The ledger is NOT empty in this file any more (Position 22)
  *
- * Nothing below registers a row, so these two hooks never have anything to give
- * back. Both tests create rows through FORMS, and a create form answers no id —
- * registering one means looking it up under its exact, worker-stamped name right
- * after the submit (the `findCreatedRowId` pattern in `admin-mandant.spec.ts`).
- * The first test does not need that: it deletes its own venue by row locator at
- * the end. The second test deletes NOTHING, so its `E2E Team ${suffix}` and
- * `E2E Heimstadion ${suffix}` rows (+1 team, +1 venue per run) are reclaimed by
- * the serial `globalTeardown` name sweep instead. The count is per RUN and not
- * per project, because the project skip below is DESCRIBE-WIDE: one
- * `beforeEach` guards both tests, so Mobile Chrome skips this whole file rather
- * than only its second test. `E2E_PURGE_MARKERS.teamNames` holds
- * `'E2E Team '` and `venueNames` holds `'E2E Heimstadion'`. The ORDER in
- * `E2E_PURGE_SWEEPS` is what makes that work — teams before venues, because the
- * venue is still REFERENCED by the team and a referenced venue answers 409 (the
- * measured F1 failure).
+ * It was, and the paragraph that said so was a record of a known gap rather than
+ * a defence of it — MEASURED, adding this file to `UI_CREATE_SITES` in
+ * `namespace-isolation.spec.ts` turned `THE GUARD: a spec that creates through
+ * the UI registers what it created` RED, naming this file and `Team speichern`.
+ * Position 22 closed it.
  *
- * ## The gate is one table entry away from calling this, and it does
+ * Both tests create rows through FORMS, and a create form answers no id, so each
+ * create is followed immediately by a lookup under its EXACT, worker-stamped
+ * name (`helpers/created-row.ts` — the shared form of what
+ * `admin-mandant.spec.ts` used to carry privately). Four rows, four
+ * registrations:
  *
- * MEASURED: adding `{spec: 'tests/e2e/admin-venue.spec.ts', kind: 'teams',
- * controls: ['Team speichern']}` to `UI_CREATE_SITES` turns `THE GUARD: a spec
- * that creates through the UI registers what it created` RED, naming this file
- * and that control. The table exists so a claim like this one is CHECKABLE rather
- * than merely stated — so this paragraph is the record of a known, unaddressed
- * gap, not a defence of it.
+ * | test    | row      | key                | registered |
+ * |---------|----------|--------------------|------------|
+ * | 1       | venue    | `name` as typed    | after the create submit, BEFORE the rename |
+ * | 2       | venue    | `name` as typed    | after the inline create in the team form |
+ * | 2       | team     | `name`             | after `Team speichern`, with the mandant as `parentId` |
+ *
+ * ## What the UI delete at the end of test 1 now means
+ *
+ * It used to be this test's ONLY cleanup, which made it load-bearing: a failure
+ * anywhere between the create and that button left the venue behind, and the
+ * serial `globalTeardown` name sweep was the net that eventually took it — one
+ * row per run, for as long as it took a human to look. Now the ledger is the
+ * first net and the button is the second. The teardown's DELETE of a row the UI
+ * already removed answers 404, which `helpers/ownership.ts` classifies as
+ * "the row is gone" and counts as reclaimed — so the double cleanup is the
+ * measured shape, not a contradiction.
+ *
+ * ## What the ORDER is
+ *
+ * `E2E_OWNED_TEARDOWN` puts `teams` before `venues`, and `teams.venue_id` is
+ * `restrictOnDelete`: deleting the venue while the team still points at it is
+ * refused with 409 (F1's 53 refused venue deletes were exactly that). The plan
+ * order, not the registration order, is what satisfies it, and
+ * `namespace-isolation.spec.ts` walks `E2E_OWNED_FK_EDGES` to prove it.
  */
 
 /**
@@ -105,6 +118,12 @@ test.describe('Admin: Spielorte (W12)', () => {
         await adminMain.getByRole('button', { name: 'Spielort erstellen' }).click();
         const venueRow = adminMain.getByRole('row', { name: new RegExp(name) });
         await expect(venueRow).toBeVisible();
+        // Registered before the rename two steps down, and under the name AS
+        // TYPED: the ledger addresses rows by id, so the rename cannot make this
+        // one unaddressable, and a failure in the rename, the deactivate/reactivate
+        // cycle or the delete leaves the venue owned instead of to the serial name
+        // sweep (Position 22).
+        rememberOwnedRow('venues', await findCreatedRowId('/api/admin/venues', 'name', name, 'venues'));
         // Unreferenced ⇒ deleteable.
         await expect(venueRow.getByRole('button', { name: 'Löschen' })).toBeEnabled();
 
@@ -149,6 +168,13 @@ test.describe('Admin: Spielorte (W12)', () => {
         await page.getByRole('main').getByRole('link', { name: 'Hauptseite' }).click();
         await expect(page).toHaveURL(/\/admin\/mandants\/\d+$/);
         const adminMain = page.getByRole('main');
+        // The mandant id, read out of the URL the navigation landed on.
+        // `E2E_OWNED_TEARDOWN` addresses a `teams` row through the mandant-scoped
+        // route `/api/admin/mandants/{parentId}/teams`, so this third argument is
+        // not optional bookkeeping — without it the teardown would DELETE
+        // `/api/admin/mandants/0/teams/{id}`, which answers the "row is gone"
+        // 404, and the team would survive a cleanup that reported success.
+        const mandantId = Number(new URL(page.url()).pathname.split('/').pop());
         await adminMain.getByRole('button', { name: 'Team hinzufügen' }).click();
 
         // The mandant may have no venue at all yet — that is exactly the case a
@@ -160,11 +186,25 @@ test.describe('Admin: Spielorte (W12)', () => {
         await adminMain.getByRole('option', { name: `${venueName} neu anlegen` }).click();
         // The inline create selects the new venue; the field shows its name.
         await expect(venueField).toHaveValue(venueName);
+        // Registered HERE, at the first moment the venue demonstrably exists. This
+        // test deleted NOTHING before Position 22, so its `E2E Heimstadion …` row
+        // (+1 venue per run) was reachable only by the serial name sweep — and a
+        // sweep cannot run when the run was killed, which is the failure the
+        // ledger exists for.
+        rememberOwnedRow('venues', await findCreatedRowId('/api/admin/venues', 'name', venueName, 'venues'));
 
         await adminMain.getByLabel('Team-Name', { exact: true }).fill(teamName);
         await adminMain.getByLabel('Team-Slug', { exact: true }).fill(teamSlug);
         await adminMain.getByRole('button', { name: 'Team speichern' }).click();
         await expect(adminMain.getByText(teamName, { exact: true })).toBeVisible();
+        // …and the team, with its mandant, because its DELETE route is
+        // mandant-scoped. Without the third argument the teardown would address
+        // mandant 0 and count the answer as reclaimed.
+        rememberOwnedRow(
+            'teams',
+            await findCreatedRowId(`/api/admin/mandants/${mandantId}/teams`, 'name', teamName, 'teams'),
+            mandantId,
+        );
 
         // The venue is now referenced ⇒ deactivate is the primary action and
         // delete is not offered.
