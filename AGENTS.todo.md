@@ -184,7 +184,11 @@
 | **2** | **9** — Druck misst Textbreite selbst | ~~**8**~~ — **siehe unten: vermutlich `ALREADY-SATISFIED`** | Backend-Renderer gegen Screenshot-Spec |
 | **3** | **41** — Content-Stream-Wächter | **22** — Ledger-Namens-Lookup | `BadgeTest.php` gegen E2E-Ledger |
 
-**Stand der Wellen:** Welle 1 **implementiert und committet** (`3b9ecd8`, `c46ba63`, `7d2fe56`).
+**Stand der Wellen:** Welle 1 **implementiert, committet und verifiziert** (`3b9ecd8`, `c46ba63`, `7d2fe56`).
+
+**Welle-1-Verdikt (2026-10-02): `APPROVED`, kein `critical`/`high`.** Geprüft gegen den committeten Stand (`576aa40`); die Welle-1-Dateien sind bis `04e8ee5` byte-identisch geblieben. Beide Ströme sind **am Code** belegt, nicht an der Absicht (§3): Strom A **5 Mutationen** (Pin entfernen → 1–2 rot je Key, `verbatim` entfernen → typisierender Fehler, `MAIL_MAILER` zurück auf `smtp` → rot), Strom B **6 Mutationen** (Reporter abmelden → rot, `walked.files === 0`-Bedingung entfernen → **5 rot**, Legacy-Literal divergieren → 2 rot, Idempotenz-Guard entfernen → rot, `ensureTeamsEnabled`-Aufruf entfernen → 2 rot). Position 38 zusätzlich am **echten Stack** (scoped E2E, `--workers=1`): unmutiert **2 passed**, mit `teams_enabled=false` **2 failed** an der benannten Assertion. Die zehn Pins sind auf **beiden** Engines grün (Postgres `dind`, 118 passed/413 Assertions für die betroffenen Klassen) — die §2-Regel „beide Engines" damit für Welle 1 **neu gemessen**.
+
+**Die zwei `low`-Befunde sind in `4c308f3` behoben** — kommentar-only. **F1** (`phpunit.xml`): die Zahlen „162 gelesen / 21 gepinnt / 147 ungepinnt" waren falsch **und** intern inkonsistent (`21+147≠162`); neu gemessen und mit **Methode** genannt (**159** distinkte `env()`-Keys per PHP-Tokenizer, **31** `<env>`-Namen, **25** Überlappung, **134** ungepinnt), als **Snapshot** gekennzeichnet. **F2** (`ci.yml`): der mailpit-Kommentar sagte „phpunit.xml sendet via SMTP" — seit Position 42 ist der **Default** socketlos (`array`), aber `MandantMailerService::send()` → `Mail::mailer('smtp')` (`:54`) geht am Pin vorbei, also bleibt Mailpit benutzt und begründet. **Ein Follow-up bleibt offen:** `phpunit.xml` trägt im selben Block noch die **Referenzzahl `1732 passed`** aus dem Hostile-`.env`-Messlauf; der aktuelle SQLite-Stand ist **1778**. Sie ist als Referenz jenes Laufs formuliert — ob sie das ausreichend kennzeichnet, prüft der Fix-Verifikator.
 
 ### 🚦 Das Gate zwischen den Wellen — „CI muss grün werden" (Nutzerentscheid 2026-10-02)
 
