@@ -80,6 +80,20 @@ bash scripts/e2e-up.sh
 cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
+**Worker & Scheduler in Dev.** `scripts/e2e-up.sh` startet nur die Infra
+(Postgres + Mailpit); das Dev-Backend läuft host-native über
+`php artisan serve`, es gibt also keinen Container, der den Prod-Supervisor
+aufnehmen könnte. Damit `allocation:run`/`reminders:send` **auch in dev**
+laufen (`features/accreditation/01-allocation-engine.md:408`), startet
+
+```bash
+bash scripts/dev-worker.sh
+```
+
+denselben Takt host-native: `queue:work --tries=3 --timeout=60` in einer
+Restart-Schleife und `schedule:run` alle 60 s, konfiguriert aus `backend/.env`.
+Im Vordergrund; Ctrl-C beendet beide Schleifen.
+
 Die Einzelschritte aus `scripts/e2e-up.sh` manuell:
 
 ```bash
@@ -146,7 +160,7 @@ Was der Start macht — Compose zieht die Abhängigkeiten von `backend` hoch:
 |---|---|---|
 | 1 | `db` | Postgres, Start erst nach `service_healthy` |
 | 2 | `migrate` | **einmaliger** Deploy-Schritt (siehe unten), läuft genau einmal pro Deploy |
-| 3 | `backend` | PHP-FPM auf `127.0.0.1:9000` (Caddy-Upstream `fastcgi 127.0.0.1:9000`), startet erst nach `service_completed_successfully` von `migrate` |
+| 3 | `backend` | PHP-FPM auf `127.0.0.1:9000` (Caddy-Upstream `fastcgi 127.0.0.1:9000`) **plus Queue-Worker + Scheduler** (Supervisor, siehe unten), startet erst nach `service_completed_successfully` von `migrate` |
 
 Der `migrate`-Service ist ein **One-Shot** ohne `restart`. Er läuft über
 `deployment/entrypoint.sh` im Modus `migrate` durch `php artisan migrate
@@ -156,6 +170,38 @@ MEDIA_ROOT-Guard (Exit 78) läuft in **beiden** Modi. Schlägt der Schritt fehl,
 startet `backend` **gar nicht** — die App liefert nie Traffic gegen ein
 veraltetes Schema. Ein `docker compose restart backend` führt die Migrationen
 nicht erneut aus.
+
+### Worker & Scheduler (Position 45/46)
+
+`backend` startet nicht mehr direkt `php-fpm`, sondern
+`deployment/backend-supervisor.sh` (im Image als
+`/usr/local/bin/accriditation-backend-supervisor`). Der Supervisor:
+
+1. validiert die Queue-Konfiguration **fail-closed** — `QUEUE_CONNECTION=database`,
+   `DB_QUEUE_CONNECTION == DB_CONNECTION` (damit `after_commit` Queue und DB in
+   derselben Transaktion hält) und `QUEUE_WORKER_TIMEOUT < DB_QUEUE_RETRY_AFTER`
+   (Default 60 < 90, verhindert die doppelte Reservierung eines hängenden Jobs);
+2. löscht stale PID-Marker, startet `queue:work --tries=3 --timeout=…` in einer
+   **Restart-Schleife** und `schedule:run` im **60-s-Takt** (ein fehlgeschlagener
+   Lauf verhindert den nächsten nicht);
+3. endet mit `exec php-fpm -F` — php-fpm wird PID 1, die Schleifen bleiben Kinder.
+
+Der Healthcheck (`deployment/backend-healthcheck.sh`) verlangt **FPM +
+Supervisor + Worker + Scheduler** als laufend: ein toter Worker macht den
+Container ungesund, während der Supervisor ihn neu startet. Er liest den
+Prozess-Status aus `/proc` und lehnt Zombies ab (`kill -0` meldet einen Zombie
+fälschlich als lebend — Position 21). `schedule:run` löst die in
+`backend/routes/console.php` registrierten Commands `allocation:run` (stündlich)
+und `reminders:send` (täglich) aus.
+
+Dead-Letter-Betrieb (die `failed_jobs`-Tabelle existiert seit Projektbeginn):
+
+```bash
+docker compose -f deployment/docker-compose.yml --profile prod exec backend \
+    php artisan queue:failed
+docker compose -f deployment/docker-compose.yml --profile prod exec backend \
+    php artisan queue:retry <id|all>
+```
 
 ### Zwei Flags, beide Default AUS
 

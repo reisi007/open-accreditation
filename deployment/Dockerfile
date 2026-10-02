@@ -221,6 +221,39 @@ RUN --mount=type=bind,ro,target=/ctx \
     fi
 
 # --------------------------------------------------------------------------
+# Betrieb: Queue-Supervisor + Healthcheck (Position 46)
+# --------------------------------------------------------------------------
+# `deployment/entrypoint.sh` (Modus `serve`) startet den Supervisor, und der
+# Compose-Healthcheck des `backend`-Services ruft den Healthcheck auf. Beide
+# Skripte werden deshalb — genau wie der Entry-Point — über den read-only
+# Kontext-Mount installiert (KEIN `COPY`): dieses Dockerfile bedient zwei
+# Build-Kontexte (Rolle 1 `context: deployment`, Rolle 2 `context: ..`). Ein
+# `COPY` lässt sich nicht konditionalisieren, die beiden Layouts werden daher
+# explizit geprüft. Fehlt ein Skript, bricht der Build ab, statt still ein
+# Image ohne Worker/Scheduler zu erzeugen — genau die Lücke, die dieses
+# Feature schliesst.
+#
+# Der `sh -n`-Smoke-Test prüft die POSIX-`sh`-Tauglichkeit (die `php:fpm`-
+# Images nutzen dash als `/bin/sh`). Er startet weder `queue:work` noch
+# `schedule:run` und keine `php-fpm`.
+RUN --mount=type=bind,ro,target=/ctx \
+    for supervisor_src in backend-supervisor.sh backend-healthcheck.sh; do \
+        if [ -f "/ctx/${supervisor_src}" ]; then \
+            src="/ctx/${supervisor_src}"; \
+        elif [ -f "/ctx/deployment/${supervisor_src}" ]; then \
+            src="/ctx/deployment/${supervisor_src}"; \
+        else \
+            echo "FATAL: ${supervisor_src} not found in the build context (expected /ctx/${supervisor_src} or /ctx/deployment/${supervisor_src})" >&2; \
+            exit 1; \
+        fi; \
+        sh -n "$src" || { echo "FATAL: ${supervisor_src} ist kein gültiges POSIX-sh" >&2; exit 1; }; \
+        case "$supervisor_src" in \
+            backend-supervisor.sh) install -m 0755 "$src" /usr/local/bin/accriditation-backend-supervisor ;; \
+            backend-healthcheck.sh) install -m 0755 "$src" /usr/local/bin/accriditation-backend-healthcheck ;; \
+        esac \
+    done
+
+# --------------------------------------------------------------------------
 # Non-root (R-D10). `php:fpm` startet ohne USER als root; www.conf's
 # `user = www-data` ist dann nur für die Worker zuständig, der MASTER bleibt
 # root. Mit `USER www-data` läuft auch der Master als www-data: die

@@ -6,7 +6,11 @@
 # `docker-php-entrypoint` der `php:fpm`-Images bleibt intakt, siehe Kopf des
 # Dockerfiles). Zwei Modi:
 #
-#   serve    (Default) Startet php-fpm. Aufgerufen vom `backend`-Service.
+#   serve    (Default) Startet den Queue-/Scheduler-Supervisor
+#            (`deployment/backend-supervisor.sh`), der mit `exec php-fpm -F`
+#            endet. Aufgerufen vom `backend`-Service. Der Supervisor validiert
+#            die Queue-Konfiguration fail-closed, startet Worker + Scheduler
+#            und uebergibt dann an FPM (Position 46).
 #   migrate  Einmaliger Deploy-Schritt. Aufgerufen vom `migrate`-Service:
 #            migrate -> storage:link -> [db:seed] -> [config:cache|config:clear]
 #
@@ -267,7 +271,23 @@ run_deploy_step() {
 case "$mode" in
 serve)
 	log "serve: php-fpm startet als uid=$(id -u)/$(id -un), MEDIA_ROOT='${MEDIA_ROOT:-<nicht gesetzt>}'"
-	exec php-fpm
+
+	# Betriebsstart (Position 46): NICHT `exec php-fpm` direkt. Der Supervisor
+	# validiert die Queue-/DB-Konfiguration FAIL-CLOSED (QUEUE_CONNECTION,
+	# DB_QUEUE_CONNECTION == DB_CONNECTION, QUEUE_WORKER_TIMEOUT <
+	# DB_QUEUE_RETRY_AFTER), startet den Queue-Worker in einer
+	# Restart-Schleife und `schedule:run` im 60-s-Takt und uebergibt erst dann
+	# an php-fpm (`exec php-fpm -F`). Reihenfolge damit: Compose-Start →
+	# `migrate`-One-shot (Gate, `depends_on: service_completed_successfully`)
+	# → Supervisor → FPM. Ein Fehler in der Queue-Konfiguration verhindert den
+	# FPM-Start, statt eine App ohne Worker/Scheduler „gesund" auszuliefern.
+	supervisor=/usr/local/bin/accriditation-backend-supervisor
+	if [ ! -x "$supervisor" ]; then
+		fail "Supervisor '$supervisor' fehlt oder ist nicht ausfuehrbar — das Image wurde ohne 'deployment/backend-supervisor.sh' gebaut. Worker und Scheduler wuerden nie starten (Position 46). Basis-Image neu bauen."
+		exit 1
+	fi
+
+	exec "$supervisor"
 	;;
 migrate)
 	log "migrate: einmaliger Deploy-Schritt als uid=$(id -u)/$(id -un)"

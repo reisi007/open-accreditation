@@ -252,6 +252,34 @@ services:
       # Cache-Warmup per Default AUS (`config:cache` friert die Deploy-ENV als
       # Schnappschuss ein; Folge fuer Aenderungen siehe `entrypoint.sh`).
       RUN_CACHE_WARMUP: ${RUN_CACHE_WARMUP:-false}
+      # ------------------------------------------------------------------
+      # Queue + Scheduler (Position 45/46). IDENTISCHE KOPIE im `backend`-
+      # Block: der `migrate`-Schritt kann per RUN_CACHE_WARMUP einen
+      # `config:cache`-Schnappschuss in das geteilte `app_cache`-Volume
+      # schreiben, den `backend` dann liest — die Werte MÜSSEN daher an beiden
+      # Services gleich ankommen.
+      #
+      #   * QUEUE_CONNECTION=database — der Supervisor bricht sonst beim Start
+      #     ab (fail-closed), statt Jobs still in einem Sync-/Null-Pfad zu
+      #     verlieren.
+      #   * DB_QUEUE_CONNECTION == DB_CONNECTION (pgsql) — `after_commit` ist
+      #     nur dann „Status und Zustellung in derselben Transaktion", wenn die
+      #     Jobs in DIESELBE Verbindung geschrieben werden.
+      #   * QUEUE_WORKER_TIMEOUT < DB_QUEUE_RETRY_AFTER (60 < 90) — verhindert
+      #     die doppelte Reservierung eines hängenden Jobs; der Supervisor
+      #     prüft die Ungleichung beim Start (fail-closed).
+      #   * CACHE_STORE=database — `withoutOverlapping()` ist ein Cache-Lock;
+      #     er muss prozessübergreifend im selben Store liegen, sonst laufen
+      #     zwei Schedule-Takte ineinander. Der DB-Store ist der Repo-Standard
+      #     (config/cache.php:18). DB_CACHE_* auf pgsql pinnt ihn explizit.
+      QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
+      DB_QUEUE_CONNECTION: ${DB_QUEUE_CONNECTION:-pgsql}
+      DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-90}
+      QUEUE_WORKER_TIMEOUT: ${QUEUE_WORKER_TIMEOUT:-60}
+      QUEUE_WORKER_RESTART_DELAY: ${QUEUE_WORKER_RESTART_DELAY:-5}
+      CACHE_STORE: ${CACHE_STORE:-database}
+      DB_CACHE_CONNECTION: ${DB_CACHE_CONNECTION:-pgsql}
+      DB_CACHE_LOCK_CONNECTION: ${DB_CACHE_LOCK_CONNECTION:-pgsql}
       # Harte Obergrenze des DB-Warte-Retries im Entry-Point. Explizit, damit
       # der Schritt nicht haengen kann: 3 Versuche a 5 s.
       DEPLOY_STEP_ATTEMPTS: ${DEPLOY_STEP_ATTEMPTS:-3}
@@ -344,6 +372,21 @@ services:
       # beiden ankommen. Per Default `false` = nur Warnung; `true` = harter
       # Abbruch mit Exit 78, wenn MEDIA_ROOT in keinem Mount liegt.
       MEDIA_ROOT_REQUIRE_MOUNT: ${MEDIA_ROOT_REQUIRE_MOUNT:-false}
+      # ------------------------------------------------------------------
+      # Queue + Scheduler (Position 45/46). IDENTISCHE KOPIE wie im
+      # `migrate`-Block (siehe dort für die Begründung jedes Werts). Der
+      # Supervisor (`deployment/backend-supervisor.sh`, gestartet über
+      # `entrypoint.sh serve`) liest diese Variablen und bricht beim Start
+      # fail-closed ab, wenn Queue und DB auseinanderlaufen oder der
+      # Worker-Timeout die retry_after-Grenze erreicht.
+      QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
+      DB_QUEUE_CONNECTION: ${DB_QUEUE_CONNECTION:-pgsql}
+      DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-90}
+      QUEUE_WORKER_TIMEOUT: ${QUEUE_WORKER_TIMEOUT:-60}
+      QUEUE_WORKER_RESTART_DELAY: ${QUEUE_WORKER_RESTART_DELAY:-5}
+      CACHE_STORE: ${CACHE_STORE:-database}
+      DB_CACHE_CONNECTION: ${DB_CACHE_CONNECTION:-pgsql}
+      DB_CACHE_LOCK_CONNECTION: ${DB_CACHE_LOCK_CONNECTION:-pgsql}
     ports:
       # WP-5-b/R-D10: Caddy läuft auf dem HOST, Docker löst Container-Namen
       # nur INNERHALB seines Netzes auf — `accreditation_backend:9000` (so
@@ -378,20 +421,23 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # Prüft, dass der FPM-Master tatsächlich auf 9000 lauscht (also dass
-      # php-fpm mit der non-root-Konfiguration sauber bootet). Kein HTTP-Get:
-      # FPM spricht FastCGI, nicht HTTP. `php -r` statt `nc`, damit keine
-      # zusätzlichen Pakete ins Image müssen.
-      # Achtung: KEIN `$` im Test — Compose interpoliert auch in exec-Form-
-      # Arrays und warnt sonst "The \"e\" variable is not set" (deshalb die
-      # by-ref-Parameter von fsockopen() weggelassen; sie sind optional).
-      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
-      interval: "15s"
-      timeout: 5s
-      retries: 5
-      # genug Zeit, damit ein frisch gebautes/gestartetes Image nicht als
-      # unhealthy in einen Neustart-Loop läuft
-      start_period: "40s"
+      # Verlangt FPM + Queue-Supervisor + Worker + Scheduler als laufend
+      # (Position 45/46). EIN toter Worker macht den Container ungesund,
+      # während der Supervisor ihn neu startet — ohne das wäre ein stiller
+      # Zustellungsstillstand ein „gesundes" Deployment.
+      # Das Skript liegt im Image (Dockerfile) und prueft FPM (PID 1 +
+      # FastCGI-Connect auf 9000) sowie die drei PID-Marker. Es liest den
+      # Prozess-STATUS aus /proc und lehnt Zombies ab: `kill -0` allein
+      # meldet einen Zombie faelschlich als laufend (Position 21, gemessen).
+      # Kein `$` im Test — Compose interpoliert auch exec-Form-Arrays.
+      test: ["CMD", "/usr/local/bin/accriditation-backend-healthcheck"]
+      interval: "30s"
+      timeout: 10s
+      retries: 3
+      # genug Zeit, damit frisch gebauter/gestarteter FPM + Worker + Scheduler
+      # ihre PID-Marker geschrieben haben, ohne in einen Neustart-Loop zu
+      # laufen
+      start_period: "90s"
     networks:
       - accriditation_internal
 
