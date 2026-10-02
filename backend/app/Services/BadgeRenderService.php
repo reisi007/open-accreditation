@@ -43,6 +43,17 @@ use Illuminate\Support\Facades\Storage;
  *   team        → accreditation.team.name (empty string without a team)
  *   vest_number → user.vest_number (empty string when unset)
  *
+ * **A text field wraps; it is never truncated.** `size` is the CONFIGURED font
+ * size and is printed verbatim whenever the text already fits its box. When it
+ * does not — a 14 pt name in a 40 × 8 mm box wraps to two lines and 43 pt of
+ * line height in a 22.7 pt box, measured — {@see BadgeTextFitter} wraps the
+ * text to the box width and shrinks the font until the WRAPPED text fits, and
+ * the lines are joined with `<br>`. `overflow:hidden`, an ellipsis and
+ * `text-overflow` are deliberately absent from every text field: a truncated
+ * name on a badge fails to identify the person unambiguously, and printed is
+ * printed (Nutzerentscheidung 2026-09-28). The `photo` branch is NOT part of
+ * this — it has no font and no line box, its geometry is {@see fittedImage}'s.
+ *
  * **`fit` is geometry, not a declaration.** dompdf implements no `object-fit`
  * (measured: a card rendered with `object-fit: contain` and one without it are
  * byte-identical PDFs — the property falls through the cascade silently), so
@@ -183,6 +194,7 @@ final class BadgeRenderService
         private readonly MediaStorage $mediaStorage,
         private readonly MediaHostResolver $hosts,
         private readonly BadgePhotoPlaceholder $placeholder,
+        private readonly BadgeTextFitter $textFitter,
     ) {}
 
     /**
@@ -249,7 +261,7 @@ final class BadgeRenderService
 
         return '<html><head><meta charset="UTF-8"><style>'
             .'@page { size: A6 portrait; margin: 0; }'
-            .'body { margin: 0; padding: 0; font-family: DejaVu Sans, sans-serif; }'
+            .'body { margin: 0; padding: 0; font-family: '.BadgeTextFitter::FONT_FAMILY_CSS.'; }'
             .'.card { position: relative; width: '.self::A6_WIDTH_MM.'mm; height: '.self::A6_HEIGHT_MM.'mm; page-break-after: always; }'
             .'</style></head><body>'.$cards.'</body></html>';
     }
@@ -282,7 +294,7 @@ final class BadgeRenderService
                 continue;
             }
 
-            $fields .= $this->renderField($application, $field);
+            $fields .= $this->renderField($application, $field, $template);
         }
 
         $images = '';
@@ -376,7 +388,7 @@ final class BadgeRenderService
     /**
      * @param  mixed  $field  one validated layout entry
      */
-    private function renderField(Application $application, mixed $field): string
+    private function renderField(Application $application, mixed $field, BadgeTemplate $template): string
     {
         if (! is_array($field) || ! isset($field['field'])) {
             return '';
@@ -385,21 +397,80 @@ final class BadgeRenderService
         $name = (string) $field['field'];
         $wMm = (float) ($field['w'] ?? 0);
         $hMm = (float) ($field['h'] ?? 0);
-        $style = sprintf(
-            'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;font-size:%dpt;text-align:%s;',
-            $this->mm((float) ($field['x'] ?? 0)),
-            $this->mm((float) ($field['y'] ?? 0)),
-            $this->mm($wMm),
-            $this->mm($hMm),
-            max(1, (int) ($field['size'] ?? 12)),
-            in_array($field['align'] ?? null, ['center', 'right'], true) ? $field['align'] : 'left',
-        );
+        // The CONFIGURED size, verbatim — it is what a `photo` box prints and
+        // what the text auto-fit starts from.
+        $sizePt = max(1, (int) ($field['size'] ?? 12));
 
         if ($name === 'photo') {
-            return $this->renderPhoto($style, $application, $wMm, $hMm, $this->fitFor($field, 'cover'));
+            // The image path is deliberately NOT auto-fitted: a picture has no
+            // font and no line box, its geometry is `fittedImage`'s, and its
+            // box carries `font-size` only as an inherited leftover.
+            return $this->renderPhoto(
+                $this->fieldStyle((float) ($field['x'] ?? 0), (float) ($field['y'] ?? 0), $wMm, $hMm, $sizePt, $field),
+                $application,
+                $wMm,
+                $hMm,
+                $this->fitFor($field, 'cover'),
+            );
         }
 
-        return sprintf('<div style="%s">%s</div>', $style, e((string) ($this->valueFor($application, $name) ?? '')));
+        $text = (string) ($this->valueFor($application, $name) ?? '');
+        $fit = $this->textFitter->fit($text, $wMm, $hMm, (float) $sizePt, $template->name);
+
+        // **Wrapping, never truncation.** The fit returns the lines themselves,
+        // joined with `<br>` — dompdf's own `br` frame (display `-dompdf-br`)
+        // turns each into a real line box (measured: a two-line field prints
+        // two text runs at distinct y). There is deliberately no
+        // `overflow:hidden`, no ellipsis and no `text-overflow` on a text
+        // field: a name cut off on a badge does not identify the person
+        // unambiguously, and printed is printed (Nutzerentscheidung
+        // 2026-09-28). See {@see BadgeTextFitter} for the algorithm and for
+        // the measured limit below which the geometry gives out.
+        return sprintf(
+            '<div style="%s">%s</div>',
+            $this->fieldStyle((float) ($field['x'] ?? 0), (float) ($field['y'] ?? 0), $wMm, $hMm, $fit->fontSizePt, $field),
+            implode('<br>', array_map('e', $fit->lines)),
+        );
+    }
+
+    /**
+     * The shared inline style of one layout entry's box.
+     *
+     * `$sizePt` is a float here, not the template's `int`, because the text
+     * auto-fit shrinks it; it is formatted through {@see pt()} so an
+     * UNCHANGED integer size still prints as `14pt` and every pre-existing
+     * template's badge stays byte-identical.
+     *
+     * @param  array<string, mixed>  $field
+     */
+    private function fieldStyle(float $xMm, float $yMm, float $wMm, float $hMm, float $sizePt, array $field): string
+    {
+        return sprintf(
+            'position:absolute;left:%smm;top:%smm;width:%smm;height:%smm;font-size:%spt;text-align:%s;',
+            $this->mm($xMm),
+            $this->mm($yMm),
+            $this->mm($wMm),
+            $this->mm($hMm),
+            $this->pt($sizePt),
+            in_array($field['align'] ?? null, ['center', 'right'], true) ? $field['align'] : 'left',
+        );
+    }
+
+    /**
+     * A point value for a CSS declaration: a whole number stays whole (`14` →
+     * `14`), a fractional size keeps its decimals (`5.9` → `5.9`).
+     *
+     * The first form is what keeps every pre-existing badge byte-identical: an
+     * auto-fit that found no overflow returns the template's `int` size and
+     * renders exactly the `font-size:14pt` this service has always emitted.
+     */
+    private function pt(float $value): string
+    {
+        $rounded = round($value, 2);
+
+        return fmod($rounded, 1.0) === 0.0
+            ? number_format($rounded, 0)
+            : number_format($rounded, 2, '.', '');
     }
 
     /**
