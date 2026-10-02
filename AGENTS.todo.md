@@ -354,7 +354,21 @@ grün, **weil nichts mehr versendet wird**, nicht weil sie faken.
 
 ---
 
-## ✅ Welle C — Zombie-Fix-Nacharbeit (2026-09-29, **abgeschlossen**)
+## 📎 P6 — Wallet-Pass als Mail-Anhang + Datei-Validität (Nutzerentscheid 2026-10-02)
+
+**Entscheidung (interaktiv geklärt 2026-10-02):** Der Pass wird **als Anhang der Freigabe-Mail** geliefert (Apple `.pkpass` **und** die Google-Datei), **zusätzlich** zum bestehenden Download-Endpunkt. Ein automatisierter **Import** in Apple/Google Wallet ist E2E **nicht** testbar — geprüft wird stattdessen die **Gültigkeit der erzeugten Datei**. Der Nutzer hat ausdrücklich die Variante „Mail-Anhang + Datei-Validität" gewählt.
+
+**Ausgangslage, am Code gemessen (§3):** Die Pässe werden heute **nur** über GET-Download-Endpunkte geliefert — `WalletController`: `/api/applications/{id}/wallet` → `.pkpass` (`application/vnd.apple.pkpass`), `/wallet/google` → JSON/JWT, `/api/sub-applications/{id}/wallet` → `.pkpass`. Es gibt **zwei Freigabe-Wege mit je genau EINER Mail**: manuell → `PassMail` (`AdminApplicationController:169-171`, Betreff „Dein Akkreditierungs-Ausweis"), automatisch → `ApplicationApprovedMail` (`AllocationService:266/606`). **An keiner der beiden hängt der Pass.** `WalletPassService` baut beide Formate bereits (inkl. kontrollierter Degradation ohne Credentials); `WalletPassServiceTest`/`WalletTest` prüfen die Struktur heute schon.
+
+**TODOs (Implementer ≠ Verifikator, §5; Tests nach §3 DoD):**
+1. **Anhang:** `PassMail` **und** `ApplicationApprovedMail` hängen den Apple-`.pkpass` **und** die Google-Datei an — Dateiname/Content-Type wie im Download-Endpunkt (`accreditation-{id}.pkpass`), damit der Vertrag zwischen Download und Anhang **einer** bleibt.
+2. **Datei-Validität als PHPUnit-Test (kein Import):** `.pkpass` ist ein gültiges ZIP mit `pass.json`/`icon.png`/`icon@2x.png`/`manifest.json`, die `manifest.json`-Hashes stimmen, **ohne** Certs enthält es **keine** `signature`; die Google-Seite ist strukturell valide (`EventTicketObject` bzw. `savetowallet`-JWT mit `typ`/`aud`).
+3. **Kein Import-E2E.** Die E2E prüft die **Gültigkeit** der gelieferten Datei, nicht die Wallet-Installation.
+4. **Edge cases:** fehlende Credentials (degradierter Unsigned-Pass/Preview), `park`/`seat` (Sub-Pass), nicht-`approved` (kein Pass).
+5. **Benannter Rest:** Sub-Approvals (`SubAllocationService`) versenden heute **keine** Mail → ein Sub-Pass kann nicht angehängt werden. Entweder eine eigene Sub-Freigabe-Mail oder ein **dokumentiertes** Follow-up — nicht stillschweigend weglassen.
+6. **Verhältnis zu Position 45:** beide Freigabe-Mails laufen über `MandantMailerService`; die Anhänge dürfen die dort geplante Queue-/DLQ-Umstellung (Anhänge in `payload`/Store) **nicht** präjudizieren.
+
+
 
 > **Umfang:** die acht Positionen **30, 31, 32, 33, 34, 35, 36, 37** — davon **32(b)** als **D26** weitergeführt. Alle S1, alle im selben Strang
 > (`frontend/tests/e2e/child-lifetime.spec.ts`, `frontend/tests/e2e/ownership-probe/run-child.ts`,
