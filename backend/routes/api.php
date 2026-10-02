@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\CategoryController;
 use App\Http\Controllers\Api\Admin\EventController;
 use App\Http\Controllers\Api\Admin\EventParticipantController;
 use App\Http\Controllers\Api\Admin\EventTypeController;
+use App\Http\Controllers\Api\Admin\FailedMailController;
 use App\Http\Controllers\Api\Admin\MandantController;
 use App\Http\Controllers\Api\Admin\MandantDomainController;
 use App\Http\Controllers\Api\Admin\MandantMediaController;
@@ -392,6 +393,18 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
     // foreign target is a 404.
     Route::middleware('can:users.delete')->group(function (): void {
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('throttle:admin')->name('users.destroy');
+    });
+
+    // Position 45 (2026-10-02): the dead-letter queue for undelivered mandant
+    // mails. Its OWN permission (`mails.dlq.manage`), deliberately NOT
+    // `accreditations.manage`: a team_admin holds the latter but must never read
+    // a Verband-wide delivery error list (it carries recipient addresses).
+    // Mandant isolation is enforced in the controller: `mandant_admin` only his
+    // own mandant, `super_admin` all. No read throttle (mirrors the other admin
+    // list routes); requeue is a write and carries `throttle:admin`.
+    Route::middleware('can:mails.dlq.manage')->group(function (): void {
+        Route::get('/failed-mails', [FailedMailController::class, 'index'])->name('failed-mails.index');
+        Route::post('/failed-mails/{id}/requeue', [FailedMailController::class, 'requeue'])->middleware('throttle:admin')->name('failed-mails.requeue');
     });
 });
 

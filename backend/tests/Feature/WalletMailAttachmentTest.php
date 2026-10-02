@@ -256,6 +256,11 @@ class WalletMailAttachmentTest extends TestCase
 
     public function test_download_endpoint_and_attachment_share_name_and_mime(): void
     {
+        // Position 45: `approveApplication` now queues the approval mail; under
+        // `sync` it would dial a real relay. This test asserts the download
+        // endpoint, not delivery.
+        Mail::fake();
+
         $user = $this->createMember();
         $application = $this->request($this->createAccreditation(['quota' => 5]), $user);
         $this->allocation->approveApplication($application);

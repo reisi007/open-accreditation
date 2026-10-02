@@ -226,6 +226,20 @@ Build-Log-Evidenz, **kein** Live-Nachweis — ein echter Stack-Start bleibt ein 
 `mandant_admin` darf ausschließlich Briefe **seines** Mandanten sehen; die Zuordnung aus dem
 `payload`-Blob zu gewinnen wäre zerbrechlich.
 
+> **Update 2026-10-02 (Position 45, umgesetzt):** `failed_jobs.mandant_id` **existiert jetzt**
+> (nullable, indiziert, ohne FK), gefüllt von
+> `App\Queue\Failed\MandantAwareFailedJobProvider`. `after_commit` **steht auf `true`**. Der
+> Mailversand läuft über `App\Jobs\SendMandantMail`: `MandantMailerService::send()` dispatcht
+> nur noch, `::deliver()` wirft bei Relay-Fehler (der alte `catch (Throwable)` ist weg — Retry
+> + Dead Letter). DLQ-API: `GET /api/admin/failed-mails` und `POST
+> /api/admin/failed-mails/{id}/requeue`, Gate `mails.dlq.manage` (nur `mandant_admin`;
+> `super_admin` sieht alle), fremder Mandant → 404, `queue:prune-failed` **nicht** eingerichtet.
+> **Voller Vertrag: `features/mail-delivery.md`** — inklusive der Teststrategie unter
+> `QUEUE_CONNECTION=sync` (welche Klasse welchen Queue-Fake bzw. die echte `database`-Connection
+> benutzt) und der Tatsache, dass Laravels *Testing*-TransactionsManager die umschließende
+> `RefreshDatabase`-Transaktion ausblendet, After-Commit-Callbacks einer echten verschachtelten
+> `DB::transaction()` aber feuert.
+
 ## Portabilitätsregel (CRITICAL)
 
 Schema/Queries müssen zwischen **Postgres (Dev/Prod)** und **SQLite

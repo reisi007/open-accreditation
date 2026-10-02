@@ -13,6 +13,7 @@ use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -43,6 +44,13 @@ class AllocationQrTokenQueryTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45: the mail is queued now. `Queue::fake()` (not
+        // `Mail::fake()`) is deliberate here: this class counts accreditation
+        // SELECTs, and a queue write that is actually executed would serialize
+        // and restore the mailable's `Application` per approval, adding one
+        // accreditation query per row and drowning the N+1 this test measures.
+        Queue::fake();
 
         $this->allocation = app(AllocationService::class);
         $this->mandant = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);

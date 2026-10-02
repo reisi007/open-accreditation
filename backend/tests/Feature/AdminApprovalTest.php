@@ -18,6 +18,7 @@ use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -47,6 +48,13 @@ class AdminApprovalTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45 (2026-10-02): every approval now QUEUES its notification,
+        // and on the suite's `sync` connection the job runs inline. Without a
+        // mail fake each decision would dial the real `smtp` mailer, and the
+        // (now correctly propagating) TransportException would abort the
+        // request. These tests assert decisions, not delivery.
+        Mail::fake();
 
         $this->seed(RoleSeeder::class);
         Storage::fake('private');

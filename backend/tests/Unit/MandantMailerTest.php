@@ -2,19 +2,30 @@
 
 namespace Tests\Unit;
 
+use App\Jobs\SendMandantMail;
 use App\Models\Mandant;
 use App\Services\MandantMailerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Content;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mailer\Transport\Smtp\Stream\SocketStream;
+use Tests\Support\PlainTestMailable;
 use Tests\TestCase;
 
 /**
  * P5 `MandantMailerService` — per-mandant SMTP transport derivation and the
- * default-mailer fallback.
+ * queued default-mailer fallback.
+ *
+ * ## Policy change (Position 45, 2026-10-02)
+ *
+ * `send()` used to dial the relay synchronously and swallow every `Throwable`
+ * (the old `test_send_does_not_crash_on_delivery_failure` asserted exactly that
+ * with `assertTrue(true)`). It now only dispatches `SendMandantMail`; the
+ * transport is spoken to in `deliver()`, which THROWS on failure so the queue
+ * can retry and finally dead-letter the mail. The two tests below pin both
+ * halves of that split.
  */
 class MandantMailerTest extends TestCase
 {
@@ -93,22 +104,48 @@ class MandantMailerTest extends TestCase
         $this->assertNull($this->service->transportFor($mandant));
     }
 
+    /**
+     * `send()` is a pure dispatch: with the queue faked it touches no transport
+     * at all, even when the mandant's relay config is dead. That is the
+     * fire-and-forget shape `AllocationService` / `SendReminders` rely on.
+     */
+    public function test_send_only_dispatches_a_job_and_never_touches_the_relay(): void
+    {
+        Queue::fake();
+
+        $mandant = Mandant::factory()->create([
+            'smtp_config' => ['host' => '127.0.0.1', 'port' => 1],
+        ]);
+
+        $this->service->send($mandant, (new PlainTestMailable)->to('applicant@example.test'));
+
+        Queue::assertPushed(SendMandantMail::class, function (SendMandantMail $job) use ($mandant): bool {
+            return $job->mandantId === $mandant->id
+                && $job->recipient === 'applicant@example.test'
+                && $job->mailableClass === PlainTestMailable::class;
+        });
+    }
+
     public function test_send_without_smtp_config_falls_back_to_default_mailer(): void
     {
         Mail::fake();
 
         $mandant = Mandant::factory()->create(['smtp_config' => null]);
-        $mailable = $this->plainMailable();
 
-        $this->service->send($mandant, $mailable);
+        // Under the suite's `QUEUE_CONNECTION=sync` the job runs inline, so the
+        // fallback path is observable through the Mail fake.
+        $this->service->send($mandant, (new PlainTestMailable)->to('applicant@example.test'));
 
-        Mail::assertSent(get_class($mailable));
+        Mail::assertSent(PlainTestMailable::class);
     }
 
-    public function test_send_does_not_crash_on_delivery_failure(): void
+    /**
+     * The policy reversal: a failed delivery is NO LONGER swallowed by the
+     * service. `deliver()` is what the queue worker runs, and it must surface
+     * the failure so the job retries (and, after the cap, dead-letters).
+     */
+    public function test_deliver_propagates_a_transport_failure_instead_of_swallowing_it(): void
     {
-        // A config pointing at a dead relay must be logged, not thrown — the
-        // status transition that triggered the mail has already happened.
         $mandant = Mandant::factory()->create([
             'smtp_config' => [
                 'host' => '127.0.0.1',
@@ -118,20 +155,8 @@ class MandantMailerTest extends TestCase
             ],
         ]);
 
-        $this->service->send($mandant, $this->plainMailable());
+        $this->expectException(TransportExceptionInterface::class);
 
-        // No exception thrown — reaching this line is the assertion.
-        $this->assertTrue(true);
-    }
-
-    private function plainMailable(): Mailable
-    {
-        return new class extends Mailable
-        {
-            public function content(): Content
-            {
-                return new Content(htmlString: '<p>integration check body</p>');
-            }
-        };
+        $this->service->deliver($mandant, (new PlainTestMailable)->to('applicant@example.test'));
     }
 }

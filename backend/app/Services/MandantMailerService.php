@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendMandantMail;
 use App\Models\Mandant;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -13,16 +14,29 @@ use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mailer\Transport\Smtp\Stream\SocketStream;
 use Symfony\Component\Mailer\Transport\TransportInterface;
-use Throwable;
 
 /**
  * P5 mandant-aware mail dispatch.
  *
- * MVP decision (2026-08-14): sending is SYNCHRONOUS — the mail volume per
- * accreditation is small and a queue would add operational complexity without
- * a measurable benefit yet. Queue integration is a documented follow-up.
+ * ## Position 45 (2026-10-02): sending is ASYNCHRONOUS
  *
- * Delivery policy:
+ * The MVP decision (synchronous send, "queue integration is a documented
+ * follow-up") is superseded. `send()` now only DISPATCHES a
+ * {@see SendMandantMail} job; the actual SMTP I/O happens inside
+ * {@see self::deliver()}, on a queue worker. Consequences that the callers rely
+ * on:
+ *
+ *  - `send()` cannot fail because a relay is down — it is a queue write. The
+ *    status transition and the delivery order are written in one transaction
+ *    (`config/queue.php` → `after_commit => true`), so a rolled-back decision
+ *    sends nothing and a committed one always leaves an order behind.
+ *  - `deliver()` DOES throw on a transport failure. That is the point: the
+ *    queue retries it with a capped backoff, and after the last attempt the job
+ *    is dead-lettered in `failed_jobs` (with its `mandant_id`) instead of being
+ *    swallowed. The former `catch (Throwable)` here is gone; the audited
+ *    failure log now lives in `SendMandantMail::failed()`.
+ *
+ * Delivery policy (unchanged):
  *  - When the mandant carries an `smtp_config` with host + port, the mail is
  *    sent through a dedicated Symfony `EsmtpTransport` built from that config
  *    (per-mandant SMTP, e. g. a Verband's own mail server). The `from` stays
@@ -30,9 +44,6 @@ use Throwable;
  *    their own sender identity.
  *  - Without a usable config the mail falls back to the application default
  *    `smtp` mailer (Mailpit in local dev).
- *  - Delivery errors are logged (`Log::warning`) and swallowed — a broken
- *    mail relay must never break the apply/approval flow itself. The status
- *    transition has already happened by the time the mail is attempted.
  *
  * Encryption mapping (documented deviation from the original `?encryption=`
  * DSN sketch): Symfony's `EsmtpTransportFactory` ignores a DSN `encryption`
@@ -43,40 +54,47 @@ use Throwable;
 final class MandantMailerService
 {
     /**
-     * Deliver a mailable to an applicant of the given mandant.
+     * Queue a delivery of a mailable to an applicant of the given mandant.
+     *
+     * Does NOT touch the network: it dispatches {@see SendMandantMail}, which
+     * carries the mandant id, the mailable and a retry/idempotency identity.
+     * Callers keep the old fire-and-forget shape — the only new contract is
+     * that the mail is not necessarily gone when this method returns.
      */
     public function send(Mandant $mandant, Mailable $mailable): void
     {
-        try {
-            $transport = $this->transportFor($mandant);
+        SendMandantMail::dispatch($mandant->getKey(), $mailable);
+    }
 
-            if ($transport === null) {
-                Mail::mailer('smtp')->send($mailable);
+    /**
+     * Deliver the mailable through the mandant's transport (or the default
+     * mailer). Executed by the queue worker, so a transport failure is thrown
+     * on purpose: the worker needs it to retry and finally dead-letter the job.
+     */
+    public function deliver(Mandant $mandant, Mailable $mailable): void
+    {
+        $transport = $this->transportFor($mandant);
 
-                return;
-            }
+        if ($transport === null) {
+            Mail::mailer('smtp')->send($mailable);
 
-            $mailer = new Mailer(
-                'mandant-'.$mandant->getKey(),
-                app(Factory::class),
-                $transport,
-                app(Dispatcher::class),
-            );
-
-            $from = config('mail.from');
-            $mailer->alwaysFrom(
-                (string) ($from['address'] ?? 'no-reply@example.com'),
-                $from['name'] ?? null,
-            );
-
-            $mailable->send($mailer);
-        } catch (Throwable $e) {
-            Log::warning('Mandant mail dispatch failed', [
-                'mandant_id' => $mandant->getKey(),
-                'mailable' => get_class($mailable),
-                'error' => $e->getMessage(),
-            ]);
+            return;
         }
+
+        $mailer = new Mailer(
+            'mandant-'.$mandant->getKey(),
+            app(Factory::class),
+            $transport,
+            app(Dispatcher::class),
+        );
+
+        $from = config('mail.from');
+        $mailer->alwaysFrom(
+            (string) ($from['address'] ?? 'no-reply@example.com'),
+            $from['name'] ?? null,
+        );
+
+        $mailable->send($mailer);
     }
 
     /**
@@ -140,12 +158,13 @@ final class MandantMailerService
      *
      * F4: `smtp_config` is `encrypted:json` (WP-6-d), so a row written BEFORE
      * that cast holds plain JSON and the encrypter raises `DecryptException` on
-     * every read. `send()` wraps the whole dispatch in `catch (Throwable)`, so
-     * that exception did not surface as an error — it silently DROPPED the mail
-     * without even reaching the documented default-mailer fallback. An
-     * unreadable config means "no mandant relay", which is exactly what a null
-     * return expresses; the warning tells the operator which mandant still owes
-     * the documented re-save.
+     * every read. An unreadable config means "no mandant relay", which is
+     * exactly what a null return expresses; the warning tells the operator which
+     * mandant still owes the documented re-save. This degradation is deliberate
+     * and is NOT the old silent drop: before Position 45 the `send()` wrapper
+     * swallowed the exception and the mail vanished without even reaching the
+     * default-mailer fallback; now `transportFor()` converts it to null and
+     * `deliver()` still sends the mail through the default mailer.
      *
      * @return array<string, mixed>|null
      */

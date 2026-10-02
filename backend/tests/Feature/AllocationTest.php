@@ -16,6 +16,7 @@ use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
@@ -46,6 +47,15 @@ class AllocationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45 (2026-10-02): allocation no longer sends a mail inline —
+        // it dispatches a `SendMandantMail` job, and under the suite's
+        // `QUEUE_CONNECTION=sync` that job runs during the dispatch. These tests
+        // assert the allocation engine, not the delivery, so the mail must be
+        // faked; otherwise every approved/denied row dials the real `smtp`
+        // mailer and the (now correctly propagating) TransportException would
+        // abort the test. Delivery itself is covered by the queued-mail tests.
+        Mail::fake();
 
         $this->seed(RoleSeeder::class);
 

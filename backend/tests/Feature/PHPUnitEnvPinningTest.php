@@ -461,24 +461,26 @@ class PHPUnitEnvPinningTest extends TestCase
      *
      * ## The residual, measured
      *
-     * `MandantMailerService::send()` asks for `Mail::mailer('smtp')` **by
-     * name**, so that one path bypasses the default mailer entirely and still
-     * goes through the SMTP transport on `MAIL_HOST`/`MAIL_PORT`.
+     * `MandantMailerService::deliver()` asks for `Mail::mailer('smtp')` **by
+     * name**, so that path bypasses the default mailer entirely and still goes
+     * through the SMTP transport on `MAIL_HOST`/`MAIL_PORT`. `send()` no longer
+     * dials — since Position 45 (2026-10-02) it only dispatches
+     * `SendMandantMail`, and the transport is spoken to in `deliver()`.
      *
-     * Instrumented over the full suite on this host: **132** sends take that
-     * path, and **every one of them throws**
+     * Instrumented over the full suite on 2026-10-02, before the queue change:
+     * **132** sends took that path and every one threw
      * `TransportException: Connection could not be established with host
-     * "127.0.0.1:1025"` — swallowed by `send()`'s `catch (Throwable)`, which is
-     * why the suite is green. They come from six test classes
-     * (`AllocationTest` 62, `MandantMailerTest` 25, `AllocationQrTokenQueryTest`
-     * 16, `AllocationAtomicityTest` 15, `AllocationQrTokenUpgradeTest` 8,
-     * `SubAccreditationRevocationTest` 6).
+     * "127.0.0.1:1025"`. They were swallowed by `send()`'s `catch (Throwable)`,
+     * which is why the suite was green. That swallow is GONE: `deliver()`
+     * propagates, the queue retries, and after the cap the job is dead-lettered
+     * in `failed_jobs` (see `App\Jobs\SendMandantMail`). The test classes that
+     * only exercise the allocation logic now fake the mail explicitly.
      *
      * So `array` closes the path that could fail **visibly** (the two 500s
      * above) and not every path. This test must not be read as "the suite can
-     * no longer touch a socket anywhere" — closing the other 132 needs
-     * `Mail::mailer()` without a name argument in the service, which is a
-     * product decision and out of scope here.
+     * no longer touch a socket anywhere" — the `smtp` mailer still resolves to a
+     * real transport, and it is named on purpose so a Verband's own relay is
+     * used in production.
      */
     public function test_the_suite_default_mailer_cannot_open_a_socket(): void
     {

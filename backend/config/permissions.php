@@ -58,6 +58,19 @@ use App\Enums\UserRole;
 | role question at all and deliberately carries no gate: its target is
 | `$request->user()`.
 
+| `mails.dlq.manage` (Position 45, 2026-10-02) opens the dead-letter queue
+| (`failed_jobs`) of undelivered MANDANT mails: list + manual requeue. It is
+| held by `mandant_admin` only (`super_admin` bypasses, as always). The scope is
+| enforced inside `FailedMailController`, NOT by the gate: a `mandant_admin` is
+| narrowed to `failed_jobs.mandant_id = <current mandant>`, a foreign dead
+| letter is a 404 — the same "foreign → 404" shape the tenant CRUD uses. Why a
+| permission and not `accreditations.manage`: a `team_admin` holds the latter
+| but must never read or requeue a Verband-wide delivery error list (a failure
+| list carries recipient addresses; that is exactly the cross-mandant
+| information the isolation rules keep apart). `team_admin`, `user` and
+| `verifier` are denied at the route gate.
+
+
 | `venues.manage` (W12) is held by mandant_admin AND team_admin — the same
 | pair that holds `categories.manage`, and for the same reason. A venue
 | (Spielstätte) is mandant-wide master data referenced by BOTH `teams.venue_id`
@@ -93,6 +106,8 @@ return [
         'mandant.media.manage',
         'teams.media.manage',
         'venues.manage',
+        // Position 45: the dead-letter queue of undelivered mandant mails.
+        'mails.dlq.manage',
     ],
 
     UserRole::TEAM_ADMIN->value => [

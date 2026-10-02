@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Queue\Failed\MandantAwareFailedJobProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,7 +18,26 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Position 45 (2026-10-02): `failed_jobs` records the owning mandant,
+        // so the dead-letter admin surface can be mandant-isolated. The
+        // framework builds `queue.failer` from `config/queue.php`; this
+        // replaces the `database-uuids` provider with a subclass that stamps
+        // `mandant_id` after the row is written. Every other driver (file,
+        // null, dynamodb) is left untouched — the callback returns the
+        // provider it was handed.
+        $this->app->extend('queue.failer', function ($provider) {
+            $config = $this->app['config']['queue.failed'];
+
+            if (($config['driver'] ?? null) !== 'database-uuids') {
+                return $provider;
+            }
+
+            return new MandantAwareFailedJobProvider(
+                $this->app['db'],
+                $config['database'],
+                $config['table'],
+            );
+        });
     }
 
     /**

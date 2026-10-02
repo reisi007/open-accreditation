@@ -87,7 +87,10 @@ class SendReminders extends Command
                 }
             });
 
-        $this->info("Reminder run finished ({$sent} mail(s) sent).");
+        // "queued", not "sent": since Position 45 `send()` only dispatches the
+        // delivery job. The worker is what actually dials the relay, and a
+        // failing delivery ends in the dead-letter queue, not in this counter.
+        $this->info("Reminder run finished ({$sent} mail(s) queued).");
 
         return self::SUCCESS;
     }

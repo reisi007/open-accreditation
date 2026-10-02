@@ -114,7 +114,7 @@ class AuthRegisterTest extends TestCase
         MandantContext::reset();
 
         $method = new \ReflectionMethod(AuthController::class, 'activationUrl');
-        $url = $method->invoke(new AuthController, 'abc123');
+        $url = $method->invoke(app(AuthController::class), 'abc123');
 
         $configHost = parse_url((string) config('app.url'), PHP_URL_HOST);
 

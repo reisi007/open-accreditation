@@ -59,9 +59,11 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  * ("Postgres-Portabilitäts-Gate"), see
  * `features/accreditation/01-allocation-engine.md`.
  *
- * Mails are dispatched **after** the transaction committed: a mail transport
- * failure must never roll back a decision, and a `TransactionRolledBack`
- * would be swallowed by `MandantMailerService` anyway.
+ * Mails are dispatched as `SendMandantMail` jobs, never inline: a mail
+ * transport failure cannot roll back a decision (the decision is committed long
+ * before the worker ever dials the relay), and a rolled-back decision never
+ * sends — `config/queue.php` → `after_commit => true`. See
+ * `features/mail-delivery.md`.
  */
 final class AllocationService
 {
@@ -565,17 +567,16 @@ final class AllocationService
      * WP-3-b): the query below therefore reads committed state, and a mail
      * transport failure cannot roll the decision back.
      *
-     * Known gap (accepted, A5): the commit and this dispatch are NOT atomic,
-     * so a `denyApplication()` landing in between makes this query read the
-     * newer state and skip the approval mail, while the denial mail of that
-     * second writer and this approval mail can cross. A single allocation run
-     * is therefore not guaranteed to produce exactly one mail per decided row.
-     * Closing it needs an outbox table written INSIDE the transaction and
-     * dispatched after it (so the decision and the intent to notify become one
-     * atomic fact) — deliberately out of scope; the mail-gap section of
-     * `features/accreditation/01-allocation-engine.md` (which still documents
-     * only the "no mail for sub-status changes" gap) has to grow an entry for
-     * it.
+     * Formerly accepted gap, CLOSED by Position 45 (2026-10-02): the commit and
+     * this dispatch are now atomic. `MandantMailerService::send()` only
+     * dispatches a `SendMandantMail` job, and `config/queue.php` sets
+     * `after_commit => true`, so a dispatch issued inside a transaction is
+     * pushed only once that transaction commits. The earlier note here — "an
+     * outbox table written INSIDE the transaction and dispatched after it" is
+     * needed — is superseded: `jobs`, written by `after_commit`, IS that outbox.
+     * A `denyApplication()` landing in between can still make the status filter
+     * below skip a row; that residual is a business-rule race, not a lost
+     * delivery order.
      *
      * @param  list<int>  $ids
      */

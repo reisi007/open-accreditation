@@ -212,7 +212,7 @@ class ConsoleCommandChunkingTest extends TestCase
         // makes up the last (remainder) batch.
         Mail::assertSent(DeadlineReminderMail::class, $rows);
         $this->assertStringContainsString(
-            sprintf('Reminder run finished (%d mail(s) sent)', $rows),
+            sprintf('Reminder run finished (%d mail(s) queued)', $rows),
             Artisan::output(),
         );
     }

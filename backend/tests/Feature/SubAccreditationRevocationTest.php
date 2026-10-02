@@ -19,6 +19,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use RuntimeException;
 use Tests\TestCase;
 use Throwable;
@@ -72,6 +73,10 @@ class SubAccreditationRevocationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45: revocation mails are queued; fake them so the inline
+        // sync job cannot abort this class on a live relay failure.
+        Mail::fake();
 
         $this->seed(RoleSeeder::class);
 

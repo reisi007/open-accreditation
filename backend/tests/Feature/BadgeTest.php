@@ -20,6 +20,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -57,6 +58,11 @@ class BadgeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45: approvals queue their notification, which runs inline on
+        // the suite's `sync` connection; fake the mail so these badge assertions
+        // cannot be aborted by a relay failure.
+        Mail::fake();
 
         $this->seed(RoleSeeder::class);
         Storage::fake('private');

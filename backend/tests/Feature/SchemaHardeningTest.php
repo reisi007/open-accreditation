@@ -19,7 +19,9 @@ use Illuminate\Foundation\MaintenanceModeManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\PlainTestMailable;
 use Tests\TestCase;
 
 /**
@@ -325,20 +327,31 @@ class SchemaHardeningTest extends TestCase
         $this->assertArrayNotHasKey('password', $byId[$healthy->id]['smtp_config']);
     }
 
-    public function test_a_legacy_cleartext_row_does_not_block_mail_delivery(): void
+    public function test_a_legacy_cleartext_row_degrades_to_the_default_mailer_instead_of_dropping_the_mail(): void
     {
-        // `MandantMailerService::send()` swallows Throwable, so a DecryptException
-        // out of `transportFor()` did not surface as a 500 — it silently DROPPED
-        // the mail, not even falling back to the default mailer. An unreadable
-        // config must degrade to "no mandant relay", which is the documented
-        // fallback path.
+        // Policy change (Position 45, 2026-10-02): the old service wrapped the
+        // whole dispatch in `catch (Throwable)`, so a DecryptException out of
+        // `transportFor()` did not surface as an error — it silently DROPPED
+        // the mail, not even falling back to the default mailer. The swallow
+        // now lives in the QUEUE (retry + dead letter); the service degrades an
+        // unreadable config to "no mandant relay" and the mail still goes out
+        // through the default mailer.
+        Mail::fake();
+
         $mandant = Mandant::factory()->create();
         $this->writeLegacyCleartextSmtpConfig($mandant, ['host' => 'legacy.example.com']);
+        $mandant = Mandant::query()->findOrFail($mandant->id);
 
+        // An unreadable config means "no relay", which is the documented
+        // fallback path — not an exception.
         $this->assertNull(
-            app(MandantMailerService::class)->transportFor(Mandant::query()->findOrFail($mandant->id)),
+            app(MandantMailerService::class)->transportFor($mandant),
             'an unreadable smtp_config means "no relay", not "throw"',
         );
+
+        app(MandantMailerService::class)->send($mandant, (new PlainTestMailable)->to('applicant@example.test'));
+
+        Mail::assertSent(PlainTestMailable::class);
     }
 
     /* ---------------------------------------------------------------------

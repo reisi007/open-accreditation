@@ -85,8 +85,10 @@ abstract class AbstractApplicationMail extends Mailable
      * The approval mail is the notification; the pass is a convenience. A pass
      * that cannot be built must never take the mail down, so each format is
      * built in its own `try`: on failure the format is logged via `Log::warning`
-     * and SKIPPED, never rethrown. `MandantMailerService` wraps the whole send
-     * in `catch (Throwable)` and would otherwise drop the mail entirely.
+     * and SKIPPED, never rethrown. Since Position 45 `MandantMailerService::deliver()`
+     * lets transport errors through (the queue retries and finally dead-letters
+     * them), a throwing pass builder would burn the whole delivery budget and
+     * lose the notification as well.
      *
      * ## Missing credentials are NOT a failure
      *

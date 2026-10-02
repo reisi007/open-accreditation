@@ -194,7 +194,7 @@ Rest des Requests nie mitnehmen. Drei Lesestellen umgehen das:
 | --- | --- |
 | `PUT /api/admin/mandants/{id}` | `DecryptException` ⇒ Payload wird zur **kompletten** Config (kein Merge), verschlüsselt gespeichert. `getDirty()` würde den Klartext-Originalwert ebenfalls entschlüsseln, deshalb wird das Attribut auf der Instanz neutralisiert. |
 | `GET /api/admin/mandants` (Liste) | `smtp_config: null`, `smtp_has_password: false` — **eine** unlesbare Zeile darf nicht die ganze Liste 500en. |
-| `MandantMailerService::transportFor()` | `null` ⇒ Fallback auf den Default-Mailer. `send()` schluckt `Throwable`, der `DecryptException` hätte die Mail also **stillschweigend verworfen**, statt sie über den dokumentierten Fallback zu senden. |
+| `MandantMailerService::transportFor()` | `null` ⇒ Fallback auf den Default-Mailer. **Seit 2026-10-02 (`features/mail-delivery.md`)** ist das der einzige Weg, auf dem eine `DecryptException` endet: `send()` dispatcht nur noch, `deliver()` benutzt `transportFor()` und sendet über den Default-Mailer. Vorher schluckte `send()` jeden `Throwable` und hätte die Mail **stillschweigend verworfen** — die Degradation war nur durch den `transportFor()`-Test abgedeckt, nicht durch eine zugestellte Mail. |
 
 Alle drei Fälle loggen einen `warning` mit der `mandant_id` — das ist das
 Signal, welcher Mandant noch die Re-Save schuldig ist. **Bekannte

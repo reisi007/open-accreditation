@@ -14,6 +14,7 @@ use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
@@ -54,6 +55,10 @@ class AllocationQrTokenUpgradeTest extends TestCase
         parent::setUp();
 
         config(['app.previous_keys' => []]);
+
+        // Position 45: the mail is queued now; fake it so the sync job does not
+        // dial a real relay (this class asserts token upgrades, not delivery).
+        Mail::fake();
 
         $this->allocation = app(AllocationService::class);
         $this->mandant = Mandant::factory()->create(['slug' => 'verband-a', 'name' => 'Verband A']);

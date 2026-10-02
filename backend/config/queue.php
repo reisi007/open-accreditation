@@ -41,7 +41,20 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            // THE one line that expresses "status and delivery are one
+            // transaction" (Position 45, Nutzerentscheid 2026-10-02): a job
+            // dispatched while a DB transaction is open is pushed only after
+            // that transaction COMMITS. A rolled-back approval therefore
+            // cannot send a mail, and a committed approval always leaves a
+            // delivery order behind.
+            //
+            // This supersedes the AllocationService docblock
+            // (`dispatchApprovedMails`, ~:568-578) that claimed closing the
+            // commit/dispatch gap "needs an outbox table written INSIDE the
+            // transaction and dispatched after it". The outbox exists now:
+            // `jobs`, written by `after_commit`. Do NOT flip this back to
+            // false without moving that documented guarantee somewhere else.
+            'after_commit' => true,
         ],
 
         'beanstalkd' => [

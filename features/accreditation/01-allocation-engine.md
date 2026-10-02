@@ -114,9 +114,14 @@ Daraus folgt:
   `allocation:run` überspringt sie, der Antragsteller sah „pending" ohne Ende
   und wurde nie informiert (WP-3-b).
 - **Mails nach `commit()`.** `dispatchApprovedMails` / `dispatchDeniedMails`
-  laufen außerhalb der Transaktion: Der Versand liest den committeten Zustand,
-  und ein Mail-Transport-Fehler darf niemals eine Entscheidung zurückrollen
-  (`MandantMailerService` schluckt Versandfehler ohnehin).
+  laufen außerhalb der Transaktion und stellen nur einen `SendMandantMail`-Job
+  in die Queue. Der Auftrag wird dadurch **im selben Commit** geschrieben wie
+  die Entscheidung (`config/queue.php` → `after_commit => true`), eine
+  zurückgerollte Entscheidung sendet also nichts, und ein Versandfehler kann
+  niemals eine Entscheidung zurückrollen. **Der alte Satz „(`MandantMailerService`
+  schluckt Versandfehler ohnehin)" ist überholt**: der Service verschluckt
+  nichts mehr, der Job wiederholt mit Backoff und endet im Dead Letter —
+  siehe `features/mail-delivery.md`.
 
 ### Was SQLite in der Test-Suite **nicht** beweisen kann
 

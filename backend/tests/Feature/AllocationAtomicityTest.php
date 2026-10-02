@@ -83,7 +83,7 @@ use Throwable;
  * FKs of `accreditations`/`applications`. Staging the state on Postgres would
  * therefore mean dropping a production constraint inside the test, so that one
  * test skips itself off SQLite. It is the ONLY test of the notification guard
- * (a broken `MandantMailerService::send()` must never abort the loop), i.e. the
+ * (a missing mandant must never abort the loop), i.e. the
  * corruption it feeds the engine is pinned by the SQLite run of this single
  * test — stated here so the coverage gap stays visible instead of being read as
  * "covered on both engines".
@@ -109,6 +109,12 @@ class AllocationAtomicityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Position 45 (2026-10-02): allocation now DISPATCHES the mail job; on
+        // the suite's `sync` connection it executes inline and a dead relay is
+        // no longer swallowed, so it would abort every decision-path test.
+        // Individual tests re-fake it where they assert the notification.
+        Mail::fake();
 
         $this->allocation = app(AllocationService::class);
         $this->subAllocation = app(SubAllocationService::class);

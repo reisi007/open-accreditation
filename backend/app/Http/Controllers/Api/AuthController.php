@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
 use App\Rules\ValidUtf8;
+use App\Services\MandantMailerService;
 use App\Support\MandantContext;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,7 +19,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -28,6 +28,10 @@ class AuthController extends Controller
      * Validity of a generated activation token.
      */
     public const ACTIVATION_TTL_HOURS = 24;
+
+    public function __construct(
+        private readonly MandantMailerService $mandantMailer,
+    ) {}
 
     /**
      * POST /api/auth/register
@@ -124,10 +128,16 @@ class AuthController extends Controller
                 'team_id' => null,
             ]);
 
-            Mail::to($user->email)->send(new ActivationMail(
+            // Position 45 (Nutzerentscheid 2026-10-02): the activation mail is
+            // QUEUED like every other mandant mail. The dispatch happens inside
+            // the registration transaction on purpose — `after_commit` pushes
+            // the job only once the account really exists, and the request
+            // answers 201 without waiting for SMTP. `MandantMailerService` also
+            // routes it through the mandant's relay when one is configured.
+            $this->mandantMailer->send($mandant, (new ActivationMail(
                 name: $user->name,
                 activationUrl: $this->activationUrl($token, $request),
-            ));
+            ))->to($user->email, $user->name));
 
             return response()->json([
                 'message' => 'Registrierung erfolgreich. Bitte prüfe deine E-Mail zur Aktivierung.',

@@ -21,6 +21,7 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 | `event-type-presets.md` | **Event-Type-Presets (W3):** fachliches Schema `event_types.presets` v1 — Badge-Template-Referenz, PDF-Vorlagen (Einverständnis/Akkreditierungsdruck), Quota-/Frist-/Kategorie-Defaults, strikte Whitelist, Fallback-Kette Event→Typ→Mandant |
 | `venue-master-data.md` | **Venue-Master-Data (W12):** eine mandant-weite `venues`-Tabelle, referenziert von `teams.venue_id` **und** `events.venue_id`; ersetzt die Freitext-Spalten `home_venue`/`venue`; deaktivieren-statt-löschen, `restrict`-FK, `unique(mandant_id, name)` |
 | `wallet-pkpass.md` | **Wallet / PKPASS (P6):** Apple/Google Wallet-Passes, Pass-Struktur, Verify-URL, `relevantDate`-Semantik (P6-B1: `deadline_end`) |
+| `mail-delivery.md` | **Mail-Zustellung (SOLL, 2026-10-02):** `MandantMailerService` dispatcht `SendMandantMail`, `after_commit`, gedeckelte Retries, Idempotenz-Wache, `failed_jobs.mandant_id`, mandanten-isolierte DLQ-API + manueller Requeue, unbegrenzte Aufbewahrung |
 | `accreditation/01-allocation-engine.md` | Allocation-Engine (P3c): deterministische Freigabe (VIP → FCFS), Quota, Blacklist, manuell + automatisch |
 | `auth/01-auth-and-roles.md` | Auth-Flow (Registrierung → Aktivierung → Login-Cookie → Logout → `/me`), Rollen-Matrix, Profil/Media-Vertrag |
 
