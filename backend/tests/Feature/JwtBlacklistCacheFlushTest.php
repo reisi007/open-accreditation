@@ -62,11 +62,15 @@ class JwtBlacklistCacheFlushTest extends TestCase
      * Artisan commands that remove LIVE cache entries. Each of them would
      * resurrect every invalidated token.
      *
-     * `cache:prune` is deliberately absent: it only removes entries that have
-     * already expired, and an entry that expired can no longer blacklist
-     * anything. `config:clear`, `route:clear`, `view:clear` and `event:clear`
-     * are absent for the same reason — they clear compiled artefacts, not the
-     * cache. `optimize:clear` includes `cache:clear`, hence its presence.
+     * `cache:prune` is absent for a stronger reason than "it would be harmless":
+     * in Laravel **13.33.0** there is no such command (measured — `php artisan
+     * list` knows only `cache:prune-stale-tags`, which is Redis-only and reaps
+     * stale TAGS, not expired entries). A "prune only removes what has already
+     * expired, and an expired entry can no longer blacklist anything" argument
+     * would still hold, but there is nothing to run and nothing to schedule.
+     * `config:clear`, `route:clear`, `view:clear` and `event:clear` are absent
+     * because they clear compiled artefacts, not the cache.
+     * `optimize:clear` includes `cache:clear`, hence its presence.
      *
      * @var list<string>
      */

@@ -7,7 +7,10 @@ use App\Jobs\SendMandantMail;
 use App\Models\Mandant;
 use App\Services\MandantMailerService;
 use App\Support\QueuedMailPayload;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,7 +37,13 @@ use Throwable;
  *    falls through to `get()` + `put()` → `forever()`, an unconditional upsert.
  *    With the TTL the database store writes a single `insert or ignore`
  *    (SQLite) / `insert … on conflict do nothing` (Postgres). The TTL is also
- *    what keeps the `cache` table from growing a 10-year row per delivered mail.
+ *    what makes an old claim INVISIBLE; it is not what keeps the `cache` table
+ *    small, and the class no longer claims that (measured:
+ *    {@see test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it()}).
+ * 5. The claim window outlives the WHOLE retry budget, not just `retry_after`.
+ *    Necessary, not sufficient — see
+ *    {@see test_the_claim_window_outlives_the_whole_retry_budget()}, which is
+ *    where "the guard refuses loudly" stops being a promise.
  *
  * The guard is keyed by the job's `deliveryId`, which is stable across retries
  * of the SAME queued job and fresh on every new dispatch (including the manual
@@ -43,6 +52,13 @@ use Throwable;
 class SendMandantMailTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     public function test_the_retry_budget_is_capped_with_a_backoff(): void
     {
@@ -186,8 +202,20 @@ class SendMandantMailTest extends TestCase
     /**
      * The claim window must outlast the window in which a crashed job comes
      * back: a `retry_after` LONGER than the claim would let the duplicate
-     * through. This fails loudly if an operator raises `DB_QUEUE_RETRY_AFTER`
-     * past the constant instead of making the decision consciously.
+     * through.
+     *
+     * WHAT THIS ACTUALLY SEES: the suite's own
+     * `config('queue.connections.database.retry_after')` — it does NOT read
+     * `deployment/docker-compose.yml`, so raising `DB_QUEUE_RETRY_AFTER` there
+     * does not turn this red. What it does cover is a change in
+     * `config/queue.php` or in the suite's resolved value; the compose value is
+     * pinned elsewhere (the supervisor's `QUEUE_WORKER_TIMEOUT < retry_after`
+     * guard, `deployment/backend-supervisor.sh:107-111`).
+     *
+     * This inequality is NECESSARY AND NOT SUFFICIENT — the job's own `backoff()`
+     * decides when the LAST attempt runs, not `retry_after`. The test that
+     * carries the guarantee is
+     * {@see test_the_claim_window_outlives_the_whole_retry_budget()}.
      */
     public function test_the_claim_window_outlives_the_queue_retry_window(): void
     {
@@ -197,6 +225,175 @@ class SendMandantMailTest extends TestCase
             $retryAfter,
             SendMandantMail::CLAIM_TTL_SECONDS,
             'the claim must outlive `retry_after`, otherwise the crash-before-ack re-run finds an expired claim and sends a duplicate',
+        );
+    }
+
+    /**
+     * THE load-bearing inequality: `CLAIM_TTL_SECONDS > array_sum(backoff())`.
+     *
+     * `> retry_after` is not enough, and the measured reason is the job's own
+     * schedule. With the old TTL of 3600 s the attempts land at
+     * t = 0 / 60 / 360 / 1260 / 4860; the claim died at t = 3600, so attempt 5
+     * found no claim and SENT — measured `jobs=0`, `failed_jobs=0`, no log. The
+     * guard did not prevent the duplicate, it postponed it past the end of its
+     * own retry budget and made it invisible. That is worse than no guard: the
+     * old "return normally" behaviour at least showed up in `failed_jobs`.
+     *
+     * The second half is the same thing as a STATE rather than as arithmetic:
+     * the job is re-run at exactly `array_sum(backoff())` — the moment of its
+     * last attempt — and must be refused with a SECOND mail unsent. A TTL below
+     * the sum makes `DatabaseStore::add()`'s internal read expire (and lazily
+     * delete) the row, so the insert succeeds and the second mail goes out.
+     *
+     * MUTATION (TTL 21600 → 3600): the `assertGreaterThan` below fails with
+     * "CLAIM_TTL_SECONDS must exceed the entire retry budget"; with that
+     * assertion removed the behavioural half fails on `assertSent(…, 1)`.
+     */
+    public function test_the_claim_window_outlives_the_whole_retry_budget(): void
+    {
+        Mail::fake();
+
+        config(['cache.default' => 'database']);
+
+        $mandant = Mandant::factory()->create(['smtp_config' => null]);
+        $job = new SendMandantMail($mandant->id, (new PlainTestMailable)->to('a@example.test'));
+        $budget = array_sum($job->backoff());
+
+        // PREMISE: the sum of the backoff IS the span of the retry budget, so
+        // the inequality below is measured against the whole budget and not
+        // against a number that only looks like one. Without this, raising
+        // `$tries` without extending `backoff()` would silently shrink the
+        // window this test claims to protect.
+        $this->assertCount(
+            $job->tries - 1,
+            $job->backoff(),
+            'PREMISE: one backoff entry per retry, so array_sum(backoff()) is the span between attempt 1 and the last one. '
+            .'Otherwise this test would be asserting against a number that no longer describes the schedule.',
+        );
+
+        $this->assertGreaterThan(
+            $budget,
+            SendMandantMail::CLAIM_TTL_SECONDS,
+            'CLAIM_TTL_SECONDS must exceed the ENTIRE retry budget (array_sum(backoff())), not just `retry_after`: '
+            .'a claim that expires before the last attempt lets that attempt through, and the duplicate it permits '
+            .'is invisible — no `failed_jobs` row, no log.',
+        );
+
+        // Attempt 1 delivers and leaves the claim behind — the state a worker
+        // that died before the ack leaves.
+        $job->handle(app(MandantMailerService::class));
+        Mail::assertSent(PlainTestMailable::class, 1);
+
+        // Attempt 5, on schedule.
+        Carbon::setTestNow(now()->addSeconds($budget));
+
+        try {
+            $job->handle(app(MandantMailerService::class));
+            $this->fail('the last attempt must still be inside the claim window and must refuse, not deliver a second time');
+        } catch (MailDeliveryAlreadyClaimedException) {
+            // expected — the claim outlived the budget
+        }
+
+        Mail::assertSent(PlainTestMailable::class, 1);
+    }
+
+    /**
+     * WHAT THE TTL DOES AND DOES NOT BUY (Befund, `low`): an expired claim is
+     * gone from every READ, but its ROW is still in `cache`.
+     *
+     * `DatabaseStore::many()` deletes expired rows lazily, on a read of that key
+     * (`vendor/…/Cache/DatabaseStore.php:147-157`). `add()` reads first
+     * (`:214-218`). So an expired claim does release the guard — that is exactly
+     * how the duplicate of {@see test_the_claim_window_outlives_the_whole_retry_budget()}
+     * used to get through — but nothing sweeps the rows on its own, and for a
+     * DELIVERED mail nobody ever reads that key again: the `deliveryId` is
+     * fresh, there is no follow-up claim. One `cache` row per delivered mail
+     * therefore survives forever.
+     *
+     * Measured here in both directions, with two claims that differ in exactly
+     * one thing: `probe` is read after its TTL, the delivery's own claim is
+     * not.
+     *
+     * There is also nothing that could prune it: Laravel 13.33.0 has NO
+     * `cache:prune` command (measured — `php artisan list` knows only
+     * `cache:prune-stale-tags`, which is Redis-only and reaps stale TAGS), and
+     * no scheduled task touches the cache table. Both are asserted as premises,
+     * because a premise that is not measured is how `features/mail-delivery.md`
+     * came to promise a `cache:prune` that does not exist.
+     *
+     * MUTATION (add a scheduled/`cache:prune` reaper for the cache table):
+     * this test goes red and the honest wording in `features/mail-delivery.md`
+     * §4.3 has to be revisited as a decision rather than as a description.
+     */
+    public function test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it(): void
+    {
+        Mail::fake();
+
+        config(['cache.default' => 'database']);
+
+        $mandant = Mandant::factory()->create(['smtp_config' => null]);
+        $job = new SendMandantMail($mandant->id, (new PlainTestMailable)->to('a@example.test'));
+        $job->handle(app(MandantMailerService::class));
+
+        $prefix = app('cache')->store()->getPrefix();
+        $claimKey = $prefix.'mail-delivery:'.$job->deliveryId;
+
+        $this->assertTrue(
+            Cache::add('mail-delivery:probe', true, SendMandantMail::CLAIM_TTL_SECONDS),
+            'PREMISE: a second, unrelated claim can be written, so the two rows below differ only in whether they are read.',
+        );
+
+        // One second past the window.
+        Carbon::setTestNow(now()->addSeconds(SendMandantMail::CLAIM_TTL_SECONDS + 1));
+
+        // (1) The claim is gone from every read — that is what the window buys.
+        $this->assertFalse(
+            Cache::has('mail-delivery:probe'),
+            'an expired claim must be invisible, otherwise the window releases nothing and the guard never yields',
+        );
+
+        // (2) …and reading it is what physically removed its row.
+        $this->assertDatabaseMissing(
+            'cache',
+            ['key' => $prefix.'mail-delivery:probe'],
+            null,
+            'DatabaseStore::many() deletes expired rows on the read that observes them — the lazy half of the mechanism.',
+        );
+
+        // (3) The delivery's own claim expired at the same moment and was never
+        // read again, so its row is still there. This is the part that grows.
+        $this->assertDatabaseHas(
+            'cache',
+            ['key' => $claimKey],
+            null,
+            'nothing prunes an unread cache row: every delivered mail leaves one behind for good. The window releases '
+            .'the GUARD, not the row.',
+        );
+
+        // Premises for the two sentences above — see the docblock.
+        $artisan = Artisan::all();
+
+        $this->assertArrayHasKey(
+            'cache:clear',
+            $artisan,
+            'PREMISE: the command list must really be readable, or the `cache:prune` check below is vacuous.',
+        );
+        $this->assertArrayNotHasKey(
+            'cache:prune',
+            $artisan,
+            'PREMISE: Laravel 13.33.0 has no cache:prune command, so nothing in this framework can reap expired cache rows.',
+        );
+
+        $scheduled = collect(app(Schedule::class)->events())
+            ->map(static fn ($event): string => (string) ($event->command ?? ''))
+            ->implode(' ');
+
+        $this->assertNotSame('', $scheduled, 'PREMISE: the schedule must not be empty, or the check below is vacuous.');
+        $this->assertStringNotContainsString(
+            'cache',
+            $scheduled,
+            'No scheduled task may delete cache rows: the JWT blacklist lives in that table, and a deletion that is '
+            .'not scoped to expired entries would resurrect every invalidated token.',
         );
     }
 

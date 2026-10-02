@@ -52,18 +52,26 @@ use Throwable;
  * `get()` + `put()` → `forever()`, i.e. `insert … on conflict do update set …`,
  * an unconditional upsert rather than a test-and-set. With the TTL the store
  * emits a single `insert or ignore` (SQLite) / `insert … on conflict do
- * nothing` (Postgres), which is the atomic part. The TTL is also what keeps the
- * `cache` table bounded: without it every delivered mail leaves a row that
- * expires in **10 years** (`now + 315360000`), and nothing prunes it.
+ * nothing` (Postgres), which is the atomic part.
+ *
+ * The TTL's second effect is that the window *ends*: `DatabaseStore` expires an
+ * entry lazily, on the next read of that key (`:147-157`), so a claim past its
+ * TTL stops suppressing anything. That is what makes "at-least-once **danach**"
+ * true — and it is also the mechanism that let a duplicate through when the
+ * window was shorter than the retry budget (see the constant). What the TTL
+ * does NOT do is keep the `cache` table small: the row survives until something
+ * reads that exact key again, and for a delivered mail nothing ever does.
+ * `features/mail-delivery.md` §4.3 carries that open item in full.
  *
  * **On a claim hit the job THROWS — it does not return.** Returning normally
  * was the bug this replaced: the worker then treats the job as done and
  * DELETES it, so a claim left behind by a worker that died between "claimed"
  * and "sent" produced no mail, no `failed_jobs` row and no log line. Throwing
- * keeps the refusal visible — the job retries under its own cap and, if the
- * claim is still held after the last attempt, ends up in `failed_jobs` where a
- * human can see and requeue it. "No mail should be lost" allows a visible
- * ambiguity; it does not allow a silent one.
+ * keeps the refusal visible — the job retries under its own cap and, because
+ * the claim window outlives the WHOLE retry budget, the claim is still held at
+ * the LAST attempt, so the job cannot slip through between two attempts. It
+ * ends up in `failed_jobs` where a human can see and requeue it. "No mail
+ * should be lost" allows a visible ambiguity; it does not allow a silent one.
  *
  * **Recovery is the human's requeue.** `FailedMailController::prepareForRequeue()`
  * mints a FRESH `deliveryId`, so a requeued dead letter carries a new claim key
@@ -74,8 +82,10 @@ use Throwable;
  * **Why this and not plain at-least-once?** At-least-once (no guard) removes
  * the duplicate but throws away Nutzerentscheidung 5, which required the guard
  * to be born with the queue. What it buys is bounded, *deliberate* duplicates
- * instead of an accidental one per crash, and every duplicate here is preceded
- * by a visible `failed_jobs` entry plus a manual, logged decision.
+ * instead of an accidental one per crash, and every duplicate the guard refuses
+ * is preceded by a visible `failed_jobs` entry plus a manual, logged decision.
+ * Both halves of that sentence stand on the constant's inequality — which is
+ * exactly why the inequality is a test and not a comment.
  *
  * On a delivery EXCEPTION the claim is released before the exception
  * propagates, so a transient relay failure still retries normally.
@@ -92,21 +102,40 @@ final class SendMandantMail implements ShouldQueue
     /**
      * Seconds a delivery claim survives.
      *
-     * One invariant and one direction:
+     * Two inequalities, and the SECOND one is the load-bearing one:
      *
-     *  - It MUST exceed the queue's `retry_after` (90 s by default, pinned in
-     *    `deployment/docker-compose.yml`). A crash-before-ack re-run only
-     *    happens once the job becomes available again, so a claim that expires
-     *    before that would let the duplicate through. `SendMandantMailTest`
-     *    pins the inequality so raising `retry_after` forces a decision here.
-     *  - It MUST be finite. An unbounded claim leaves one `cache` row per
-     *    delivered mail that nothing ever prunes.
+     *  - It MUST exceed the ENTIRE retry budget of this job:
+     *    `CLAIM_TTL_SECONDS > array_sum(backoff())` — 4860 s for the schedule
+     *    below, so 21600 s. This is the inequality that makes the guard mean
+     *    anything, and the one that was violated. Measured with the previous
+     *    value of 3600 s: attempts run at t = 0 / 60 / 360 / 1260 / 4860, the
+     *    claim died at t = 3600, and the LAST attempt found no claim and sent
+     *    — `jobs = 0`, `failed_jobs = 0`, no log line. The guard did not
+     *    prevent that duplicate, it postponed it past the end of its own retry
+     *    budget and made it invisible, which is worse than no guard at all.
+     *  - It MUST ALSO exceed the queue's `retry_after` (90 s by default, pinned
+     *    in `deployment/docker-compose.yml`): a crash-before-ack re-run only
+     *    happens once the job becomes available again. Necessary — but NOT
+     *    sufficient, because the last attempt is scheduled by `backoff()`, not
+     *    by `retry_after`.
+     *  - It MUST be finite. An unbounded claim (`forever()` → `now + 315360000`,
+     *    ten years) never releases, so the guard would refuse forever.
      *
-     * One hour is far above `retry_after` and below anything an operator would
-     * call an outage; a manual requeue does not have to wait for it (§ the class
-     * docblock — requeue mints a fresh `deliveryId`).
+     * Both inequalities are pinned in `SendMandantMailTest`, the first one
+     * against the real `backoff()` and additionally as a STATE — the job is
+     * re-run at exactly `array_sum(backoff())` and must be refused with no
+     * second mail sent.
+     *
+     * What a finite window does NOT do is keep the `cache` table small: an
+     * expired entry is dropped from every read (`DatabaseStore::many()`), but
+     * its ROW survives until something reads that exact key again — and for a
+     * delivered mail nothing ever does. See `features/mail-delivery.md` §4.3.
+     *
+     * Six hours is ~4.4x the retry budget and still far below anything an
+     * operator would call an outage; a manual requeue never has to wait for it
+     * (§ the class docblock — a requeue mints a fresh `deliveryId`).
      */
-    public const CLAIM_TTL_SECONDS = 3600;
+    public const CLAIM_TTL_SECONDS = 21600;
 
     /**
      * Delivery attempts before the job is dead-lettered. The supervisor runs
@@ -157,6 +186,17 @@ final class SendMandantMail implements ShouldQueue
     }
 
     /**
+     * Delay before each retry, in seconds.
+     *
+     * The five attempts therefore run at t = 0 / 60 / 360 / 1260 / 4860, and
+     * `array_sum()` of this list is the span between the first attempt and the
+     * LAST one — the number `CLAIM_TTL_SECONDS` has to exceed (see that
+     * constant, and the test that pins the inequality against this method).
+     *
+     * One entry per retry: `$tries - 1`. `SendMandantMailTest` asserts that
+     * count too, so raising `$tries` without extending this list cannot quietly
+     * put an attempt outside the claim window.
+     *
      * @return list<int>
      */
     public function backoff(): array
