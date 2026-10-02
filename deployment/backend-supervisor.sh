@@ -111,11 +111,40 @@ rm -f "$QUEUE_SUPERVISOR_PID_FILE" "$QUEUE_WORKER_PID_FILE" "$SCHEDULER_PID_FILE
 # halb geschriebene Datei sieht. Nach dem Ende des Workers wird er entfernt:
 # der Healthcheck sieht in diesem Fenster keinen lebenden Worker und meldet
 # den Container ungesund, bis der neue Worker läuft.
+#
+# --- `--tries`: BODEN für Jobs OHNE eigenen Deckel, nicht die Obergrenze ---
+# Ein Job, der seinen Deckel selbst mitbringt (`$tries`/`backoff()`), trägt
+# ihn im Payload — und Laravel bevorzugt ihn gegenüber dem CLI-Wert, weil
+# `Worker::markJobAsFailedIfAlreadyExceedsMaxAttempts()` und
+# `::markJobAsFailedIfWillExceedMaxAttempts()` beide mit
+# `$maxTries = ! is_null($job->maxTries()) ? $job->maxTries() : $maxTries`
+# beginnen (`Worker.php:703` und `:731`). Die CLI-Zahl hebt einen solchen
+# Deckel also NICHT an.
+#
+# GEMESSEN (nicht vermutet): `App\Jobs\SendMandantMail` trägt `$tries = 5`. Auf
+# der CLI mit `--tries=1` gestartet wurde der Job FREIGEGEBEN — die Zeile blieb
+# in `jobs` liegen, `attempts = 1`, kein Eintrag in `failed_jobs`. Für diesen
+# Job ist die CLI-Zahl also wirkungslos; wer hier 3 liest, bekommt 5. Deshalb
+# steht hier 5: die Zahl, die ein Operator liest, ist die Zahl, die der
+# einzige Job auf dieser Queue tatsächlich erhält.
+#
+# Wofür der Boden gebraucht wird: für alles, was seinen Deckel NICHT
+# mitbringt — Laravels eigene `SendQueuedMailable` und
+# `SendQueuedNotifications` tragen überhaupt kein `$tries`, ebenso jeder
+# künftige Job ohne `$tries`. Heute ist `SendMandantMail` der einzige
+# `ShouldQueue`-Typ im App-Code; `app/Mail/*` nutzt nur das `Queueable`-Trait
+# und ist damit KEIN Job.
+#
+# Und dieser Boden ist fail-closed, nicht endlos: die CLI-Vorgabe von
+# `queue:work` ist `[default: "1"]`, ein Job ganz ohne Deckel wird also nach dem
+# ERSTEN Fehlversuch dead-lettered, nicht in einer Schleife gehalten. Genau
+# deshalb wird `--tries` hier nicht weggelassen (das wäre Boden 1 statt 5),
+# sondern auf den realen Job-Deckel gehoben.
 queue_supervisor_loop() {
 	while :; do
 		php artisan queue:work \
 			--name=accriditation-production \
-			--tries=3 \
+			--tries=5 \
 			--timeout="$QUEUE_WORKER_TIMEOUT" &
 		worker_pid=$!
 
