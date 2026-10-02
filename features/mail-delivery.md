@@ -211,6 +211,23 @@ beim Dead-Lettern von `App\Queue\Failed\MandantAwareFailedJobProvider` (ein
 `DatabaseUuidFailedJobProvider`-Subklassen), der `queue:failed`/`queue:retry`/
 `queue:forget` unverändert lässt.
 
+**Und sie wird von einer eigenen Migration angelegt — nicht nachträglich in
+`0001_01_01_000002` editiert.** Das ist keine Formalie: eine bereits gelaufene
+Migration führt Laravel **nie** erneut aus, eine solche Änderung erreicht also
+**keine** bestehende Datenbank — gemessen als `SQLSTATE 42703: column
+"mandant_id" does not exist`, während **CI grün** war, weil der Testlauf mit
+`migrate:fresh` auf einer frischen DB arbeitet und die Behauptung von dort aus
+**nicht falschfindbar** ist. Die Migration ist deshalb **konvergent** (zwei
+`Schema::`-Guards): nach dem In-Place-Stand gibt es drei reale Ausgangslagen —
+frisch, bereits migriert **mit** Spalte, bereits migriert **ohne** Spalte — und
+ein unguarded `ALTER` bricht auf der zweiten mit `42701` ab, **ohne** die
+Ledger-Zeile zu schreiben, was jeden späteren `migrate` dauerhaft scheitern
+lässt. Der Wächter (`FailedJobsMandantIdMigrationTest`) prüft darum die
+**Migrationslage**, nicht die Spalte: er baut den 42703-Zustand nach und führt
+`artisan migrate` — plus eine Quell-Pin, weil ein reiner Verhaltenstest bei
+„Spalte zusätzlich in 0001" **grün** bliebe und nur der Quellcheck die
+Täterdatei benennt.
+
 Die Mail-Skalare (`mandantId`, `mailableClass`, `recipient`) werden als
 **Skalare am Job** mitgeführt und über `App\Support\QueuedMailPayload` gelesen —
 ohne die Mail zu reanimieren. Deshalb ist die Mail im Job **vorab serialisiert**

@@ -34,24 +34,18 @@ return new class extends Migration
             $table->integer('finished_at')->nullable();
         });
 
-        // Queue tables are born together (2026-10-02, Position 45): the
-        // dead-letter queue is Laravel's `failed_jobs`, and a mandant_admin
-        // may only ever see the dead letters OF HIS mandant. Deriving that
-        // scope out of the `payload` blob would be brittle (the value lives
-        // in a PHP-serialized command nested inside JSON), so the owning
-        // mandant is a real, indexed column, written by
-        // `App\Queue\Failed\MandantAwareFailedJobProvider`.
-        //
-        // Nullable and WITHOUT a foreign key on purpose: a failed mail must
-        // survive the deletion of its mandant (the SMTP host may have been
-        // misconfigured right when the Verband was removed), and a non-mail
-        // job carries no mandant at all.
+        // `failed_jobs` is the dead-letter queue, and a mandant_admin may only
+        // ever see the dead letters OF HIS mandant. That scope arrives as its
+        // OWN additive migration (`add_mandant_id_to_failed_jobs_table`,
+        // 2026-10-02) — never as an edit to this file. Laravel skips a file
+        // name that already stands in the `migrations` table, so a column added
+        // here reaches only `migrate:fresh` databases and never an already
+        // migrated one (measured: SQLSTATE 42703, see that migration).
         Schema::create('failed_jobs', function (Blueprint $table) {
             $table->id();
             $table->string('uuid')->unique();
             $table->string('connection');
             $table->string('queue');
-            $table->unsignedBigInteger('mandant_id')->nullable()->index();
             $table->longText('payload');
             $table->longText('exception');
             $table->timestamp('failed_at')->useCurrent();

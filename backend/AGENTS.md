@@ -32,13 +32,54 @@ nur migrieren. `php artisan migrate` (bzw. `migrate:fresh`) allein reicht
 nicht — anschließend IMMER `php artisan db:seed` (oder `--seed` Flag)
 ausführen.
 
-**Migration Policy (CRITICAL, etabliert 2026-08-13):** Migrationen werden mit
-**Erstelldatum** nummeriert (Laravel-Standard `YYYY_MM_DD_HHMMSS_*`). Bis zum
-**ersten Produktions-Deploy** gilt: Schema-Änderungen **erweitern** bestehende
-Migrationen (Dateien dürfen frei angepasst werden — kein Versionsnummern-
-Zeremoniell). **Nach dem nächsten Produktions-Deploy** erhält jede Schema-
-Änderung eine **eigene, neue Migration** (Erstelldatum). **`down()`-Methoden
-werden nie ausgeführt und können als Regel leer gelassen werden.**
+**Migration Policy (CRITICAL, etabliert 2026-08-13, präzisiert 2026-10-02):**
+Migrationen werden mit **Erstelldatum** nummeriert (Laravel-Standard
+`YYYY_MM_DD_HHMMSS_*`). Bis zum **ersten Produktions-Deploy** gilt:
+Schema-Änderungen **erweitern** bestehende Migrationen (Dateien dürfen frei
+angepasst werden — kein Versionsnummern-Zeremoniell). **Nach dem nächsten
+Produktions-Deploy** erhält jede Schema-Änderung eine **eigene, neue Migration**
+(Erstelldatum). **`down()`-Methoden werden nie ausgeführt und können als Regel
+leer gelassen werden.**
+
+> **Die Bedingung, die 2026-10-02 dazukam — die Ausnahme gilt nur, solange
+> KEINE geteilte Datenbank die Datei jemals gelaufen hat.**
+>
+> „Bestehende Migrationen erweitern" ist keine Geschmacksfrage, sondern eine
+> Wette darauf, dass **keine** Datenbank außer deiner own frisch
+> migrierten existiert. Laravels Migrator überspringt jeden Dateinamen, der
+> bereits in der `migrations`-Tabelle steht (`Migrator::pendingMigrations()`) —
+> eine Änderung an so einer Datei erreicht also **ausschließlich** `migrate:fresh`
+> und **nie** eine bereits migrierte Datenbank.
+>
+> **Gemessen am 2026-10-02, Position 45 (Commit `70aa03d`):** `mandant_id` wurde
+> per In-Place-Edit in `0001_01_01_000002_create_jobs_table.php` ergänzt. Die
+> Suite blieb vollständig grün — `RefreshDatabase`/`migrate:fresh` führt **jede**
+> Datei von null aus und hatte die Spalte damit immer. Auf jeder bereits
+> migrierten Datenbank antwortete `php artisan migrate` mit
+> `INFO Nothing to migrate.`, und `GET /api/admin/failed-mails` mit
+>
+> ```text
+> SQLSTATE[42703]: column "mandant_id" does not exist
+> (select * from "failed_jobs" where "mandant_id" is not null …)
+> ```
+>
+> **Wann die Ausnahme noch gilt:** nur wenn die Datei **nirgends** gelaufen ist
+> — keine Entwickler-DB, kein Staging, kein CI-Container **mit Volume**, kein
+> geteilter Postgres. **Ab dem ersten Ort, an dem sie gelaufen ist, ist sie
+> vorbei** — auch ohne Prod-Deploy. Ab dann: **neue Migration**, ohne
+> Diskussion. Ein Prod-Deploy ist *eine* Auslöschung dieser Bedingung, aber
+> nicht die einzige.
+>
+> **Und der Wächter ist nicht die Spalte, sondern die Migrationslage:**
+> `tests/Feature/FailedJobsMandantIdMigrationTest.php`. Eine Spalte, die nur
+> `migrate:fresh` sieht, ist per Definition durch *keinen* Spaltentest
+> findbar — der Test spielt deshalb die Datenbank nach, auf der der Defekt
+> lebte (Datei im Ledger, Spalte fehlt), und verlangt, dass `migrate` sie
+> nachliefert. Zusätzlich benennt er die Täterdatei im Quelltext (mit
+> auskommentiertem Code, sonst bestraft er die eigene Warnung).
+>
+> **Merksatz:** „erweitern" heißt *nur* auf einer Datenbank, die es noch nicht
+> gibt. Sobald es eine gibt, ist die neue Datei billiger als die Fehlersuche.
 
 ### Prod-Schema via Compose — nicht manuell (STRICT)
 
@@ -244,6 +285,15 @@ Build-Log-Evidenz, **kein** Live-Nachweis — ein echter Stack-Start bleibt ein 
 > benutzt) und der Tatsache, dass Laravels *Testing*-TransactionsManager die umschließende
 > `RefreshDatabase`-Transaktion ausblendet, After-Commit-Callbacks einer echten verschachtelten
 > `DB::transaction()` aber feuert.
+>
+> **Nachtrag 2026-10-02 (derselbe Tag, derselbe Fund):** die Spalte existierte
+> zunächst nur in einer **In-Place-Änderung** an `create_jobs_table` und damit auf
+> **keiner** bereits migrierten Datenbank — `SQLSTATE 42703`, siehe
+> „Migration Policy". Sie liegt jetzt in
+> `2026_10_02_180000_add_mandant_id_to_failed_jobs_table.php`. **Merke für den
+> nächsten Schema-Fall:** die Zeile oben („die Spalte existiert jetzt") war eine
+> **Behauptung über das Schema**, und `migrate:fresh` — also die Quelle jeder
+> Suite — kann sie nicht widerlegen.
 
 ## Portabilitätsregel (CRITICAL)
 
