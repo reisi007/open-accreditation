@@ -8,6 +8,8 @@ use App\Services\MandantMailerService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * P5 deadline reminders. Sends `DeadlineReminderMail` to every applicant of a
@@ -30,6 +32,10 @@ use Illuminate\Support\Facades\Cache;
  * inside the batch callback now, so the peak is one batch instead of the whole
  * window. The dedup key is per application+deadline, so the batched dispatch is
  * identical to the collected one.
+ *
+ * **The result is written to the application log, not only to stdout** — the
+ * same reason as in `RunAllocations`: a scheduled command's output is discarded
+ * by Laravel, so the daily run would otherwise leave no trace at all.
  */
 class SendReminders extends Command
 {
@@ -53,39 +59,58 @@ class SendReminders extends Command
 
     public function handle(MandantMailerService $mailer): int
     {
+        $startedAt = microtime(true);
         $from = now()->startOfDay();
         $to = now()->addDays(3)->endOfDay();
 
         $sent = 0;
 
-        Accreditation::query()
-            ->active()
-            ->whereNotNull('deadline_end')
-            ->where('deadline_end', '>=', $from)
-            ->where('deadline_end', '<=', $to)
-            ->with('mandant')
-            ->orderBy('id')
-            ->chunkById(self::ACCREDITATION_CHUNK_SIZE, function (Collection $accreditations) use ($mailer, &$sent): void {
-                foreach ($accreditations as $accreditation) {
-                    $deadlineKey = (string) $accreditation->deadline_end?->toDateString();
+        try {
+            Accreditation::query()
+                ->active()
+                ->whereNotNull('deadline_end')
+                ->where('deadline_end', '>=', $from)
+                ->where('deadline_end', '<=', $to)
+                ->with('mandant')
+                ->orderBy('id')
+                ->chunkById(self::ACCREDITATION_CHUNK_SIZE, function (Collection $accreditations) use ($mailer, &$sent): void {
+                    foreach ($accreditations as $accreditation) {
+                        $deadlineKey = (string) $accreditation->deadline_end?->toDateString();
 
-                    $accreditation->applications()
-                        ->where('status', 'requested')
-                        ->with('user:id,email,name')
-                        ->orderBy('id')
-                        ->chunkById(self::APPLICATION_CHUNK_SIZE, function (Collection $applications) use ($accreditation, $mailer, $deadlineKey, &$sent): void {
-                            foreach ($applications as $application) {
-                                if (! Cache::add("reminders:app:{$application->id}:{$deadlineKey}", true, now()->addDay())) {
-                                    continue;
+                        $accreditation->applications()
+                            ->where('status', 'requested')
+                            ->with('user:id,email,name')
+                            ->orderBy('id')
+                            ->chunkById(self::APPLICATION_CHUNK_SIZE, function (Collection $applications) use ($accreditation, $mailer, $deadlineKey, &$sent): void {
+                                foreach ($applications as $application) {
+                                    if (! Cache::add("reminders:app:{$application->id}:{$deadlineKey}", true, now()->addDay())) {
+                                        continue;
+                                    }
+
+                                    $mailer->send($accreditation->mandant, new DeadlineReminderMail($application));
+
+                                    $sent++;
                                 }
+                            });
+                    }
+                });
+        } catch (Throwable $e) {
+            Log::error('reminders:send failed', [
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+                'queued_before_failure' => $sent,
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
 
-                                $mailer->send($accreditation->mandant, new DeadlineReminderMail($application));
+            throw $e;
+        }
 
-                                $sent++;
-                            }
-                        });
-                }
-            });
+        Log::info('reminders:send finished', [
+            'window_start' => $from->toDateTimeString(),
+            'window_end' => $to->toDateTimeString(),
+            'queued' => $sent,
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
 
         // "queued", not "sent": since Position 45 `send()` only dispatches the
         // delivery job. The worker is what actually dials the relay, and a

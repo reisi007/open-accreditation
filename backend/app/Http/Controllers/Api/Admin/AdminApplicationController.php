@@ -151,6 +151,13 @@ class AdminApplicationController extends Controller
      * `can:accreditations.manage` like the other application actions; the
      * mandant/team scope is resolved identically to `update` (foreign mandant
      * 404, foreign team 403).
+     *
+     * The answer says the mail was ORDERED, not sent: since Position 45
+     * `send()` only dispatches `SendMandantMail` (Nutzerentscheid 3), so this
+     * endpoint cannot know whether the relay answered. "wurde erneut gesendet"
+     * was a claim the controller has no evidence for, and an operator reading
+     * it could believe a broken relay was fine. Same wording as the DLQ requeue,
+     * which has the identical contract.
      */
     public function resend(Request $request, Application $application): JsonResponse
     {
@@ -171,7 +178,7 @@ class AdminApplicationController extends Controller
                 new PassMail($application, VerifyLink::for($application)),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut gesendet.']);
+            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
         }
 
         if ($application->status === 'denied') {
@@ -186,7 +193,7 @@ class AdminApplicationController extends Controller
                 new ApplicationDeniedMail($application, $reason),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut gesendet.']);
+            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
         }
 
         return response()->json(['message' => 'Application has no mailable status.'], 422);

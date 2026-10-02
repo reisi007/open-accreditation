@@ -403,7 +403,7 @@ class MailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertOk()
-            ->assertJsonPath('message', 'E-Mail wurde erneut gesendet.');
+            ->assertJsonPath('message', 'E-Mail wurde erneut in die Warteschlange gestellt.');
 
         Mail::assertSent(PassMail::class, function (PassMail $mail) use ($user, $token) {
             return $mail->hasTo($user->email) && str_contains($mail->verifyUrl, $token);
@@ -422,7 +422,7 @@ class MailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertOk()
-            ->assertJsonPath('message', 'E-Mail wurde erneut gesendet.');
+            ->assertJsonPath('message', 'E-Mail wurde erneut in die Warteschlange gestellt.');
 
         Mail::assertSent(ApplicationDeniedMail::class, function (ApplicationDeniedMail $mail) use ($user) {
             return $mail->hasTo($user->email) && $mail->reason === 'Unterlagen fehlen';

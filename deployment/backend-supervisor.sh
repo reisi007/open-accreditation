@@ -33,8 +33,19 @@
 #      alte PID gesund aussehen, während der neue Supervisor noch startet.
 #   5. Worker in einer Restart-Schleife mit PID-Marker — ein toter Worker darf
 #      die Zustellung nicht stillstehen lassen.
-#   6. `schedule:run` im 60-s-Takt, Fehler geloggt, Schleife läuft weiter —
-#      ein fehlgeschlagener Lauf darf den nächsten nicht verhindern.
+#   6. `schedule:run` im 60-s-Takt, Schleife läuft weiter — ein fehlgeschlagener
+#      Lauf darf den nächsten nicht verhindern.
+#
+#      GEMESSEN 2026-10-02, wichtig: der `if !`-Zweig darunter kann für einen
+#      fehlgeschlagenen TASK nie feuern. `ScheduleRunCommand::runEvent()` wirft
+#      zwar, `handle()` faengt es aber und kehrt normal zurueck — `schedule:run`
+#      endet also mit Exit 0 (belegt in
+#      `tests/Feature/ScheduledTaskObservabilityTest`). Die Sichtbarkeit laeuft
+#      deshalb ueber `App\Support\ScheduledTaskObserver` (Heartbeat `info` /
+#      Fehler `error` im Anwendungslog, geschrieben im Scheduler-Prozess selbst)
+#      und ueber das `Log::info`/`Log::error` der Commands. Der Zweig ist trotzdem
+#      nicht entfernt: er faengt den Fall, in dem der Scheduler-PROZESS selbst
+#      stirbt — dann traegt nur noch sein Exit-Code die Information.
 #
 # FALLE, DIE DIESES SKRIPT BEWUSST NICHT IST (Portal-Runbook
 # `29-production-operations-runbook.md:217`): ein „naked background

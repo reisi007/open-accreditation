@@ -39,6 +39,13 @@ Daraus folgt:
 - Der Kommentar in `AllocationService::dispatchApprovedMails`, der hierfür eine
   eigene Outbox-Tabelle verlangte, ist **überholt**: `jobs` ist diese Outbox.
 
+**Der ausgelieferte Wert ist bewacht.** Die Tests in
+`QueuedMailAfterCommitTest` beweisen den **Mechanismus** in beide Richtungen
+(und setzen die Flag dabei selbst), also konnten sie einen Wechsel auf `false`
+in `config/queue.php` nicht bemerken. Der erste Test der Klasse liest den Wert
+deshallocb, **ohne ihn zu setzen** — Mutation `true → false` macht genau diesen
+einen Test rot.
+
 ## 3. Retries sind gedeckelt, der Endzustand ist terminal
 
 `SendMandantMail` trägt `$tries = 5` und `backoff() = [60, 300, 900, 3600]`.
@@ -57,25 +64,95 @@ setzt. Das ist der Schutz gegen den Endlos-Retry: `SendReminders` ist ein
 **wiederkehrender Produzent**, ein dauerhaft totes Relay erzeugt also bei jedem
 Scheduler-Lauf neue Aufträge für dieselbe logische Mail.
 
-## 4. Idempotenz-Wache gegen Worker-Crash-vor-Ack
+## 4. Idempotenz-Wache, und die Polarität, die sie erzwingt
+
+### 4.1 Das Problem, das eine Queue neu einführt
 
 Die eine Doppelzustellung, die eine Queue **neu** einführt: der Worker sendet
 die Mail, stirbt vor dem Ack, und der Job läuft nach `retry_after` erneut.
 
-Die Wache ist ein atomarer Claim — `Cache::add('mail-delivery:{deliveryId}', true)`,
-das Test-and-set-Äquivalent zum bedingten `where(...)` aus
-`AllocationRules::markStatus()`. Der zweite Lauf findet den Claim und sendet
-**nicht**.
+### 4.2 Die Entscheidung: begrenzter Claim, und auf Claim-Treffer wird GEWORFEN
 
-- `deliveryId` ist **stabil über Retries desselben Jobs** (er steckt im
-  Payload) und **frisch bei jedem neuen Dispatch** — also auch bei jedem
-  manuellen Requeue. Genau diese Granularität braucht die Wache.
-- Bei einer **Ausnahme** wird der Claim **freigegeben**, bevor sie weiterläuft:
-  ein vorübergehend totes Relay wird also normal wiederholt, und nur ein Lauf, der
-  erfolgreich **zurückkehrte**, lässt einen Claim stehen.
-- Ablage ist der Default-Cache-Store, in Produktion `database`
-  (`CACHE_STORE=database`, derselbe durable Store wie die JWT-Blackliste). Der
-  Deploy leert ihn nicht (`deployment/entrypoint.sh`).
+> **Polarität (Entscheidung der Reparaturrunde 2026-10-02, Position 45).**
+> Der Claim ist ein **begrenzter atomarer Claim** (`Cache::add($key, true,
+> SendMandantMail::CLAIM_TTL_SECONDS)`), und ein Lauf, der auf einen fremden
+> Claim trifft, **wirft** `MailDeliveryAlreadyClaimedException`, statt normal
+> zurückzukehren. Damit verlässt **kein** Job die Queue, ohne entweder
+> zugestellt worden zu sein oder **sichtbar** in `failed_jobs` zu liegen (mit
+> `Log::warning` aus `failed()`). Das ist „at-most-once **innerhalb** des
+> Claim-Fensters, at-least-once **danach**" — und die Wahl ist zwingend, weil
+> die Kopfentscheidung lautet: *Mail ist Zustellung, nicht Best-Effort.*
+> Best-effort ist damit ausgeschlossen.
+
+Der alte Code kehrte **normal** zurück. Das war wörtlich die Fehlerklasse, die
+Position 45 eröffnet hat — **gemessen** (Claim gesetzt, kein Versand,
+`queue:work --once`):
+
+| | vorher (`return`) | jetzt (`throw`) |
+|---|---|---|
+| `jobs` | 0 | 0 |
+| `failed_jobs` | **0** | **1** (mit `mandant_id` + Empfänger) |
+| `Mail::assertNothingSent()` | true | true |
+| Log | **nichts** | `Log::warning(… 'refused_as_duplicate' => true)` |
+| Worker meldet | `DONE` | `failed` |
+
+### 4.3 Warum begrenzt, nicht unbegrenzt (gemessen am Query-Log)
+
+`Cache::add()` **ohne** TTL geht in `Illuminate\Cache\Repository::add()` an
+`$store->add()` **vorbei** und fällt auf `get()` + `put()` → `forever()`
+zurück. Gemessen (Laravel 13.33.0, `database`-Store, Bindings in Klammern):
+
+| Aufruf | Statement | Folge |
+|---|---|---|
+| `add($k, true)` | `select * from "cache" where "key" in (?)` + `insert into "cache" … on conflict ("key") do update set …` | **kein** Test-and-set — zwei Worker bekommen beide `true` und **senden beide** |
+| `add($k, true, 3600)` | `select * from "cache" where "key" in (?)` + `insert or ignore into "cache" …` | Schreibseite atomar; Ablauf in 3600 s statt `315360000 s` (**zehn Jahre**) |
+
+`SendReminders:78` macht es längst richtig (`Cache::add(…, now()->addDay())`) —
+der Mail-Job war die Ausnahme. Nebenbei mitgelöst: die zweite Zeile der Tabelle
+ist zugleich der Grund, warum die `cache`-Tabelle nicht ohne Ende wächst — es
+ist **kein** `cache:prune` nötig, weil jeder Claim von selbst verschwindet.
+
+### 4.4 Die beiden Größen
+
+| Größe | Wert | Bedingung |
+|---|---|---|
+| `SendMandantMail::CLAIM_TTL_SECONDS` | **3600 s** | **muss > `DB_QUEUE_RETRY_AFTER` sein** (90 s). Ein kürzeres Fenster ließe die Doppelzustellung durch, weil erst nach `retry_after` ein zweiter Lauf entsteht. Die Ungleichung ist als Test festgenagelt. |
+| `$tries` | 5 | ein Lauf, der auf den Claim trifft, verbraucht ihn; nach dem 5. Versuch liegt der Job in `failed_jobs` |
+
+Bei einer **Ausnahme** (Relay-Fehler) wird der Claim **freigegeben**, bevor sie
+weiterläuft: ein vorübergehend totes Relay wird also normal wiederholt. Nur der
+Claim-Treffer lässt einen Claim stehen — und genau der ist jetzt **laut**.
+
+Ablage ist der Default-Cache-Store, in Produktion `database`
+(`CACHE_STORE=database`, derselbe durable Store wie die JWT-Blackliste). Der
+Deploy leert ihn nicht (`deployment/entrypoint.sh`).
+
+### 4.5 Der Ausweg: der manuelle Requeue
+
+Ein Requeue ist **kein** Re-Try, sondern ein **neuer Auftrag** — und genau so
+ist er implementiert: `FailedMailController::prepareForRequeue()` vergibt eine
+**frische `deliveryId`**. Damit ist der Claim-Key neu und die Zustellung
+gelingt beim **ersten** Versuch.
+
+Das war vorher **nicht** wahr und ist messbar gewesen: der Docblock behauptete
+„frisch bei jedem manuellen Requeue", der Requeue schob aber den Payload
+**wortgleich** zurück (nur `attempts` auf 0) — gleiche `deliveryId`. Ohne diese
+Korrektur wäre der Recovery-Pfad „warte, bis der TTL abläuft" gewesen, also
+Arithmetik zwischen zwei unabhängigen Zahlen statt einer Entscheidung.
+
+Der Preis dieser Form, offen benannt: ein Requeue eines Briefes, der unter dem
+Claim-Fenster tatsächlich **zugestellt** wurde, erzeugt eine bewusste
+Doppelzustellung. Sie ist damit **gezählt** (Log-Zeile mit Akteur) und
+**entschieden** (ein Mensch), nicht zufällig.
+
+### 4.6 Warum nicht schlicht at-least-once
+
+At-least-once (gar keine Wache) vermeidet die Doppelzustellung ebenfalls — und
+wirft dafür Nutzerentscheidung 5 weg, der die Wache verlangte („mit born, nicht
+nachträglich"). Eskauft wird dafür nur, dass jede Doppelzustellung *zufällig*
+ist und ohne Spur bleibt. Die gewählte Form hält die Zusage, begrenzt
+Doppelzustellungen auf **eine pro Claim-Fenster und Delivery** und macht jede
+davon sichtbar.
 
 ## 5. Mandanten-Isolation der Dead-Letter-Queue
 
@@ -124,7 +201,10 @@ die Queue-Eigenschaften werden trotzdem echt gemessen:
 | `QueuedMailTest` | `Queue::fake()` — beweist **Enqueue** (Job, `mandant_id`, Mailable-Klasse, Empfänger) und die weiterhin gültigen HTTP-Statuscodes |
 | `QueuedMailAfterCommitTest` | echte `database`-Connection **innerhalb der Test-Transaktion**: in der Transaktion 0 `jobs`, nach dem Commit 1 — plus der Gegenlauf mit `after_commit => false` (dann sofort 1). Dass das unter `RefreshDatabase` überhaupt sichtbar ist, liegt an `Illuminate\Foundation\Testing\DatabaseTransactionsManager`: es blendet die umschließende Test-Transaktion aus (`skip(count($connectionsTransacting))`, `afterCommitCallbacksShouldBeExecuted() => $level === 1`), eine **echte** verschachtelte `DB::transaction()` feuert die After-Commit-Callbacks also wie in Produktion |
 | `MailDeadLetterTest` | echter `database`-Queue + `Artisan::call('queue:work', ['--once' => true])` — ein toter Relay-Versuch landet real in `failed_jobs` **mit** `mandant_id`; daneben die API-Isolation über eingespielte Dead Letter |
-| `SendMandantMailTest` | `handle()` direkt zweimal aufrufen: der zweite Lauf sendet nicht (Mutationsnachweis); ein fehlgeschlagener Lauf gibt den Claim frei |
+| `SendMandantMailTest` | `handle()` direkt: der zweite Lauf **wirft** und sendet nicht; ein Claim, den ein toter Worker hinterlässt, lässt den nächsten Lauf ebenfalls **werfen** (nicht zurückkehren); der Claim ist **begrenzt** (Query-Log/`expiration`) und **atomar geschrieben** (`insert or ignore`/`on conflict do nothing`, kein `do update set`); `CLAIM_TTL_SECONDS > retry_after`; ein fehlgeschlagener Lauf gibt den Claim frei; ein gelöschter Mandant wird geloggt und claimt nichts |
+| `MailDeadLetterTest` (neu) | **Ende zu Ende durch den echten Worker**: ein stehengebliebener Claim ⇒ nichts gesendet **und** eine Zeile in `failed_jobs` mit `mandant_id`, Empfänger und Begründung; ein manueller Requeue eines claimten Briefes ⇒ frische `deliveryId`, Mail im ersten Versuch zugestellt, `mailablePayload` unverändert |
+| `QueuedMailAfterCommitTest` (ergänzt) | liest `config('queue.connections.database.after_commit')` **ohne es zu setzen** — die übrigen Tests dieser Klasse stellen die Flag selbst und würden einen Wechsel auf `false` in der Config nicht bemerken |
+| `ScheduledTaskObservabilityTest` | Heartbeat/Fehlerpfad der geplanten Tasks: `schedule:run` mit einem real fehlschlagenden Task ⇒ `Log::error` im Scheduler-Prozess (und `schedule:run` endet trotzdem mit 0 — mitgemessen); beide Produktions-registrierungen tragen den Observer; `allocation:run` schreibt sein Ergebnis ins Anwendungslog und lässt einen Fehler **escapen** (⇒ Exit ≠ 0) |
 
 Testklassen, die nur die **Fachlogik** fahren (Allocation, Badge, QR, …), faken
 die Mail: `send()` ist jetzt ein Dispatch, der auf `sync` sofort läuft, und ein
@@ -139,5 +219,36 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
 - **Requeue-Historie** (`requeued_count`, letzter Requeue durch wen/wann) ist
   nicht persistiert — nur `Log::info` mit Akteur. Eine eigene Spalte auf
   `failed_jobs` wäre die Form; sie war nicht Teil des Auftrags.
+- **Paginierung der Dead-Letter-Liste.** `FailedMailController::index()` macht
+  `->get()` über die **ganze** Tabelle und filtert danach in PHP; `failed_jobs`
+  wächst per Entscheidung unbegrenzt (Abschnitt 6), die mandant-skalierten
+  Abfragen sind also mit der Zeit unbrauchbar. Die Form ist eine
+  `per_page`/`cursor`-Parameterisierung mit Resource-Collection-Metadaten; sie
+  ist **nicht Teil dieses Auftrags**, aber sie ist der Punkt, an dem diese
+  Oberfläche zuerst bricht.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
+
+## 9. Der Scheduler beobachtet sich selbst (gemessen, nicht behauptet)
+
+`Schedule::command()` registriert einen Task, der als **eigener Prozess**
+läuft. Zwei Folgen, beide gemessen (Laravel 13.33.0, nicht vermutet):
+
+| Beobachtung | Quelle | Folge |
+|---|---|---|
+| `Event::execute()` ruft `Process::run()` mit `fn () => true` als Ausgabe-Handler | `vendor/…/Scheduling/Event.php:213-223` | die **gesamte** Ausgabe des Tasks wird **verworfen** — auch `RunAllocations:…` Fortschrittszeilen |
+| `ScheduleRunCommand::runEvent()` wirft, `handle()` fängt und kehrt normal zurück | `vendor/…/Scheduling/ScheduleRunCommand.php:215-224` | `schedule:run` endet mit **Exit 0**, der Task wird als `DONE` gemeldet |
+
+Damit war der `if ! php artisan schedule:run`-Zweig in
+`deployment/backend-supervisor.sh:169` für einen kaputten Task **tödlich** — er
+konnte nie feuern. Zwei Eingriffe, beide gemessen testbar:
+
+| Wo | Was |
+|---|---|
+| `routes/console.php` | `ScheduledTaskObserver::watch()` hängt `onSuccess`/`onFailure` an beide Tasks. Das sind `then()`-Callbacks, die im **Scheduler-Prozess** laufen und über den Exit-Code des Kindes entscheiden — sie brauchen weder die Kind-Ausgabe noch ein ungleich nullendes `schedule:run`. |
+| `RunAllocations`, `SendReminders` | `Log::info` mit dem Ergebnis (Zähler, Dauer) bzw. `Log::error` mit Ausnahme + Rethrow. Der Observer sagt **DASS** sie liefen und ob sie erfolgreich waren; nur der Command weiß, **was** er getan hat. |
+
+Der Erfolgs-Heartbeat ist kein Luxus: ohne ihn sind „der stündliche Lauf ist
+kaputt" und „der Scheduler läuft seit drei Tagen nicht" dieselbe Stille — und
+beide sind mit einem grünen Container vereinbar.
+

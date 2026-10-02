@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\FailedMailResource;
+use App\Jobs\SendMandantMail;
 use App\Models\FailedJob;
 use App\Support\MandantContext;
+use App\Support\QueuedMailPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 /**
  * Position 45 (2026-10-02): the dead-letter surface for undelivered mandant
@@ -32,8 +35,11 @@ use Illuminate\Support\Facades\Queue;
  * back onto its connection/queue, then drop the dead letter), exposed to the
  * app because `queue:retry` is a shell command for people with deploy access.
  * The payload's `attempts` is reset so the re-queued job gets a fresh budget,
- * and the action is logged — a manual requeue is a human decision and must be
- * attributable (there is no automatic path back out of `dead`).
+ * AND the mail job's `deliveryId` is re-stamped, so the requeue is a genuinely
+ * fresh delivery rather than one the idempotency guard would refuse (see
+ * `SendMandantMail` and `prepareForRequeue()`). The action is logged: a manual
+ * requeue is a human decision and must be attributable (there is no automatic
+ * path back out of `dead`).
  */
 class FailedMailController extends Controller
 {
@@ -78,7 +84,7 @@ class FailedMailController extends Controller
         abort_unless($job->isMailJob(), 404);
 
         Queue::connection($job->connection)->pushRaw(
-            $this->resetAttempts($job->payload),
+            $this->prepareForRequeue($job->payload),
             $job->queue,
         );
 
@@ -102,13 +108,30 @@ class FailedMailController extends Controller
     }
 
     /**
-     * Reset the payload's attempt counter so the requeued job starts with a
-     * fresh backoff budget. The database driver keeps attempts in the `jobs`
-     * row (a fresh row already starts at 0); the payload reset mirrors
-     * `Illuminate\Queue\Console\RetryCommand::resetAttempts()` for drivers that
-     * carry it in the payload.
+     * Prepare a stored payload to go back onto the queue: a fresh attempt
+     * budget AND a fresh delivery identity.
+     *
+     * 1. **Attempts.** The database driver keeps attempts in the `jobs` row (a
+     *    fresh row already starts at 0); the payload reset mirrors
+     *    `Illuminate\Queue\Console\RetryCommand::resetAttempts()` for drivers
+     *    that carry it in the payload.
+     * 2. **`deliveryId`.** `SendMandantMail` refuses a send whose claim is
+     *    still held (worker crash between claim and ack), by THROWING so the
+     *    refusal lands in `failed_jobs` instead of vanishing. A dead letter can
+     *    therefore exist WITH a live claim, and re-pushing the payload
+     *    verbatim would requeue a job that is guaranteed to be refused again.
+     *    Stamping a fresh id is the documented contract of the field ("fresh
+     *    on every dispatch") and it is what makes the human's requeue the
+     *    escape hatch from the guard rather than another trip into it. Measured
+     *    before this change: the requeued job carried the SAME id.
+     *
+     * The re-serialization is safe because the restricted unserialize in
+     * {@see QueuedMailPayload} only ever yields a `SendMandantMail` whose
+     * properties are scalars and arrays (the mail itself is the pre-serialized
+     * `mailablePayload` string) — `MailDeadLetterTest` pins that the mail
+     * survives the round trip byte for byte apart from the id.
      */
-    private function resetAttempts(string $payload): string
+    private function prepareForRequeue(string $payload): string
     {
         $decoded = json_decode($payload, true);
 
@@ -118,6 +141,13 @@ class FailedMailController extends Controller
 
         if (array_key_exists('attempts', $decoded)) {
             $decoded['attempts'] = 0;
+        }
+
+        $mailJob = QueuedMailPayload::mailJob($payload);
+
+        if ($mailJob !== null) {
+            $mailJob->deliveryId = (string) Str::uuid();
+            $decoded['data']['command'] = serialize($mailJob);
         }
 
         return (string) json_encode($decoded);

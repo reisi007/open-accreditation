@@ -91,6 +91,13 @@ class QueuedMailTest extends TestCase
         });
     }
 
+    /**
+     * The answer must not claim more than happened. `send()` is a DISPATCH since
+     * Position 45 (Nutzerentscheid 3), so this endpoint cannot know whether the
+     * relay answered — "wurde erneut gesendet" was a claim without evidence,
+     * and the same wording as the DLQ requeue (`FailedMailController`) is used
+     * for exactly this contract.
+     */
     public function test_admin_resend_enqueues_again_instead_of_sending_inline(): void
     {
         Queue::fake();
@@ -101,7 +108,7 @@ class QueuedMailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertOk()
-            ->assertJsonPath('message', 'E-Mail wurde erneut gesendet.');
+            ->assertJsonPath('message', 'E-Mail wurde erneut in die Warteschlange gestellt.');
 
         Queue::assertPushed(SendMandantMail::class, function (SendMandantMail $job) use ($user): bool {
             return $job->mailableClass === PassMail::class

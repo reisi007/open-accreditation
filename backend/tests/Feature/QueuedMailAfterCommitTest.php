@@ -30,6 +30,13 @@ use Tests\TestCase;
  * after-commit callbacks, exactly as production does when the transaction
  * commits. That is what these tests assert, and the last one flips
  * `after_commit` off to show the flag — not the harness — is the cause.
+ *
+ * ## And the flag itself is pinned
+ *
+ * The mechanism is proven in both directions above, but every one of those
+ * tests SETS the flag first, so none of them fails if `config/queue.php` ever
+ * ships `false`. The first test below therefore reads the shipped value without
+ * touching it — that is the only assertion here that speaks about production.
  */
 class QueuedMailAfterCommitTest extends TestCase
 {
@@ -39,6 +46,24 @@ class QueuedMailAfterCommitTest extends TestCase
     {
         MandantContext::reset();
         parent::tearDown();
+    }
+
+    /**
+     * THE value that ships. Every other test in this class sets the flag
+     * itself, so none of them would notice `config/queue.php` being flipped to
+     * `false` — and the guarantee ("a rolled-back approval sends nothing") is
+     * documented in `features/mail-delivery.md` §2, in four docblocks and as
+     * "THE one line" in the config comment.
+     *
+     * MUTATION: `'after_commit' => false` in `config/queue.php` fails exactly
+     * this test and nothing else in the suite.
+     */
+    public function test_the_shipped_configuration_pins_after_commit(): void
+    {
+        $this->assertTrue(
+            config('queue.connections.database.after_commit'),
+            'queue.connections.database.after_commit must ship as true: it is what makes "status and delivery are one transaction" true in production',
+        );
     }
 
     public function test_a_mail_dispatched_inside_a_transaction_is_pushed_only_when_that_transaction_commits(): void

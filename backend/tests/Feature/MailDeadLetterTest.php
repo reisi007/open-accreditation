@@ -9,11 +9,14 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\User;
 use App\Support\MandantContext;
+use App\Support\QueuedMailPayload;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use ReflectionProperty;
 use Tests\Support\PlainTestMailable;
@@ -244,6 +247,113 @@ class MailDeadLetterTest extends TestCase
     }
 
     /**
+     * THE silent-loss case, end to end through the real worker.
+     *
+     * A worker is killed between claiming the delivery and completing the send
+     * (SIGKILL on a hanging relay at `--timeout=60`, OOM, a container restart
+     * mid-delivery). The job row survives; the claim survives; **no mail went
+     * out**. The run that comes after `retry_after` finds the claim.
+     *
+     * MUTATION: while `handle()` returned normally on a claim hit, the worker
+     * deleted the job and the outcome was measured as `jobs=0`, `failed_jobs=0`,
+     * `Mail::assertNothingSent()` — the mail simply gone. This test is the
+     * opposite of that: nothing is sent, and the mail is VISIBLE.
+     */
+    public function test_a_claim_left_by_a_dead_worker_surfaces_the_mail_instead_of_dropping_it(): void
+    {
+        config(['queue.default' => 'database', 'queue.connections.database.after_commit' => false]);
+
+        Mail::fake();
+
+        $mandant = Mandant::factory()->create(['smtp_config' => null]);
+        MandantContext::set($mandant);
+
+        $job = new SendMandantMail($mandant->id, (new PlainTestMailable)->to('victim@example.test'));
+        $job->tries = 1;
+        $job->onConnection('database');
+        dispatch($job);
+
+        $this->assertDatabaseCount('jobs', 1);
+
+        // The state a SIGKILLed worker leaves behind.
+        $this->assertTrue(Cache::add('mail-delivery:'.$job->deliveryId, true, SendMandantMail::CLAIM_TTL_SECONDS));
+
+        Artisan::call('queue:work', ['--once' => true, '--sleep' => 0]);
+
+        Mail::assertNothingSent();
+
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('failed_jobs', 1);
+        $this->assertDatabaseHas('failed_jobs', ['mandant_id' => $mandant->id]);
+        $this->assertSame(
+            'victim@example.test',
+            QueuedMailPayload::mailJob((string) DB::table('failed_jobs')->value('payload'))?->recipient,
+            'the dead letter must still name the recipient it refused to deliver',
+        );
+        $this->assertStringContainsString(
+            'already claimed',
+            (string) DB::table('failed_jobs')->value('exception'),
+            'the dead letter must say WHY it was refused, not just that it failed',
+        );
+    }
+
+    /**
+     * The recovery path, end to end.
+     *
+     * Only the claim-throw route can leave a LIVE claim on a dead letter (the
+     * delivery-exception route releases it before rethrowing). So a requeue that
+     * pushed the payload verbatim would push a job that is guaranteed to be
+     * refused again — the human would have to wait for `CLAIM_TTL_SECONDS` to
+     * expire, which is arithmetic, not design.
+     *
+     * MUTATION: drop the `deliveryId` re-stamp in `prepareForRequeue()` and the
+     * requeued job carries the same claim key, refuses, and ends in
+     * `failed_jobs` again — `Mail::assertSent` fails.
+     */
+    public function test_a_manual_requeue_delivers_a_claimed_mail_instead_of_waiting_for_the_claim_to_expire(): void
+    {
+        config(['queue.default' => 'database', 'queue.connections.database.after_commit' => false]);
+
+        Mail::fake();
+
+        $mandant = Mandant::factory()->create(['smtp_config' => null]);
+        MandantContext::set($mandant);
+
+        $original = new SendMandantMail($mandant->id, (new PlainTestMailable)->to('victim@example.test'));
+        $id = $this->insertFailedMail($mandant, 'victim@example.test', $original);
+
+        // The dead letter sits on a live claim.
+        Cache::add('mail-delivery:'.$original->deliveryId, true, SendMandantMail::CLAIM_TTL_SECONDS);
+
+        $this->actingAsApi($this->mandantAdmin($mandant))
+            ->postJson('/api/admin/failed-mails/'.$id.'/requeue')
+            ->assertOk();
+
+        $requeued = QueuedMailPayload::mailJob((string) DB::table('jobs')->value('payload'));
+
+        $this->assertNotNull($requeued);
+        $this->assertNotSame(
+            $original->deliveryId,
+            $requeued->deliveryId,
+            'a requeue is a fresh dispatch: it must carry a fresh claim key, otherwise the guard refuses the very delivery the human ordered',
+        );
+
+        // The mail itself survived the restricted unserialize/re-serialize round
+        // trip untouched — only the identity changed.
+        $this->assertSame($mandant->id, $requeued->mandantId);
+        $this->assertSame(PlainTestMailable::class, $requeued->mailableClass);
+        $this->assertSame('victim@example.test', $requeued->recipient);
+        $this->assertSame($original->mailablePayload, $requeued->mailablePayload);
+
+        Artisan::call('queue:work', ['--once' => true, '--sleep' => 0]);
+
+        Mail::assertSent(PlainTestMailable::class, 1);
+
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('failed_jobs', 0);
+    }
+
+    /**
      * Nutzerentscheid 4: dead letters are kept UNLIMITED. The only way out is a
      * human; no scheduler entry may prune them (Nutzerentscheid 4 explicitly
      * rules out `queue:prune-failed`).
@@ -266,9 +376,9 @@ class MailDeadLetterTest extends TestCase
      * A real dead letter: a `SendMandantMail` payload stored in `failed_jobs`,
      * exactly what the provider writes.
      */
-    private function insertFailedMail(Mandant $mandant, string $recipient): int
+    private function insertFailedMail(Mandant $mandant, string $recipient, ?SendMandantMail $job = null): int
     {
-        $job = new SendMandantMail($mandant->id, (new PlainTestMailable)->to($recipient));
+        $job ??= new SendMandantMail($mandant->id, (new PlainTestMailable)->to($recipient));
         $uuid = (string) Str::uuid();
 
         return (int) DB::table('failed_jobs')->insertGetId([
