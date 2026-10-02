@@ -229,7 +229,54 @@ Standardlauf. Für Flakiness bleibt `playwright.regression.config.ts` (`retries:
 
 **Was dieser Lauf nicht geprüft hat, und das bleibt ein offenes Gate:** Position 22 verlegt, **wann** Zeilen sterben — nicht ob. Die §7-Abnahme „drei Läufe ergeben dieselbe Bandzahl" ist damit **nicht** bestätigt und muss von dem Lauf neu gemessen werden, der den Screenshot-Harness fährt. Der ausdrückliche Nachweis ist stattdessen der kumulative: **zwei `E2E_PURGE=off`-Läufe hintereinander hinterlassen 0 Zeilen auf jeder Entitätsart**, wo derselbe Ablauf vorher `+1 teams`, `+1 venues`, `+1 blacklists`, `+1 sub_accreditations` **pro Lauf** liegen ließ.
 
+**Gate 3, 2026-10-02, SHA `267c767`, Lauf `37023069080`: ROT — und der Fehlschlag war ein echter Fund, kein Regressionsfehler.**
+
+| Job | Ergebnis |
+|---|---|
+| Frontend (Lint, Build, Vitest) | **success** |
+| E2E (Playwright) | **success** |
+| Backend (PHPUnit + Pint) | **success** |
+| **Backend (PHPUnit vs. Postgres)** | **failure** — `1 failed, 1 skipped, 1747 passed` |
+
+**Der eine rote Test: `QrTokenV2Test > minted token is the tenant bound v2 format`, `Failed asserting that actual size 4 matches expected size 3`, an `QrTokenV2Test.php:117`. Nur Postgres; SQLite grün.**
+
+**Die Ursache, gemessen statt vermutet.** `QrTokenService::encode():246` baut den Token als `applicationId.'.'.$signature.'.'.$mandantId`, und `$signature` kommt aus `hash_hmac(…, true)` — **rohe Binärdaten, 32 Bytes** (`:253`). Ein `0x2E`-Byte darin ist **nicht** ausgeschlossen. Am Signing-Key dieses Repos über ids 1..20000 gemessen: **11,87 % der ids erzeugen eine Signatur mit `0x2E`.** In 1..40 sind es `2, 8, 14, 27, 35, 40`. Der Test macht `explode('.', $decoded)` und behauptet **genau drei** Segmente — eine Eigenschaft, die das Format **nie** hatte.
+
+**Das Produkt ist korrekt, und es weiss das selbst.** `parse():163` nimmt den **ersten** Separator (`strpos`) für die Application-Id, `:193` den **letzten** (`strrpos`) für die Mandant-Id — **von aussen nach innen**. Der eigene Kommentar `:178-181` sagt genau warum: *„The raw HMAC is binary and may itself contain a '.' byte, so the segments are taken from the outside in."* **`QrTokenService` wird deshalb nicht angefasst.**
+
+**Warum es JETZT feuerte — und das ist der eigentliche Befund:** `QrTokenV2Test::approvedApplication():853` legt eine echte `Application` an, ihre Id kommt also aus der Autoincrement-Sequenz. `BadgeTest` legt ebenfalls eine an; Position 41 (`267c767`) hat dort **8 Tests ergänzt** und damit die Sequenz **verschoben** — die Application des Tests landete auf einer der verhängnisvollen ids. Auf SQLite lief die Sequenz anders, deshalb ein Engine grün und die andere rot. **Position 41 hat den Fehler nicht verursacht, sondern freigelegt:** ein latenter Testfehler, der unter dem alten Regime als „flaky" etikettiert worden wäre, und zwar von dem, der den nächsten ~1-in-9-Fehlschlag erwischt.
+
+**Das ist das Argument für die CI-Lokalisierung in einem Vorfall.** §4 verbietet das Etikett „pre-existing": der Fehler wird behoben, nicht dokumentiert.
+
+### 🔧 Vorübergehende Anweisung 2026-10-02: `deepseek-v4.1-flash` für neue Subagenten
+
+**Ausdrückliche Nutzergenehmigung, und ausdrücklich „temporär".** `AGENTS.md` §5 verlangt vor jedem Einsatz den **Uhren-Check** (nicht aus dem Kopf). Gemessen am 2026-10-02, 16:00 UTC:
+
+```
+2026-10-02 16:00 UTC  jetzt=OFF  naechste Peak=2026-10-05 01:00 UTC  Rest=57.00h  -> ERLAUBT
+```
+
+**57 Stunden off-peak** (das Peking-Wochenende läuft Fr 16:00 UTC → Mo 01:00 UTC), also ist die Ein-Stunden-Regel weit erfüllt. Off-Peak-Preis **$0.15 / $0.60** pro M, Quelle `models`-Abfrage (nicht aus dem Changelog zitiert). **Der Check läuft vor jedem weiteren Start neu** — die Regel ist eine Uhr-Regel, und das Fensterende ist das, was zählt.
+
+**Der Zusatz „temporär" ist hier wichtig und wird deshalb festgehalten:** eine Anweisung ohne Endbedingung wird zur Policy, die niemand beschlossen hat. Gültig **bis auf Widerruf**; wird sie widerrufen, steht hier das Datum. **Die Modellwahl der bereits laufenden Subagenten wird nicht mitten in der Arbeit umgestellt** — ein Kontextwechsel mitten im Fix wäre teurer als der Preisunterschied.
+
 **Position 8 ist womöglich schon erledigt — am Code geprüft, nicht geglaubt (§3).** `frontend/tests/screenshots/badge-print.spec.ts` + `helpers/badge-print.ts` erfüllen den Vertrag der Zeile **Klausel für Klausel**: (a) PDF über den **echten** Export-Weg (`POST …/badges/export`, nie `renderPdf()`), (b) Rasterung über `scripts/pdf-to-png-vision.sh`, (c) PNGs **neben** dem Editor-Capture (`compareWith: EDITOR_ROUTE`), (d) `printVisionNote()` sagt wörtlich „TWO VIEWS OF THE SAME BADGE TEMPLATE". Dazu zwei Dinge, die die Zeile nicht verlangt hat: ein **401-Beweis vor dem Login** (der Export ist session-gegatet, nicht ambient offen) und die **Seitenanzahl-Postcondition, die das Backend nicht hat** (`buffers.length !== expectedPages` wirft) — genau die Lücke, die §7 nennt. Geliefert in `3c1fbe3`, also in einer **früheren** Welle. **Es wird keine Arbeit erfunden:** die Position gilt als `ALREADY-SATISFIED`, sobald die Verifikationsrunde das bestätigt; ein Lauf gegen den echten Store ist der einzige offene Rest, und der Store ist gitignored und auf diesem Host nicht vorhanden — das ist ein **benanntes Gate**, kein Claim.
+
+**NACHTRAG 2026-10-02: der Lauf ist gefahren, und er hat den Vertrag bis auf einen Schritt belegt.** Stack hochgefahren (beide Container via `docker start`, `artisan serve :8000`, `pnpm dev :5173`), dann `npx playwright test -c playwright.screenshots.config.ts -g "printed badge" --workers=1`. Ergebnis:
+
+| Klausel | Befund |
+|---|---|
+| (a) echter Export-Weg, session-gegatet | **belegt** — `assertExportRefusedWithoutSession` → **401** lief durch, und die Assertion liegt **vor** dem Capture. Danach Login, dann der Export. Der rote Test kam **später** |
+| (a) der Export liefert ein echtes PDF | **belegt** — `frontend/test-artifacts/ui-review/filled/desktop/admin-badge-print.pdf`, **16023 Bytes**, `%PDF-1.7`, **2 Seiten**, **5 Bilder** |
+| (c) PNGs neben dem Editor-Capture | **nicht erreicht** (siehe unten) |
+| (d) Vision-Auftrag | **nicht erreicht** |
+| **Position 12 wirkt in Produktion** | **belegt** — `prev/admin-badge-print.pdf` existiert: `archiveExisting()` hat die Vor-generation gesichert |
+
+**Der Abbruch ist ein Werkzeug-Gate, kein Defekt.** `pdf-to-png-vision.sh` fährt **Fallback A** (`gs -sDEVICE=png16m`, `:310`) korrekt an, rastert deckend und prüft den Alpha-Kanal — aber die **Tintenmenge ist ohne `magick` nicht messbar**, und genau dafür liefert das Skript **Exit 3** (dokumentiert `:176-182`). Das ist die Postcondition, die sich selbst schützt: eine Seite ohne gemessene Tinte gilt nicht als bestanden.
+
+**Warum `magick` hier nicht installierbar ist — und das ist ein Befund über eine Annahme im Skript.** Der Host hat ImageMagick **6.9.11** (`convert`, `gs` vorhanden), und `magick` ist der **IM7**-Binärname. Debian 12 bietet nur IM6 an (`apt-cache policy imagemagick` → `8:6.9.11.60+dfs…`, Candidate identisch), `graphicsmagick-imagemagick-compat` liefert keinen `magick`. Das Skript sagt in `:181-182` ausdrücklich: *„ist das nicht erreichbar, weil dort immer ein magick im PATH steht oder ausdrücklich keiner — **ein Linux-Feld ohne ImageMagick installiert magick**"*. **Für Debian 12 stimmt dieser Satz nicht** — IM7 ist dort nicht installierbar. Das Skript wird **nicht** aufgeweicht, um das zu umgehen: `:57` sagt selbst, ein Skript, das ohne `magick` grün durchläuft, sei schlimmer als keines. Der Satz gehört **korrigiert** (Installationsweg präzisieren), nicht die Postcondition.
+
+**Was das für Position 8 heißt:** Klausel (a) ist **gemessen**, (c) und (d) bleiben **offen** — das ist ein **benanntes Gate** (ImageMagick 7), kein „nicht testbar". Der Rest ist eine Werkzeugfrage, und sie ist eine Ebene unter der Position.
 
 **Reihenfolge ist eine Betriebsregel, kein Vorschlag:** Implementieren → **committen** → Verifizieren
 (`Agents.headless.md` §4.1). Ein Verifikator, der in einem Baum mit uncommitteter Arbeit mutiert,
