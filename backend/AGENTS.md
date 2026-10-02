@@ -184,8 +184,13 @@ Wahrheit neben eine vorhandene.
 | Dead Letter Queue | `failed_jobs` + `queue:failed` |
 | **manueller Requeue** | **`queue:retry`** |
 | Aufräumen | `queue:forget`, `queue:prune-failed` |
-| Worker | `queue:work --tries=3 --timeout=…` |
+| Worker | `queue:work --tries=5 --timeout=…` |
 | Scheduler | `schedule:run` (60-s-Takt) / `schedule:work` |
+
+**`--tries` ist der Boden für Jobs OHNE eigenen Deckel, nicht die Obergrenze** — ein Job mit eigenem
+`$tries`/`backoff()` trägt seinen Deckel im Payload und der Job gewinnt gegen die CLI-Zahl (gemessen:
+mit `--tries=1` wurde `SendMandantMail` **nicht** nach dem ersten Versuch dead-letteret), weshalb die
+Zahl hier auf 5 steht.
 
 **`after_commit` ist die eine Zeile, die „Status und Zustellung in derselben Transaktion" ausdrückt** —
 Freigabe persistiert, Mail raus, und wenn die Transaktion zurückgerollt wird, ist die Mail nie

@@ -90,7 +90,7 @@ laufen (`features/accreditation/01-allocation-engine.md:408`), startet
 bash scripts/dev-worker.sh
 ```
 
-denselben Takt host-native: `queue:work --tries=3 --timeout=60` in einer
+denselben Takt host-native: `queue:work --tries=5 --timeout=60` in einer
 Restart-Schleife und `schedule:run` alle 60 s, konfiguriert aus `backend/.env`.
 Im Vordergrund; Ctrl-C beendet beide Schleifen.
 
@@ -181,7 +181,7 @@ nicht erneut aus.
    `DB_QUEUE_CONNECTION == DB_CONNECTION` (damit `after_commit` Queue und DB in
    derselben Transaktion hält) und `QUEUE_WORKER_TIMEOUT < DB_QUEUE_RETRY_AFTER`
    (Default 60 < 90, verhindert die doppelte Reservierung eines hängenden Jobs);
-2. löscht stale PID-Marker, startet `queue:work --tries=3 --timeout=…` in einer
+2. löscht stale PID-Marker, startet `queue:work --tries=5 --timeout=…` in einer
    **Restart-Schleife** und `schedule:run` im **60-s-Takt** (ein fehlgeschlagener
    Lauf verhindert den nächsten nicht);
 3. endet mit `exec php-fpm -F` — php-fpm wird PID 1, die Schleifen bleiben Kinder.

@@ -490,7 +490,9 @@ Re-Verifikators gefangen.
 
 **Warnung, die wir mitnehmen** (`29-production-operations-runbook.md:217`): dort steht ausdrücklich, man müsse auf das Skript **zurück**, sobald jemand „a compose file that starts a naked background `queue:work`" vorschlägt — **genau die Falle, in die mein Plan getappt wäre.** Dieselbe Datei hält fest, dass Binaries **im Image nachweisen** kein Live-Nachweis ist: *„an actual start of the stack remains an external release/operational step."*
 
-**Was von meinem Plan damit ersatzlos wegfällt:** eigene Outbox-Tabelle · eigener Zustandsautomat (`pending → dead`) · eigene Retry-Policy mit Backoff · `max_attempts`/`attempts`-Zähler · eigener Scheduler-Deploy · Resend-Fallback-Zeilen. **`--tries=3` und `backoff()` machen das bereits.**
+**Was von meinem Plan damit ersatzlos wegfällt:** eigene Outbox-Tabelle · eigener Zustandsautomat (`pending → dead`) · eigene Retry-Policy mit Backoff · `max_attempts`/`attempts`-Zähler · eigener Scheduler-Deploy · Resend-Fallback-Zeilen. **`--tries=5` und `backoff()` machen das bereits** — und die 5 ist **unsere** Zahl (angeglichen an den
+Job-Deckel `SendMandantMail::$tries`, siehe `deployment/backend-supervisor.sh`), nicht die `--tries=3`
+der Portal-Referenz oben.
 
 **Was bleibt — drei Dinge, alle begründet, keines davon eine Queue:**
 1. **`mandant_id` auf `failed_jobs`.** Die Spalte fehlt (`uuid, connection, queue, payload, exception, failed_at`), und die Mandant-Zuordnung aus dem `payload`-Blob zu gewinnen wäre zerbrechlich. Für „`mandant_admin` sieht nur seinen Mandanten" ist das die **einzige echte Schema-Erweiterung**.

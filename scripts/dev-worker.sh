@@ -18,8 +18,13 @@
 # Dieses Skript schliesst dieselbe Lücke host-native.
 #
 # WAS ES TUT (bewusst identisch zum Prod-Takt)
-#   * `queue:work --tries=3 --timeout=60` in einer Restart-Schleife mit
+#   * `queue:work --tries=5 --timeout=60` in einer Restart-Schleife mit
 #     PID-Marker (ein toter Worker lässt die Zustellung nicht stillstehen).
+#     `--tries` ist der BODEN für Jobs OHNE eigenen Deckel, nicht die
+#     Obergrenze: `SendMandantMail` trägt `$tries = 5` im Payload und der
+#     Job-Deckel gewinnt (gemessen: mit `--tries=1` wurde der Job NICHT nach
+#     dem ersten Versuch dead-letteret). Beide Zahlen stehen auf 5, damit die
+#     Angabe nicht irreführt.
 #   * `schedule:run` im 60-s-Takt; ein fehlgeschlagener Lauf verhindert den
 #     nächsten NICHT.
 # Die Konfiguration kommt aus `backend/.env` (Laravel liest sie selbst) — die
@@ -57,7 +62,7 @@ queue_supervisor_loop() {
     while :; do
         php artisan queue:work \
             --name=accriditation-dev \
-            --tries=3 \
+            --tries=5 \
             --timeout="$WORKER_TIMEOUT" &
         worker_pid=$!
 
