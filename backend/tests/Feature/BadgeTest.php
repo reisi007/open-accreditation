@@ -966,24 +966,166 @@ class BadgeTest extends TestCase
     public function test_qr_token_tampering_is_rejected(): void
     {
         $application = $this->makeApplication($this->createAccreditation(['quota' => 5]), User::factory()->create());
-        $token = app(QrTokenService::class)->make($application);
+        $service = app(QrTokenService::class);
+        $token = $service->make($application);
 
         // Flip a character in the MIDDLE of the token (inside the signature's
         // base64, full group) — flipping the LAST char is a no-op for single-digit
         // ids (the final group carries only padding bits, so the decoded
         // signature is unchanged and `parse()` still returns the id).
         $tampered = substr_replace($token, substr($token, 10, 1) === 'a' ? 'b' : 'a', 10, 1);
-        $this->assertNull(app(QrTokenService::class)->parse($tampered));
+        $this->assertNull($service->parse($tampered));
 
-        // Forge a valid signature over a different application id.
-        $decoded = base64_decode(strtr($token, '-_', '+/'), true);
-        $parts = explode('.', (string) $decoded);
-        $forgedId = $parts[0] === '1' ? '2' : '1';
-        $forged = rtrim(strtr(base64_encode($forgedId.'.'.$parts[1]), '+/', '-_'), '=');
-        $this->assertNull(app(QrTokenService::class)->parse($forged));
+        $parts = $this->splitV2Payload($this->decode($token));
 
-        $this->assertNull(app(QrTokenService::class)->parse('garbage'));
-        $this->assertNull(app(QrTokenService::class)->parse(''));
+        // THE PREMISE, stated instead of inherited: whether THIS run's signature
+        // carries a '.' byte decides what a naive explode() would have made of
+        // the payload below — three segments if it does not, four or more if it
+        // does. It is a fact about the id the DB sequence handed out, not an
+        // invariant of the format. Pinned as a RELATION, so it holds for every
+        // id; its failure message names the count a naive split produces.
+        $this->assertSame(
+            3 + substr_count($parts['signature'], '.'),
+            $parts['naiveSegmentCount'],
+            sprintf(
+                'premise: the signature of application %d %s a "." byte, so a naive explode() yields %d segments, not 3 — the claims are read from the outside in',
+                $application->id,
+                $parts['signatureHasDot'] ? 'carries' : 'does not carry',
+                $parts['naiveSegmentCount'],
+            ),
+        );
+
+        // CONTROL: this very payload IS a valid token, so what the rejections
+        // below refuse is the tampered CLAIM and nothing else. Without it a
+        // payload that had been mangled on the way here — a naive explode()
+        // truncated a dotted signature at its first '.' byte — would be rejected
+        // for its shape and every assertion below would be green for the wrong
+        // reason. The round trip is asserted as well, because a split that drops
+        // or duplicates a byte cannot be the origin of an identical token.
+        $unaltered = $this->encode($parts['id'].'.'.$parts['signature'].'.'.$parts['mandantId']);
+
+        $this->assertSame($token, $unaltered, 'control: re-encoding the three claims must reproduce the token byte for byte — the split lost or moved bytes');
+        $this->assertNotNull(
+            $service->parse($unaltered),
+            'control: the unaltered payload must verify — otherwise the rejections below prove nothing',
+        );
+
+        // THE forgery this test exists for: the signature stays byte-identical
+        // and only the application id claim is swapped, so the payload is
+        // well-formed v2 down to its last separator and parse() really takes the
+        // tenant-bound branch. It is rejected because the id claim is part of
+        // the signed message ('v2:<id>:<mandantId>'), not because the payload
+        // fell out of the format.
+        $forgedId = $parts['id'] === '1' ? '2' : '1';
+        $forgedV2 = $this->encode($forgedId.'.'.$parts['signature'].'.'.$parts['mandantId']);
+
+        $this->assertNull(
+            $service->parse($forgedV2),
+            'the application id claim is covered by the HMAC, so a different id must not verify against this signature — dotted signature or not',
+        );
+        $this->assertFalse($service->isValidFor($application, $forgedV2));
+
+        // The same signature presented in the LEGACY two-segment shape, now
+        // COMPLETE: a v2 signature must not be readable as a v1 one, whatever it
+        // contains. This is the assertion the naive explode() silently turned
+        // into a different one — `$parts[1]` was a truncated prefix, so the
+        // legacy check had already rejected it for a truncated HMAC.
+        $forgedLegacy = $this->encode($forgedId.'.'.$parts['signature']);
+
+        $this->assertNull(
+            $service->parse($forgedLegacy),
+            'a v2 signature is not a v1 signature: dropping the mandant claim must not make it verify',
+        );
+
+        $this->assertNull($service->parse('garbage'));
+        $this->assertNull($service->parse(''));
+    }
+
+    /**
+     * The tampering above, run against CHOSEN application ids instead of
+     * whatever the sequence hands out — including ids whose v2 signature really
+     * does carry a '.' byte, which is the case the naive split got wrong.
+     *
+     * Whether an id is dotted is a property of the PAIR (application id, mandant
+     * id) under the signing key in force. Measured on the key pinned at
+     * `phpunit.xml:44` (`base64:adai6…WE60=`), which is the key this suite runs
+     * under: **11.505 %** of the application ids 1..20000 produce a v2
+     * signature with a 0x2E byte; for mandant 1 the offenders within ids 1..40
+     * are 13, 22, 28, 30 and 40. That is why every case names BOTH claims and
+     * why the third element states the premise instead of leaving the test to
+     * assume it: a changed key or a changed pair is then reported, not silently
+     * downgraded to another dot-free case.
+     *
+     * Nothing is written and no sequence is consumed — `QrTokenService::token()`
+     * is pure and reads the mandant claim from the preloaded relation — so these
+     * ids come from the fixture. That is precisely what the test above cannot
+     * guarantee.
+     *
+     * @return array<string, array{int, int, bool}>
+     */
+    public static function forgedIdPairs(): array
+    {
+        return [
+            'application id 13, mandant id 1 (dotted)' => [13, 1, true],
+            'application id 22, mandant id 1 (dotted)' => [22, 1, true],
+            'application id 40, mandant id 1 (dotted)' => [40, 1, true],
+            'application id 7, mandant id 2 (dotted)' => [7, 2, true],
+            'application id 27, mandant id 4 (dotted)' => [27, 4, true],
+            'application id 8, mandant id 5 (dotted)' => [8, 5, true],
+            'application id 1, mandant id 1 (dot-free control)' => [1, 1, false],
+        ];
+    }
+
+    #[DataProvider('forgedIdPairs')]
+    public function test_a_forged_application_id_claim_is_rejected_for_every_signature_shape(int $applicationId, int $mandantId, bool $expectDotted): void
+    {
+        $service = app(QrTokenService::class);
+        $application = $this->applicationWithId($applicationId, $mandantId);
+        $token = $service->token($application);
+        $parts = $this->splitV2Payload($this->decode($token));
+
+        // Announced: this case is dotted (or deliberately is not), and what a
+        // naive three-segment split would have concluded about it.
+        $this->assertSame($expectDotted, $parts['signatureHasDot'], sprintf(
+            'premise: the signature of application %d for mandant %d is expected %s a "." byte under the signing key in use',
+            $applicationId,
+            $mandantId,
+            $expectDotted ? 'to carry' : 'NOT to carry',
+        ));
+
+        if ($expectDotted) {
+            $this->assertGreaterThan(
+                3,
+                $parts['naiveSegmentCount'],
+                'premise: a dotted signature MUST make a naive explode() yield more than three segments — otherwise this case proves nothing',
+            );
+        }
+
+        // CONTROL, see test_qr_token_tampering_is_rejected(): the unaltered
+        // payload must verify, so the rejection below is about the swapped claim
+        // and not about a payload mangled on the way here.
+        $this->assertNotNull(
+            $service->parse($this->encode($parts['id'].'.'.$parts['signature'].'.'.$parts['mandantId'])),
+            'control: the unaltered payload must verify — otherwise the rejection below proves nothing',
+        );
+
+        $forgedId = (string) ($applicationId + 1);
+        $forged = $this->encode($forgedId.'.'.$parts['signature'].'.'.$parts['mandantId']);
+
+        $this->assertNull(
+            $service->parse($forged),
+            'only the application id claim differs and it is part of the signed message, so this signature must not verify against a neighbouring id — whether or not the signature itself contains a "." byte',
+        );
+        $this->assertFalse($service->isValidFor($application, $forged));
+
+        // A truncated signature (what a naive explode() used to hand out) is
+        // also rejected, and the distinction matters: this assertion holds for
+        // the COMPLETE signature above as well, so the rejection cannot be
+        // explained by the shape of the forged payload.
+        $this->assertNull(
+            $service->parse($this->encode($forgedId.'.'.$parts['signature'])),
+            'a complete v2 signature must not verify in the legacy two-segment shape',
+        );
     }
 
     public function test_qr_token_with_wrong_secret_is_rejected(): void
@@ -1698,5 +1840,114 @@ class BadgeTest extends TestCase
         ]);
 
         return $user;
+    }
+
+    /**
+     * Decode a base64url token to its raw payload — `strtr()` first, because
+     * `base64_decode` in strict mode rejects '-' and '_'.
+     */
+    private function decode(string $token): string
+    {
+        $decoded = base64_decode(strtr($token, '-_', '+/'), true);
+
+        $this->assertIsString($decoded, 'premise: a token must decode as base64url — got '.var_export($token, true));
+
+        return $decoded;
+    }
+
+    private function encode(string $payload): string
+    {
+        return rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    }
+
+    /**
+     * Split a decoded v2 payload into its three claims — the ONE place in this
+     * class that knows how to read one. It mirrors `QrTokenService::parse()`:
+     * `strpos()` for the application id (`QrTokenService.php:163`) and
+     * `strrpos()` for the mandant claim (`:193`) — from the OUTSIDE in.
+     *
+     * Why outside-in, and why `explode('.', $decoded)` is the wrong tool here:
+     * the signature is a RAW HMAC (`hash_hmac('sha256', …, $key, true)`, 32
+     * binary bytes) and can therefore contain a '.' byte (0x2E). Measured on the
+     * signing key pinned at `phpunit.xml:44`: **11.505 %** of the application ids
+     * 1..20000 produce a v2 signature with such a byte, so roughly one id in
+     * nine makes `explode()` return four or more segments. Which ids those are
+     * depends on the PAIR (application id, mandant id) — see forgedIdPairs().
+     * The segment count of a token is therefore an accident of the id, never an
+     * invariant of the format, and the id comes from the DB sequence, which is
+     * engine-dependent (SQLite restarts per test database, a Postgres sequence
+     * keeps counting across rolled-back tests).
+     *
+     * That is exactly the defect this replaced: `explode()` returned `$parts[1]`
+     * = the signature TRUNCATED at its first '.' byte, so the forged payload
+     * built from it contained only ONE separator, `parse()` never took the v2
+     * branch, and `test_qr_token_tampering_is_rejected()` was green while
+     * proving something entirely different from what its comment claimed.
+     *
+     * The outside-in split is nevertheless unambiguous: the application id
+     * precedes the FIRST separator and is all digits, the mandant claim follows
+     * the LAST separator and is all digits, so neither claim can hide a dot and
+     * the bytes in between are exactly the signature.
+     *
+     * Its preconditions are asserted HERE rather than in each caller: a payload
+     * that is not well-formed v2 fails loudly at the split instead of silently
+     * handing out nonsense parts to a "forged token" assertion.
+     *
+     * @return array{
+     *     id: string,
+     *     signature: string,
+     *     mandantId: string,
+     *     signatureHasDot: bool,
+     *     naiveSegmentCount: int,
+     * }
+     */
+    private function splitV2Payload(string $decoded): array
+    {
+        $firstSeparator = strpos($decoded, '.');
+        $lastSeparator = strrpos($decoded, '.');
+
+        $this->assertIsInt($firstSeparator, 'premise: a v2 payload separates the id from the signature — got '.strlen($decoded).' raw bytes with no "." at all');
+        $this->assertGreaterThan($firstSeparator, $lastSeparator, 'premise: a v2 payload carries the signature BETWEEN two separators');
+
+        $id = substr($decoded, 0, $firstSeparator);
+        $signature = substr($decoded, $firstSeparator + 1, $lastSeparator - $firstSeparator - 1);
+        $mandantId = substr($decoded, $lastSeparator + 1);
+
+        $this->assertNotSame('', $id, 'premise: the application id claim must not be empty');
+        $this->assertTrue(ctype_digit($id), 'premise: the application id claim is all digits and so cannot hide a separator — got '.var_export($id, true));
+        $this->assertNotSame('', $signature, 'premise: the signature between the claims must not be empty');
+        $this->assertTrue(ctype_digit($mandantId), 'premise: the mandant claim is all digits and so cannot hide a separator — got '.var_export($mandantId, true));
+
+        return [
+            'id' => $id,
+            'signature' => $signature,
+            'mandantId' => $mandantId,
+            'signatureHasDot' => str_contains($signature, '.'),
+            'naiveSegmentCount' => substr_count($decoded, '.') + 1,
+        ];
+    }
+
+    /**
+     * An UNSAVED application with a caller-chosen id and mandant claim, for the
+     * cases that must exercise a SPECIFIC id instead of whatever the database
+     * sequence hands out. `QrTokenService::token()` is pure and reads the
+     * mandant claim from the preloaded relation (`mandantIdOf()`), so no row is
+     * needed and nothing is written.
+     */
+    private function applicationWithId(int $applicationId, int $mandantId): Application
+    {
+        $accreditation = new Accreditation;
+        $accreditation->forceFill(['mandant_id' => $mandantId]);
+
+        $application = new Application;
+        $application->forceFill([
+            'id' => $applicationId,
+            'accreditation_id' => 0,
+            'status' => 'approved',
+            'priority' => false,
+        ]);
+        $application->setRelation('accreditation', $accreditation);
+
+        return $application;
     }
 }
