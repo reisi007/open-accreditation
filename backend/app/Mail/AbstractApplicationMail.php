@@ -97,9 +97,17 @@ abstract class AbstractApplicationMail extends Mailable
      *
      * ## Only approved applications carry a pass
      *
-     * Both callers only ever mail approved rows; the guard also keeps a row
-     * that lost its approval between the commit and the send (R-D4 race) from
-     * shipping a pass.
+     * The guard below reads `$application->status` off the in-memory model, so
+     * it stops an attachment for a row that was **never approved** (a mis-routed
+     * caller or a stale instance) — it is not race protection. Race safety comes
+     * from the caller: the bulk path re-reads committed state through the
+     * `->where('status', 'approved')` query in
+     * `AllocationService::dispatchApprovedMails`, while `approveApplication`
+     * mirrors its guarded write onto the same instance only in memory
+     * (`guardedStatusWrite`). A revocation landing between that commit and this
+     * send is therefore not caught here — the Verify endpoint is the last
+     * barrier: it refuses anything whose live row is no longer `approved`
+     * (`VerifyResource` and `VerifyController::photo`).
      *
      * @return list<Attachment>
      */

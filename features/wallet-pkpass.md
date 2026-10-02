@@ -208,9 +208,16 @@ Datei**, am tatsächlich versandten Anhang (`WalletMailAttachmentTest`).
 - **Fehlende Credentials sind kein Fehler.** Ohne Certs/Keys wird der
   kontrolliert degradierte Pass angehängt (Unsigned-`.pkpass` bzw. Preview-
   JSON) — das ist der Sinn der Degradation.
-- **Nur `approved`.** Beide Aufrufer mailen ausschließlich genehmigte Zeilen;
-  die zusätzliche Statusprüfung verhindert, dass eine zwischen Commit und
-  Versand widerrufene Zeile (R-D4-Race) noch einen Pass mitschickt.
+- **Nur `approved`.** Die Statusprüfung liest `$application->status` aus dem
+  **Speicher** und verhindert damit nur einen Anhang für eine **nie
+  genehmigte** Zeile — sie ist **keine** Race-Sicherheit. Die kommt aus dem
+  Aufrufer: der Massenpfad liest den committeten Stand über die Query
+  `->where('status', 'approved')` in `AllocationService::dispatchApprovedMails`
+  neu; `approveApplication` spiegelt seinen Guard-Write nur in-memory auf die
+  Instanz (`guardedStatusWrite`). Eine zwischen Commit und Versand widerrufene
+  Zeile (R-D4-Race) wird hier also **nicht** gestoppt — letzte Schranke ist der
+  Verify-Endpunkt, der alles ablehnt, dessen Live-Zeile nicht mehr `approved`
+  ist (`VerifyResource`, `VerifyController::photo`).
 - **Benannter Rest — Sub-Approvals.** Park-/Sitzkarten-Freigaben laufen über
   `SubAllocationService`, das **keine** Mail versendet (`SubAccreditationTest`
   nagelt diese Lücke fest). Solange es keinen Sub-Freigabe-Mailweg gibt, kann

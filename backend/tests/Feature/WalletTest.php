@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\RoleUser;
 use App\Models\SubApplication;
 use App\Models\User;
+use App\Services\WalletPassService;
 use App\Support\MandantContext;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -214,6 +215,21 @@ class WalletTest extends TestCase
 
             $this->assertSame($type.'-'.$sub->id, $pass['serialNumber']);
             $this->assertSame($type === 'park' ? 'Parkkarte' : 'Sitzkarte', $pass['eventTicket']['auxiliaryFields'][1]['value']);
+        }
+    }
+
+    public function test_sub_wallet_download_pins_the_type_and_id_filename(): void
+    {
+        $user = $this->createUser();
+
+        foreach (['park', 'seat'] as $type) {
+            $sub = $this->approvedSubApplication($this->mandantA, $user, $type);
+
+            $this->actingAsApi($user)
+                ->get('/api/sub-applications/'.$sub->id.'/wallet')
+                ->assertOk()
+                ->assertHeader('Content-Type', WalletPassService::APPLE_CONTENT_TYPE)
+                ->assertHeaderContains('Content-Disposition', 'filename="'.$type.'-'.$sub->id.'.pkpass"');
         }
     }
 
