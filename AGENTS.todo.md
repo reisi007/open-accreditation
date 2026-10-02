@@ -615,6 +615,16 @@ Weitere: **Guard-Write mit wiederholter Vorbedingung** (`AllocationRules::markSt
 6. **Nicht** in diesem Strom: **Paginierung** des Listen-Endpunkts (in `features/mail-delivery.md §8` als benannter Punkt geführt, Form `per_page`/`cursor`). Die UI **darf** die Endlosliste nicht als „die Wahrheit" darstellen — wenn sie ohne Paginierung gebaut wird, ist das eine **Doku-Zusage**, keine Erledigung.
 
 
+### 🧹 Offener Restpunkt aus dem Durchstich: `cache`-Reaper (bewusst zurückgestellt)
+
+**Was zurückgestellt wurde und warum.** Die Idempotenz-Wache hinterlässt pro zugestellter Mail **eine** Zeile in `cache`; abgelaufen heißt **aus jedem Lesezugriff weg** (`DatabaseStore::many()` löscht beim Lesen), **nicht aus der Tabelle**. Im Betrieb löscht nichts Cache-Zeilen — `routes/console.php` registriert **kein** `cache:prune`, `entrypoint.sh` kein `cache:clear` (gemessen per grep im ganzen Repo).
+
+**Der naheliegende Fix existiert auf diesem Stand nicht.** Gemessen an Laravel **13.33.0**: es gibt **kein** `cache:prune`; `cache:prune-stale-tags` ist **Redis-only** und löscht gegen den `database`-Store nichts (`DatabaseStore` ist kein `TaggableStore`). Ein `Schedule::command('cache:prune')` würde einen **nicht existierenden** Befehl terminieren.
+
+**Und ein eigener Reaper ist keine Kleinigkeit:** derselbe Store trägt die **JWT-Blacklist** (`A6`). Ein Fehler dort bedeutet nicht „zu viel Speicher", sondern **zurückgerufene Tokens** — die Zustellung eines Users, die der Admin widerrufen hat. Das ist eine **eigene Entscheidung**, keine Aufräumpflicht, und wird hier **nicht** eigenmächtig gebaut.
+
+**Form, falls entschieden wird** (damit sie nicht als offene Hausarbeit liegen bleibt): täglicher Scheduled Task auf `expiration <= now` — **dieselbe Bedingung, die `many()` bereits anwendet**, also ohne semantische Änderung. **Mitzunehmen wäre ein Test**, der die gewählte Form festhält; die heutige Form ist in `SendMandantMailTest::test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it` festgenagelt (nach Ablauf **gelesen** → unsichtbar *und* Zeile weg; **nie gelesen** → Zeile liegt noch da, das ist der Teil, der wächst).
+
 ### Nicht in diesem Batch
 - **Wallet-Install (Apple/Google) — externer Issuer (Position 14, umgeschrieben 2026-10-02): aktuell NICHT geplant.** Der Lieferweg ist die **erzeugte Datei als Mail-Anhang** (scannbares Dokument); die inhaltliche Gültigkeit geht gegen **uns** (QR → Verify-Endpoint). Der **GAP** zur *installierbaren* Wallet — Apple verlangt ein von Apple ausgestelltes Pass-Type-ID-Zertifikat (iOS prüft die PKCS#7-Signatur gegen Apples WWDR-Kette), Google einen Issuer-Account + Service Account (`{issuerId}.{classId}.{objectId}`) — ist eine **bewusste Zusage-Grenze**, kein offener Task. Dauerfassung in `features/wallet-pkpass.md`.
 - **Go-Live** (~20 Positionen: Pre-Prod-Domain, DNS, Caddy, Secrets, Deploy, Backup,
