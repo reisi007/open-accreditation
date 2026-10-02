@@ -463,3 +463,34 @@ export interface VerifyResult {
     date?: string | null;
     photo_url?: string | null;
 }
+
+/**
+ * One dead letter of the mandant dead-letter queue (Position 45), shaped by
+ * `backend/app/Http/Resources/FailedMailResource.php` and MEASURED against the
+ * running backend on 2026-10-02 (`GET /api/admin/failed-mails` → `{"data":[]}`).
+ *
+ * The payload blob and the raw exception are deliberately NOT here: the resource
+ * reads the mail's identity through `QueuedMailPayload` (which never revives the
+ * mail) and cuts the exception with `Str::limit($this->exception, 500)`.
+ *
+ * ## What this type does NOT carry: `attempts`
+ *
+ * The retry budget a dead letter burned (`SendMandantMail::$tries = 5`) is in the
+ * job payload, and `failed_jobs` has no `attempts` COLUMN
+ * (`0001_01_01_000002_create_jobs_table.php`) — so there is nothing for the
+ * resource to expose and the API cannot deliver it. The UI therefore cannot show
+ * it, and does not pretend to: a column here would have to be nullable-forever
+ * and always blank. The `queue` IS delivered and is shown instead.
+ */
+export interface FailedMail {
+    id: number;
+    /** Owning mandant; part of the response on purpose (see the resource). Never foreign to the caller. */
+    mandant_id: number | null;
+    /** Mailable class, e.g. `App\Mail\PassMail`. `null` if the payload cannot be read. */
+    mailable: string | null;
+    recipient: string | null;
+    queue: string;
+    /** Server-side cut to 500 characters — see `isTruncatedException` in `failedMailUtils`. */
+    exception: string;
+    failed_at: string | null;
+}

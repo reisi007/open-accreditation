@@ -77,10 +77,15 @@ export default tseslint.config(
     //   `teams-precondition.test.ts` — its test of the above, which needs the same
     //     types plus `import type` for them.
     //   `created-row-lookup.test.ts` — same reason again.
+    //   `helpers/failed-mails.ts` — takes a `Page` (`stubDeadLetterList`) and
+    //     types its row as an interface, which is the shape `FailedMailResource`
+    //     produces. Same reason on both counts; see that file's docblock for why
+    //     the DLQ has no HTTP fixture path at all.
     files: [
       'tests/screenshots/**/*.ts',
       'tests/e2e/helpers/teams-enabled.ts',
       'tests/e2e/helpers/created-row-lookup.ts',
+      'tests/e2e/helpers/failed-mails.ts',
       'tests/e2e/teams-precondition.test.ts',
       'tests/e2e/created-row-lookup.test.ts',
     ],

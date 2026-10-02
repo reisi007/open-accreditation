@@ -17,6 +17,7 @@ import type {
     Blacklist,
     Category,
     Event,
+    FailedMail,
     Mandant,
     MandantDomain,
     PortalEvent,
@@ -57,7 +58,20 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
     unauthorizedHandler = handler;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * The transport every JSON call shares: build the headers, fetch with the
+ * session cookie, run the 401 handler, and turn a non-2xx into an `ApiError`
+ * carrying the server's own `{message}` / `{errors}`.
+ *
+ * It is separate from the two parsers below because the two BODY SHAPES are the
+ * reason they are separate: the resource endpoints answer `{data: …}` and are
+ * unwrapped by `request`, while the "I have done what you asked" endpoints
+ * (`…/resend`, `…/failed-mails/{id}/requeue`) answer a BARE `{message}` and are
+ * read by `requestMessage`. Before this split both callers re-implemented the
+ * transport, which is how a second copy of the 401 handler and the error mapping
+ * would have drifted.
+ */
+async function send(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     if (!(init.body instanceof FormData)) {
         headers.set('Content-Type', 'application/json');
@@ -90,6 +104,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         throw new ApiError(response.status, message, info);
     }
 
+    return response;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await send(path, init);
+
     if (response.status === 204) {
         return undefined as T;
     }
@@ -101,6 +121,44 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
 
     return undefined as T;
+}
+
+/**
+ * The `message` of a bare-`{message}` action endpoint, or `''` when the body
+ * carries none.
+ *
+ * `request` cannot serve these endpoints: it unwraps `{data: …}`, and a body
+ * without a `data` key would arrive as `undefined` — which is exactly the bug
+ * this exists to end. `AdminApplicationController::resend` and
+ * `FailedMailController::requeue` both answer `{message: …}` at the top level
+ * (MEASURED 2026-10-02), and that message is the SERVER'S account of what it
+ * did ("in die Warteschlange gestellt"), which the UI has to show instead of a
+ * string of its own.
+ */
+async function requestMessage(path: string, init: RequestInit = {}): Promise<string> {
+    const response = await send(path, init);
+
+    if (response.status === 204) {
+        return '';
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+        return '';
+    }
+
+    let body: unknown;
+    try {
+        body = await response.json();
+    } catch {
+        return '';
+    }
+    if (body === null || typeof body !== 'object') {
+        return '';
+    }
+
+    const message = (body as { message?: unknown }).message;
+    return typeof message === 'string' ? message : '';
 }
 
 export async function uploadFile(path: string, file: File, fieldName = 'file'): Promise<void> {
@@ -483,8 +541,17 @@ export const updateAdminApplication = (id: number, action: ApplicationAction): P
 export const listAdminApplicationMedia = (id: number): Promise<AdminMedia[]> =>
     request<AdminMedia[]>(`/api/admin/applications/${id}/media`);
 
-export const resendApplicationMail = (applicationId: number): Promise<void> =>
-    request<void>(`/api/admin/applications/${applicationId}/resend`, { method: 'POST' });
+/**
+ * Order the status mail for one application again.
+ *
+ * Returns the SERVER's message. Since Position 45 `MandantMailerService::send()`
+ * only dispatches `SendMandantMail`, so this endpoint cannot know whether the
+ * relay answered — it reports what it really did ("in die Warteschlange
+ * gestellt"), and the UI used to contradict it with a string of its own
+ * ("erneut gesendet"). `''` only when the body carries no message at all.
+ */
+export const resendApplicationMail = (applicationId: number): Promise<string> =>
+    requestMessage(`/api/admin/applications/${applicationId}/resend`, { method: 'POST' });
 
 export interface AdminSubApplicationsParams {
     sub_accreditation_id?: number;
@@ -514,6 +581,31 @@ export const createBlacklist = (payload: BlacklistPayload): Promise<Blacklist> =
 
 export const deleteBlacklist = (id: number): Promise<void> =>
     request<void>(`/api/admin/blacklists/${id}`, { method: 'DELETE' });
+
+/**
+ * The dead-letter queue of undelivered mandant mails (Position 45).
+ *
+ * `GET /api/admin/failed-mails` is NOT paginated and takes no filter: the
+ * controller reads the whole `failed_jobs` table and filters in PHP
+ * (`features/mail-delivery.md §8`). The page therefore filters client-side and
+ * has to SAY that it does, so an admin does not read a long list as a complete
+ * one.
+ *
+ * Scope is the backend's, not the UI's: `super_admin` sees every mandant,
+ * `mandant_admin` only his own (a foreign letter is a 404, never a 403).
+ */
+export const listFailedMails = (): Promise<FailedMail[]> => request<FailedMail[]>('/api/admin/failed-mails');
+
+/**
+ * Move one dead letter back onto the queue — a human, logged decision, and the
+ * ONLY way out of the terminal `dead` state.
+ *
+ * Returns the server's message (bare `{message}`, `FailedMailController.php:99`).
+ * A foreign letter answers **404** and a role without `mails.dlq.manage` answers
+ * **403**; both are `ApiError`s the caller must surface, never swallow.
+ */
+export const requeueFailedMail = (failedMailId: number): Promise<string> =>
+    requestMessage(`/api/admin/failed-mails/${failedMailId}/requeue`, { method: 'POST' });
 
 export interface AllocationPayload {
     mode: 'all' | 'first';

@@ -13,10 +13,19 @@ interface AdminNavProps {
     showUsers: boolean;
     showTemplates: boolean;
     showMedia: boolean;
+    showFailedMails: boolean;
     onNavigate: () => void;
 }
 
-function AdminNav({ className, showMandants, showUsers, showTemplates, showMedia, onNavigate }: AdminNavProps) {
+function AdminNav({
+    className,
+    showMandants,
+    showUsers,
+    showTemplates,
+    showMedia,
+    showFailedMails,
+    onNavigate,
+}: AdminNavProps) {
     const { i18n } = useLingui();
 
     return (
@@ -111,6 +120,17 @@ function AdminNav({ className, showMandants, showUsers, showTemplates, showMedia
                     </NavLink>
                 </li>
             ) : null}
+            {showFailedMails ? (
+                <li>
+                    <NavLink
+                        to="/admin/tote-briefe"
+                        className={({ isActive }) => (isActive ? 'menu-active' : '')}
+                        onClick={onNavigate}
+                    >
+                        {i18n._(t`Tote Briefe`)}
+                    </NavLink>
+                </li>
+            ) : null}
         </ul>
     );
 }
@@ -128,6 +148,10 @@ export function AdminLayout() {
     const showUsers = isSuperAdmin || isMandantAdminUser(user);
     const showTemplates = isSuperAdmin || isMandantAdminUser(user);
     const showMedia = isSuperAdmin || isMandantAdminUser(user);
+    // Same set: `mails.dlq.manage` is held by `mandant_admin`, `super_admin`
+    // bypasses via `Gate::before`, and a `team_admin` must never reach a
+    // Verband-wide list of recipient addresses.
+    const showFailedMails = isSuperAdmin || isMandantAdminUser(user);
 
     // `useAuth().logout()` never rejects (it tears the cache down even when the
     // request fails), so the navigation below always runs and the shell can
@@ -354,6 +378,7 @@ export function AdminLayout() {
                                 showUsers={showUsers}
                                 showTemplates={showTemplates}
                                 showMedia={showMedia}
+                                showFailedMails={showFailedMails}
                                 onNavigate={closeDrawer}
                             />
                         </aside>
@@ -377,6 +402,7 @@ export function AdminLayout() {
                             showUsers={showUsers}
                             showTemplates={showTemplates}
                             showMedia={showMedia}
+                            showFailedMails={showFailedMails}
                             onNavigate={closeDrawer}
                         />
                     </aside>

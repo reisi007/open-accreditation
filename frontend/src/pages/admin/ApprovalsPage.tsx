@@ -1,7 +1,7 @@
 import type { I18n } from '@lingui/core';
 import { msg, t } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import {
@@ -33,8 +33,11 @@ import type {
     SubAccreditation,
     SubApplicationStatus,
 } from '../../api/types';
+import { WideTable } from '../../components/WideTable';
 import { applicationStatusLabel, subTypeLabel } from '../../logic/accreditationLabels';
 import { downloadBlob } from '../../logic/downloadBlob';
+import { formatDateTime } from '../../logic/formatDate';
+import { serverActionMessage } from '../../logic/serverActionMessage';
 import { BlacklistForm } from './BlacklistForm';
 import { DenyModal } from './DenyModal';
 import { buildAllocationPayload, buildApplicationAction, buildBlacklistPayload, type BlacklistFormValues } from './approvalFormUtils';
@@ -93,15 +96,6 @@ function mediaTypeLabel(type: string, i18n: I18n): string {
     }
 }
 
-function formatDateTime(iso: string, i18n: I18n): string {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) {
-        return iso;
-    }
-
-    return date.toLocaleString(i18n.locale ?? undefined);
-}
-
 const PAGE_SIZE = 20;
 
 interface PaginationProps {
@@ -133,43 +127,10 @@ function Pagination({ page, pageCount, onPrevious, onNext }: PaginationProps) {
     );
 }
 
-/**
- * Wide tables scroll horizontally by design. On mobile there is no native
- * scroll affordance, so a subtle right-edge fade (over the container) plus a
- * one-line hint shows that more columns are reachable by swiping. Desktop
- * keeps the default scrollbar.
- */
-function MobileTableScrollHint() {
-    const { i18n } = useLingui();
-
-    return (
-        <p className="mt-2 flex items-center gap-1 text-sm text-base-content/60 lg:hidden">
-            <span className="iconify mdi--gesture-swipe-horizontal text-lg"></span>
-            {i18n._(t`Zum Scrollen wischen`)}
-        </p>
-    );
-}
-
-interface WideTableProps {
-    children: ReactNode;
-}
-
-/**
- * Local wrapper for horizontally/vertically scrollable tables: renders the
- * `overflow-x-auto` container plus the mobile-only scroll affordance. The
- * right-edge fade overlay must not intercept pointer events.
- */
-function WideTable({ children }: WideTableProps) {
-    return (
-        <div className="flex flex-col">
-            <div className="relative">
-                {children}
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-r from-transparent to-base-100 lg:hidden"></div>
-            </div>
-            <MobileTableScrollHint />
-        </div>
-    );
-}
+// `WideTable` and `formatDateTime` used to live here as page-local copies. Both
+// now have one home (`components/WideTable.tsx`, `logic/formatDate.ts`) that the
+// dead-letter page reads too — a second copy of a scroll affordance or a date
+// format is a second truth, and neither fails when it drifts.
 
 /**
  * Optimistic toggle state that re-syncs whenever the server value changes
@@ -243,8 +204,13 @@ function ApplicationRow({ application, onChanged, onDeny }: ApplicationRowProps)
         setResendSuccess(null);
         setResendBusy(true);
         try {
-            await resendApplicationMail(application.id);
-            setResendSuccess(i18n._(t`E-Mail wurde erneut gesendet.`));
+            // The SERVER's account of what it did, not our own string. Since
+            // Position 45 this endpoint only ORDERS a delivery job, so "wurde
+            // erneut gesendet" was a claim about a relay this process never
+            // talked to — and `approvals.spec.ts` pinned it. See
+            // `logic/serverActionMessage.ts` for the whole decision.
+            const message = await resendApplicationMail(application.id);
+            setResendSuccess(serverActionMessage(message, i18n));
         } catch (err) {
             setActionError(resendMailErrorMessage(err, i18n));
         } finally {
@@ -1194,7 +1160,9 @@ function BlacklistTab() {
                                                             {entry.note ?? ''}
                                                         </div>
                                                     </td>
-                                                    <td className="whitespace-nowrap py-3">{formatDateTime(entry.created_at, i18n)}</td>
+                                                    <td className="whitespace-nowrap py-3">
+                                                        {formatDateTime(entry.created_at, i18n.locale ?? undefined)}
+                                                    </td>
                                                     <td className="py-3">
                                                         <div className="flex justify-end">
                                                             <button

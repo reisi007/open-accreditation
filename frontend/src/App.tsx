@@ -38,6 +38,7 @@ import { MandantMediaPage } from './pages/admin/MandantMediaPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { VenuesPage } from './pages/admin/VenuesPage';
 import { BadgeTemplatesPage } from './pages/admin/BadgeTemplatesPage';
+import { FailedMailsPage } from './pages/admin/FailedMailsPage';
 import { VerifyPage } from './pages/VerifyPage';
 
 function UnauthorizedBridge() {
@@ -318,6 +319,11 @@ const router = createBrowserRouter([
                             { path: 'users', element: <UsersPage /> },
                             { path: 'badge-templates', element: <BadgeTemplatesPage /> },
                             { path: 'media', element: <MandantMediaPage /> },
+                            // Dead-letter queue (Position 45). Same two roles as the
+                            // rest of this group, because they are the roles that hold
+                            // `mails.dlq.manage` — and this is a UI affordance only:
+                            // the API answers 403 for anyone else regardless.
+                            { path: 'tote-briefe', element: <FailedMailsPage /> },
                         ],
                     },
                     // Catch-all inside the admin shell too: without it a typo

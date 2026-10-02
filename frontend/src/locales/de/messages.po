@@ -41,6 +41,10 @@ msgstr "{available, plural, one {# Platz frei} other {# Plätze frei}}"
 msgid "{count, plural, one {# Antrag} other {# Anträge}}"
 msgstr "{count, plural, one {# Antrag} other {# Anträge}}"
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "{count, plural, one {# Brief} other {# Briefe}}"
+msgstr "{count, plural, one {# Brief} other {# Briefe}}"
+
 #: src/logic/accountDeletion.ts
 msgid "{count, plural, one {# Datei} other {# Dateien}}"
 msgstr "{count, plural, one {# Datei} other {# Dateien}}"
@@ -117,6 +121,7 @@ msgstr "{totalCount, plural, one {# Spielort} other {# Spielorte}}"
 #: src/pages/admin/CategoryForm.tsx
 #: src/pages/admin/DenyModal.tsx
 #: src/pages/admin/EventForm.tsx
+#: src/pages/admin/FailedMailsPage.tsx
 #: src/pages/admin/MandantForm.tsx
 #: src/pages/admin/RoleForm.tsx
 #: src/pages/admin/SubAccreditationForm.tsx
@@ -224,6 +229,7 @@ msgstr "Akkreditierungen konnten nicht geladen werden."
 #: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/FailedMailsPage.tsx
 #: src/pages/admin/UsersPage.tsx
 #: src/pages/admin/VenuesPage.tsx
 msgid "Aktionen"
@@ -246,9 +252,17 @@ msgstr "Aktiv"
 msgid "Alle"
 msgstr "Alle"
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Alle Briefe wurden zugestellt. Sobald ein Brief alle Zustellversuche verbraucht, erscheint er hier."
+msgstr "Alle Briefe wurden zugestellt. Sobald ein Brief alle Zustellversuche verbraucht, erscheint er hier."
+
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Alle freigeben"
 msgstr "Alle freigeben"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Alle Mandanten"
+msgstr "Alle Mandanten"
 
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Alle Teams"
@@ -481,6 +495,14 @@ msgstr "Breite muss 0 oder größer sein."
 msgid "Breite muss eine Zahl sein."
 msgstr "Breite muss eine Zahl sein."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Brief erneut einreihen"
+msgstr "Brief erneut einreihen"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Briefe, die nach allen Zustellversuchen fehlgeschlagen sind. Sie bleiben hier, bis ein Mensch sie erneut einreiht — automatisch passiert das nie."
+msgstr "Briefe, die nach allen Zustellversuchen fehlgeschlagen sind. Sie bleiben hier, bis ein Mensch sie erneut einreiht — automatisch passiert das nie."
+
 #: src/pages/VerifyPage.tsx
 msgid "Code"
 msgstr "Code"
@@ -554,6 +576,14 @@ msgstr "Dein Konto wurde gelöscht."
 msgid "Dein Konto, deine Anträge, deine Sub-Anträge und deine hochgeladenen Dateien werden unwiderruflich gelöscht."
 msgstr "Dein Konto, deine Anträge, deine Sub-Anträge und deine hochgeladenen Dateien werden unwiderruflich gelöscht."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Der Brief geht zurück in die Warteschlange und bekommt ein neues Zustellbudget. Ob die Zustellung gelingt, entscheidet erst der Worker."
+msgstr "Der Brief geht zurück in die Warteschlange und bekommt ein neues Zustellbudget. Ob die Zustellung gelingt, entscheidet erst der Worker."
+
+#: src/pages/admin/failedMailUtils.ts
+msgid "Der Brief konnte nicht erneut eingereiht werden."
+msgstr "Der Brief konnte nicht erneut eingereiht werden."
+
 #: src/pages/VerifyPage.tsx
 msgid "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
 msgstr "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
@@ -561,6 +591,10 @@ msgstr "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Cod
 #: src/App.tsx
 msgid "Die angeforderte Seite existiert nicht."
 msgstr "Die angeforderte Seite existiert nicht."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
+msgstr "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
 
 #: src/components/AccountDeleteDialog.tsx
 msgid "Die Löschung ist endgültig und kann nicht rückgängig gemacht werden."
@@ -593,6 +627,10 @@ msgstr "Die Seite konnte nicht geladen werden."
 #: src/pages/admin/CategoryForm.tsx
 msgid "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
 msgstr "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
+
+#: src/pages/admin/failedMailUtils.ts
+msgid "Dieser Brief existiert nicht (mehr) oder gehört zu einem anderen Verband. Für einen fremden Brief antwortet die API mit 404."
+msgstr "Dieser Brief existiert nicht (mehr) oder gehört zu einem anderen Verband. Für einen fremden Brief antwortet die API mit 404."
 
 #: src/pages/admin/MandantDetailPage.tsx
 msgid "Domain"
@@ -641,8 +679,8 @@ msgid "E-Mail oder Name"
 msgstr "E-Mail oder Name"
 
 #: src/pages/admin/ApprovalsPage.tsx
-msgid "E-Mail wurde erneut gesendet."
-msgstr "E-Mail wurde erneut gesendet."
+#~ msgid "E-Mail wurde erneut gesendet."
+#~ msgstr "E-Mail wurde erneut gesendet."
 
 #: src/pages/admin/CategoriesPage.tsx
 msgid "Ebene"
@@ -668,6 +706,14 @@ msgstr "Einstellungen"
 msgid "Elemente"
 msgstr "Elemente"
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Empfänger"
+msgstr "Empfänger"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Empfänger, Mailable oder Fehlermeldung"
+msgstr "Empfänger, Mailable oder Fehlermeldung"
+
 #: src/components/AccountDeleteDialog.tsx
 msgid "Endgültig löschen"
 msgstr "Endgültig löschen"
@@ -685,6 +731,10 @@ msgstr "Erlaubt die Verwaltung von Vereinen für diesen Mandanten."
 #: src/pages/admin/MandantForm.tsx
 msgid "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
 msgstr "Erlaubt sind Kleinbuchstaben, Zahlen und Bindestriche."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Erneut einreihen"
+msgstr "Erneut einreihen"
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Erste X freigeben"
@@ -742,6 +792,10 @@ msgstr "Events konnten nicht geladen werden."
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Export fehlgeschlagen."
 msgstr "Export fehlgeschlagen."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Fehler"
+msgstr "Fehler"
 
 #: src/pages/admin/BadgeCanvas.tsx
 msgid "Feld"
@@ -830,6 +884,18 @@ msgstr "Für das Bild muss eine Quelle gewählt werden."
 #: src/pages/admin/resendMailUtils.ts
 msgid "Für diesen Antrag kann keine E-Mail gesendet werden."
 msgstr "Für diesen Antrag kann keine E-Mail gesendet werden."
+
+#: src/pages/admin/failedMailUtils.ts
+msgid "Für diesen Mandanten ist die Liste der toten Briefe nicht erreichbar."
+msgstr "Für diesen Mandanten ist die Liste der toten Briefe nicht erreichbar."
+
+#: src/pages/admin/failedMailUtils.ts
+#~ msgid "Für diesen Mandanten ist kein Briefverlauf erreichbar."
+#~ msgstr "Für diesen Mandanten ist kein Briefverlauf erreichbar."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "gekürzt auf {limit} Zeichen"
+msgstr "gekürzt auf {limit} Zeichen"
 
 #: src/logic/accountDeletion.ts
 msgid "Gelöscht: {counts}"
@@ -997,13 +1063,25 @@ msgstr "Keine Benutzer für die Suche."
 #~ msgid "Keine Benutzer gefunden."
 #~ msgstr "Keine Benutzer gefunden."
 
+#: src/pages/admin/failedMailUtils.ts
+msgid "Keine Berechtigung für die Liste der toten Briefe."
+msgstr "Keine Berechtigung für die Liste der toten Briefe."
+
 #: src/pages/admin/resendMailUtils.ts
 msgid "Keine Berechtigung für diesen Antrag."
 msgstr "Keine Berechtigung für diesen Antrag."
 
+#: src/pages/admin/failedMailUtils.ts
+msgid "Keine Berechtigung, tote Briefe erneut einzureihen."
+msgstr "Keine Berechtigung, tote Briefe erneut einzureihen."
+
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Blacklist-Einträge vorhanden."
 msgstr "Keine Blacklist-Einträge vorhanden."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Keine Briefe für diese Filter."
+msgstr "Keine Briefe für diese Filter."
 
 #: src/components/MandantSwitcher.tsx
 msgid "keine Domain"
@@ -1016,6 +1094,10 @@ msgstr "Keine Sub-Anträge für diese Filter."
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Keine Sub-Anträge vorhanden."
 msgstr "Keine Sub-Anträge vorhanden."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Keine toten Briefe."
+msgstr "Keine toten Briefe."
 
 #: src/components/VenueCombobox.tsx
 msgid "Keine Treffer."
@@ -1114,6 +1196,14 @@ msgstr "Logo & Header"
 #: src/pages/admin/VenuesPage.tsx
 msgid "Löschen"
 msgstr "Löschen"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Mailable"
+msgstr "Mailable"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Mandant"
+msgstr "Mandant"
 
 #: src/pages/admin/MandantFormPage.tsx
 msgid "Mandant erstellen"
@@ -1394,6 +1484,10 @@ msgstr "Passe den Suchbegriff an oder leere ihn, um alle Benutzer zu sehen."
 msgid "Passe die Filter an, um Anträge anzuzeigen."
 msgstr "Passe die Filter an, um Anträge anzuzeigen."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Passe die Filter an, um Briefe anzuzeigen."
+msgstr "Passe die Filter an, um Briefe anzuzeigen."
+
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Passe die Filter an, um Sub-Anträge anzuzeigen."
 msgstr "Passe die Filter an, um Sub-Anträge anzuzeigen."
@@ -1445,6 +1539,10 @@ msgstr "QR-Code"
 #: src/pages/admin/BadgePropertiesPanel.tsx
 msgid "Quelle"
 msgstr "Quelle"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Queue"
+msgstr "Queue"
 
 #: src/pages/admin/AccreditationForm.tsx
 #: src/pages/admin/AccreditationsPage.tsx
@@ -1776,6 +1874,10 @@ msgstr "Sub-Anträge"
 msgid "Sub-Anträge konnten nicht geladen werden."
 msgstr "Sub-Anträge konnten nicht geladen werden."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Suche"
+msgstr "Suche"
+
 #: src/components/DeadlineCountdown.tsx
 #~ msgid "Tag"
 #~ msgstr "Tag"
@@ -1880,6 +1982,15 @@ msgstr "Titel"
 msgid "Titel ist erforderlich."
 msgstr "Titel ist erforderlich."
 
+#: src/pages/admin/AdminLayout.tsx
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Tote Briefe"
+msgstr "Tote Briefe"
+
+#: src/pages/admin/failedMailUtils.ts
+msgid "Tote Briefe konnten nicht geladen werden."
+msgstr "Tote Briefe konnten nicht geladen werden."
+
 #: src/pages/admin/SubAccreditationForm.tsx
 msgid "Typ"
 msgstr "Typ"
@@ -1895,6 +2006,10 @@ msgstr "Übersprungene Anträge sind auf der Blacklist und bleiben beantragt."
 #: src/pages/admin/VenuesPage.tsx
 msgid "Umbenennen"
 msgstr "Umbenennen"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "unbekannter Verband"
+msgstr "unbekannter Verband"
 
 #: src/pages/VerifyPage.tsx
 msgid "Ungültiger Code."
@@ -2040,6 +2155,10 @@ msgstr "Y muss 0 oder größer sein."
 msgid "Y muss eine Zahl sein."
 msgstr "Y muss eine Zahl sein."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Zeitpunkt"
+msgstr "Zeitpunkt"
+
 #: src/pages/admin/badgeTemplateFormUtils.ts
 msgid "Zentriert"
 msgstr "Zentriert"
@@ -2052,8 +2171,12 @@ msgstr "Zentriert"
 msgid "Zu meinen Akkreditierungen"
 msgstr "Zu meinen Akkreditierungen"
 
+#: src/pages/admin/failedMailUtils.ts
+msgid "Zu viele Versuche. Bitte kurz warten und es erneut versuchen."
+msgstr "Zu viele Versuche. Bitte kurz warten und es erneut versuchen."
+
+#: src/components/WideTable.tsx
 #: src/pages/admin/AccreditationsPage.tsx
-#: src/pages/admin/ApprovalsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
@@ -2103,3 +2226,7 @@ msgstr "Zurzeit gibt es keine Akkreditierungen, für die du dich bewerben kannst
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Zurzeit sind keine Veranstaltungen eingetragen."
 msgstr "Zurzeit sind keine Veranstaltungen eingetragen."
+
+#: src/logic/serverActionMessage.ts
+msgid "Zustellauftrag angenommen."
+msgstr "Zustellauftrag angenommen."

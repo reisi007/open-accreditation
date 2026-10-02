@@ -130,12 +130,24 @@ test.describe('Admin Freigaben (P3e)', () => {
         // 5b) P5-F1: resend the approval e-mail → role=status success message
         //     (mail delivery itself is Mailpit-side; the UI contract is the
         //     success status after POST /api/admin/applications/{id}/resend).
+        //
+        //     The assertion is the SERVER's wording, MEASURED on the running
+        //     backend: `AdminApplicationController::resend` answers
+        //     `{"message": "E-Mail wurde erneut in die Warteschlange gestellt."}`.
+        //     It used to assert 'E-Mail wurde erneut gesendet.' — a claim the
+        //     frontend invented about a relay it never talked to, since
+        //     Position 45 `MandantMailerService::send()` only dispatches a job.
+        //     REPLACED, not added to: a test that pins the lie is part of the
+        //     finding, not a guard against it.
         const resendButton = rowA.getByRole('button', { name: 'E-Mail erneut senden' });
         await expect(resendButton).toBeVisible();
         await resendButton.click();
         const resendStatus = rowA.getByRole('status');
         await expect(resendStatus).toBeVisible();
-        await expect(resendStatus).toContainText('E-Mail wurde erneut gesendet.');
+        await expect(resendStatus).toContainText('E-Mail wurde erneut in die Warteschlange gestellt.');
+        // And the invented wording must be GONE, not merely joined by the right
+        // one: a UI that shows both would still assert delivery it cannot know.
+        await expect(resendStatus).not.toContainText('erneut gesendet.');
 
         // 6) Mass allocation "Alle freigeben": A is already approved and B is
         //    denied, C is eligible and D is blacklisted → 1 approved / 1

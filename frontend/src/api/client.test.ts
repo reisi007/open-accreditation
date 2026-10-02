@@ -6,13 +6,16 @@ import {
     deleteMyHeader,
     deleteMyLogo,
     getMe,
+    listFailedMails,
     listMandants,
+    requeueFailedMail,
+    resendApplicationMail,
     setUnauthorizedHandler,
     uploadLogo,
     uploadMyHeader,
     uploadMyLogo,
 } from './client';
-import type { Mandant } from './types';
+import type { FailedMail, Mandant } from './types';
 
 function stubFetch(responseBody: unknown, status = 200, headers?: Record<string, string>) {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
@@ -179,5 +182,112 @@ describe('api client', () => {
         if (!(error instanceof ApiError)) return;
         expect(error.status).toBe(0);
         expect(error.message).toBe('Netzwerkfehler: Keine Verbindung zum Server.');
+    });
+});
+
+/**
+ * The dead-letter surface (`FailedMailController`) and the two "I ordered a
+ * delivery" endpoints, which answer a BARE `{message}`.
+ */
+describe('api client — dead letters', () => {
+    it('unwraps the DLQ list from its {data} envelope', async () => {
+        const rows: FailedMail[] = [
+            {
+                id: 11,
+                mandant_id: 1,
+                mailable: 'App\\Mail\\PassMail',
+                recipient: 'anna@example.test',
+                queue: 'default',
+                exception: 'Connection could not be established',
+                failed_at: '2026-10-02T09:30:00+00:00',
+            },
+        ];
+        const fetchMock = stubFetch({ data: rows });
+
+        await expect(listFailedMails()).resolves.toEqual(rows);
+        // No query string: the endpoint takes no parameters, so a filter here
+        // would be silently ignored by the server.
+        expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/failed-mails');
+    });
+
+    it('accepts an empty DLQ list as an empty array, not as undefined', async () => {
+        // `{data: []}` must survive the unwrap. A `?? []` at the call site would
+        // hide the difference between "no dead letters" and "the field was
+        // missing", and the page renders those as two different states.
+        stubFetch({ data: [] });
+
+        await expect(listFailedMails()).resolves.toEqual([]);
+    });
+
+    it('returns the SERVER message of a requeue, not void', async () => {
+        // MEASURED 2026-10-02: `FailedMailController::requeue` answers
+        // `{"message": "E-Mail wurde erneut in die Warteschlange gestellt."}`.
+        const fetchMock = stubFetch({ message: 'E-Mail wurde erneut in die Warteschlange gestellt.' });
+
+        await expect(requeueFailedMail(11)).resolves.toBe('E-Mail wurde erneut in die Warteschlange gestellt.');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/admin/failed-mails/11/requeue');
+        expect(init?.method).toBe('POST');
+    });
+
+    it('raises the requeue 404 (foreign or gone letter) as an ApiError', async () => {
+        // The controller answers 404 for a FOREIGN letter, not 403 — the same
+        // shape as the tenant CRUD. Swallowing it would render "you may not"
+        // where the truth is "not yours to see", which is the leak this stream
+        // must not create in the first place.
+        stubFetch({ message: 'No query results for model [App\\Models\\FailedJob] 999.' }, 404);
+
+        const error = await requeueFailedMail(999).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(404);
+    });
+
+    it('raises the requeue 403 (role without mails.dlq.manage) as an ApiError', async () => {
+        stubFetch({ message: 'This action is unauthorized.' }, 403);
+
+        const error = await requeueFailedMail(11).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(403);
+    });
+
+    it('yields an empty string for a requeue body without a message', async () => {
+        // The fallback path of `serverActionMessage`: it must be reachable, and
+        // it must not be a crash.
+        stubFetch({ data: null }, 200);
+
+        await expect(requeueFailedMail(11)).resolves.toBe('');
+    });
+
+    it('yields an empty string for a non-JSON requeue answer', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } })),
+        );
+
+        await expect(requeueFailedMail(11)).resolves.toBe('');
+    });
+
+    it('returns the SERVER message of the application resend', async () => {
+        // Same contract, same reason: `AdminApplicationController::resend`
+        // answers a bare `{message}` and only ORDERS the delivery.
+        const fetchMock = stubFetch({ message: 'E-Mail wurde erneut in die Warteschlange gestellt.' });
+
+        await expect(resendApplicationMail(42)).resolves.toBe(
+            'E-Mail wurde erneut in die Warteschlange gestellt.',
+        );
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/admin/applications/42/resend');
+        expect(init?.method).toBe('POST');
+    });
+
+    it('still raises the resend 422 (no mailable status) as an ApiError', async () => {
+        stubFetch({ message: 'Application has no mailable status.' }, 422);
+
+        const error = await resendApplicationMail(42).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(422);
     });
 });

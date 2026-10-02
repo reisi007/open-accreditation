@@ -962,6 +962,38 @@ export const uiReviewConfig: UiReviewConfig = {
             seeds: { filled: seedPrimaryMandant },
             note: 'Self-service media page reads the current mandant\'s portal overview (`/api/portal/overview`) — no other data seed needed. The dataset reset guarantees the "no uploaded logo" baseline (the E2E suite\'s logo-upload test mutates exactly this row, and this suite has no teardown of its own), so a separate "empty" state would render identically to "filled"; captured once. The header is null because no E2E test ever uploads one.',
         },
+        {
+            name: 'admin-tote-briefe',
+            path: '/admin/tote-briefe',
+            content: {
+                empty: {
+                    scope: 'main',
+                    role: 'heading',
+                    name: 'Keine toten Briefe.',
+                    note: 'the empty-state card title (FailedMailsPage.tsx). This is the state that needs a ' +
+                        'capture of its own, and it is the state this route captures: the queue is a ' +
+                        "FAILURE list, so its resting shape is an empty card, and that card is a layout the " +
+                        "review has to see (icon, copy, centring) rather than infer. The page's sibling empty " +
+                        'text (`Keine Briefe für diese Filter.`) is a different string and cannot satisfy this ' +
+                        'exact name; it is only reachable through an active filter, which a capture never sets.',
+                },
+            },
+            states: ['empty'],
+            auth: 'admin',
+            tenant: { empty: 'primary' },
+            nav: [{ kind: 'click', scope: 'complementary', role: 'link', name: 'Tote Briefe' }],
+            emptyMock: ['**/api/admin/failed-mails*'],
+            note: 'Dead-letter queue (Position 45). `empty` only, and the reason is a NAMED GATE rather than ' +
+                'an omission: a `filled` state needs a real `failed_jobs` row, and there is NO route that ' +
+                'creates one — the worker writes it when a job exhausts `$tries`, and no queue worker runs in ' +
+                'any environment of this repo (AGENTS.todo.md Position 46). Seeding one through `psql` would ' +
+                "put a second truth about the schema into the harness and would leave the row behind on every " +
+                'run (retention is unlimited by decision 4, and there is no delete route), which is exactly ' +
+                'the growing-band-count failure this harness exists to end. So the empty state — the one this ' +
+                'route was added for — is captured, and the filled state is reported as open. The stub is ' +
+                'what makes the capture deterministic: the real endpoint answers [] on this stack for the ' +
+                "same reason (no worker), but an explicit `emptyMock` keeps the capture independent of that.",
+        },
     ],
 };
 
