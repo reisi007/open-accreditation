@@ -119,11 +119,16 @@
         <!--
             Hermetizitaet der Rest-Exposition (Position 42, 2026-10-01).
 
-            `config/` liest 162 `env()`-Keys, dieser Block pinnt 21 davon; 147
-            bleiben ungepinnt und lesen damit weiterhin die `.env` des
-            Entwicklers. Das ist Absicht — der Zweck ist nicht, alle 147 zu
+            `config/` liest 159 `env()`-Keys (PHP-Tokenizer ueber die echten
+            Aufrufe in `config/`), `phpunit.xml` pinnt 31 `<env>`-Namen — 25
+            davon als Keys, die auch in `config/` gelesen werden. Damit bleiben
+            134 `config/`-Keys ungepinnt und lesen weiterhin die `.env` des
+            Entwicklers. Das ist Absicht — der Zweck ist nicht, alle 134 zu
             pinnen, sondern die **gemessene** Zahl nicht an eine Config-Datei zu
-            delegieren. Gemessen ueber den Volllauf, jeweils nur `backend/.env`
+            delegieren. Snapshot: die Zahlen sind zaehlungsabhaengig und wandern
+            mit `config/`; bindend sind die gepinnten Keys unten und ihr Test
+            (`PHPUnitEnvPinningTest`), nicht die Zahl. Gemessen ueber den
+            Volllauf, jeweils nur `backend/.env`
             variiert, am Repo unveraendert (Referenz: 1732 passed / 0 failed /
             1 skipped; alle Laeufe mit `APP_URL=https://accreditation.test`):
 

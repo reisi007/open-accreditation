@@ -72,9 +72,16 @@ jobs:
         working-directory: backend
     services:
       mailpit:
-        # phpunit.xml sendet via SMTP auf 127.0.0.1:1025. Die Mailable-Tests
-        # nutzen Mail::fake, aber Mailpit als Real-Backend ist ein Sicherheitsnetz
-        # für nicht-gefakte Mail-Zustellung (und deckt das Dev-Setup ab).
+        # phpunit.xml pinnt MAIL_MAILER=array (socketlos, Position 42): die
+        # meisten Tests senden damit nirgends hin. ABER der Mandant-Pfad
+        # `MandantMailerService::send()` ruft `Mail::mailer('smtp')` explizit
+        # (backend/app/Services/MandantMailerService.php:54) und geht am
+        # array-Pin vorbei — dieser Mailer wird aus MAIL_HOST/MAIL_PORT
+        # (127.0.0.1:1025) gebaut. Mailpit ist deshalb weiterhin das reale
+        # SMTP-Backend dieses Pfades (phpunit.xml beziffert ihn mit ~132
+        # Sendungen pro Volllauf) und deckt zugleich das Dev-Setup ab.
+        # Mail::fake nutzen die Mailable-Tests weiterhin; für den expliziten
+        # smtp-Pfad bleibt Mailpit das Real-Backend statt eines Fake.
         # CC-R4: untagged → resolves to `:latest` (floating). No reproducible
         # version is pinned in this repo:
         # TODO: pin to an immutable digest (e.g. axllent/mailpit@sha256:…) for reproducible CI
