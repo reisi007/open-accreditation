@@ -38,8 +38,19 @@ import {
  * `failed_jobs` row (only the worker writes one, and no worker runs in the E2E
  * stack), so the LIST is fulfilled with the measured `FailedMailResource`
  * shape while the `POST …/requeue` goes to the real backend. The two tests that
- * need no fixture at all — the real empty state and the real 404 — hit the
- * backend unmodified and are what anchor the rest.
+ * need no fixture at all — the real list and the real 404 — hit the backend
+ * unmodified and are what anchor the rest.
+ *
+ * ## The rule this file follows: no assertion about the data set
+ *
+ * Every expectation is derived either from what the backend just answered or
+ * from a stub this file registers itself. Nothing asserts "the stack holds no
+ * dead letters" — that is a claim about accumulated data, it changes without a
+ * line of product code changing, and it is exactly how a `@smoke` test ends up
+ * red for an unrelated reason (the `an empty queue …` case documents its own
+ * measurement of that). The empty state is therefore served on purpose instead
+ * of hoped for; `ui-review.config.ts` solves the same problem with
+ * `emptyMock`, and the two must not drift apart.
  */
 test.describe('Admin: Tote Briefe (DLQ)', () => {
     // UI-heavy spec: Desktop Chrome only, for the reason `approvals.spec.ts` and
@@ -50,14 +61,33 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
     });
 
     test('an empty queue is its own state, not a load failure', { tag: ['@smoke', '@feature:admin:dlq'] }, async ({ page }) => {
-        // No stub at all: the REAL endpoint, on a stack where no worker runs and
-        // so really has no dead letters. That is what makes this a measurement —
-        // a mocked `{data: []}` would pass identically if the page rendered the
-        // load error and the empty state with the same text.
+        // This test used to assert `expect(real.body.data).toHaveLength(0)` and
+        // to drive the page with the real, unstubbed answer. Both are gone, and
+        // the reason is the difference between a CLAIM ABOUT THE DATA SET and a
+        // claim about the code under test: "this stack has no dead letters" is
+        // the former. One `failed_jobs` row anywhere in the E2E stack — a job
+        // that exhausted `$tries` against a relay that was down while the stack
+        // was up — turns a `@smoke` test red while the page renders perfectly.
+        // MEASURED (2026-10-03, this host): with ONE real `failed_jobs` row
+        // inserted, the previous version failed at that assertion and the page
+        // it had just loaded showed the right thing.
+        //
+        // What replaces it keeps both halves and drops only the assumption:
+        //   (1) the REAL endpoint is measured — status and envelope — and the
+        //       page is driven by that real answer, with every expectation
+        //       DERIVED from the length the server reported;
+        //   (2) the empty state is then served explicitly (the same
+        //       `emptyMock` the screenshot harness uses), so it is measured on
+        //       any stack, empty or not.
         const real = await realDeadLetterList();
         expect(real.status, 'the real DLQ list must be readable by a super_admin').toBe(200);
         expect(Array.isArray(real.body.data), 'the DLQ list is a {data: [...]} envelope').toBe(true);
-        expect(real.body.data, 'this stack has no dead letters, so the empty state is reachable').toHaveLength(0);
+        // Unreachable with a failing expectation above (Playwright's `expect`
+        // throws); `[]` exists only so the length below is typed. No type
+        // annotation here: this directory is linted as plain ES2020 (espree) and
+        // would reject it — `Array.isArray` narrows the value anyway.
+        const realData = Array.isArray(real.body.data) ? real.body.data : [];
+        const realCount = realData.length;
 
         await page.goto('/');
         await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
@@ -67,21 +97,39 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         await loginMain.getByRole('button', { name: 'Anmelden' }).click();
         await expect(page).toHaveURL(/\/admin\//);
 
+        // (1) The REAL answer, unstubbed. A page that hard-codes "0 Briefe"
+        // fails here as soon as the data set is not empty; one that draws the
+        // empty card over a non-empty answer fails with it.
         await page.getByRole('complementary').getByRole('link', { name: 'Tote Briefe' }).click();
         await expect(page).toHaveURL(/\/admin\/tote-briefe$/);
 
         const main = page.getByRole('main');
         await expect(main.getByRole('heading', { level: 1, name: 'Tote Briefe' })).toBeVisible();
-        await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toBeVisible();
-        await expect(main.getByText('0 Briefe', { exact: true })).toBeVisible();
+        await expect(
+            main.getByText(realCount === 1 ? '1 Brief' : `${realCount} Briefe`, { exact: true }),
+            'the page must report the number the server sent',
+        ).toBeVisible();
+        await expect(
+            main.getByRole('heading', { name: 'Keine toten Briefe.' }),
+            'the empty state belongs to an empty ANSWER, not to an empty stack',
+        ).toHaveCount(realCount === 0 ? 1 : 0);
 
         // The two states must not be confusable: a load failure is `role="alert"`
-        // and this capture must hold none.
+        // and this capture must hold none — here on the REAL answer, too.
         await expect(main.getByRole('alert')).toHaveCount(0);
 
         // The list endpoint is not paginated, and the page has to say so instead
         // of letting a long list read as "everything there is"
-        // (`features/mail-delivery.md §8`).
+        // (`features/mail-delivery.md §8`) — in every state, empty or filled.
+        await expect(main.getByText(/Die Liste wird nicht seitenweise geladen/)).toBeVisible();
+
+        // (2) The empty state, served explicitly. Deterministic by construction:
+        // nothing about this half depends on what the stack happens to hold.
+        await stubDeadLetterList(page, []);
+        await page.reload();
+        await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toBeVisible();
+        await expect(main.getByText('0 Briefe', { exact: true })).toBeVisible();
+        await expect(main.getByRole('alert')).toHaveCount(0);
         await expect(main.getByText(/Die Liste wird nicht seitenweise geladen/)).toBeVisible();
     });
 

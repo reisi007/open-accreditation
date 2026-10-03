@@ -24,6 +24,10 @@
 #
 # DIE SECHS DETAILS (Portal-Referenz, `AGENTS.todo.md` Position 45/46): deren
 # Weglassen führt genau den Fehler wieder ein, den dieses Skript verhindert.
+# Dazu kommt ein SIEBTER, aus demselben Fail-closed-Grund, aber nicht aus dem
+# Portal: `CACHE_STORE` muss ein geteilter Store sein (Detail 2b) — der
+# Idempotenz-Claim des Mail-Jobs und der `withoutOverlapping()`-Lock des
+# Schedulers liegen beide darin, und prozesslokal wären sie beide still unwirksam.
 #   1. `QUEUE_CONNECTION` muss `database` sein — sonst Abbruch beim Start.
 #   2. `DB_QUEUE_CONNECTION` muss `DB_CONNECTION` entsprechen — sonst ist
 #      `after_commit` bedeutungslos (Queue und DB in verschiedener Verbindung).
@@ -103,6 +107,33 @@ if [ -z "${DB_CONNECTION:-}" ] || [ "${DB_QUEUE_CONNECTION:-}" != "${DB_CONNECTI
 	echo 'FATAL: DB_QUEUE_CONNECTION muss DB_CONNECTION entsprechen.' >&2
 	exit 1
 fi
+
+# --- Detail 2b: der Idempotenz-Claim braucht einen GETEILTEN Store -------
+# (kein Portal-Detail, sondern unser siebtes; `docker-compose.yml:271-274`
+# begründet denselben Wert bereits für den Scheduler-Lock.)
+#
+# `App\Jobs\SendMandantMail` verhindert Doppelzustellung mit einem
+# test-and-set Claim auf dem Default-Cache-Store
+# (`Cache::add('mail-delivery:{deliveryId}', true, CLAIM_TTL_SECONDS)`). Damit
+# "jede verhinderte Doppelzustellung ist sichtbar" überhaupt stimmt, muss der
+# Store zwei Eigenschaften haben:
+#   * ATOMAR — `Repository::add()` MIT TTL delegiert an `Store::add()`; das ist
+#     bei database/redis/memcached/dynamodb genau ein bedingtes Schreiben
+#     (`insert … on conflict do nothing`, Lua-Skript, memcached `add`).
+#   * GETEILT — FPM (`MandantMailerService::send`) und der Worker (`handle`)
+#     sind zwei Prozesse. `array` ist prozesslokal, `file` pro Container,
+#     `null` hat kein `add()` (der Claim stirbt an `BadMethodCallException`).
+# Mit `CACHE_STORE=array` claimten zwei Worker denselben Auftrag beide, beide
+# senden, und die zweite Zustellung hinterlässt weder eine `failed_jobs`-Zeile
+# noch eine Logzeile: die stille Variante, die der Claim verhindern soll, bei
+# gesund aussehendem Deployment. Fail-closed beim Start, wie Detail 1 und 2.
+case "${CACHE_STORE:-}" in
+	database | redis | memcached | dynamodb) ;;
+	*)
+		echo 'FATAL: CACHE_STORE muss ein GETEILTER Store sein (database, redis, memcached, dynamodb) — sonst ist der Idempotenz-Claim aus App\Jobs\SendMandantMail prozesslokal und verhindert keine Doppelzustellung.' >&2
+		exit 1
+		;;
+esac
 
 # --- Detail 3 (Teil 2): Timeout strikt kleiner als retry_after -----------
 # Sonst kann der Worker denselben (hängenden) Job erneut reservieren, während

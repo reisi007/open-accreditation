@@ -168,9 +168,15 @@ export interface RealDeadLetterList {
 /**
  * The real, unstubbed DLQ list — what a `super_admin` sees on this stack.
  *
- * This is what makes the "empty queue is its own state" assertion a measurement:
- * the E2E stack really has no dead letters (no worker), so the empty state is
- * reached through the real endpoint.
+ * It measures the ENDPOINT: the status a super_admin really gets and the
+ * envelope shape the page depends on. Its LENGTH is deliberately left to the
+ * caller to interpret and never asserted as zero — the dead-letter table is
+ * accumulated data, so "this stack is empty" is a statement about a data set
+ * that can change without any product code changing (MEASURED 2026-10-03: one
+ * real `failed_jobs` row is enough to turn the previous emptiness assertion of
+ * `admin-dlq.spec.ts` red while the page renders correctly). Callers derive
+ * their expectations from what came back; the empty state itself is served on
+ * purpose via `stubDeadLetterList(page, [])`.
  */
 export async function realDeadLetterList(): Promise<RealDeadLetterList> {
     const api = await loginAdminApi();

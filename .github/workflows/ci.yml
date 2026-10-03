@@ -455,18 +455,62 @@ jobs:
           # RateLimiter pro Request zustandslos. Das Throttling-Verhalten selbst
           # deckt backend/tests/Feature/AuthThrottleTest.php ab — im E2E-Job
           # gibt es keinen Test, der ein 429 erwartet.
+          #
+          # QUEUE_CONNECTION=sync — EIGENE ENTSCHEIDUNG, kein Versehen, und
+          # nicht dieselbe wie `phpunit.xml:117` (dort ist `sync` eine Absicht
+          # fuer die Backend-Suite; hier geht es um einen anderen Stack).
+          # Anlass: seit 70aa03d dispatcht `MandantMailerService::send()` nur
+          # noch. `.env.example:124` liefert `QUEUE_CONNECTION=database`, dieser
+          # Job startet NUR `artisan serve` (siehe Schritt "Start backend
+          # server") — also legte jede Zustellung eine Zeile in `jobs` ab, die
+          # niemand abarbeitete. Mailpit sah nichts und jeder Mail-Spec lief in
+          # `Error: Mailpit: no message for … within 15000ms` (gemessen an
+          # `auth.spec.ts` 'register → activate → login → me': 16,1 s rot; mit
+          # `sync` und weiterhin totem Worker: 1,4 s gruen — dieselbe Zeile,
+          # dieselbe .env, nur die Queue-Verbindung).
+          #
+          # WARUM sync UND KEIN WORKER: dieser Job misst Produktverhalten ueber
+          # Browser/API, nicht die Queue. Der Queue-Vertrag (tries/backoff/
+          # after_commit/Dead-Letter/Idempotenz-Claim) ist PHPUnit-Sache und
+          # dort mit der ECHTEN `database`-Connection getestet
+          # (QueuedMailTest, QueuedMailAfterCommitTest, MailDeadLetterTest,
+          # Unit/SendMandantMailTest). Ein Worker hier haette der SUITE eine
+          # Timing-Abhaengigkeit gegeben: jeder mailabhaengige Spec (acht
+          # Specs, u. a. auth, profile, approvals, namespace-isolation) muesste
+          # auf einen Hintergrundprozess warten, und jeder Retry-Puls des
+          # Workers waere ein Flake-Budget, das die Produktzusage nicht
+          # verdient. Mit `sync` ist die Zustellung VOLLSTAENDIG, bevor die
+          # HTTP-Antwort herausgeht — der Mailpit-Poll ist damit ein Timeout,
+          # kein Rennen.
+          #
+          # WAS DAS KOSTET (bewusst benannt, nicht versteckt):
+          #   * `config/queue.php` traegt `after_commit => true` NUR auf der
+          #     `database`-Connection (`sync` hat den Schluessel nicht), der
+          #     Job-Body laeuft mit `sync` also innerhalb der offenen
+          #     Transaktion. "Eine zurueckgerollte Entscheidung sendet keine
+          #     Mail" wird im E2E-Job damit NICHT beobachtet — das ist
+          #     Backend-Suite (QueuedMailAfterCommitTest), nicht
+          #     Browser-Verhalten.
+          #   * `jobs` bleibt in diesem Stack leer: der asynchrone Dispatch
+          #     selbst wird im E2E-Job nicht gesehen.
+          #   * Dafuer scheitert ein kaputter Relay laut statt still: mit
+          #     `sync` wirft `SendMandantMail` in der ausloesenden Anfrage
+          #     (HTTP 500), mit `database` bliebe eine Zeile in `jobs` liegen
+          #     und der Spec sahe nur ein 15-s-Timeout.
           sed -i.bak -E \
             -e 's|^DB_HOST=.*|DB_HOST=postgres|' \
             -e 's|^DB_PORT=.*|DB_PORT=5432|' \
             -e 's|^MAIL_HOST=.*|MAIL_HOST=mailpit|' \
             -e 's|^MAIL_PORT=.*|MAIL_PORT=1025|' \
             -e 's|^CACHE_STORE=.*|CACHE_STORE=array|' \
+            -e 's|^QUEUE_CONNECTION=.*|QUEUE_CONNECTION=sync|' \
             .env && rm -f .env.bak
           grep -q '^DB_HOST=postgres$' .env
           grep -q '^DB_PORT=5432$' .env
           grep -q '^MAIL_HOST=mailpit$' .env
           grep -q '^MAIL_PORT=1025$' .env
           grep -q '^CACHE_STORE=array$' .env
+          grep -q '^QUEUE_CONNECTION=sync$' .env
       - name: Generate app key
         working-directory: backend
         run: php artisan key:generate
@@ -486,6 +530,14 @@ jobs:
         run: |
           # --no-reload: ohne den Flag filtert `serve` Env-Vars bei existierender
           # .env (Portal-Lektion) — mit Flag startet der Server mit allen Vars.
+          #
+          # Bewusst NUR der HTTP-Server. Der Mail-Worker ist hier kein fehlendes
+          # Detail, sondern eine bewusste Entscheidung: der Job laeuft mit
+          # `QUEUE_CONNECTION=sync` (Schritt "Prepare backend environment",
+          # Begruendung dort), also laeuft die Zustellung im Request. Ein
+          # `queue:work` neben diesem Server wuerde die Suite von einem
+          # Hintergrundprozess abhaengig machen, ohne ein Produktverhalten zu
+          # messen, das nicht die Backend-Suite (PHPUnit) bereits deckt.
           php artisan serve --host=127.0.0.1 --port=8000 --no-reload > /tmp/php-serve.log 2>&1 &
           timeout 60s bash -c 'until curl -sf http://127.0.0.1:8000/up > /dev/null; do sleep 1; done'
       - name: Setup pnpm

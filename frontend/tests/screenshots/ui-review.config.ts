@@ -986,13 +986,18 @@ export const uiReviewConfig: UiReviewConfig = {
             note: 'Dead-letter queue (Position 45). `empty` only, and the reason is a NAMED GATE rather than ' +
                 'an omission: a `filled` state needs a real `failed_jobs` row, and there is NO route that ' +
                 'creates one — the worker writes it when a job exhausts `$tries`, and no queue worker runs in ' +
-                'any environment of this repo (AGENTS.todo.md Position 46). Seeding one through `psql` would ' +
+                'the E2E stack. NOT "in no environment of this repo": prod and the dev stack DO run one — ' +
+                '`deployment/backend-supervisor.sh` starts `queue:work` in `queue_supervisor_loop` (plus ' +
+                '`scripts/dev-worker.sh` host-native), which is exactly why this note must not make a claim ' +
+                'about environments it cannot see. What is true of the E2E stack is narrower, and it is the ' +
+                'part this capture and the DLQ specs actually rely on: nothing in it can dead-letter, so ' +
+                'neither may depend on the data set being empty. Seeding one through `psql` would ' +
                 "put a second truth about the schema into the harness and would leave the row behind on every " +
                 'run (retention is unlimited by decision 4, and there is no delete route), which is exactly ' +
                 'the growing-band-count failure this harness exists to end. So the empty state — the one this ' +
                 'route was added for — is captured, and the filled state is reported as open. The stub is ' +
-                'what makes the capture deterministic: the real endpoint answers [] on this stack for the ' +
-                "same reason (no worker), but an explicit `emptyMock` keeps the capture independent of that.",
+                'what makes the capture deterministic and data-independent: the real endpoint happens to answer ' +
+                '[] here, but an explicit `emptyMock` is what makes the capture independent of that.',
         },
     ],
 };
