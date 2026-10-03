@@ -26,9 +26,21 @@ use Tests\TestCase;
  *    `database` — printing nothing about a stack whose claim it had just proved
  *    is process-local.
  *  - L1: `e2e-up.sh` had grown its own `last_env_value` with the same shape, so
- *    `QUEUE_CONNECTION="sync"` — the form the CI E2E job itself writes — was read
- *    as a value that is not `sync`, and the note told the reader to start a
- *    worker for a stack that delivers inline.
+ *    `export QUEUE_CONNECTION=sync` and `  QUEUE_CONNECTION=sync` were read as a
+ *    value that is not `sync`, and the note told the reader to start a worker
+ *    for a stack that delivers inline. A quoted `QUEUE_CONNECTION="sync"` in a
+ *    developer's own `.env` failed the same way.
+ *
+ *    An earlier version of this paragraph called the quoted form "the form the
+ *    CI E2E job itself writes". That was false (Befund B3): the job writes and
+ *    re-checks the UNQUOTED `QUEUE_CONNECTION=sync`
+ *    (`.github/workflows/ci.yml:522` sed, `:529` `grep -q '^QUEUE_CONNECTION=sync$'`),
+ *    which the old `grep -E '^QUEUE_CONNECTION='` reader answered correctly. No
+ *    committed `.env`, compose file or CI step in this repo assigns either key in
+ *    the quoted form; it is a form a developer's own `.env` can carry, and it
+ *    lives in the differential bodies below.
+ *    `test_the_ci_job_writes_the_unquoted_form_this_note_names()` keeps the two
+ *    apart, so the sentence cannot quietly become wrong again.
  *
  * A note that answers wrongly is worse than no note: it is confident, and it
  * sends the reader down the wrong branch. So the reader is pinned.
@@ -47,10 +59,13 @@ use Tests\TestCase;
  * reader would still pass. The pin has to be able to go red, so the grammar is
  * reimplemented in the shell and the two implementations meet here.
  *
- * `test_the_reader_can_go_red()` proves the pin has teeth: it feeds the reader a
- * body phpdotenv parses differently and requires the test's own comparison to
- * notice. Without it, a comparison that silently compared nothing would look
- * exactly like a comparison that passed.
+ * `test_the_reader_can_go_red()` proves the pin is SENSITIVE to its input: it
+ * drives both sides of the differential — `Dotenv::parse()` and the extracted
+ * shell function — a second time with a body whose answer differs, and requires
+ * the oracle to tell the two bodies apart. Without it, a comparison that read
+ * nothing from the `.env` at all would look exactly like a comparison that
+ * passed. (It used to compare two string literals, which cannot fail and proved
+ * nothing — Befund B8.)
  *
  * ## The reader under test is the SHARED one
  *
@@ -60,16 +75,24 @@ use Tests\TestCase;
  * regains a private reader, this fails even though every parsing assertion below
  * would still pass.
  *
- * ## Scope: what the reader deliberately does not implement
+ * ## Scope: SEVEN measured divergence classes, not one
  *
- * phpdotenv has features this reader ignores — multiline values continued over
- * following lines (`Lines::looksLikeMultilineStart`) and `$VAR` interpolation
- * (`RepositoryBuilder`). A randomized differential over 8000 bodies (measured
- * 2026-10-03) found exactly ONE input where the two disagree:
- * `K=";\t`, an unbalanced quote that phpdotenv treats as an unterminated
- * multiline and therefore never emits. Neither feature can occur for a key whose
- * value is a connection name, which is the only thing these two scripts ask for.
- * That boundary is asserted as a measurement, not asserted away.
+ * This file once claimed the reader differed from phpdotenv in exactly ONE
+ * input. An independent fuzz — 6000 bodies, a different seed AND a different
+ * alphabet — found five more classes, and a targeted probe a sixth (Befund B1).
+ * The claim is replaced by the list in the header of
+ * `scripts/lib/dotenv-value.sh`, and `test_the_documented_divergence_classes()`
+ * pins every class in BOTH directions: the reader still diverges, phpdotenv
+ * still says what it said, and the header still NAMES the class. A difference
+ * outside the list is a bug in the reader, not a documented boundary.
+ *
+ * Reachability is stated where it belongs — per class, per key, and measured
+ * rather than assumed. For the two keys these scripts ask for
+ * (`QUEUE_CONNECTION`, `CACHE_STORE`) exactly one class is reachable by a legal
+ * `backend/.env`: the `${VAR}` interpolation, class V. The rest need a byte a
+ * connection name does not contain. That is a statement about THESE TWO KEYS and
+ * not a property of the reader, which is why it is written as a per-class
+ * `reachable` note and not as a general assertion.
  */
 class DotenvReaderMatchesPhpDotenvTest extends TestCase
 {
@@ -211,15 +234,22 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     /* ------------------------------------------------------------------ */
 
     /**
-     * A negative control: a body the reader gets WRONG must be reported.
+     * A negative control: the comparison must be SENSITIVE to its input.
      *
      * Without this, a comparison that compared nothing — a `parse()` that
      * returned an empty array because the key never matched, say — would look
      * identical to a comparison that passed, and the whole file would be a
      * green assertion about nothing.
      *
-     * The counter-probe is the mirror image: for the bodies above, the reader
-     * and phpdotenv DO agree, so the same comparison distinguishes the two.
+     * The control used to be `assertNotSame('sync', '"sync"')`, i.e. a comparison
+     * of two literals. It could not fail: those two strings do not depend on
+     * anything this test does. Comparing literals proves that PHP's `!==`
+     * operator works (Befund B8). What is actually in doubt is whether the two
+     * SIDES of the differential — `Dotenv::parse()` and the extracted shell
+     * function — answer from the `.env` body at all, so the control drives
+     * both sides a SECOND time with a body whose answer differs, and requires
+     * the oracle to tell the two bodies apart. If either side ignored its
+     * input, this fails while the differential above would still be green.
      */
     public function test_the_reader_can_go_red(): void
     {
@@ -243,14 +273,22 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             .'which is the behaviour this test exists to prove the comparison can detect.',
         );
 
-        // The control that makes the first assertion meaningful: hand the
-        // comparison a deliberately wrong reader result and require the same
-        // `assertSame` to reject it. Without this, "both returned `sync`" could
-        // also be explained by a comparison that never ran.
+        // The second body, driven through the SAME two sides.
+        $other = "QUEUE_CONNECTION=database\n";
+
         $this->assertNotSame(
-            'sync',
-            '"sync"',
-            'PREMISE: the quoted and unquoted readings must differ, or the comparison above cannot distinguish them.',
+            Dotenv::parse($body)['QUEUE_CONNECTION'] ?? '',
+            Dotenv::parse($other)['QUEUE_CONNECTION'] ?? '',
+            'PREMISE: the two bodies must read differently. If the oracle cannot tell them apart, "both '
+            .'returned `sync`" above says nothing about whether it read this body at all.',
+        );
+
+        $this->assertSame(
+            Dotenv::parse($other)['QUEUE_CONNECTION'] ?? '',
+            $this->readWithShellReader($other, 'QUEUE_CONNECTION'),
+            'PREMISE: the shell reader must read the second body the same way the oracle does. A reader '
+            .'that answered one fixed value would pass the differential above on some forms and fail on '
+            .'all the rest; this is the assertion that notices before the 50 do.',
         );
     }
 
@@ -259,30 +297,79 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     /* ------------------------------------------------------------------ */
 
     /**
-     * Both scripts must SOURCE the shared reader, and neither may define its own.
+     * Both scripts must SOURCE the shared reader, UNCOMMENTED and BEFORE they
+     * first use it — and neither may define its own.
      *
      * The parsing assertions above pass either way — a script that grew a private
      * reader would still be tested through the shared one. L1 exists precisely
      * because two copies drifted, so the copy itself has to be the failure.
+     *
+     * The order is part of that, and a substring scan cannot hold it (Befund B2):
+     * commenting the source line out leaves the substring in the file, and
+     * moving the source below the first call leaves it in the file too. Both
+     * mutations are green under a `assertStringContainsString` guard and both
+     * are broken at runtime — the first dies on `command not found` (exit 127
+     * under `set -euo pipefail`), the second calls a function that does not
+     * exist yet. So the guard works on the COMMENT-STRIPPED lines and compares
+     * two line numbers: the source line must be there at all, and it must come
+     * before the first `dotenv_value` reference.
      */
     public function test_both_scripts_source_the_one_reader(): void
     {
         foreach (['scripts/e2e-up.sh', 'scripts/dev-worker.sh'] as $script) {
             $source = $this->repositoryFile($script);
 
-            $this->assertStringContainsString(
-                '. "$ROOT_DIR/'.self::READER.'"',
-                $source,
-                "{$script} must source the shared reader. Two copies of this rule drifted apart once already "
-                .'(L1): e2e-up.sh read QUEUE_CONNECTION="sync" as a connection that is not `sync`, and told the '
-                .'reader to start a worker for a stack that delivers inline.',
+            // Comments are stripped FIRST, and that is the point, not a
+            // convenience: both scripts DISCUSS `grep -E '^CACHE_STORE='` in
+            // prose (they name the defect they fixed), and both name the reader
+            // in prose too. What must survive is CODE — and a commented-out
+            // source line is prose as far as this guard is concerned, which is
+            // precisely the mutation B2 used to get a green test.
+            $code = $this->strippedOfShellComments($source);
+
+            $sourceLine = null;
+            $firstUseLine = null;
+
+            foreach (explode("\n", $code) as $index => $line) {
+                // `. "$ROOT_DIR/scripts/lib/dotenv-value.sh"` as CODE: nothing
+                // may precede it on the line (no `#`, no `;`), and nothing may
+                // follow it. The reader path uses a hyphen, so this cannot match
+                // a line that merely MENTIONS the function.
+                if ($sourceLine === null && preg_match(
+                    '/^\s*\.\s+"\$ROOT_DIR\/'.preg_quote(self::READER, '/').'"\s*$/',
+                    $line,
+                ) === 1) {
+                    $sourceLine = $index + 1;
+                }
+
+                if ($firstUseLine === null && preg_match('/\bdotenv_value\b/', $line) === 1) {
+                    $firstUseLine = $index + 1;
+                }
+            }
+
+            $this->assertNotNull(
+                $sourceLine,
+                "{$script} must SOURCE the shared reader as an UNCOMMENTED line reading exactly "
+                .'`. "$ROOT_DIR/'.self::READER.'"`. Two copies of this rule drifted apart once already '
+                .'(L1): e2e-up.sh read `export QUEUE_CONNECTION=sync` as a connection that is not `sync`, '
+                .'and told the reader to start a worker for a stack that delivers inline. A source line '
+                .'behind a `#` satisfies a substring scan and then dies at runtime with '
+                .'`dotenv_value: command not found` (exit 127).',
             );
 
-            // Strip comments first: both scripts DISCUSS `grep -E '^CACHE_STORE='` in
-            // prose (they name the defect they fixed), and a scan that matched
-            // the documentation would forbid the explanation. What must not
-            // survive is a line of CODE that reads a key that way.
-            $code = $this->strippedOfShellComments($source);
+            $this->assertNotNull(
+                $firstUseLine,
+                "{$script} must CALL dotenv_value — otherwise this file's parsing assertions test a "
+                .'function no script ever reaches.',
+            );
+
+            $this->assertLessThan(
+                $firstUseLine,
+                $sourceLine,
+                "{$script} uses dotenv_value on line {$firstUseLine} but sources it only on line "
+                ."{$sourceLine}. Under `set -euo pipefail` that is `dotenv_value: command not found` — "
+                .'exit 127, and the note this script exists to print never gets printed.',
+            );
 
             $this->assertDoesNotMatchRegularExpression(
                 '/^\s*(?:function\s+)?(?:last_env_value|dotenv_value)\s*\(\s*\)/m',
@@ -299,6 +386,69 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'the one that stayed silent on the mismatch it exists to announce.',
             );
         }
+    }
+
+    /**
+     * The CI E2E job writes the UNQUOTED `QUEUE_CONNECTION=sync`, and it says so
+     * twice — once by writing it, once by asserting what it wrote.
+     *
+     * Befund B3: the note in `scripts/e2e-up.sh` and this class' docblock both
+     * claimed the job writes `QUEUE_CONNECTION="sync"`. It does not, the quoted
+     * form is written nowhere in this repo, and — the part that matters — the old
+     * `grep -E '^QUEUE_CONNECTION='` reader answered the job's actual form
+     * CORRECTLY. Naming the quoted form as the CI one therefore credited L1 with
+     * a failure it did not have and hid which forms really failed (`export`,
+     * indentation, quotes, inline comment).
+     *
+     * So both halves are pinned from the file itself: the job's own line must
+     * still be there, and the note must not claim the quoted form as CI's.
+     */
+    public function test_the_ci_job_writes_the_unquoted_form_this_note_names(): void
+    {
+        $ci = $this->repositoryFile('.github/workflows/ci.yml');
+
+        $this->assertMatchesRegularExpression(
+            "/^\s*-e 's\|\^QUEUE_CONNECTION=\.\*\|QUEUE_CONNECTION=sync\|'/m",
+            $ci,
+            'PREMISE: the CI E2E job must pin the queue connection by rewriting the key to the '
+            .'UNQUOTED `QUEUE_CONNECTION=sync`. If it stops doing so, the form this note has to read '
+            .'changes with it and the differential test\'s premise about the job\'s own line is stale.',
+        );
+
+        $this->assertStringContainsString(
+            "grep -q '^QUEUE_CONNECTION=sync\$' .env",
+            $ci,
+            'PREMISE: the job must also RE-CHECK what it wrote, in the same unquoted spelling — a job '
+            .'that asserted the quoted form would prove a different claim than the one it writes.',
+        );
+
+        $note = $this->repositoryFile('scripts/e2e-up.sh');
+
+        // The precise shape of the false claim: a line that puts the QUOTED form
+        // and the CI job in the same sentence. Checked per line rather than as a
+        // fixed phrase, because the note has to be free to DISCUSS the quoted form
+        // — it is a legal local `.env` case and it sits in the differential bodies.
+        // What it may not do is hand that form to the CI job.
+        foreach (explode("\n", $note) as $number => $line) {
+            if (! str_contains($line, 'CI E2E job')) {
+                continue;
+            }
+
+            $this->assertStringNotContainsString(
+                'QUEUE_CONNECTION="',
+                $line,
+                'scripts/e2e-up.sh:'.($number + 1).' hands the QUOTED `QUEUE_CONNECTION="…"` to the CI E2E '
+                .'job. The job writes and re-checks the unquoted form (asserted above), so this sentence is '
+                .'false — and it was false in exactly this shape (Befund B3).',
+            );
+        }
+
+        $this->assertStringContainsString(
+            'QUEUE_CONNECTION=sync in backend/.env like the CI E2E job',
+            $note,
+            'The note\'s own instruction must name the CI job\'s actual spelling, `QUEUE_CONNECTION=sync`, so '
+            .'the sentence a reader acts on is the one this test verified.',
+        );
     }
 
     /**
@@ -348,48 +498,467 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ */
-    /* The documented boundary */
+    /* The documented boundary: seven classes, each pinned in both directions */
     /* ------------------------------------------------------------------ */
 
     /**
-     * The one measured disagreement is the multiline feature, and it is named.
+     * Every class in which this reader is KNOWN to differ from phpdotenv.
      *
-     * A randomized differential over 8000 bodies (measured 2026-10-03) found
-     * exactly one input where the reader and phpdotenv part ways: an unbalanced
-     * `="` that `Lines::looksLikeMultilineStart()` swallows as an unterminated
-     * multiline value, so phpdotenv never emits the key at all.
+     * Befund B1: this file used to name ONE class (the multiline case) and call
+     * the boundary "exactly one difference". An independent fuzz over 6000
+     * bodies with a different seed AND a different alphabet found five more
+     * classes; a targeted probe a sixth. The list below replaces the claim
+     * rather than narrowing it, and every entry is measured on both sides:
      *
-     * This test pins that boundary in BOTH directions — the divergence is real
-     * and reproduced here, and the reader's own documentation names it. If either
-     * side is renamed or the behaviour changes, one of these fails, so the
-     * measurement in the docblock cannot quietly become a lie.
+     *  - `$oracle` is what `Dotenv\Dotenv::parse()` answers (or, for M, that it
+     *    emits nothing at all). These values were measured, not read off the
+     *    vendor source; they are the pin.
+     *  - `$reader` is what `scripts/lib/dotenv-value.sh` answers for the same
+     *    body, read exactly as the scripts read it — through command
+     *    substitution, which is why class A exists at all.
+     *  - `$label` must still occur in the reader's header. A class that is
+     *    measured but unnamed is a hidden boundary, and the header is where the
+     *    reader of the script learns where not to trust it.
+     *  - `$mechanism` names the phpdotenv code that produces the oracle's
+     *    answer, so "this is the multiline feature" is checked, not asserted.
+     *
+     * The last element of each entry is that class's REACHABILITY statement for
+     * the two keys these scripts ask for. It lives here, per class, because
+     * reachability is a property of the class — not of the reader.
+     *
+     * @return array<string, array{0: string, 1: string, 2: string, 3: string, 4: string|null, 5: string}>
      */
-    public function test_the_only_measured_divergence_is_the_documented_multiline_case(): void
+    public static function divergenceClasses(): array
     {
-        $body = "QUEUE_CONNECTION=\";\t\n";
+        return [
+            'M — a multiline value swallows the file' => [
+                "QUEUE_CONNECTION=\";\t\n",
+                '',
+                ';',
+                'M — MULTILINE',
+                'multiline',
+                'UNREACHABLE for both keys: a value that opens a multiline cannot be a connection name. '
+                .'Note the reader returns `;` and NOT `;` + a tab — the tab is trimmed off with the rest '
+                .'of the value before it is parsed. An earlier version of this file and of the header '
+                .'recorded `;` + a tab, and that was wrong (Befund B7).',
+            ],
+            'A — a value whose last byte is a newline' => [
+                "QUEUE_CONNECTION=\"sync\\n\"\n",
+                "sync\n",
+                'sync',
+                'A — A VALUE WHOSE LAST BYTE IS A NEWLINE',
+                null,
+                'UNREACHABLE for both keys: no connection name ends in a newline. This class is not a bug '
+                .'in dotenv_value — it is what command substitution does to its output, and BOTH callers '
+                .'use it that way. An interior newline agrees (`K="a\nb"`), so the class is specifically '
+                .'the last byte.',
+            ],
+            'E — a quote byte inside an unquoted value' => [
+                "QUEUE_CONNECTION=x\"y\n",
+                'x"y',
+                'xy',
+                'E — A QUOTE BYTE INSIDE AN UNQUOTED VALUE',
+                null,
+                'UNREACHABLE for both keys: a connection name contains no quote byte. Mind the direction — '
+                .'for CACHE_STORE the reader\'s answer is the one a human wants (`<FF>array` → `array`), '
+                .'so this class is not uniformly "the reader is wrong".',
+            ],
+            'V — ${VAR} interpolation' => [
+                "FOO=sync\nQUEUE_CONNECTION=\${FOO}\n",
+                'sync',
+                '${FOO}',
+                'V — `${VAR}` INTERPOLATION',
+                null,
+                'REACHABLE for both keys, and the only reachable class. `.env` is legal phpdotenv input, so '
+                .'`QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set earlier in the same file is legal, '
+                .'Laravel resolves it and this reader does not — the note then names a connection the app '
+                .'never resolves. Pinned rather than implemented; the header says why.',
+            ],
+            'B — a lone CR is a line separator to phpdotenv' => [
+                "QUEUE_CONNECTION=sync\rV\n",
+                'sync',
+                "sync\rV",
+                'B — A LONE `\r` IS A LINE SEPARATOR',
+                null,
+                'UNREACHABLE for both keys: an ordinary CRLF file is fine (every CR precedes an LF and '
+                .'lands at end of line, where the reader strips it), and the CI job rewrites the line '
+                .'with `sed -i`, which keeps no CR.',
+            ],
+            'C — a control whitespace byte (form feed, vertical tab)' => [
+                "QUEUE_CONNECTION=\ffoo\n",
+                "\ffoo",
+                'foo',
+                'C — CONTROL WHITESPACE',
+                null,
+                'UNREACHABLE for both keys: no connection name carries a form feed or a vertical tab. '
+                .'phpdotenv trims ` \\n\\r\\t\\0\\x0B` — not `\\f` — and its value lexer treats any '
+                .'`ctype_space()` byte as the whitespace that may precede an inline `#`.',
+            ],
+            'N — a NUL byte' => [
+                "QUEUE_CONNECTION=sy\0nc\n",
+                "sy\0nc",
+                'sync',
+                'N — A NUL BYTE',
+                null,
+                'UNREACHABLE for both keys: a bash variable cannot hold a NUL at all, so `read` DROPS the '
+                .'byte and carries on — this class is structural, not a parsing choice.',
+            ],
+        ];
+    }
+
+    #[DataProvider('divergenceClasses')]
+    public function test_the_documented_divergence_classes_are_documented(
+        string $body,
+        string $oracle,
+        string $reader,
+        string $label,
+        ?string $mechanism,
+        string $reachability,
+    ): void {
+        $key = 'QUEUE_CONNECTION';
+
+        // Side one: phpdotenv. For M the answer is ABSENCE, which `?? ''` cannot
+        // express, so the whole array is asserted for that one case.
+        if ($mechanism === 'multiline') {
+            $this->assertSame(
+                [],
+                Dotenv::parse($body),
+                'PREMISE: phpdotenv must treat this unbalanced quote as an unterminated multiline and emit '
+                .'nothing at all — that absence is what makes it class M.',
+            );
+
+            $m = new \ReflectionMethod(Lines::class, 'looksLikeMultilineStart');
+            $m->setAccessible(true);
+            $this->assertTrue(
+                $m->invoke(null, rtrim($body, "\n")),
+                'PREMISE: the divergence must be the multiline feature, not an unaccounted-for difference.',
+            );
+        } else {
+            $this->assertSame(
+                $oracle,
+                Dotenv::parse($body)[$key] ?? '',
+                "PREMISE: phpdotenv's answer for this body is what the header records for class {$label}. "
+                .'If phpdotenv changed, the class is stale and the header must change with it.',
+            );
+        }
+
+        // Side two: the reader, read the way the scripts read it.
+        $this->assertSame(
+            $reader,
+            $this->readWithShellReader($body, $key),
+            "The reader's answer for class {$label} is what the header records. If the reader changed, "
+            .'this divergence is gone or has become another one — either way the header is now wrong.',
+        );
+
+        // The class must still BE a divergence, or it is not a class.
+        $this->assertNotSame(
+            $oracle,
+            $reader,
+            "Class {$label} no longer differs. A documented boundary that stopped existing has to be "
+            .'removed from the header, not left standing — that is how a boundary becomes a lie.',
+        );
+
+        // And it must still be NAMED. Measured but unnamed is a hidden boundary.
+        $this->assertStringContainsString(
+            $label,
+            $this->repositoryFile(self::READER),
+            "Class {$label} is still a divergence, but its label is gone from the reader's header. "
+            .'Undocumented differences are worse than documented ones: whoever reads the script has no '
+            .'way to learn where not to trust it.',
+        );
+
+        // And it must carry an explicit reachability verdict for these two keys.
+        $this->assertMatchesRegularExpression(
+            '/^(REACHABLE|UNREACHABLE) for both keys/',
+            $reachability,
+            "Class {$label} has no reachability statement for the two keys these scripts read. Silence "
+            .'about reachability is what made the old "exactly one difference" claim sound safer than it was.',
+        );
+    }
+
+    /**
+     * REACHABILITY, measured over the forms this repo actually writes.
+     *
+     * The header says class V — and only class V — can be reached for
+     * `QUEUE_CONNECTION`/`CACHE_STORE`. A claim is only as good as its evidence,
+     * so here it is checked against the WRITERS: every committed `.env`-format
+     * line that assigns either key, plus the values the CI job's `sed -i`
+     * writes, is fed to both sides and must come out identical. If somebody
+     * writes `QUEUE_CONNECTION=${QUEUE_CONNECTION:-sync}` into `.env.example`,
+     * or into a `sed` replacement in the E2E job, this goes red on the spot —
+     * and that is exactly the day the note starts lying.
+     *
+     * `backend/.env` is deliberately NOT scanned: it is gitignored and differs
+     * per machine, so asserting on it would make the suite's result depend on
+     * whose checkout runs it. The committed writers are what decide what
+     * everybody else gets.
+     */
+    public function test_the_forms_this_repo_writes_for_those_two_keys_are_not_divergent(): void
+    {
+        $assignments = [];
+
+        foreach (['backend/.env.example', 'deployment/dev.env'] as $writer) {
+            if (! file_exists($this->repositoryPathOf($writer))) {
+                continue;
+            }
+
+            foreach (file($this->repositoryPathOf($writer), FILE_IGNORE_NEW_LINES) ?: [] as $number => $line) {
+                if (preg_match('/^\s*(?:export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*=(.*)$/', $line, $m) !== 1) {
+                    continue;
+                }
+
+                $assignments[] = [
+                    "{$writer}:".($number + 1),
+                    $m[1],
+                    rtrim($line)."\n",
+                ];
+            }
+        }
+
+        // The E2E job's own writer is a `sed -i` replacement, not a line in a file.
+        preg_match_all(
+            "/^\s*-e 's\|\^[A-Z_]+=\.\*\|([A-Z_]+)=([^|']*)\|'/m",
+            $this->repositoryFile('.github/workflows/ci.yml'),
+            $sed,
+            PREG_SET_ORDER,
+        );
+
+        foreach ($sed as $replacement) {
+            if (! in_array($replacement[1], ['QUEUE_CONNECTION', 'CACHE_STORE'], true)) {
+                continue;
+            }
+
+            $assignments[] = [
+                '.github/workflows/ci.yml (sed replacement)',
+                $replacement[1],
+                $replacement[1].'='.$replacement[2]."\n",
+            ];
+        }
+
+        $this->assertEqualsCanonicalizing(
+            ['CACHE_STORE', 'QUEUE_CONNECTION'],
+            array_values(array_unique(array_column($assignments, 1))),
+            'PREMISE: this test must find the committed writers of BOTH keys. If it finds none, or only one '
+            .'of them, the reachability claim it measures would rest on nothing — the failure mode of a '
+            .'guard that passes because its search came up empty.',
+        );
+
+        foreach ($assignments as [$origin, $key, $body]) {
+            $this->assertSame(
+                Dotenv::parse($body)[$key] ?? '',
+                $this->readWithShellReader($body, $key),
+                "{$origin} writes a line for {$key} that the reader reads differently from phpdotenv. That "
+                .'is one of the documented divergence classes reaching a key these two scripts read, which '
+                .'the header says cannot happen — so either the writer changes or the header does.',
+            );
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* The 16 scenarios the note has to get right */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * The note in `scripts/e2e-up.sh` is a BRANCH, not a value: it either tells
+     * the reader that no worker is needed or that one is. That branch was
+     * described by numbers in commit messages ("11 of 16 scenarios wrong",
+     * "16/16 in the right branch, before 5/16") that nobody could reproduce —
+     * the scenarios were never in the repo (Befund B9). They are here.
+     *
+     * What this matrix asserts is the thing a reader of the script actually
+     * does: it runs the REAL block from `scripts/e2e-up.sh` — extracted from
+     * the file, not retyped — in a temporary directory, with a controlled
+     * environment and a controlled `.env`, and then reads the NOTE it printed.
+     * Both the named connection and the branch are taken out of that text, so a
+     * test cannot pass while the note says the wrong thing.
+     *
+     * The truth for each scenario is not a constant: it is `environment` first,
+     * then `Dotenv::parse()` on the `.env` body, then `config/queue.php`'s
+     * default — read from that config, so this test cannot drift from the
+     * fallback the script actually uses.
+     *
+     * @return array<string, array{0: ?string, 1: ?string, 2: string}>
+     */
+    public static function queueNoteScenarios(): array
+    {
+        return [
+            'environment wins over .env' => ['sync', "QUEUE_CONNECTION=database\n", 'sync'],
+            'environment wins, no .env at all' => ['sync', null, 'sync'],
+            'environment is not sync, .env says sync' => ['redis', "QUEUE_CONNECTION=sync\n", 'redis'],
+            '.env plain — the form the CI job writes' => [null, "QUEUE_CONNECTION=sync\n", 'sync'],
+            '.env plain, not sync' => [null, "QUEUE_CONNECTION=database\n", 'database'],
+            '.env with an export prefix' => [null, "export QUEUE_CONNECTION=sync\n", 'sync'],
+            '.env indented with spaces' => [null, "  QUEUE_CONNECTION=sync\n", 'sync'],
+            '.env double quoted' => [null, "QUEUE_CONNECTION=\"sync\"\n", 'sync'],
+            '.env single quoted' => [null, "QUEUE_CONNECTION='sync'\n", 'sync'],
+            '.env quoted with an inline comment' => [null, "QUEUE_CONNECTION=\"sync\" # CI\n", 'sync'],
+            '.env unquoted with an inline comment' => [null, "QUEUE_CONNECTION=sync # inline delivery\n", 'sync'],
+            '.env duplicated, sync last' => [
+                null,
+                "QUEUE_CONNECTION=database\nQUEUE_CONNECTION=sync\n",
+                'sync',
+            ],
+            '.env duplicated, database last' => [
+                null,
+                "QUEUE_CONNECTION=sync\nQUEUE_CONNECTION=database\n",
+                'database',
+            ],
+            '.env has the key, but empty' => [null, "QUEUE_CONNECTION=\n", ''],
+            '.env has no such key' => [null, "APP_ENV=local\n", ''],
+            'no .env file at all' => [null, null, ''],
+        ];
+    }
+
+    #[DataProvider('queueNoteScenarios')]
+    public function test_the_queue_note_takes_the_right_branch(?string $environment, ?string $envBody, string $inEnv): void
+    {
+        $key = 'QUEUE_CONNECTION';
+
+        // The truth: environment first, then phpdotenv on the `.env`, then the
+        // framework default read out of config/queue.php.
+        $configDefault = $this->queueConnectionConfigDefault();
+
+        $fromEnvFile = '';
+        if ($envBody !== null) {
+            try {
+                $fromEnvFile = Dotenv::parse($envBody)[$key] ?? '';
+            } catch (\Throwable $e) {
+                $this->fail("PREMISE: scenario .env body must be one phpdotenv ACCEPTS, or it proves nothing: {$e->getMessage()}");
+            }
+        }
+
+        $expected = ($environment !== null && $environment !== '')
+            ? $environment
+            : ($fromEnvFile !== '' ? $fromEnvFile : $configDefault);
+
+        $note = $this->runQueueNoteBlock($environment, $envBody);
+
+        $printed = preg_match("/resolves to\n\s+'([^']*)'/", $note, $m) === 1 ? $m[1] : null;
+        $this->assertNotNull(
+            $printed,
+            "PREMISE: the note must name the connection it resolved.\n--- note as printed ---\n{$note}",
+        );
+        $this->assertSame(
+            $expected,
+            $printed,
+            "The note names `{$printed}` where the app resolves `{$expected}`.\n--- note as printed ---\n{$note}",
+        );
+
+        // The branch, read out of the note rather than recomputed from the value.
+        $takesSyncBranch = str_contains($note, "With 'sync' the mail is delivered inline");
+        $takesWorkerBranch = str_contains($note, "With a connection other than 'sync'");
 
         $this->assertSame(
-            [],
-            Dotenv::parse($body),
-            'PREMISE: phpdotenv must treat this unbalanced quote as an unterminated multiline and emit '
-            .'nothing — that is what makes it the documented divergence.',
+            $expected === 'sync',
+            $takesSyncBranch,
+            "The note takes the WRONG branch for a resolved connection of `{$expected}`.\n"
+            ."--- note as printed ---\n{$note}",
+        );
+        $this->assertSame(
+            $expected !== 'sync',
+            $takesWorkerBranch,
+            "The note must print exactly one of its two branches.\n--- note as printed ---\n{$note}",
+        );
+    }
+
+    /**
+     * `config/queue.php`'s literal default for QUEUE_CONNECTION.
+     *
+     * Read from the config rather than restated here, for the reason the L2 fix
+     * gives: a test that repeats the value it is about cannot notice when the
+     * config changes.
+     */
+    private function queueConnectionConfigDefault(): string
+    {
+        $config = $this->repositoryFile('backend/config/queue.php');
+
+        $this->assertSame(
+            1,
+            preg_match("/env\(\s*'QUEUE_CONNECTION'\s*,\s*'([^']+)'\s*\)/", $config, $matches),
+            'PREMISE: config/queue.php must read QUEUE_CONNECTION with a literal default — that value is the '
+            .'third resolution stage of the 16 scenarios, and the note falls back to it.',
         );
 
-        $m = new \ReflectionMethod(Lines::class, 'looksLikeMultilineStart');
-        $m->setAccessible(true);
-        $this->assertTrue(
-            $m->invoke(null, rtrim($body, "\n")),
-            'PREMISE: the divergence must be the multiline feature, not an unaccounted-for difference.',
-        );
+        return $matches[1];
+    }
 
-        // The reader's answer for the same body, and the reason the difference is
-        // safe: a value that cannot be a connection name.
-        $this->assertNotSame(
-            Dotenv::parse($body)['QUEUE_CONNECTION'] ?? '',
-            $this->readWithShellReader($body, 'QUEUE_CONNECTION'),
-            'The reader and phpdotenv are EXPECTED to differ here. If they no longer do, the divergence '
-            .'recorded in the docblock and in this class is stale and must be updated, not left standing.',
-        );
+    /**
+     * Run the note's real block from `scripts/e2e-up.sh` and return what it printed.
+     *
+     * The block is EXTRACTED from the script (first line matching
+     * `^QUEUE_CONNECTION_EFFECTIVE=` through the matching `^fi`), never retyped:
+     * a copy in this test would be a second description of the note, and the
+     * note is the thing under test. The reader is sourced before the block
+     * exactly as `scripts/e2e-up.sh` sources it — and that order is itself
+     * pinned, by `test_both_scripts_source_the_one_reader()`.
+     *
+     * The environment is genuinely EMPTY apart from PATH, HOME and whatever the
+     * scenario sets (`env -i`), so an ambient `QUEUE_CONNECTION` — and this
+     * suite's own `phpunit.xml` sets one — cannot decide a scenario.
+     */
+    private function runQueueNoteBlock(?string $environment, ?string $envBody): string
+    {
+        $script = $this->repositoryPathOf('scripts/e2e-up.sh');
+
+        $start = $this->lineMatching($script, '/^QUEUE_CONNECTION_EFFECTIVE=/m');
+        $end = $this->lineMatching($script, '/^fi$/m', $start);
+        $this->assertNotNull($start, "PREMISE: {$script} must resolve QUEUE_CONNECTION_EFFECTIVE.");
+        $this->assertNotNull($end, 'PREMISE: the note block must be closed by a line `fi`.');
+
+        $block = implode("\n", $this->lines($script, $start, $end));
+
+        // The reader first, then the block: the same order the script uses.
+        $source = 'set -euo pipefail; source "$1"; '.$block;
+
+        $work = sys_get_temp_dir().'/queue-note-'.bin2hex(random_bytes(6));
+        $this->assertTrue(mkdir($work, 0777, true), "PREMISE: a working directory {$work} must be creatable.");
+
+        try {
+            if ($envBody !== null) {
+                file_put_contents($work.'/.env', $envBody);
+            }
+
+            // `env -i` is not fussiness: `phpunit.xml` pins `QUEUE_CONNECTION=sync`
+            // for the backend suite, and Symfony's Process MERGES the env it is
+            // given over the inherited one (`Process.php:333`,
+            // `$env += $this->getDefaultEnv()`), so a scenario cannot un-set it.
+            // With the inherited value in place six of the sixteen scenarios
+            // answered from the test runner instead of from their `.env` — and the
+            // first version of this test reported that as 10 of 16 wrong.
+            $command = ['/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'HOME='.$work];
+
+            if ($environment !== null) {
+                $command[] = 'QUEUE_CONNECTION='.$environment;
+            }
+
+            array_push($command, '/bin/bash', '-c', $source, 'queue-note', $this->repositoryPathOf(self::READER));
+
+            $process = new Process($command, $work);
+            $process->setTimeout(20);
+
+            try {
+                $process->run();
+            } finally {
+                $process->stop(1);
+            }
+
+            $this->assertTrue(
+                $process->isSuccessful(),
+                "Running the note block failed (exit {$process->getExitCode()}):\n".$process->getErrorOutput(),
+            );
+
+            return $process->getOutput();
+        } finally {
+            // Nothing survives a scenario: the harness owns the directory it made.
+            // `scandir`, not `glob` — `glob` skips dotfiles, and the `.env` this
+            // test just wrote is exactly one.
+            foreach (scandir($work) ?: [] as $entry) {
+                if ($entry !== '.' && $entry !== '..') {
+                    @unlink($work.'/'.$entry);
+                }
+            }
+            @rmdir($work);
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -399,10 +968,13 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     /**
      * Run `dotenv_value` from the real script file and return what it printed.
      *
-     * The function is EXTRACTED from `scripts/lib/dotenv-value.sh` with `sed`
-     * rather than retyped here, so the test cannot drift away from the file the
-     * scripts actually source — a copy in this test would be a third copy, and
-     * the third thing that can be wrong.
+     * The function is EXTRACTED from `scripts/lib/dotenv-value.sh` — read with
+     * `file()`, located with `lineMatching()`, cut with `array_slice()` — rather
+     * than retyped here, so the test cannot drift away from the file the scripts
+     * actually source: a copy in this test would be a third copy, and the third
+     * thing that can be wrong. (An earlier version of this docblock said the
+     * extraction used `sed`; it does not, and it never did — only the
+     * DESCRIPTION was wrong, not the code (Befund B4).)
      */
     private function readWithShellReader(string $body, string $key): string
     {

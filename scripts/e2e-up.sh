@@ -211,11 +211,17 @@ echo ""
 #
 # `dotenv_value` (sourced near the top of this file) is SHARED with
 # dev-worker.sh. This note used to have its own `last_env_value`, a `grep -E
-# "^KEY="` — the blindness F5 had just fixed next door. Measured: it read
-# `export QUEUE_CONNECTION=sync`, `  QUEUE_CONNECTION=sync` and
-# `QUEUE_CONNECTION="sync"` — the form the CI E2E job itself writes — as NOT
-# sync, i.e. it told the reader to start a worker for a stack that delivers
-# inline. One rule, one file, one differential test.
+# "^KEY="` — the blindness F5 had just fixed next door. MEASURED, and read
+# precisely this time: it read `export QUEUE_CONNECTION=sync` and
+# `  QUEUE_CONNECTION=sync` as NOT sync, i.e. it told the reader to start a
+# worker for a stack that delivers inline. It ALSO read a local
+# `QUEUE_CONNECTION="sync"` — quotes, and an inline comment after them — as NOT
+# sync. What it did NOT fail on is the form the CI E2E job writes: that job
+# writes and re-checks the UNQUOTED `QUEUE_CONNECTION=sync`
+# (`.github/workflows/ci.yml:522` sed, `:529` `grep -q '^QUEUE_CONNECTION=sync$'`),
+# which `grep -E "^QUEUE_CONNECTION="` reads correctly. The quoted form is
+# written nowhere in this repo; it was a form a developer's own `backend/.env`
+# could carry. One rule, one file, one differential test.
 QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION:-$(dotenv_value .env QUEUE_CONNECTION)}"
 [ -n "$QUEUE_CONNECTION_EFFECTIVE" ] || QUEUE_CONNECTION_EFFECTIVE="database"
 

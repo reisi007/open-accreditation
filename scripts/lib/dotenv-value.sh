@@ -10,11 +10,13 @@
 # inherited the same blindness plus two more (L1). Two copies of a rule are
 # two rules that drift — so the rule lives here once and both scripts source it.
 #
-# The contract is DIFFERENTIAL, not "close enough": for every input in
-# `backend/tests/Feature/DotenvReaderMatchesPhpDotenvTest.php`, this function
-# must return exactly what `Dotenv\Dotenv::parse()` returns for the same file
-# and key. That test is what keeps the claim true; this file is what it is true
-# of.
+# The contract is DIFFERENTIAL, and it is a claim about a SET, not about every
+# input: for every input in `backend/tests/Feature/DotenvReaderMatchesPhpDotenvTest.php`
+# this function returns exactly what `Dotenv\Dotenv::parse()` returns for the
+# same file and key, and every input where it does NOT is one of the SEVEN
+# classes named below. That test is what keeps both halves true; this file is
+# what they are true of. The classes ARE the contract: a difference outside
+# them is a bug in this file, not a documented boundary.
 #
 # WHY NOT SHELL OUT TO PHP INSTEAD
 # Because then the differential test would compare PHP with PHP and could not
@@ -33,19 +35,83 @@
 #   * `\n \r \t \v \f \" \\` inside DOUBLE quotes (single quotes are literal)
 #   * the LAST assignment of a key wins
 #
-# WHAT IT DELIBERATELY DOES NOT IMPLEMENT, and why that is safe here
-#   * `KEY="multi` continued over following lines (`Lines::looksLikeMultilineStart`)
-#     and `$VAR` interpolation (`RepositoryBuilder`). Both are real phpdotenv
-#     features this reader ignores. Neither can occur for a key whose value is
-#     a connection name (`CACHE_STORE`, `QUEUE_CONNECTION`); if one did, Laravel
-#     would resolve it to something this note cannot, which is exactly why the
-#     note names the connection it found rather than asserting one.
-#     MEASURED (2026-10-03, 8000 randomized bodies against
-#     `Dotenv\Dotenv::parse()`): 4731 identical, 3268 inputs phpdotenv rejects
-#     outright, and **exactly one** difference — `K=";\t`, an unbalanced quote
-#     that phpdotenv treats as an unterminated multiline and therefore never
-#     emits at all, while this reader returns `;\t`. The reader's own claim is
-#     "identical wherever phpdotenv answers", and that is what is measured.
+# WHAT IT DELIBERATELY DOES NOT IMPLEMENT — seven measured classes, not one
+#
+# MEASURED (2026-10-03) with a randomized differential against
+# `Dotenv\Dotenv::parse()`, 6000 bodies per run, over an alphabet deliberately
+# different from the one that produced the original claim — seed 20261003:
+# 4308 identical, 683 divergent, 1009 rejected by phpdotenv (6000 total); seed
+# 424242: 4278 / 682 / 1040. Every divergent body falls into one of the classes
+# below, 0 unattributed. The classes OVERLAP — 504 of the 683 hit more than
+# one, because a form feed in front of an unquoted value is both a trim-set
+# difference and a comment-lookahead difference.
+#
+# The earlier claim here was "exactly one difference", the multiline case M. An
+# independent fuzz over a different alphabet found five further classes, and a
+# sixth (A) came out of a targeted probe on top of it; the claim was wrong, and
+# it is REPLACED by this list rather than softened into "the forms we thought
+# of". The letters below are labels, nothing more.
+#
+#   M — MULTILINE (`Lines::looksLikeMultilineStart()`). An unbalanced `="`
+#       swallows the rest of the file and phpdotenv emits no key at all.
+#       MEASURED: `K=";<TAB>` → phpdotenv emits nothing, this reader returns
+#       `;` — the tab is already gone, trimmed off with the rest of the value
+#       before it is parsed. (An earlier version of this comment claimed the
+#       reader returns `;\t`; it does not.)
+#   A — A VALUE WHOSE LAST BYTE IS A NEWLINE. `dotenv_value` prints with
+#       `printf '%s'` and loses nothing itself, but BOTH callers use it as
+#       `$(dotenv_value …)`, and command substitution strips trailing
+#       newlines. MEASURED: `K="sync\n"` → phpdotenv `sync<NL>`, reader-as-called
+#       `sync`. An INTERIOR newline agrees (`K="a\nb"`), so the class is
+#       specifically the last byte.
+#   E — A QUOTE BYTE INSIDE AN UNQUOTED VALUE. phpdotenv's `UNQUOTED_STATE`
+#       (`EntryParser::processToken`) appends `"` and `'` as ordinary bytes and
+#       stays unquoted; this reader enters its quoted state, drops the byte, and
+#       can truncate at it. MEASURED: `K=x"y` → `x"y` vs `xy`; `K=x'y` →
+#       `x'y` vs `xy`; `K=syn"` → `syn"` vs `syn`.
+#   V — `${VAR}` INTERPOLATION. `Dotenv\Dotenv::parse()` runs the entries
+#       through `Loader\Loader::load()` → `Resolver::resolve()`, which resolves
+#       `${NAME}` when `NAME` is among the SAME entries — the very oracle the
+#       differential test compares against. This reader never resolves.
+#       MEASURED: `FOO=sync` + `K=${FOO}` → phpdotenv `sync`, reader `${FOO}`.
+#       A bare `$NAME` and `${NAME:-default}` are NOT resolved by phpdotenv
+#       either and agree with this reader, which is why only the brace form is
+#       a class.
+#   B — A LONE `\r` IS A LINE SEPARATOR to phpdotenv: `Parser::parse()` splits
+#       on `/(\r\n|\n|\r)/`. `read` splits on `\n` only, and the trailing-`\r`
+#       strip below sits at end of line, so it cannot help here. MEASURED:
+#       `K=sync<CR>V` → phpdotenv `sync`, reader `sync<CR>V`. An ordinary CRLF
+#       file is unaffected: there every `\r` precedes a `\n`.
+#   C — CONTROL WHITESPACE. phpdotenv trims ` \n\r\t\0\x0B` — NOT `\f`
+#       (`EntryParser::splitStringIntoParts()`), and its value lexer treats any
+#       `ctype_space()` byte as the whitespace that may precede an inline `#`
+#       comment. `[[:space:]]` matches `\f` as well, and the value state machine
+#       below knows only space and tab. MEASURED: `K=<FF>foo` → phpdotenv
+#       `<FF>foo`, reader `foo`; `K=.?<VT> # c` → phpdotenv `.?`, reader
+#       `.?<VT> # c`.
+#   N — A NUL BYTE cannot be held by a bash variable at all, so `read` DROPS it
+#       and carries on. MEASURED: `K=sy<NUL>nc` → phpdotenv `sy<NUL>nc`
+#       (5 bytes), reader `sync` (4 bytes).
+#
+# REACHABILITY FOR THE TWO KEYS THESE SCRIPTS ASK FOR. `QUEUE_CONNECTION` and
+# `CACHE_STORE` hold connection and store NAMES, and for THOSE TWO keys the
+# classes above cannot be reached by a `backend/.env` a developer writes: a name
+# carries no newline, no quote byte and no control byte; the line the CI job
+# writes carries no lone `\r`; and nobody writes `${…}` into either key. That is
+# a statement ABOUT THESE TWO KEYS — it is not a property of the reader, and it
+# is therefore written here and pinned per class in the test, not asserted as a
+# general claim.
+#
+# ONE class IS reachable for them anyway, and it is V: `.env` is legal
+# phpdotenv input, so `QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set
+# earlier in the same file is legal, Laravel resolves it, and this reader does
+# not — the note then names a connection the app never resolves. It is pinned
+# as a documented divergence
+# (`DotenvReaderMatchesPhpDotenvTest::test_the_documented_divergence_classes`)
+# rather than implemented: variable resolution in the shell is a larger surface
+# than a NOTE needs, and the note is a note.
+#
+# WHAT phpdotenv REJECTS
 #   * a value phpdotenv REJECTS (`K=a b`, whitespace inside an unquoted value)
 #     stops the parse where phpdotenv would raise, and returns what it had.
 #     Laravel refuses such a file outright, so there is no resolved connection
@@ -63,7 +129,15 @@ dotenv_value() {
     [ -f "$file" ] || return 0
 
     while IFS= read -r line || [ -n "$line" ]; do
-        # CRLF: a `\r` would otherwise end up inside the last value.
+        # CRLF: strip a trailing `\r`. MEASURED 2026-10-03: this line is REDUNDANT —
+        # deleting it changes no pinned result, because both `[[:space:]]` trims
+        # below also match `\r` and would remove the same byte. It is kept as the
+        # cheap guard for the day someone narrows that trim class, and the comment
+        # says so because a line whose comment claims it is load-bearing when a
+        # measurement says it is not is worse than no comment.
+        #
+        # It is a strip of a TRAILING `\r` only. A lone `\r` elsewhere in the line
+        # is a line separator to phpdotenv and not to `read` — that is class B.
         line="${line%$'\r'}"
 
         # `Lines::isCommentOrWhitespace()` — a blank line or one whose first
@@ -99,7 +173,9 @@ dotenv_value() {
 
         [ "$name" = "$key" ] || continue
 
-        # `splitStringIntoParts()` trims the value before it is parsed.
+        # `splitStringIntoParts()` trims the value before it is parsed — with
+        # ` \n\r\t\0\x0B`, which is NOT `\f`, while `[[:space:]]` matches `\f`
+        # as well. That is the first half of class C in the header.
         value="${rest#"${rest%%[![:space:]]*}"}"
         value="${value%"${value##*[![:space:]]}"}"
 
@@ -124,7 +200,10 @@ dotenv_parse_value() {
         c="${v:i:1}"
 
         case "$state" in
-            # 0 = unquoted (phpdotenv's INITIAL/UNQUOTED share this treatment)
+            # 0 = unquoted (phpdotenv's INITIAL/UNQUOTED share this treatment).
+            # NOT the same treatment: in `UNQUOTED_STATE` phpdotenv appends a
+            # quote byte as an ordinary byte and stays unquoted, while this arm
+            # switches state and drops it. That is class E in the header.
             0)
                 case "$c" in
                     '#') break 2 ;;
