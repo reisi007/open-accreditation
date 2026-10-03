@@ -173,14 +173,43 @@ echo "  Mailpit UI:   http://localhost:8025"
 echo "  Next:         cd frontend && pnpm install && pnpm dev  (http://localhost:5173)"
 echo "  Worker:       bash scripts/dev-worker.sh  (NOT started by this script)"
 echo ""
-# No queue worker, and that is a NAMED decision, not an omission:
-echo "  NOTE: this script starts NO queue worker, and QUEUE_CONNECTION stays"
-echo "        'database' (from .env.example) — so nothing processes the 'jobs'"
-echo "        table, and every dispatched mail just sits there. Running a"
-echo "        mail-dependent Playwright spec in that state waits out the full"
-echo "        15 s Mailpit timeout ('no message for ... within 15000ms')."
-echo "        Either run 'bash scripts/dev-worker.sh' in a second terminal"
-echo "        (the documented dev path, README 'Worker & Scheduler in Dev'),"
-echo "        or set QUEUE_CONNECTION=sync in backend/.env like the CI E2E job"
-echo "        does (delivery inline, no worker — the price: after_commit is"
-echo "        only defined on the 'database' connection)."
+# No queue worker, and that is a NAMED decision, not an omission.
+#
+# The note has to name the connection that will ACTUALLY be in effect, not the
+# one .env.example happens to ship. This script pins CACHE_STORE with sed but
+# writes QUEUE_CONNECTION nowhere (measured: the only two mentions of the key in
+# this file are these note lines), so an already-present backend/.env — or an
+# exported QUEUE_CONNECTION, which the script also never overrides — makes an
+# unconditional "stays 'database'" claim false, and the reader is the one who
+# gets misled. Resolution order mirrors the app: Laravel's immutable Dotenv
+# never overwrites a real environment variable, so the environment wins over
+# backend/.env, which in turn (created from .env.example a few steps above when
+# it did not exist yet) wins over .env.example.
+last_env_value() {
+    # Last occurrence wins, matching how a duplicated key is read. `|| true`
+    # because under `set -e` + pipefail a grep that matches nothing would take
+    # the whole script down — this is a note, not a guard.
+    grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
+}
+QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION:-$(last_env_value QUEUE_CONNECTION .env)}"
+[ -n "$QUEUE_CONNECTION_EFFECTIVE" ] || QUEUE_CONNECTION_EFFECTIVE="$(last_env_value QUEUE_CONNECTION .env.example)"
+QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION_EFFECTIVE:-<unset>}"
+
+echo "  NOTE: this script starts NO queue worker, and QUEUE_CONNECTION resolves to"
+echo "        '$QUEUE_CONNECTION_EFFECTIVE' (environment > backend/.env > .env.example)."
+if [ "$QUEUE_CONNECTION_EFFECTIVE" = "sync" ]; then
+    echo "        With 'sync' the mail is delivered inline in the request: the 'jobs'"
+    echo "        table stays empty and NO worker is needed — a mail-dependent"
+    echo "        Playwright spec does see its message in Mailpit. (The price of"
+    echo "        'sync': after_commit is only defined on the 'database' connection.)"
+else
+    echo "        With a connection other than 'sync', nothing processes the 'jobs'"
+    echo "        table and every dispatched mail just sits there. Running a"
+    echo "        mail-dependent Playwright spec in that state waits out the full"
+    echo "        15 s Mailpit timeout ('no message for ... within 15000ms')."
+    echo "        Either run 'bash scripts/dev-worker.sh' in a second terminal"
+    echo "        (the documented dev path, README 'Worker & Scheduler in Dev'),"
+    echo "        or set QUEUE_CONNECTION=sync in backend/.env like the CI E2E job"
+    echo "        does (delivery inline, no worker — the price: after_commit is"
+    echo "        only defined on the 'database' connection)."
+fi

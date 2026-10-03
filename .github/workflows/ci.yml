@@ -475,9 +475,13 @@ jobs:
           # dort mit der ECHTEN `database`-Connection getestet
           # (QueuedMailTest, QueuedMailAfterCommitTest, MailDeadLetterTest,
           # Unit/SendMandantMailTest). Ein Worker hier haette der SUITE eine
-          # Timing-Abhaengigkeit gegeben: jeder mailabhaengige Spec (acht
-          # Specs, u. a. auth, profile, approvals, namespace-isolation) muesste
-          # auf einen Hintergrundprozess warten, und jeder Retry-Puls des
+          # Timing-Abhaengigkeit gegeben: jeder mailabhaengige Spec (neun,
+          # gezaehlt ueber den Aufruf-Graphen: MailpitHelper direkt oder
+          # ueber einen Helper, der darauf wartet — u. a. auth, profile,
+          # approvals; `namespace-isolation` gehoert NICHT dazu, es ruft
+          # keinen von beiden, sondern listet die Helfer nur als Strings in
+          # FIXTURE_CREATORS auf) muesste auf einen
+          # Hintergrundprozess warten, und jeder Retry-Puls des
           # Workers waere ein Flake-Budget, das die Produktzusage nicht
           # verdient. Mit `sync` ist die Zustellung VOLLSTAENDIG, bevor die
           # HTTP-Antwort herausgeht — der Mailpit-Poll ist damit ein Timeout,
