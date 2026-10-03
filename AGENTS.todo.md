@@ -320,7 +320,11 @@ hat keinen Rückweg — das ist hier bereits einmal passiert.
 
 ### 🔴 OFFEN: E2E (Playwright) Job rot — Mailpit `no message … within 15000ms` (2026-10-02)
 
-E2E (Playwright) Job rot: Mailpit `no message … within 15000ms` in self-delete/approve-Specs (Run 37059095379); war schon vor den Doku-Commits rot → pre-existing, Umgebung/Test-Timing untersuchen, kein Code-Defekt annehmen bevor Umgebung geprüft ist.
+**Das „pre-existing"-Etikett ist am 2026-10-03 widerlegt und entfernt (§4 verbietet es ohnehin).** Die Aussage „war schon vor den Doku-Commits rot → Umgebung/Test-Timing" war **falsch**: rot wurde es mit **`70aa03d`** — dem Commit, der `MandantMailerService::send()` auf reinen Dispatch umstellte — nicht mit einem Doku-Commit.
+
+**Ursache, gemessen und reproduziert (zwei unabhängige Ketten):** Der E2E-CI-Job startet **ausschließlich** `php artisan serve` (`.github/workflows/ci.yml:484-490`); das Job-`.env` entsteht aus `.env.example` (`:447`), dessen `sed` (`:458-469`) `QUEUE_CONNECTION` nicht anfasst — `backend/.env.example:124` liefert `database`. Seit `70aa03d` landet jede Zustellung in `jobs` und **niemand** arbeitet sie ab → Mailpit sieht nichts. **(1) Historie:** Direktparent von `70aa03d` → `success`, `70aa03d` → `failure`, danach jeder Commit `failure`/`cancelled`. **(2) Reproduktion:** Worker gestoppt → byte-gleiches Fehlerbild; Worker mit identischer Kommandozeile gestartet → derselbe Test **grün**. Es ist **kein** Timing und **keine** Umgebung, sondern der fehlende Worker.
+
+**Warum es niemand sah — die Lehrreiche, nicht die Entschuldigung:** `backend/phpunit.xml:117` pinnt `QUEUE_CONNECTION=sync`, also sind die Backend-Jobs grün; und lokal lief ein Worker, den ein Implementer gestartet hatte. **Beide Umgebungen verzeihen den Defekt.** Zusätzlich ist der eigene Push von `70aa03d` **ohne CI-Abfrage** durchgegangen — `build-verify` Step 4 verlangt ausdrücklich, nach dem Push den Lauf bis grün zu verfolgen. **Folge: 137 E2E-Tests sind seit `70aa03d` nie gelaufen**, ihre Wirkung auf andere Specs ist unbekannt; ein **voller** E2E-Lauf gehört nach dem Fix in die CI.
 
 ### Gemeinsame Verifikation bei parallelen Strömen (Nutzerentscheid 2026-10-01) — **was genau das bedeutet**
 
