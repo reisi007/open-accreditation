@@ -75,7 +75,7 @@ use Tests\TestCase;
  * regains a private reader, this fails even though every parsing assertion below
  * would still pass.
  *
- * ## Scope: SEVEN measured divergence classes, not one
+ * ## Scope: EIGHT measured divergence classes, not one
  *
  * This file once claimed the reader differed from phpdotenv in exactly ONE
  * input. An independent fuzz — 6000 bodies, a different seed AND a different
@@ -85,6 +85,21 @@ use Tests\TestCase;
  * pins every class in BOTH directions: the reader still diverges, phpdotenv
  * still says what it said, and the header still NAMES the class. A difference
  * outside the list is a bug in the reader, not a documented boundary.
+ *
+ * The eighth is M2, a BALANCED multiline, and it exists because run 7 changed
+ * the alphabet (Befund R7-1). Every alphabet this file was fed until then was
+ * ASCII, which made "0 unattributed divergences" a true statement about bytes the
+ * file never named. Re-run over a NON-ASCII alphabet the same fuzz found M2 — and
+ * it also found that the READER'S OWN ANSWER depended on `LC_ALL` for 209 of 4000
+ * bodies. That one is not a class and no class list can hold it: it is not about
+ * the grammar, it is the environment deciding for the reader. It was removed at
+ * the source (the trims use an explicit byte set now) and pinned by
+ * `test_the_reader_does_not_depend_on_the_locale()`.
+ *
+ * The lesson is written here because this file keeps re-learning it: a
+ * differential is only as complete as the ALPHABET it was fed. Two of the three
+ * claims it has made — "exactly one difference", "0 unattributed" — were true and
+ * useless.
  *
  * Reachability is stated where it belongs — per class, per key, and measured
  * rather than assumed. For the two keys these scripts ask for
@@ -498,7 +513,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ */
-    /* The documented boundary: seven classes, each pinned in both directions */
+    /* The documented boundary: eight classes, each pinned in both directions */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -509,6 +524,14 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * bodies with a different seed AND a different alphabet found five more
      * classes; a targeted probe a sixth. The list below replaces the claim
      * rather than narrowing it, and every entry is measured on both sides:
+     *
+     * Befund R7-1 added EIGHTH, M2 — a BALANCED multiline — and that fuzz also
+     * produced a ninth difference which is deliberately NOT here: the reader's
+     * answer depended on `LC_ALL` for 209 of 4000 non-ASCII bodies, because
+     * `[[:space:]]` is locale-dependent and phpdotenv's trim is a byte set. That
+     * one is not a class — it was the environment deciding for the reader — and
+     * it was removed at the source. `test_the_reader_does_not_depend_on_the_locale()`
+     * is what holds that half of the contract, because a class list cannot.
      *
      *  - `$oracle` is what `Dotenv\Dotenv::parse()` answers (or, for M, that it
      *    emits nothing at all). These values were measured, not read off the
@@ -531,16 +554,33 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     public static function divergenceClasses(): array
     {
         return [
-            'M — a multiline value swallows the file' => [
+            'M — an UNBALANCED multiline swallows the file' => [
                 "QUEUE_CONNECTION=\";\t\n",
                 '',
                 ';',
-                'M — MULTILINE',
+                'M — MULTILINE, UNBALANCED',
                 'multiline',
                 'UNREACHABLE for both keys: a value that opens a multiline cannot be a connection name. '
                 .'Note the reader returns `;` and NOT `;` + a tab — the tab is trimmed off with the rest '
                 .'of the value before it is parsed. An earlier version of this file and of the header '
                 .'recorded `;` + a tab, and that was wrong (Befund B7).',
+            ],
+            'M2 — a BALANCED multiline: the value closes on a LATER line' => [
+                "QUEUE_CONNECTION=\"a\nb\"\n",
+                "a\nb",
+                'a',
+                'M2 — MULTILINE, BALANCED',
+                null,
+                'UNREACHABLE for both keys: a connection name does not span two lines. This class is a '
+                .'SIBLING of M and not a footnote to it, and the difference is measured, not argued. '
+                .'In M phpdotenv REJECTS nothing and emits no key at all, because the `="` is never '
+                .'closed; here phpdotenv ACCEPTS the file and joins the lines (`Lines::multilineProcess()` '
+                .'implodes the buffer with a newline), while `read` hands this function one line at a time '
+                .'so the value state machine simply runs out of input and stops at the first line end. '
+                .'MEASURED: `K="a<NL>b"` → phpdotenv `a<NL>b`, this reader `a`. And the ESCAPE form '
+                .'agrees — `K="a\\nb"` with a backslash is `a<NL>b` on BOTH sides — which is exactly why '
+                .'the class-A note here used to be read as "an interior newline agrees": it was written '
+                .'with an escape and read as a statement about newlines. Befund R7-1.',
             ],
             'A — a value whose last byte is a newline' => [
                 "QUEUE_CONNECTION=\"sync\\n\"\n",
@@ -550,8 +590,9 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 null,
                 'UNREACHABLE for both keys: no connection name ends in a newline. This class is not a bug '
                 .'in dotenv_value — it is what command substitution does to its output, and BOTH callers '
-                .'use it that way. An interior newline agrees (`K="a\nb"`), so the class is specifically '
-                .'the last byte.',
+                .'use it that way. The class is specifically the LAST byte. Mind the distinction this '
+                .'sentence used to blur: an interior newline spelled as the ESCAPE `\n` agrees on both '
+                .'sides, an interior REAL newline does not and is class M2.',
             ],
             'E — a quote byte inside an unquoted value' => [
                 "QUEUE_CONNECTION=x\"y\n",
@@ -604,6 +645,234 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'byte and carries on — this class is structural, not a parsing choice.',
             ],
         ];
+    }
+
+    /**
+     * The reader's answer must not DEPEND ON THE LOCALE — and that is a claim a
+     * differential against phpdotenv cannot make, because phpdotenv does not run
+     * in the shell's locale.
+     *
+     * Befund R7-1: the trims used `[[:space:]]`, which glibc DECODES through the
+     * locale's charset table. Under `LC_ALL=C.UTF-8` it matches U+3000, U+2028,
+     * U+00A0, NEL and an overlong encoding of TAB; phpdotenv trims the byte set
+     * `" \n\r\t\0\x0B"`, which contains none of them. MEASURED over 4000 bodies
+     * from an alphabet containing exactly those bytes: **209 of 4000 were answered
+     * differently under C.UTF-8 than under C** (seed 20261003; 196 of 4000 on a
+     * second seed, 424242), and 44 of those agreed with phpdotenv under C and
+     * disagreed under C.UTF-8 — the same function, the same bytes, a different
+     * locale, a different answer. The old fuzz alphabet was ASCII-only, so "0
+     * unattributed" was a true statement about an alphabet this file never named.
+     * After the fix: 0 and 0, with not one answer changed under `LC_ALL=C`.
+     *
+     * So this is pinned as its own test, and the bodies here are chosen to FAIL a
+     * `[[:space:]]` implementation and PASS the byte-set one: each carries a
+     * non-ASCII whitespace character at a trim position, where phpdotenv does not
+     * trim it and a locale-aware class does.
+     *
+     * The bodies split in two, and the split is measured rather than tidiness.
+     * Where phpdotenv ACCEPTS the file — a non-ASCII byte at a VALUE position —
+     * the reader must agree with it in both locales. Where phpdotenv REJECTS it —
+     * a non-ASCII byte in front of the NAME is an invalid name, `Parser.php:30` —
+     * there is no oracle, and the only claim available is that the reader agrees
+     * with ITSELF across locales. That second group is not filler: MEASURED under
+     * the old `[[:space:]]`, those bodies were answered `sync` under `LC_ALL=C`
+     * and EMPTY under `LC_ALL=C.UTF-8`, so the name-side trims were exactly as
+     * locale-dependent as the value-side one, and a pin built only from the
+     * accepted group would have left them unwatched. The first cut of this test was
+     * in fact value-side only, and mutations M2/M3/M4 below are the measurement
+     * that says so: all three are GREEN, i.e. unwatched.
+     *
+     * The control matters as much as the cases: the byte set must not have
+     * changed anything under `C`, or "0 locale-dependent" would be bought by a
+     * reader that is uniformly different instead of one that is locale-free.
+     *
+     * What this test does NOT hold, stated because it was measured rather than
+     * assumed: the `export` prefix check on its own. Reverting just that check to
+     * `=~ ^[[:space:]]` (mutation M3) leaves this test GREEN, and the reason is
+     * structural, not a gap in the bodies. `export<U+3000>FOO=1` asks for key
+     * `FOO`; under the old reader both the check AND the name trim were
+     * locale-aware, so under C.UTF-8 the prefix was stripped and then the same
+     * byte was trimmed off the name and the key was found (MEASURED: `1` under
+     * C.UTF-8, empty under C — locale-dependent). With the trims fixed but the
+     * check reverted, the byte-set trim leaves the non-ASCII byte in the name, the
+     * name never becomes `FOO`, and BOTH locales answer empty (MEASURED). So the
+     * check's locale dependence is only observable together with the trim's, and
+     * the trim is pinned. The check is kept on the byte set anyway: it is the same
+     * defect waiting for the next person who reverts the trim.
+     */
+    public function test_the_reader_does_not_depend_on_the_locale(): void
+    {
+        // Each entry is the BODY ITSELF, not a one-element list — the list form is
+        // the shape a DATA PROVIDER takes, and mixing the two here is what made
+        // the first cut of this test hand `Dotenv::parse()` an array.
+        //
+        // Every body carries its non-ASCII whitespace at a TRIM POSITION, which is
+        // the only place the two implementations can disagree: phpdotenv's trim
+        // is the byte set `" \n\r\t\0\x0B"` and glibc's `[[:space:]]` decodes
+        // through the locale's charset table. They are chosen so phpdotenv ACCEPTS
+        // the file — a non-ASCII byte in front of the NAME is an invalid name
+        // (`Parser.php:30`, MEASURED) and a rejected file has no answer to
+        // compare. `U+3000 before the name` and its two siblings were in the first
+        // cut of this test and had to come out.
+        // Two groups, and the split is MEASURED, not tidiness.
+        //
+        // phpdotenv ACCEPTS: the reader must agree with it in both locales.
+        $accepted = [
+            'U+3000 IDEOGRAPHIC SPACE before the value' => "QUEUE_CONNECTION=\u{3000}sync\n",
+            'U+2028 LINE SEPARATOR after the value' => "QUEUE_CONNECTION=sync\u{2028}\n",
+            'U+205F MEDIUM MATHEMATICAL SPACE before the value' => "QUEUE_CONNECTION=\u{205F}sync\n",
+            'NEL U+0085 before the value' => "QUEUE_CONNECTION=\u{0085}sync\n",
+            'overlong encoding of TAB after the value' => "QUEUE_CONNECTION=sync\xC0\x09\n",
+            'U+00A0 NO-BREAK SPACE on both sides of the value' => "QUEUE_CONNECTION=\u{00A0}sync\u{00A0}\n",
+        ];
+
+        // phpdotenv REJECTS — a non-ASCII byte in front of the NAME is an invalid
+        // name (`Parser.php:30`, MEASURED), so there is no oracle to compare
+        // against and the differential cannot speak about these bodies. They are
+        // here because the reader is STILL locale-dependent on them under the old
+        // `[[:space:]]` (MEASURED: U+3000 and the overlong TAB both answer
+        // `sync` under C and an empty string under C.UTF-8), and a name-side trim
+        // that silently depends on the caller's environment is the same defect as
+        // a value-side one — it would just have no test watching it.
+        $rejected = [
+            'U+3000 before the name' => "\u{3000}QUEUE_CONNECTION=sync\n",
+            'space then U+3000 before the name' => " \u{3000}QUEUE_CONNECTION=sync\n",
+            'U+205F before the name' => " \u{205F}QUEUE_CONNECTION=sync\n",
+            'NEL before the name' => " \u{0085}QUEUE_CONNECTION=sync\n",
+            'overlong encoding of TAB before the name' => " \xC0\x09QUEUE_CONNECTION=sync\n",
+            'U+3000 after an `export` prefix' => "export\u{3000}QUEUE_CONNECTION=sync\n",
+            'U+3000 after `export` and a space' => "export \u{3000}QUEUE_CONNECTION=sync\n",
+        ];
+
+        foreach ($accepted as $label => $body) {
+            // Against phpdotenv: the reader must agree, in BOTH locales.
+            foreach (['C', 'C.UTF-8'] as $locale) {
+                $this->assertSame(
+                    Dotenv::parse($body)['QUEUE_CONNECTION'] ?? '',
+                    $this->readWithShellReaderInLocale($body, 'QUEUE_CONNECTION', $locale),
+                    'scripts/lib/dotenv-value.sh read a different value than Dotenv\\Dotenv::parse() for this '
+                    ."body under LC_ALL={$locale} (case: {$label}), so its answer is decided by the locale "
+                    .'rather than by the grammar.'.self::readableHex($body),
+                );
+            }
+        }
+
+        foreach ($accepted + $rejected as $label => $body) {
+            // And the two locales must agree with each other, which is the claim
+            // no amount of comparing against phpdotenv can establish on its own —
+            // and for the rejected group it is the ONLY claim available.
+            $this->assertSame(
+                $this->readWithShellReaderInLocale($body, 'QUEUE_CONNECTION', 'C'),
+                $this->readWithShellReaderInLocale($body, 'QUEUE_CONNECTION', 'C.UTF-8'),
+                'The reader answered this body ('.$label.') differently under LC_ALL=C than under '
+                .'LC_ALL=C.UTF-8. A connection name read two ways depending on the caller\'s environment is '
+                .'not a note, it is a coin toss.'.self::readableHex($body),
+            );
+        }
+
+        // PREMISE for the group split, asserted rather than assumed: it is easy to
+        // move a body from `rejected` to `accepted` (or the reverse) without
+        // noticing, and then this test would be asserting less than it reads as.
+        foreach ($rejected as $label => $body) {
+            $threw = false;
+            try {
+                Dotenv::parse($body);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+
+            $this->assertTrue(
+                $threw,
+                "This body is in the REJECTED group (case: {$label}), so it must still be one phpdotenv "
+                .'refuses. If phpdotenv now accepts it, move it into the differential group above — otherwise '
+                .'it is pinned here without an oracle, which is weaker than it looks.'
+                .self::readableHex($body),
+            );
+        }
+
+        // The control for "locale-independent": a divergence that exists in BOTH
+        // locales identically. A REAL interior newline closes on a LATER line, so
+        // this is class M2 — phpdotenv accepts the file and joins the lines
+        // (`Lines::multilineProcess()` implodes the buffer with a newline) while
+        // `read` hands the reader one line and the value state machine runs out
+        // of input. MEASURED, same answer in both locales: phpdotenv `a<NL>b`,
+        // reader `a`.
+        //
+        // It is here because "the reader does not depend on the locale" is a claim
+        // that a test full of AGREEING cases cannot support: a reader that answered
+        // nothing at all would pass every case above. This one is pinned as a
+        // divergence in `divergenceClasses()`; what is asserted here is that the
+        // divergence is the SAME in both locales.
+        $m2 = "QUEUE_CONNECTION=\"a\nb\"\n";
+        $this->assertSame(
+            "a\nb",
+            Dotenv::parse($m2)['QUEUE_CONNECTION'] ?? '',
+            'PREMISE: phpdotenv must JOIN the lines of a balanced multiline value. If it stopped, class M2 '
+            .'describes something that no longer happens.',
+        );
+        foreach (['C', 'C.UTF-8'] as $locale) {
+            $this->assertSame(
+                'a',
+                $this->readWithShellReaderInLocale($m2, 'QUEUE_CONNECTION', $locale),
+                'PREMISE: the reader must still STOP at the first line end — that is class M2, pinned in '
+                ."divergenceClasses(). Measured under LC_ALL={$locale}.",
+            );
+        }
+    }
+
+    /**
+     * The control for the locale pin: the byte set must not have changed ANY
+     * answer under `LC_ALL=C`.
+     *
+     * Without this, "0 locale-dependent bodies" is also what you measure from a
+     * reader that simply answers something else in both locales. The ASCII forms
+     * below are the ones every other test in this file already pins, so if the
+     * byte set ever drifts away from `[[:space:]]` on ASCII input — the `\f` in
+     * class C, the `\v`, the `export` check — one of these goes red.
+     *
+     * MEASURED, and this control is load-bearing in its own right: deleting `\f`
+     * from the byte set (`$ws`) is GREEN here (M4) even though it removes the
+     * whole trim half of class C. Why: every body in this file is ASCII, and on
+     * ASCII the two sets are indistinguishable EXCEPT at a form feed, and the
+     * committed bodies contain none — the divergence needs `\f` INSIDE an
+     * unquoted value, and `divergenceClasses()` is where that is pinned. So the
+     * honest statement about this test is: it holds the byte set to ASCII
+     * behaviour, and `\f` specifically is held by class C, not here.
+     */
+    public function test_the_byte_set_did_not_change_the_ascii_answers(): void
+    {
+        // `dotenvBodies()` and `cacheStoreBodies()` are DATA PROVIDERS: each entry is
+        // `[$label => [$body, …]]`, so the bodies are the provider's VALUES, not
+        // the provider itself. Iterating it directly — the first cut at this test
+        // did — hands `Dotenv::parse()` an array (measured: `TypeError` at
+        // `Dotenv.php:204`) and proves nothing about the locale at all.
+        foreach ([$this->dotenvBodies(), $this->cacheStoreBodies()] as $key => $provider) {
+            foreach ($provider as $bodies) {
+                foreach ($bodies as $body) {
+                    $this->assertSame(
+                        $this->readWithShellReaderInLocale($body, $key === 0 ? 'QUEUE_CONNECTION' : 'CACHE_STORE', 'C.UTF-8'),
+                        $this->readWithShellReaderInLocale($body, $key === 0 ? 'QUEUE_CONNECTION' : 'CACHE_STORE', 'C'),
+                        'The reader answers this committed body differently per locale. Every body in this '
+                        .'file is ASCII by construction — except where a case deliberately is not — so a '
+                        .'difference here means the byte set and `[[:space:]]` have stopped agreeing on '
+                        ."ASCII, which would silently change class C.\n--- body ---\n".self::readableHex($body),
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * A body as a hex dump, so a failure names BYTES and not just characters.
+     */
+    private static function readableHex(string $body): string
+    {
+        $out = '';
+        foreach (str_split($body, 16) as $chunk) {
+            $out .= "\n  ".bin2hex($chunk).'  '.$chunk;
+        }
+
+        return $out;
     }
 
     #[DataProvider('divergenceClasses')]
@@ -688,6 +957,13 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * or into a `sed` replacement in the E2E job, this goes red on the spot —
      * and that is exactly the day the note starts lying.
      *
+     * A line is fed as the FILE UP TO AND INCLUDING IT, never alone (Befund R7-2).
+     * The measurement that forced this: mutating `.env.example` to
+     * `QUEUE_CONNECTION=${QUEUE_SRC}` plus `QUEUE_SRC=sync` one line above was
+     * GREEN when the body was the single line, because `${QUEUE_SRC}` then has no
+     * sibling entry to resolve against and both sides answer the literal text —
+     * while the docblock promised exactly that mutation to go red. It is red now.
+     *
      * `backend/.env` is deliberately NOT scanned: it is gitignored and differs
      * per machine, so asserting on it would make the suite's result depend on
      * whose checkout runs it. The committed writers are what decide what
@@ -702,15 +978,29 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 continue;
             }
 
-            foreach (file($this->repositoryPathOf($writer), FILE_IGNORE_NEW_LINES) ?: [] as $number => $line) {
+            $lines = file($this->repositoryPathOf($writer), FILE_IGNORE_NEW_LINES) ?: [];
+
+            foreach ($lines as $number => $line) {
                 if (preg_match('/^\s*(?:export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*=(.*)$/', $line, $m) !== 1) {
                     continue;
                 }
 
+                // The body is the file UP TO AND INCLUDING this line — not this
+                // line alone, and that is the whole point of this test.
+                //
+                // Befund R7-2: it used to hand the reader `rtrim($line)."\n"`, one
+                // line in isolation. That choice destroys class V's PRECONDITION:
+                // `${NAME}` resolves only when `NAME` is among the SAME entries,
+                // and a body consisting of one line has no other entries, so
+                // `QUEUE_CONNECTION=${QUEUE_SRC}` with `QUEUE_SRC=sync` in the same
+                // file came out IDENTICAL on both sides and the guard stayed green
+                // while the docblock promised red. The whole slice is cheap — the
+                // reader scans the file anyway — and it carries the precondition
+                // with it.
                 $assignments[] = [
                     "{$writer}:".($number + 1),
                     $m[1],
-                    rtrim($line)."\n",
+                    implode("\n", array_slice($lines, 0, $number + 1))."\n",
                 ];
             }
         }
@@ -922,9 +1212,19 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             // for the backend suite, and Symfony's Process MERGES the env it is
             // given over the inherited one (`Process.php:333`,
             // `$env += $this->getDefaultEnv()`), so a scenario cannot un-set it.
-            // With the inherited value in place six of the sixteen scenarios
+            // With the inherited value in place FIVE of the sixteen scenarios
             // answered from the test runner instead of from their `.env` — and the
             // first version of this test reported that as 10 of 16 wrong.
+            //
+            // FIVE, measured (Befund R7-3): removing the `-i` and re-running
+            // names exactly these five as red — `.env plain, not sync`, `duplicated,
+            // database last`, `has the key, but empty`, `has no such key`, and `no
+            // .env file at all`. The three whose environment argument is non-null
+            // are unaffected, because Process merges the scenario's own value over
+            // the inherited one; and the eleven whose `.env` says `sync` cannot tell
+            // the two sources apart, because both say `sync`. An earlier version of
+            // this comment said six, and the sixth does not exist — which is only
+            // visible because the number is checkable by deleting one argument.
             $command = ['/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'HOME='.$work];
 
             if ($environment !== null) {
@@ -981,6 +1281,33 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         $reader = $this->repositoryPathOf(self::READER);
         $this->assertFileIsReadable($reader, "PREMISE: {$reader} must be readable.");
 
+        return $this->readExtractedReader($this->extractReaderFunction($reader), $body, $key, null);
+    }
+
+    /**
+     * The same extraction, but the reader runs under an EXPLICIT `LC_ALL`.
+     *
+     * `Process` MERGES the env it is given over the inherited one, so passing
+     * `LC_ALL` as an entry does not by itself guarantee it wins — hence the
+     * explicit `export` inside the script text as well, and the two together are
+     * what make the locale pin a measurement rather than a request.
+     */
+    private function readWithShellReaderInLocale(string $body, string $key, string $locale): string
+    {
+        $reader = $this->repositoryPathOf(self::READER);
+        $this->assertFileIsReadable($reader, "PREMISE: {$reader} must be readable.");
+
+        $function = $this->extractReaderFunction($reader);
+
+        return $this->readExtractedReader($function, $body, $key, $locale);
+    }
+
+    /**
+     * The two reader functions, cut out of the file — `file()`, located with
+     * `lineMatching()`, taken with `array_slice()`.
+     */
+    private function extractReaderFunction(string $reader): string
+    {
         $start = $this->lineMatching($reader, '/^dotenv_value\(\)/m');
         $end = $this->lineMatching($reader, '/^}/m', $start);
         $this->assertNotNull($start, "PREMISE: {$reader} must define dotenv_value().");
@@ -993,22 +1320,31 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         $this->assertNotNull($parseStart, "PREMISE: {$reader} must define dotenv_parse_value().");
         $this->assertNotNull($parseEnd, 'PREMISE: the dotenv_parse_value() body must be closed by a line `}`.');
 
-        $function = implode("\n", array_merge(
+        return implode("\n", array_merge(
             $this->lines($reader, $start, $end),
             $this->lines($reader, $parseStart, $parseEnd),
         ));
+    }
 
+    /**
+     * Run one extracted function over one body and return what it printed.
+     *
+     * The function goes in over STDIN, not as an argument: it is shell source of
+     * arbitrary length, and `Process` treats its 4th constructor argument as
+     * input rather than as argv. The file and the key follow the `-c` script as
+     * real positional parameters, so a value containing shell metacharacters
+     * cannot be interpolated into code.
+     */
+    private function readExtractedReader(string $function, string $body, string $key, ?string $locale): string
+    {
         $envFile = tempnam(sys_get_temp_dir(), 'dotenv-reader-');
         $this->assertIsString($envFile, 'PREMISE: a temporary file for the .env body must be creatable.');
         file_put_contents($envFile, $body);
 
-        // The extracted function goes in over STDIN, not as an argument: it is
-        // shell source of arbitrary length, and `Process` treats its 4th
-        // constructor argument as input rather than as argv. The file and the key
-        // follow the `-c` script as real positional parameters, so a value
-        // containing shell metacharacters cannot be interpolated into code.
+        $prefix = $locale === null ? '' : 'export LC_ALL='.escapeshellarg($locale).'; ';
+
         $process = new Process(
-            ['bash', '-c', 'set -euo pipefail; source /dev/stdin; dotenv_value "$1" "$2"', 'dotenv-reader', $envFile, $key],
+            ['bash', '-c', 'set -euo pipefail; '.$prefix.'source /dev/stdin; dotenv_value "$1" "$2"', 'dotenv-reader', $envFile, $key],
             $this->repositoryPath(),
             [],
             $function,
