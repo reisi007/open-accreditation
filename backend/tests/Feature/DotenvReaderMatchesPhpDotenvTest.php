@@ -1350,9 +1350,19 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * makes about the header is a function of its TOKENS; the order somebody
      * wrote them down in is not part of it, and the token order itself is now
      * pinned separately by `assertSame($required, $mechanism)` in the caller.
-     * The list this returns is walked in the MAP's order, which is the header's
-     * own order, so the caller's failure message lists the sentences in the
-     * order the reader of the script meets them.
+     * The list this returns is walked in the MAP's order, and that order is
+     * the header's order RUN BACKWARDS — MEASURED, the three entries land on
+     * `scripts/lib/dotenv-value.sh:107`, `:102`, `:96`, strictly descending,
+     * so M's first form yields `NO EARLIER ASSIGNMENT` and then `MULTILINE,
+     * UNBALANCED`, and its second yields `WITH AN EARLIER ASSIGNMENT` and then
+     * that same shared sentence. The caller's failure message therefore walks
+     * the header BOTTOM-TO-TOP, not in the order a reader of the script meets
+     * the sentences; an earlier version of this sentence claimed it did, and
+     * the claim was false of every list this helper returns (Befund B2, Runde
+     * 11). Nothing pins the map's order — that is precisely the freedom R10-2
+     * measured — so only the SET is a contract here: if a header has lost two
+     * of the three sentences, which one the message names first is not
+     * something a reader may rely on.
      *
      * `$multiline-buffered` maps to the sentence shared by both M rows: it is
      * the mechanism they have in common. Both rows therefore check that one
