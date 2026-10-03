@@ -67,13 +67,62 @@ if [ ! -f .env ]; then
 fi
 
 # NICHT-FATALER HINWEIS (siehe Kopfkommentar): ein prozesslokaler Cache-Store
-# macht den Idempotenz-Claim des Mail-Jobs unwirksam. Aufgelöst wird der Store
-# in derselben Reihenfolge, in der Laravel ihn auflöst — echte ENV vor `.env`,
-# dann der Default aus `config/cache.php` (`database`). Der Start läuft
-# bewusst weiter: dieser Stack ist der dokumentierte Dev-Weg, und der
-# Prod-Guard (`deployment/backend-supervisor.sh`, Detail 2b) würde ihn sofort
+# macht den Idempotenz-Claim des Mail-Jobs unwirksam.
+#
+# Die AUFLÖSUNG (ENV vor `.env` vor `config/cache.php`-Default `database`) war
+# richtig — und ist es unverändert. Das AUSLESEN der `.env` war es nicht
+# (Befund 2026-10-03): `grep -E '^CACHE_STORE='` erkennt nur die NULLTE Spalte
+# und kein `export`. phpdotenv akzeptiert beides, also blieb
+# `  CACHE_STORE=array` und `export CACHE_STORE=array` unerkannt, das Skript
+# fiel still auf `database` zurück — und die Warnung blieb für einen Stack aus,
+# dessen Claim nachweislich prozesslokal ist. Ein Hinweis, der die falsche
+# Antwort gibt, ist schlimmer als keiner.
+#
+# `dotenv_value` liest deshalb dieselben Formen, die Laravel liest: optionales
+# `export`, Leerzeichen vor dem Schlüssel und um `=`, Quotes um den Wert, ein
+# Inline-Kommentar, und — wie phpdotenv — die LETZTE Zu gewinnt. Erkennt es
+# nichts, liefert es nichts: der Aufrufer fällt auf `database` zurück und sagt
+# nichts Falsches (leer ≠ `array`, und `array` ist der Fall, der die Warnung
+# verdient).
+dotenv_value() {
+    local file="$1" key="$2" line value='' rest
+
+    [ -f "$file" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # führende Leerzeichen, optionales `export`
+        line="${line#"${line%%[![:space:]]*}"}"
+        if [ "${line#export}" != "$line" ]; then
+            line="${line#export}"
+            line="${line#"${line%%[![:space:]]*}"}"
+        fi
+
+        [ "${line#"$key"}" != "$line" ] || continue
+
+        rest="${line#"$key"}"
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+        [ "${rest#=}" != "$rest" ] || continue
+
+        value="${rest#=}"
+        value="${value#"${value%%[![:space:]]*}"}"
+
+        case "$value" in
+            '"'*'"') value="${value#\"}"; value="${value%%\"*}" ;;
+            "'"*"'") value="${value#\'}"; value="${value%%\'*}" ;;
+            *' #'*) value="${value%% #*}" ;;
+        esac
+
+        # Leerzeichen rechts abschneiden (unquoted Werte sind bei phpdotenv getrimmt)
+        value="${value%"${value##*[![:space:]]}"}"
+    done < "$file"
+
+    printf '%s' "${value-}"
+}
+
+# Der Start läuft bewusst weiter: dieser Stack ist der dokumentierte Dev-Weg, und
+# der Prod-Guard (`deployment/backend-supervisor.sh`, Detail 2b) würde ihn sofort
 # abbrechen.
-EFFECTIVE_CACHE_STORE="${CACHE_STORE:-$(grep -E '^CACHE_STORE=' .env | tail -n 1 | cut -d= -f2- || true)}"
+EFFECTIVE_CACHE_STORE="${CACHE_STORE:-$(dotenv_value .env CACHE_STORE)}"
 EFFECTIVE_CACHE_STORE="${EFFECTIVE_CACHE_STORE:-database}"
 
 case "$EFFECTIVE_CACHE_STORE" in

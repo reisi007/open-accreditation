@@ -58,6 +58,14 @@ class QueueSupervisorCacheStoreGuardTest extends TestCase
      */
     private const SHARED_STORES = ['database', 'redis', 'memcached', 'dynamodb'];
 
+    /**
+     * The compose pin, as written: `CACHE_STORE: ${CACHE_STORE:-<default>}`.
+     *
+     * Deliberately `preg_match_all`, not `preg_match` — see
+     * `test_the_cache_store_the_compose_file_ships_is_accepted()`.
+     */
+    private const CACHE_STORE_DEFAULT_PATTERN = '/^[ \t]*CACHE_STORE:[ \t]*\$\{CACHE_STORE:-([^}]+)\}/m';
+
     /* ------------------------------------------------------------------ */
     /* Refusals */
     /* ------------------------------------------------------------------ */
@@ -168,25 +176,97 @@ class QueueSupervisorCacheStoreGuardTest extends TestCase
     /* The guard must fit the deployment it protects */
     /* ------------------------------------------------------------------ */
 
+    /**
+     * Every `CACHE_STORE` default the deployment ships must survive the guard.
+     *
+     * ## Why this scans the whole file AND the `backend` block specifically
+     *
+     * The compose file pins the variable TWICE — in `migrate` and in `backend`
+     * — and calls the second block an "IDENTISCHE KOPIE" of the first (see its
+     * own comment above each block): `migrate` can write a `config:cache`
+     * snapshot into the shared `app_cache` volume that `backend` then reads, so
+     * both must arrive with the same value.
+     *
+     * This test used to take the FIRST match with `preg_match` (`/m`), which is
+     * the `migrate` service — NOT the one that starts the supervisor. It was
+     * therefore checking a block the guard never runs in: MEASURED 2026-10-03,
+     * with the `backend` default flipped to `array` this test still passed, and
+     * the deployment it "verified" was exactly the one the guard refuses.
+     *
+     * So both halves are pinned, and each half fails for its own reason:
+     * the file-wide sweep so no service can drift silently, and the
+     * service-specific one because `backend` is the process the guard protects.
+     */
     public function test_the_cache_store_the_compose_file_ships_is_accepted(): void
     {
         $compose = $this->deploymentFile('docker-compose.yml');
         $this->assertIsString($compose, 'PREMISE: deployment/docker-compose.yml must be readable.');
 
-        preg_match('/^\s*CACHE_STORE:\s*\$\{CACHE_STORE:-([^}]+)\}/m', $compose, $matches);
+        $backendBlock = $this->composeServiceBlock($compose, 'backend');
+        $this->assertNotNull(
+            $backendBlock,
+            'PREMISE: the compose file must have a `backend` service — it is the one that starts
+            `deployment/backend-supervisor.sh`, so no other block can stand in for it.',
+        );
+
+        $this->assertPinnedCacheStoresAreShared($backendBlock, 'the `backend` service of deployment/docker-compose.yml');
+
+        $this->assertPinnedCacheStoresAreShared($compose, 'every CACHE_STORE pin in deployment/docker-compose.yml');
+    }
+
+    /**
+     * Assert that every `CACHE_STORE: ${CACHE_STORE:-x}` pin in `$scope` carries
+     * a default the supervisor accepts — and that there is at least one, so a
+     * scan that finds nothing fails instead of passing vacuously.
+     */
+    private function assertPinnedCacheStoresAreShared(string $scope, string $what): void
+    {
+        preg_match_all(self::CACHE_STORE_DEFAULT_PATTERN, $scope, $matches);
 
         $this->assertNotEmpty(
-            $matches,
-            'PREMISE: the compose file must pin CACHE_STORE with a default — a scan that finds
-            no default would pass this test vacuously.',
+            $matches[1],
+            "PREMISE: {$what} must pin CACHE_STORE with a default — a scan that finds no default would pass this test vacuously.",
         );
 
-        $this->assertContains(
-            $matches[1],
-            self::SHARED_STORES,
-            'The compose default must be a store the supervisor accepts, or the guard
-            refuses the deployment this repo ships.',
-        );
+        foreach ($matches[1] as $default) {
+            $this->assertContains(
+                $default,
+                self::SHARED_STORES,
+                "The CACHE_STORE default '{$default}' in {$what} is not a store the supervisor accepts, so the guard
+                refuses the deployment this repo ships.",
+            );
+        }
+    }
+
+    /**
+     * The text of one top-level service block, or `null` when there is none.
+     *
+     * Textual on purpose — `symfony/yaml` is not a dependency, and all this
+     * needs is "which keys does THIS service pin". The block runs from the
+     * service key to the next key at service indent (2) or at top level (0);
+     * comments and list items inside the block do not end it, because the
+     * terminator requires a key (`[A-Za-z_]`), not a `- `.
+     */
+    private function composeServiceBlock(string $compose, string $service): ?string
+    {
+        $lines = preg_split('/\R/', $compose) ?: [];
+        $start = null;
+
+        foreach ($lines as $index => $line) {
+            if ($start === null) {
+                if (preg_match('/^  '.preg_quote($service, '/').':[ \t]*$/', $line) === 1) {
+                    $start = $index + 1;
+                }
+
+                continue;
+            }
+
+            if (preg_match('/^(?: {2})?[A-Za-z_][\w.-]*:(?:[ \t]|$)/', $line) === 1) {
+                return implode("\n", array_slice($lines, $start, $index - $start));
+            }
+        }
+
+        return $start === null ? null : implode("\n", array_slice($lines, $start));
     }
 
     /* ------------------------------------------------------------------ */
