@@ -120,6 +120,14 @@ echo "    Mailpit is up (SMTP 127.0.0.1:1025, UI http://localhost:8025)."
 cd "$BACKEND_DIR"
 
 echo "==> Preparing backend environment..."
+
+# `dotenv_value` reads a `.env` the way Laravel does. It is shared with
+# `scripts/dev-worker.sh` and lives in one file because two copies of this rule
+# drifted apart once already (2026-10-03, L1) — see the header of that file for
+# what the drift cost. Sourced here, before the first reader below needs it.
+# shellcheck source=scripts/lib/dotenv-value.sh
+. "$ROOT_DIR/scripts/lib/dotenv-value.sh"
+
 if [ ! -f .env ]; then
     cp .env.example .env
     echo "    Created .env from .env.example."
@@ -134,10 +142,16 @@ grep -q '^CACHE_STORE=array$' .env
 # The app talks to the same database the `db` container was seeded with. Warn
 # (without aborting) when a local `deployment/.env` makes the two disagree —
 # otherwise `migrate` fails with an opaque Postgres authentication error.
+#
+# `dotenv_value`, not a `grep -E "^${key}="` (measured 2026-10-03, L5): this was
+# the THIRD reader of a `.env` in this one file. `backend/.env` written as
+# `  DB_DATABASE=x` or `export DB_DATABASE=x` read as empty here while Laravel
+# read `x` — so the warning stayed silent on exactly the mismatch it exists to
+# announce, and `migrate` then failed with the opaque error above.
 if [ -f "$LOCAL_ENV_FILE" ]; then
     for key in DB_DATABASE DB_USERNAME DB_PASSWORD; do
-        local_value="$(grep -E "^${key}=" "$LOCAL_ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
-        backend_value="$(grep -E "^${key}=" .env | tail -n 1 | cut -d= -f2- || true)"
+        local_value="$(dotenv_value "$LOCAL_ENV_FILE" "$key")"
+        backend_value="$(dotenv_value .env "$key")"
         if [ -n "$local_value" ] && [ "$local_value" != "$backend_value" ]; then
             echo "    WARNING: $key differs between deployment/.env ('$local_value') and backend/.env ('$backend_value')." >&2
             echo "    WARNING: align them or the migrate below cannot authenticate." >&2
@@ -181,22 +195,32 @@ echo ""
 # this file are these note lines), so an already-present backend/.env — or an
 # exported QUEUE_CONNECTION, which the script also never overrides — makes an
 # unconditional "stays 'database'" claim false, and the reader is the one who
-# gets misled. Resolution order mirrors the app: Laravel's immutable Dotenv
-# never overwrites a real environment variable, so the environment wins over
-# backend/.env, which in turn (created from .env.example a few steps above when
-# it did not exist yet) wins over .env.example.
-last_env_value() {
-    # Last occurrence wins, matching how a duplicated key is read. `|| true`
-    # because under `set -e` + pipefail a grep that matches nothing would take
-    # the whole script down — this is a note, not a guard.
-    grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
-}
-QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION:-$(last_env_value QUEUE_CONNECTION .env)}"
-[ -n "$QUEUE_CONNECTION_EFFECTIVE" ] || QUEUE_CONNECTION_EFFECTIVE="$(last_env_value QUEUE_CONNECTION .env.example)"
-QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION_EFFECTIVE:-<unset>}"
+# gets misled.
+#
+# THREE STAGES, and they are the three the APP has — not "environment > .env >
+# .env.example" as this note used to claim. `.env.example` is a TEMPLATE, never
+# a runtime source: Laravel reads `backend/.env` and nothing else, so naming the
+# template described a stage that does not exist. Measured before the correction
+# (L2): with the key absent from `.env` and `.env.example` set to `redis`, this
+# note said `redis` while the app resolved `database` — the note named a
+# connection the app would never use, and sent the reader to the wrong branch.
+# The third stage is what `config/queue.php:16` falls back to.
+#
+# The first two stages are Laravel's own: its immutable Dotenv never overwrites a
+# real environment variable, so the environment wins over `backend/.env`.
+#
+# `dotenv_value` (sourced near the top of this file) is SHARED with
+# dev-worker.sh. This note used to have its own `last_env_value`, a `grep -E
+# "^KEY="` — the blindness F5 had just fixed next door. Measured: it read
+# `export QUEUE_CONNECTION=sync`, `  QUEUE_CONNECTION=sync` and
+# `QUEUE_CONNECTION="sync"` — the form the CI E2E job itself writes — as NOT
+# sync, i.e. it told the reader to start a worker for a stack that delivers
+# inline. One rule, one file, one differential test.
+QUEUE_CONNECTION_EFFECTIVE="${QUEUE_CONNECTION:-$(dotenv_value .env QUEUE_CONNECTION)}"
+[ -n "$QUEUE_CONNECTION_EFFECTIVE" ] || QUEUE_CONNECTION_EFFECTIVE="database"
 
 echo "  NOTE: this script starts NO queue worker, and QUEUE_CONNECTION resolves to"
-echo "        '$QUEUE_CONNECTION_EFFECTIVE' (environment > backend/.env > .env.example)."
+echo "        '$QUEUE_CONNECTION_EFFECTIVE' (environment > backend/.env > config/queue.php default)."
 if [ "$QUEUE_CONNECTION_EFFECTIVE" = "sync" ]; then
     echo "        With 'sync' the mail is delivered inline in the request: the 'jobs'"
     echo "        table stays empty and NO worker is needed — a mail-dependent"

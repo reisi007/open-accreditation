@@ -84,40 +84,14 @@ fi
 # nichts, liefert es nichts: der Aufrufer fällt auf `database` zurück und sagt
 # nichts Falsches (leer ≠ `array`, und `array` ist der Fall, der die Warnung
 # verdient).
-dotenv_value() {
-    local file="$1" key="$2" line value='' rest
-
-    [ -f "$file" ] || return 0
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        # führende Leerzeichen, optionales `export`
-        line="${line#"${line%%[![:space:]]*}"}"
-        if [ "${line#export}" != "$line" ]; then
-            line="${line#export}"
-            line="${line#"${line%%[![:space:]]*}"}"
-        fi
-
-        [ "${line#"$key"}" != "$line" ] || continue
-
-        rest="${line#"$key"}"
-        rest="${rest#"${rest%%[![:space:]]*}"}"
-        [ "${rest#=}" != "$rest" ] || continue
-
-        value="${rest#=}"
-        value="${value#"${value%%[![:space:]]*}"}"
-
-        case "$value" in
-            '"'*'"') value="${value#\"}"; value="${value%%\"*}" ;;
-            "'"*"'") value="${value#\'}"; value="${value%%\'*}" ;;
-            *' #'*) value="${value%% #*}" ;;
-        esac
-
-        # Leerzeichen rechts abschneiden (unquoted Werte sind bei phpdotenv getrimmt)
-        value="${value%"${value##*[![:space:]]}"}"
-    done < "$file"
-
-    printf '%s' "${value-}"
-}
+#
+# Die Funktion LEBT JETZT in `scripts/lib/dotenv-value.sh`, weil `e2e-up.sh`
+# dieselbe Aufgabe hatte und sich 2026-10-03 (L1) eine zweite, schwächere
+# Fassung geschrieben hat: `grep -E "^$1="`, das `export`, eingerückte und
+# quotete Werte nicht erkennt. Zwei Kopien einer Regel sind zwei Regeln, die
+# auseinanderlaufen — die genau das getan haben. Eine Datei, ein Test.
+# shellcheck source=scripts/lib/dotenv-value.sh
+. "$ROOT_DIR/scripts/lib/dotenv-value.sh"
 
 # Der Start läuft bewusst weiter: dieser Stack ist der dokumentierte Dev-Weg, und
 # der Prod-Guard (`deployment/backend-supervisor.sh`, Detail 2b) würde ihn sofort

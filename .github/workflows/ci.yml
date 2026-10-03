@@ -478,9 +478,21 @@ jobs:
           # Timing-Abhaengigkeit gegeben: jeder mailabhaengige Spec (neun,
           # gezaehlt ueber den Aufruf-Graphen: MailpitHelper direkt oder
           # ueber einen Helper, der darauf wartet — u. a. auth, profile,
-          # approvals; `namespace-isolation` gehoert NICHT dazu, es ruft
-          # keinen von beiden, sondern listet die Helfer nur als Strings in
-          # FIXTURE_CREATORS auf) muesste auf einen
+          # approvals; `namespace-isolation` gehoert NICHT dazu: es ruft
+          # keinen von beiden. Es liest die anderen Specs als TEXT (fs, nie
+          # ausgefuehrt) und importiert aus `helpers/admin-data` ausschliesslich
+          # DATEN-Konstanten (`E2E_PURGE_*`, die es nur spreadet) — also keine
+          # Helfer-Funktion, die zustellen koennte. Beleg fuer den Ausschluss,
+          # korrigiert 2026-10-03 (L4): sein EINZIGER case-insensitiver
+          # "mail"-Treffer ist `namespace-isolation.spec.ts:837`, und das ist das
+          # Wort "email" in einem Kommentar ueber User-Handles — kein
+          # Zustellungsbezug (`grep -nE "mailpit|Mailpit|extractActivation"` dort
+          # = null Treffer). Die zuvor genannten Zeilen :941-942 (ein Kommentar
+          # ueber `registerUploadPortraitAndApply`) und :961-965 (die
+          # `FIXTURE_CREATORS`-Strings) enthalten gar kein "mail" und waren damit
+          # kein Beleg; die Schlussfolgerung war richtig, der Beleg nicht —
+          # exakt die Fehlerklasse, die der Mail-Zaehlkorrektur von 0be8382 zugrunde
+          # lag) muesste auf einen
           # Hintergrundprozess warten, und jeder Retry-Puls des
           # Workers waere ein Flake-Budget, das die Produktzusage nicht
           # verdient. Mit `sync` ist die Zustellung VOLLSTAENDIG, bevor die
