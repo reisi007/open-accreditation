@@ -75,7 +75,7 @@ use Tests\TestCase;
  * regains a private reader, this fails even though every parsing assertion below
  * would still pass.
  *
- * ## Scope: TEN measured divergence classes (and one named residue), not one
+ * ## Scope: TEN measured divergence classes (one of them pinned over TWO forms), and one named residue
  *
  * This file once claimed the reader differed from phpdotenv in exactly ONE
  * input. An independent fuzz — 6000 bodies, a different seed AND a different
@@ -113,6 +113,17 @@ use Tests\TestCase;
  * it is the one that stays a named, unpinned residue. So "ten classes, all
  * pinned" is not read as "ten, and nothing is left over" — eleven differences
  * have been found, and the eleventh is named in the reader's header.
+ *
+ * Befund NEU-1 made that sentence true in a way it had not been, which is worth
+ * stating because the count did not move: an unbalanced `="` AFTER an earlier
+ * assignment is an ELEVENTH difference, and it is pinned as class M's second
+ * FORM — a second row under M's one label — not as an eleventh class. "Another
+ * class" and "another form of a pinned class" are told apart by what a row has
+ * to carry, and this one needed nothing the table lacked: one body, one oracle,
+ * one reader, one locale. What it did need was a second vendor ASSERTION per
+ * class, because M's single row asserted `parse() === []`, and the finding is
+ * precisely the body where that is false. Hence the mechanism column is a LIST
+ * now. Eleven differences, ten classes, one residue, M pinned twice over.
  *
  * The lesson is written here because this file keeps re-learning it: a
  * differential is only as complete as the ALPHABET it was fed, and once past the
@@ -534,7 +545,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ */
-    /* The documented boundary: ten classes, one named residue */
+    /* The documented boundary: ten classes (M pinned over two forms), one named residue */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -571,9 +582,27 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * is the whole reason one is pinned and the other is not; neither is
      * skipped.
      *
-     *  - `$oracle` is what `Dotenv\Dotenv::parse()` answers (or, for M, that it
-     *    emits nothing at all). These values were measured, not read off the
-     *    vendor source; they are the pin.
+     * That "how many answers a row carries" is the SHAPE, and Befund NEU-1 is
+     * what showed it is not the same question as "how many rows a class has".
+     * The finding was an eleventh difference: an unbalanced `="` AFTER an
+     * earlier assignment, where phpdotenv keeps the EARLIER value (the
+     * unterminated line never leaves `$multilineBuffer`,
+     * `Lines::multilineProcess()`) and this reader takes the LATER truncated
+     * one. It is NOT an eleventh class and it is not an eleventh row: it is
+     * class M's second FORM, and the table's shape already had room for it —
+     * one body, one oracle, one reader, one locale. What it did not have room
+     * for was a second vendor ASSERTION per class, because the mechanism column
+     * held a single token, and M's single row asserted
+     * `Dotenv::parse($body) === []` — true of the body it held, false of the
+     * finding's. So the fix is two rows under one label plus a mechanism LIST,
+     * and it needs no second reader answer anywhere. That is the difference
+     * between this and the locale residue, and it is why the counts below are
+     * unchanged: TEN classes and ONE residue, with class M pinned twice over.
+     *
+     *  - `$oracle` is what `Dotenv\Dotenv::parse()` answers. These values were
+     *    measured, not read off the vendor source; they are the pin. One
+     *    companion case carries what `?? ''` cannot express — a key that is not
+     *    there at all, which is class M's first form.
      *  - `$reader` is what `scripts/lib/dotenv-value.sh` answers for the same
      *    body, read exactly as the scripts read it — through command
      *    substitution, which is why class A exists at all.
@@ -582,37 +611,91 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      *    reader of the script learns where not to trust it.
      *  - `$mechanism` names the phpdotenv code that produces the oracle's
      *    answer, so "this is the multiline feature" is checked, not asserted.
+     *    It is a LIST and may be empty, and the list is not decoration: Befund
+     *    NEU-1 is the measurement that forced it. One row per class could hold
+     *    only ONE vendor assertion, so class M's single row asserted
+     *    `Dotenv::parse($body) === []` — true of the body it carried, false of
+     *    the shape where an earlier assignment survives the unterminated line.
+     *    Class M now has TWO rows under ONE label, each carrying the mechanisms
+     *    that are true of it, and neither can be deleted as a duplicate: drop
+     *    the earlier assignment from the second and its `earlier-value-survives`
+     *    premise goes red, because it would then be describing the first.
+     *    This is NOT the locale residue's problem, though — that one needs TWO
+     *    READER ANSWERS per row, one per locale, and no amount of extra
+     *    mechanisms supplies a second answer.
      *
      * The last element of each entry is that class's REACHABILITY statement for
      * the two keys these scripts ask for. It lives here, per class, because
      * reachability is a property of the class — not of the reader.
      *
-     * @return array<string, array{0: string, 1: string, 2: string, 3: string, 4: string|null, 5: string}>
+     * @return array<string, array{0: string, 1: string, 2: string, 3: string, 4: list<string>, 5: string}>
      */
     public static function divergenceClasses(): array
     {
         return [
-            'M — an UNBALANCED multiline swallows the file' => [
+            'M — an UNBALANCED multiline with NO earlier assignment emits no key' => [
                 "QUEUE_CONNECTION=\";\t\n",
                 '',
                 ';',
                 'M — MULTILINE, UNBALANCED',
-                'multiline',
+                ['multiline-buffered', 'no-key-at-all'],
                 'UNREACHABLE for both keys: a value that opens a multiline cannot be a connection name. '
                 .'Note the reader returns `;` and NOT `;` + a tab — the tab is trimmed off with the rest '
                 .'of the value before it is parsed. An earlier version of this file and of the header '
-                .'recorded `;` + a tab, and that was wrong (Befund B7).',
+                .'recorded `;` + a tab, and that was wrong (Befund B7). THIS ROW IS ONLY HALF THE CLASS. '
+                .'The other half — an EARLIER assignment that survives — is the next row, and Befund '
+                .'NEU-1 is what turned it from a footnote into a row: this row\'s mechanism assertion '
+                .'(`no-key-at-all`) is only true because the body carries no earlier assignment, and the '
+                .'header\'s sentence "phpdotenv emits no key at all" was true of this row and FALSE of '
+                .'its sibling, which is the failure a single row per class cannot see.',
+            ],
+            'M — an UNBALANCED multiline AFTER an earlier assignment LEAVES that value standing' => [
+                // FOUR lines, and each of the two after the unbalanced one is
+                // load-bearing for the mechanism check rather than decoration.
+                // Without them, `firstMultilineStartLine()` could be reverted to
+                // the old inline `rtrim($body, "\n")` and the suite would stay
+                // green — MEASURED, because the predicate happens to hold on the
+                // joined string too. The COMMENT line is what finally separates
+                // the two forms: `looksLikeMultilineStart()` returns FALSE for a
+                // string whose `#` precedes the `="`, so a body with a comment in
+                // front of the unbalanced line answers `true` line-wise and
+                // `false` as one joined string (MEASURED both). That is the
+                // difference this row exists to catch, and it is why the reader
+                // and phpdotenv still disagree here: the comment is dropped, the
+                // unbalanced line never reaches `$output`, and only the FIRST
+                // assignment survives on the oracle side.
+                "QUEUE_CONNECTION=v\n# c\nQUEUE_CONNECTION=\"x\nQUEUE_CONNECTION=w\n",
+                'v',
+                'w',
+                'M — MULTILINE, UNBALANCED',
+                ['multiline-buffered', 'earlier-value-survives'],
+                'UNREACHABLE for both keys, and for the same reason as its sibling: it needs a value that '
+                .'opens a multiline, which a connection name is not in any form. WHAT THE READER WOULD '
+                .'THEN NAME is written down because it is the OPPOSITE direction from class W, and two '
+                .'differences in opposite directions are the pair a reader of this table is most likely '
+                .'to collapse into one. MEASURED through the note\'s OWN block, extracted from '
+                .'scripts/e2e-up.sh and not retyped: a `.env` holding `QUEUE_CONNECTION=sync` followed by '
+                .'`QUEUE_CONNECTION="` makes the note print `database` and say a worker is needed, while '
+                .'the app resolves `sync` and delivers inline. The mechanism is that the unterminated '
+                .'line contributes NO entry at all — `Lines::multilineProcess()` leaves it in '
+                .'`$multilineBuffer` and it never reaches `$output` — so phpdotenv answers with what an '
+                .'EARLIER line left behind while this reader answers with the truncated value of a line '
+                .'phpdotenv never read. W is the mirror image: there the reader keeps a value phpdotenv '
+                .'CLEARED, here the reader takes a value phpdotenv DISCARDED. It is UNREACHABLE for both keys '
+                .'for the same reason as its sibling, and the header now says so for BOTH forms rather than '
+                .'for M2 alone. Befund NEU-1.',
             ],
             'M2 — a BALANCED multiline: the value closes on a LATER line' => [
                 "QUEUE_CONNECTION=\"a\nb\"\n",
                 "a\nb",
                 'a',
                 'M2 — MULTILINE, BALANCED',
-                null,
+                [],
                 'UNREACHABLE for both keys: a connection name does not span two lines. This class is a '
                 .'SIBLING of M and not a footnote to it, and the difference is measured, not argued. '
-                .'In M phpdotenv REJECTS nothing and emits no key at all, because the `="` is never '
-                .'closed; here phpdotenv ACCEPTS the file and joins the lines (`Lines::multilineProcess()` '
+                .'In M phpdotenv REJECTS nothing and the unterminated line produces NO entry, so the '
+                .'answer is an earlier assignment or no key at all; here phpdotenv ACCEPTS the file and '
+                .'joins the lines (`Lines::multilineProcess()` '
                 .'implodes the buffer with a newline), while `read` hands this function one line at a time '
                 .'so the value state machine simply runs out of input and stops at the first line end. '
                 .'MEASURED: `K="a<NL>b"` → phpdotenv `a<NL>b`, this reader `a`. And the ESCAPE form '
@@ -625,7 +708,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 "sync\n",
                 'sync',
                 'A — A VALUE WHOSE LAST BYTE IS A NEWLINE',
-                null,
+                [],
                 'UNREACHABLE for both keys: no connection name ends in a newline. This class is not a bug '
                 .'in dotenv_value — it is what command substitution does to its output, and BOTH callers '
                 .'use it that way. The class is specifically the LAST byte. Mind the distinction this '
@@ -637,7 +720,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 'x"y',
                 'xy',
                 'E — A QUOTE BYTE INSIDE AN UNQUOTED VALUE',
-                null,
+                [],
                 'UNREACHABLE for both keys: a connection name contains no quote byte. Mind the direction — '
                 .'for CACHE_STORE the reader\'s answer is the one a human wants (`<FF>array` → `array`), '
                 .'so this class is not uniformly "the reader is wrong".',
@@ -647,7 +730,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 'sync',
                 '${FOO}',
                 'V — `${VAR}` INTERPOLATION',
-                null,
+                [],
                 'REACHABLE for both keys, and the only reachable class. `.env` is legal phpdotenv input, so '
                 .'`QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set earlier in the same file is legal, '
                 .'Laravel resolves it and this reader does not — the note then names a connection the app '
@@ -658,7 +741,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 'sync',
                 "sync\rV",
                 'B — A LONE `\r` IS A LINE SEPARATOR',
-                null,
+                [],
                 'UNREACHABLE for both keys: an ordinary CRLF file is fine (every CR precedes an LF and '
                 .'lands at end of line, where the reader strips it), and the CI job rewrites the line '
                 .'with `sed -i`, which keeps no CR.',
@@ -668,7 +751,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 "\ffoo",
                 'foo',
                 'C — CONTROL WHITESPACE',
-                null,
+                [],
                 'UNREACHABLE for both keys: no connection name carries a form feed or a vertical tab. '
                 .'phpdotenv trims ` \\n\\r\\t\\0\\x0B` — not `\\f` — and its value lexer treats any '
                 .'`ctype_space()` byte as the whitespace that may precede an inline `#`.',
@@ -678,7 +761,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 "sy\0nc",
                 'sync',
                 'N — A NUL BYTE',
-                null,
+                [],
                 'UNREACHABLE for both keys: a bash variable cannot hold a NUL at all, so `read` DROPS the '
                 .'byte and carries on — this class is structural, not a parsing choice.',
             ],
@@ -690,7 +773,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 '?$',
                 "\x80\$",
                 'U — AN INVALID UTF-8 BYTE TOGETHER WITH A `$`',
-                null,
+                [],
                 'UNREACHABLE for both keys: it needs BOTH halves, a byte that is not valid UTF-8 AND a '
                 .'`$` in the value, and a connection name written as text carries neither. Each half alone '
                 .'AGREES, and that is what makes this one class instead of "invalid bytes are mangled": '
@@ -705,7 +788,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 '',
                 'sync',
                 'W — A BARE NAME LINE CLEARS THE KEY',
-                null,
+                [],
                 'UNREACHABLE for both keys, and this verdict is about the WRITERS of a `.env` rather than '
                 .'about the keys themselves — MEASURED 2026-10-03: zero lines matching '
                 .'`^\s*(export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*$` in `backend/.env.example`, in '
@@ -1002,35 +1085,70 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         string $oracle,
         string $reader,
         string $label,
-        ?string $mechanism,
+        array $mechanism,
         string $reachability,
     ): void {
         $key = 'QUEUE_CONNECTION';
 
-        // Side one: phpdotenv. For M the answer is ABSENCE, which `?? ''` cannot
-        // express, so the whole array is asserted for that one case.
-        if ($mechanism === 'multiline') {
-            $this->assertSame(
-                [],
-                Dotenv::parse($body),
-                'PREMISE: phpdotenv must treat this unbalanced quote as an unterminated multiline and emit '
-                .'nothing at all — that absence is what makes it class M.',
-            );
-
-            $m = new \ReflectionMethod(Lines::class, 'looksLikeMultilineStart');
-            $m->setAccessible(true);
-            $this->assertTrue(
-                $m->invoke(null, rtrim($body, "\n")),
-                'PREMISE: the divergence must be the multiline feature, not an unaccounted-for difference.',
-            );
-        } else {
-            $this->assertSame(
-                $oracle,
-                Dotenv::parse($body)[$key] ?? '',
-                "PREMISE: phpdotenv's answer for this body is what the header records for class {$label}. "
-                .'If phpdotenv changed, the class is stale and the header must change with it.',
-            );
+        // The mechanism column is a LIST, and Befund NEU-1 is why. One row per
+        // class could carry only ONE vendor assertion, which forced class M's
+        // single row to assert `Dotenv::parse($body) === []` — TRUE of the body
+        // it holds and FALSE of its sibling, where an earlier assignment
+        // survives the unterminated line. A pin that asserts half a class
+        // cannot see the other half, and the header prose written from that
+        // row ("phpdotenv emits no key at all") was measurably wrong. Two rows
+        // sharing one LABEL, each carrying the mechanisms that are true of it,
+        // is the shape that holds both halves — and it does so WITHOUT a second
+        // reader answer per row, which is the thing the locale residue needs
+        // and cannot have.
+        foreach ($mechanism as $how) {
+            match ($how) {
+                // "this divergence IS phpdotenv's multiline feature", rather
+                // than an unaccounted-for difference that happens to look like
+                // one. Asserted on the line that actually starts the multiline,
+                // which for a multi-line body is not the body itself.
+                'multiline-buffered' => $this->assertTrue(
+                    $this->looksLikeMultilineStart($this->firstMultilineStartLine($body)),
+                    'PREMISE: the divergence must be the multiline feature, not an unaccounted-for '
+                    .'difference. `Lines::looksLikeMultilineStart()` is what sends the line into '
+                    .'`$multilineBuffer`, and it must still say yes for this body.',
+                ),
+                // The absence itself, which `[$key] ?? \'\'` cannot express:
+                // a key that is NOT there and a key that is there and empty
+                // are the same string.
+                'no-key-at-all' => $this->assertSame(
+                    [],
+                    Dotenv::parse($body),
+                    'PREMISE: with NO earlier assignment for this key, phpdotenv must emit nothing at all '
+                    .'for it — that ABSENCE is one of the two halves of class M, and it is not the '
+                    .'whole of it (Befund NEU-1: its sibling emits one key, the earlier value).',
+                ),
+                // The other half, and the two premises that make it a separate
+                // ROW rather than a duplicate: the unterminated line on its own
+                // contributes nothing, and the surviving answer comes from the
+                // lines in front of it. Delete the earlier assignment and this
+                // row's oracle changes — which is exactly why it cannot be
+                // folded into the row above.
+                'earlier-value-survives' => $this->assertSiblingProvenance(
+                    $body,
+                    $key,
+                    $oracle,
+                ),
+                default => $this->fail(
+                    "Class {$label} names the mechanism `{$how}`, which this test does not know. A "
+                    .'mechanism token nobody checks is a comment in a table cell.',
+                ),
+            };
         }
+
+        // And the oracle's answer for the key, for EVERY row — including class
+        // M's, whose absence is asserted above and whose value here is `''`.
+        $this->assertSame(
+            $oracle,
+            Dotenv::parse($body)[$key] ?? '',
+            "PREMISE: phpdotenv's answer for this body is what the header records for class {$label}. "
+            .'If phpdotenv changed, the class is stale and the header must change with it.',
+        );
 
         // Side two: the reader, read the way the scripts read it.
         $this->assertSame(
@@ -1049,13 +1167,36 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         );
 
         // And it must still be NAMED. Measured but unnamed is a hidden boundary.
+        //
+        // The MECHANISM TOKEN is required too, not just the label, and this is
+        // not decoration: the label is a fixed string, so a rename is caught,
+        // but nothing above checks that the header still explains WHICH vendor
+        // behaviour produces the answer. Befund NEU-1's prose was half-true
+        // because it named the right class and the wrong consequence
+        // ("emits no key at all"), and MEASURED, restating that wrong sentence
+        // or deleting the sibling's paragraph outright both leave this suite
+        // green. So the header has to carry the SENTENCE, and the sentence is
+        // what makes the class usable by whoever reads the script.
+        $header = $this->repositoryFile(self::READER);
+
         $this->assertStringContainsString(
             $label,
-            $this->repositoryFile(self::READER),
+            $header,
             "Class {$label} is still a divergence, but its label is gone from the reader's header. "
             .'Undocumented differences are worse than documented ones: whoever reads the script has no '
             .'way to learn where not to trust it.',
         );
+
+        if ($mechanism !== []) {
+            $this->assertStringContainsString(
+                $this->headerSentenceFor($mechanism),
+                $header,
+                "Class {$label} is pinned on the mechanism `".implode('`, `', $mechanism).'`, but the reader\'s '
+                .'header no longer states it. The label is still there, so this reads as covered while the '
+                .'sentence a reader of the script acts on is the wrong one — which is what Befund NEU-1 '
+                .'measured: the header named class M correctly and described only HALF of what it does.',
+            );
+        }
 
         // And it must carry an explicit reachability verdict for these two keys.
         $this->assertMatchesRegularExpression(
@@ -1063,6 +1204,274 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             $reachability,
             "Class {$label} has no reachability statement for the two keys these scripts read. Silence "
             .'about reachability is what made the old "exactly one difference" claim sound safer than it was.',
+        );
+
+        // And it must ASSERT the mechanism its own form rests on — not merely
+        // that whatever it names is checked. The loop above already proves the
+        // second half; this is the first, and it is the assertion Befund NEU-1
+        // needed and did not have.
+        //
+        // MEASURED, and this is why it is here: dropping `no-key-at-all` from
+        // M's first row, or `earlier-value-survives` from its sibling, or
+        // deleting the sibling row outright — all three leave the suite FULLY
+        // GREEN, because nothing anywhere said those premises had to be
+        // asserted. The per-row loop cannot catch that: by the time it runs, the
+        // omission has already happened, and what it checks is that the tokens
+        // that SURVIVED are honoured. A premise nothing requires is a comment,
+        // and this is the assertion that makes it a requirement.
+        [$required, $requiredRows] = $this->requiredMechanismsFor($body);
+
+        foreach ($required as $token) {
+            $this->assertContains(
+                $token,
+                $mechanism,
+                "Class {$label} has a row whose body makes `{$token}` the mechanism of its divergence, but "
+                .'the row asserts '.($mechanism === [] ? 'NO mechanism at all' : '`'.implode('`, `', $mechanism).'`')
+                .'. Asserting the wrong mechanism is worse than asserting none: the row then reads as '
+                .'checked while checking something else.',
+            );
+        }
+
+        // And a class with a SECOND form must have a row for it. Without this,
+        // deleting the sibling row is green too — and class M's prose is
+        // half-pinned again, which is the state Befund NEU-1 measured.
+        //
+        // COUNTED OVER EVERY ROW SHARING THE LABEL, not over the ones carrying a
+        // mechanism: a class whose single form names no mechanism still has to
+        // be counted, or `requiredRows = 1` would be satisfied by zero rows and
+        // the whole assertion would be vacuous for the nine classes it was
+        // written around.
+        $rows = array_filter(
+            self::divergenceClasses(),
+            static fn (array $row): bool => $row[3] === $label,
+        );
+
+        $this->assertCount(
+            $requiredRows,
+            $rows,
+            "Class {$label} has a body whose provenance rests on `".($required[count($required) - 1] ?? 'a second mechanism')
+            .'`, so the table must hold that many rows asserting mechanisms under this label. A class with '
+            .'only one of its two forms pinned has prose that is half-true — which is the state Befund '
+            .'NEU-1 found and measured.',
+        );
+    }
+
+    /**
+     * The sentence the reader's header must carry for a mechanism.
+     *
+     * Per TOKEN rather than per class, because the thing that was measurably
+     * wrong was never the label — it was the SENTENCE. A header that says
+     * "MULTILINE, UNBALANCED" and then describes only the form with no earlier
+     * assignment is exactly the failure this guards, so the guard names the two
+     * sentences the two forms are told apart by.
+     *
+     * `$multiline-buffered` deliberately maps to the sentence shared by both
+     * rows: it is the mechanism they have in common, and pinning it twice would
+     * say nothing extra.
+     *
+     * @param  list<string>  $mechanism
+     */
+    private function headerSentenceFor(array $mechanism): string
+    {
+        foreach (['earlier-value-survives' => 'WITH AN EARLIER ASSIGNMENT: phpdotenv keeps the EARLIER value',
+            'no-key-at-all' => 'NO EARLIER ASSIGNMENT: phpdotenv emits no key at all',
+            'multiline-buffered' => 'MULTILINE, UNBALANCED (`Lines::looksLikeMultilineStart()`)',
+        ] as $token => $sentence) {
+            if (in_array($token, $mechanism, true)) {
+                return $sentence;
+            }
+        }
+
+        return implode('`, `', $mechanism);
+    }
+
+    /**
+     * The mechanism tokens a row MUST assert, keyed by the row's own PROVENANCE.
+     *
+     * A row whose body is M's SECOND form must carry `earlier-value-survives` and
+     * must have a sibling row in the table — that is what makes deleting the
+     * sibling red (MEASURED green before this). A row whose body is M's FIRST
+     * must carry `no-key-at-all`, which is what makes dropping that token red
+     * (also MEASURED green before this). Every other class gets `[[], 1]`: its
+     * mechanism is already fully expressed by its oracle and reader answers, and
+     * one row under its label is all it is required to have.
+     *
+     * @return array{0: list<string>, 1: int}
+     */
+    private function requiredMechanismsFor(string $body): array
+    {
+        // MEASURED, not keyed off the body's BYTES, and the earlier byte-keyed
+        // version is the reason this helper exists in this form. Keyed off bytes
+        // it was satisfied by exactly the shape of body the table happened to
+        // hold — and MEASURED, that made premise 2 below UNLOAD-BEARING:
+        // deleting the earlier assignment from the sibling's body turned the
+        // helper's answer from "second form" to "not mine", so the ROW-COUNT
+        // assertion went red and the provenance assertion was never consulted.
+        // Two guards, one of which watches the body, and the weaker one covers
+        // for the stronger.
+        //
+        // So the question is asked of phpdotenv instead: does the unterminated
+        // block contribute nothing AND does the key still resolve afterwards?
+        // That is the second form, whatever the body is written as, and a body
+        // edit that changes it has to change this answer too — which is the
+        // property a byte comparison did not have.
+        $lines = $this->phpdotenvLines($body);
+        $start = null;
+        foreach ($lines as $index => $line) {
+            if ($this->looksLikeMultilineStart($line)) {
+                $start = $index;
+
+                break;
+            }
+        }
+
+        if ($start === null) {
+            return [[], 1];
+        }
+
+        $blockContributesNothing = Dotenv::parse(implode("\n", array_slice($lines, $start))) === [];
+        $parsed = Dotenv::parse($body);
+        $earlierValueSurvives = $blockContributesNothing
+            && array_key_exists('QUEUE_CONNECTION', $parsed);
+
+        if ($earlierValueSurvives) {
+            return [['multiline-buffered', 'earlier-value-survives'], 2];
+        }
+
+        return $blockContributesNothing
+            ? [['multiline-buffered', 'no-key-at-all'], 2]
+            : [[], 1];
+    }
+
+    /**
+     * The lines phpdotenv splits a body into, the way `Parser::parse()` does.
+     *
+     * `"/(\r\n|\n|\r)/"` — a BYTE rule, which is class B's whole mechanism.
+     * Written here rather than reused from the reader so a change to either
+     * side shows up as a red premise instead of as agreement.
+     *
+     * @return list<string>
+     */
+    private function phpdotenvLines(string $body): array
+    {
+        return preg_split('/(\r\n|\n|\r)/', $body) ?: [];
+    }
+
+    /**
+     * `Lines::looksLikeMultilineStart()`, read from the vendor code rather than
+     * restated — it is a private static, so via reflection, and a rename in
+     * phpdotenv turns into a red premise instead of a silently-passing one.
+     */
+    private function looksLikeMultilineStart(string $line): bool
+    {
+        $m = new \ReflectionMethod(Lines::class, 'looksLikeMultilineStart');
+        $m->setAccessible(true);
+
+        return $m->invoke(null, $line);
+    }
+
+    /**
+     * The line that opens the multiline, or `''` when none does.
+     *
+     * For a single-line body that is the body; for a multi-line one it is a
+     * LATER line than `rtrim($body, "\n")` would name, which is why this exists
+     * rather than the inline `rtrim` the first cut of the mechanism column used.
+     *
+     * MEASURED, and that is why it is a method rather than an inline
+     * expression: on class M's FIRST form — a single-line body — reverting it to
+     * `rtrim($body, "\n")` leaves the suite green, because the predicate
+     * happens to hold on the whole string too. The sibling's body is THREE lines
+     * for exactly this reason, and with them present the same revert goes red.
+     * A helper that only one of its own class's two bodies can exercise is a
+     * helper whose correctness is untested on the other.
+     */
+    private function firstMultilineStartLine(string $body): string
+    {
+        foreach ($this->phpdotenvLines($body) as $line) {
+            if ($this->looksLikeMultilineStart($line)) {
+                return $line;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Class M's second form: the unterminated line contributes NOTHING, and the
+     * answer that survives comes from the lines in FRONT of it.
+     *
+     * Two premises, and each is what keeps this row from being a duplicate of
+     * the one above it:
+     *
+     *  1. The unterminated line ALONE parses to nothing. That is the mechanism
+     *     (`Lines::multilineProcess()` keeps it in `$multilineBuffer` and it
+     *     never reaches `$output`), and it is why the surviving value is an
+     *     EARLIER one rather than a truncated one.
+     *  2. The body WITHOUT the unterminated line parses to exactly the oracle
+     *     answer — the provenance claim: the answer comes from in front of the
+     *     unbalanced line.
+     *
+     * And the honest status of (2), MEASURED rather than assumed: it is NOT an
+     * independent guard. Deleting it leaves the suite fully GREEN, because (1)
+     * plus the per-row oracle assertion already imply it — if the unterminated
+     * block contributes no entry, then the whole parse equals the parse of the
+     * lines in front of it, so `parse($body) === parse($prefix)` follows and
+     * asserting it separately can only repeat what has been shown. It is kept
+     * because it NAMES the provenance in the place a reader of this class comes
+     * to learn it, and because the cost of a redundant premise is one parse
+     * while the cost of a reader inferring "the answer might come from the
+     * swallowed lines" is a wrong inference about a documented boundary. Its
+     * docblock says plainly that it is a restatement, not a guard: a comment
+     * claiming to be load-bearing where a measurement says it is not is worse
+     * than no comment.
+     *
+     * What DOES catch "somebody deleted the earlier assignment" is worth naming,
+     * because it is not this premise: it is the per-row oracle assertion.
+     * MEASURED — that body then has no key at all, so the row's recorded oracle
+     * `v` no longer matches and the row goes red there.
+     *
+     * The earlier assignment's own VALUE is never restated as a literal here;
+     * both sides read it out of `$body`, so a changed body cannot leave a stale
+     * premise behind.
+     */
+    private function assertSiblingProvenance(string $body, string $key, string $oracle): void
+    {
+        $lines = $this->phpdotenvLines($body);
+        $start = null;
+        foreach ($lines as $index => $line) {
+            if ($this->looksLikeMultilineStart($line)) {
+                $start = $index;
+
+                break;
+            }
+        }
+
+        $this->assertNotNull(
+            $start,
+            'PREMISE: this body must contain an unbalanced `="` — the mechanism that puts it in '
+            .'class M. Without one, the earlier-value assertion below would be measuring a different '
+            .'class (V, W or E) while claiming to be about this one.',
+        );
+
+        $unterminated = implode("\n", array_slice($lines, $start));
+        $this->assertSame(
+            [],
+            Dotenv::parse($unterminated),
+            'PREMISE: the unterminated line, taken on its own, must contribute NO entry at all. That '
+            .'is the mechanism of class M (`Lines::multilineProcess()` never returns it from '
+            .'`$multilineBuffer`), and it is what makes the surviving answer an EARLIER value instead '
+            .'of the reader\'s truncated one. If phpdotenv ever started emitting it, this row would '
+            .'describe a divergence that no longer exists in this form.',
+        );
+
+        $prefix = implode("\n", array_slice($lines, 0, $start));
+        $this->assertSame(
+            $oracle,
+            Dotenv::parse($prefix)[$key] ?? '',
+            'PREMISE: the surviving answer must come from the lines BEFORE the unbalanced one. Delete '
+            .'that earlier assignment and this body stops being the second form of class M and becomes '
+            .'the first — a row that already exists, and one whose oracle is absence rather than a '
+            .'value. That is the whole difference between the two rows sharing this label.',
         );
     }
 

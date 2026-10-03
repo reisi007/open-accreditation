@@ -94,19 +94,38 @@
 # of". The letters below are labels, nothing more.
 #
 #   M — MULTILINE, UNBALANCED (`Lines::looksLikeMultilineStart()`). An unbalanced
-#       `="` swallows the rest of the file and phpdotenv emits no key at all.
-#       MEASURED: `K=";<TAB>` → phpdotenv emits nothing, this reader returns
-#       `;` — the tab is already gone, trimmed off with the rest of the value
-#       before it is parsed. (An earlier version of this comment claimed the
-#       reader returns `;\t`; it does not.)
+#       `="` swallows the rest of the file: the line and everything after it go
+#       into `$multilineBuffer` and, with nothing to close it, are never handed
+#       to `$output` at all (`Lines::multilineProcess()`). So the line produces
+#       NO entry — and what is left for the key is decided by what came BEFORE
+#       it, which is why this class has TWO forms and both are pinned:
+#         * NO EARLIER ASSIGNMENT: phpdotenv emits no key at all.
+#           MEASURED: `K=";<TAB>` → phpdotenv emits nothing, this reader returns
+#           `;` — the tab is already gone, trimmed off with the rest of the value
+#           before it is parsed. (An earlier version of this comment claimed the
+#           reader returns `;\t`; it does not.)
+#         * WITH AN EARLIER ASSIGNMENT: phpdotenv keeps the EARLIER value and
+#           this reader takes the LATER, truncated one — the reader answering
+#           from a line phpdotenv never read. MEASURED: `K=v<NL>K="x` →
+#           phpdotenv `v`, this reader `x`, identically under `LC_ALL=C` and
+#           `LC_ALL=C.UTF-8` (so it is not residue 1), and for `CACHE_STORE` on
+#           the same bytes (`array` vs `x`).
+#       This entry used to say only "phpdotenv emits no key at all", which is
+#       true of the first form and FALSE of the second. Befund NEU-1: a single
+#       pinned row per class could not see the second form, because the one
+#       vendor assertion it carried was `parse()` returning `[]`. The two forms
+#       are TWO rows under this one label — not two classes, and not two reader
+#       answers per row, which is what residue 1 would need and cannot have.
 #   M2 — MULTILINE, BALANCED: a quoted value that CLOSES on a later line.
 #       phpdotenv joins the lines and keeps every one of them; `read` hands this
 #       function one line at a time and the state machine simply ends, so the
 #       reader stops at the first line end. MEASURED: `K="a<NL>b"` → phpdotenv
 #       `a<NL>b`, this reader `a`. Two things make this its own class and not a
-#       footnote to M: phpdotenv ACCEPTS the file (M is the case where it emits
-#       nothing at all), and the ESCAPE form agrees — `K="a\nb"` written with a
-#       backslash is `610a62` on both sides. The header's class-A note used that
+#       footnote to M: phpdotenv ACCEPTS the file (M is the case where the
+#       unterminated line produces NO entry at all, so the answer is either an
+#       earlier assignment or no key), and the ESCAPE form agrees —
+#       `K="a\nb"` written with a backslash is `610a62` on both sides. The
+#       header's class-A note used that
 #       ESCAPE form as its evidence that "an interior newline agrees", and a real
 #       newline does not: the note has been corrected rather than deleted,
 #       because it was true of the bytes it named and false about the class.
@@ -207,8 +226,10 @@
 # `CACHE_STORE` hold connection and store NAMES, and for THOSE TWO keys the
 # classes above cannot be reached by a `backend/.env` a developer writes: a name
 # carries no newline, no quote byte and no control byte; a quoted name spanning
-# two lines (M2) is not a connection name in any form; the line the CI job
-# writes carries no lone `\r`; nobody writes `${…}` into either key; class U
+# two lines (M2) is not a connection name in any form, and class M — which needs
+# a value that OPENS a multiline — is not one in either of its two forms, since
+# the unbalanced `="` both would require is itself a quote byte; the line the CI
+# job writes carries no lone `\r`; nobody writes `${…}` into either key; class U
 # needs a byte that is not valid UTF-8, which a name written as text cannot
 # carry at all; class W needs a line that is not an assignment at all, which is
 # not a form a `.env` line carries; and the residue below is not something a
@@ -277,6 +298,19 @@
 # this sentence is what keeps the eleventh from being read as covered. Reporting
 # it is the honest half and it is the half that costs nothing; the other half is
 # named here so nobody has to re-run the fuzz to find out what is missing.
+#
+# THE COUNT IS STILL TEN after Befund NEU-1, and reading that as "nothing was
+# found" is the mistake this paragraph exists to prevent. NEU-1 was an ELEVENTH
+# difference — an unbalanced `="` after an EARLIER assignment, where phpdotenv
+# keeps the earlier value and this reader takes the later truncated one — and it
+# is pinned as the SECOND FORM of class M, not as an eleventh class. The
+# difference between "another class" and "another form of a pinned class" is the
+# SHAPE a row needs, and this one needed no shape it did not have: one body, one
+# oracle answer, one reader answer, one locale, exactly as class W's row did.
+# What it did need, and what the table could not supply until then, is a second
+# VENDOR ASSERTION per class — see M above. So the arithmetic is unchanged and
+# the reading is not: eleven differences found, ten classes, one residue, and
+# class M pinned over both of its forms.
 #
 # OF THE TEN, ONE class IS reachable for them anyway, and it is V: `.env` is
 # legal phpdotenv input, so `QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set
