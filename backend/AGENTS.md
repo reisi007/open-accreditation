@@ -240,12 +240,40 @@ gegangen. Das ist kein Detail, es ist die Zusage.
 ### Der Betrieb ist nicht im Code, er ist im Supervisor — und er ist kopierbar
 
 **`php artisan queue:work` und `schedule:run` laufen nicht von selbst.** `Schedule::command()`
-registriert nur. In **keiner** Umgebung dieses Repos wird ein Scheduler gestartet — das ist Position 46
-im Board, und es ist eine Lücke im **zugesagten** Produkt (`features/accreditation/01-allocation-engine.md:408`).
+registriert nur — der Aufrufer ist Betrieb, nicht Code. **Wer ihn startet, und wo er absichtlich fehlt:**
+
+- **Prod:** `deployment/backend-supervisor.sh` (im Image, gestartet über `deployment/entrypoint.sh serve`) startet
+  Worker **und** Scheduler im 60-s-Takt; der `backend`-Healthcheck verlangt FPM + Supervisor + Worker + Scheduler
+  als laufend.
+- **Dev:** `scripts/dev-worker.sh`, host-native (das Dev-Backend ist kein Container, README „Worker & Scheduler
+  in Dev"). Ein **dokumentierter manueller Schritt**, kein Autostart — wer ihn nicht startet, hat auch keinen.
+- **E2E/CI: startet absichtlich nichts.** Der E2E-Job fährt nur `php artisan serve` und pinnt
+  `QUEUE_CONNECTION=sync` (`.github/workflows/ci.yml`), die Backend-Suite pinnt `sync` ebenfalls
+  (`phpunit.xml:117`). Das ist **die Entscheidung, kein Versehen**, und der Grund, warum der Job überhaupt läuft:
+  ein echter Worker gäbe jedem mailabhängigen Spec eine Timing-Abhängigkeit, und `after_commit` existiert nur
+  auf der `database`-Connection. Der Queue-Vertrag (tries/backoff/Dead-Letter/Idempotenz-Claim) ist PHPUnit-Sache
+  mit echter `database`-Connection — dort steht der Worker.
+
+**Die verbleibende Lücke ist damit eng und ehrlich benannt:** im E2E/CI-Stack feuert **kein** Scheduler —
+`allocation:run` (stündlich) und `reminders:send` (täglich), beide `withoutOverlapping()`
+(`routes/console.php:24,33`), laufen dort nie von selbst, und `sync` kann strukturell **keinen** toten Brief
+erzeugen (`Job::fail()` schreibt keine `failed_jobs`-Zeile; nur ein Worker tut das). Position 46 ist damit
+**umgesetzt** (`8c3301a`, Board: „überall außer im E2E-Stack"); was bleibt, ist eine **Beobachtungslücke**, kein
+Betriebsdefekt: „`allocation:run` läuft stündlich" ist eine Zusage, die im CI-Stack **nicht** beobachtbar ist.
+
+> **Korrigiert 2026-10-03:** dieser Absatz sagte „In **keiner** Umgebung dieses Repos wird ein Scheduler
+> gestartet". Für Prod (`backend-supervisor.sh`) und den laufenden Dev-Stack (`scripts/dev-worker.sh`) war das
+> **falsch** — und es widersprach dem nächsten Absatz derselben Datei, der `schedule:run` im 60-s-Takt beschreibt.
+> Dieselbe Behauptung stand in `frontend/tests/screenshots/ui-review.config.ts` und wurde in `8950f68`
+> korrigiert — dort wie hier aus derselben Ursache: eine Datei- bzw. Umgebungsliste, die man sich
+> selbst zusammenstellt, findet immer nur, was man für möglich gehalten hat
+> (`deployment/backend-supervisor.sh` stand auf keiner der beiden Listen).
 
 **Die Referenz existiert:** `portal.reisinger.pictures/deployment/backend-supervisor.sh`. Bei der
 Übernahme **mit Namensanpassung** (die PID-Pfade `portal-queue-*` kollidieren sonst mit einer
-Portal-Installation auf demselben Host). Sechs Details, deren Weglassen den Fehler wieder einführt:
+Portal-Installation auf demselben Host). **Sieben** Details, deren Weglassen den Fehler wieder einführt —
+die ersten **sechs** stammen aus der Portal-Referenz, der **siebte** ist unser eigener und folgt demselben
+Fail-closed-Grund:
 
 - `QUEUE_CONNECTION` muss `database` sein — **sonst Abbruch beim Start**, damit der Fehler jetzt und nicht
   Stunden später laut wird.
@@ -257,6 +285,15 @@ Portal-Installation auf demselben Host). Sechs Details, deren Weglassen den Fehl
 - Worker in einer **Restart-Schleife** mit PID-Marker — ein toter Worker darf die Zustellung nicht
   stillstehen lassen.
 - `schedule:run` im **60-s-Takt**; ein fehlgeschlagener Lauf darf den nächsten nicht verhindern.
+- **`CACHE_STORE` muss ein GETEILTER Store sein** (`database`/`redis`/`memcached`/`dynamodb`), fail-closed beim
+  Start. Zwei Locks liegen darin: der `withoutOverlapping()`-Lock des Schedulers **und** der Idempotenz-Claim in
+  `App\Jobs\SendMandantMail` (`Cache::add('mail-delivery:{deliveryId}', true, …)`). Mit `array` ist der Claim
+  prozesslokal — `send()` läuft in FPM, `handle()` im Worker: zwei Worker claimten denselben Auftrag beide,
+  beide senden, und die zweite Zustellung hinterlässt weder eine `failed_jobs`-Zeile noch eine Logzeile. Das ist
+  die stille Doppelzustellung bei gesund aussehendem Deployment. **Im Skript heißt er „Detail 2b"**; die
+  vollständige Aufzählung steht im Kopf von `deployment/backend-supervisor.sh`, und der Guard ist durch
+  `tests/Feature/QueueSupervisorCacheStoreGuardTest.php` gepinnt (Refusals inkl. unbekannter Stores; die
+  ausgelieferte Compose-Vorgabe muss durchgelassen werden).
 
 **Und zwei Dinge über „Skript starten" hinaus:** der **Healthcheck verlangt FPM + Supervisor + Worker +
 Scheduler** als laufend — ein toter Worker muss den Container **ungesund** machen, sonst ist ein stiller

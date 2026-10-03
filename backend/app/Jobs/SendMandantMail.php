@@ -94,6 +94,17 @@ use Throwable;
  * `database` store (`CACHE_STORE=database`, the same durable store the JWT
  * blacklist uses), not the per-process `array` store the test suite pins; the
  * deploy does not clear it (`deployment/entrypoint.sh`, pinned by a test).
+ *
+ * `array` is not only what the test suite pins: the DOCUMENTED dev/E2E stack
+ * sets it unconditionally (`scripts/e2e-up.sh`, rate-limiter determinism), and
+ * there the claim cannot cross a process boundary — `php artisan serve` and
+ * `scripts/dev-worker.sh` are different processes — so wherever that stack
+ * runs a real worker, this duplicate-delivery guard is effectively OFF.
+ * Production refuses a non-shared store fail-closed at startup ("detail 2b",
+ * `deployment/backend-supervisor.sh`, pinned by
+ * `tests/Feature/QueueSupervisorCacheStoreGuardTest.php`); the dev stack
+ * deliberately only warns, because copying that guard would abort the
+ * documented setup on sight.
  */
 final class SendMandantMail implements ShouldQueue
 {

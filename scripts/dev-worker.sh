@@ -27,10 +27,29 @@
 #     Angabe nicht irreführt.
 #   * `schedule:run` im 60-s-Takt; ein fehlgeschlagener Lauf verhindert den
 #     nächsten NICHT.
-# Die Konfiguration kommt aus `backend/.env` (Laravel liest sie selbst) — die
-# Fail-closed-Guards des Containers (QUEUE_CONNECTION/DB_QUEUE_CONNECTION) sind
-# hier nicht nötig, weil der Dev-Pfad keine injizierte Compose-ENV hat, die
-# von der `.env` abweichen könnte.
+# Die Konfiguration kommt aus `backend/.env` (Laravel liest sie selbst). Für
+# `QUEUE_CONNECTION`/`DB_QUEUE_CONNECTION` trägt das Argument der fehlenden
+# Guards: der Dev-Pfad hat keine injezierte Compose-ENV, die von der `.env`
+# abweichen könnte.
+#
+# Für `CACHE_STORE` TRÄGT DIESES ARGUMENT NICHT — und der Unterschied ist
+# nicht kosmetisch. Das Dev-Setup setzt den Store selbst auf `array`
+# (`scripts/e2e-up.sh`, unbedingt, für Rate-Limiter-Determinismus), und
+# dieses Skript ist genau der Pfad, auf dem ein ECHTER Worker neben
+# `php artisan serve` läuft: der Idempotenz-Claim aus
+# `App\Jobs\SendMandantMail` ist dort prozesslokal und der
+# Doppelzustellungsschutz faktisch unwirksam.
+#
+# WARUM TROTZDEM KEIN FAIL-CLOSED-GUARD (wie „Detail 2b" im Prod-Supervisor,
+# `deployment/backend-supervisor.sh`): dieser Stack ist der dokumentierte
+# Dev-Weg (README „Worker & Scheduler in Dev"), und der Store ist hier
+# ABSICHT, nicht Versehen. Ein Abbruch beim Start würde den einzigen
+# dokumentierten Weg zu `allocation:run`/`reminders:send` in dev sofort
+# unbenutzbar machen — und ein Dev-Stack, der sich weigert zu starten,
+# produziert denselben stillen Zustellungsstillstand, den der Prod-Guard
+# verhindern soll. Die Warnung beim Start BENENNT den Zustand und was er
+# kostet, statt den Betrieb zu verweigern; wer ihn nicht will, setzt
+# `CACHE_STORE=database` in `backend/.env`.
 #
 # USAGE
 #   bash scripts/dev-worker.sh      # läuft im Vordergrund, Ctrl-C beendet
@@ -46,6 +65,29 @@ if [ ! -f .env ]; then
     echo "ERROR: backend/.env fehlt — zuerst 'bash scripts/e2e-up.sh' ausführen." >&2
     exit 1
 fi
+
+# NICHT-FATALER HINWEIS (siehe Kopfkommentar): ein prozesslokaler Cache-Store
+# macht den Idempotenz-Claim des Mail-Jobs unwirksam. Aufgelöst wird der Store
+# in derselben Reihenfolge, in der Laravel ihn auflöst — echte ENV vor `.env`,
+# dann der Default aus `config/cache.php` (`database`). Der Start läuft
+# bewusst weiter: dieser Stack ist der dokumentierte Dev-Weg, und der
+# Prod-Guard (`deployment/backend-supervisor.sh`, Detail 2b) würde ihn sofort
+# abbrechen.
+EFFECTIVE_CACHE_STORE="${CACHE_STORE:-$(grep -E '^CACHE_STORE=' .env | tail -n 1 | cut -d= -f2- || true)}"
+EFFECTIVE_CACHE_STORE="${EFFECTIVE_CACHE_STORE:-database}"
+
+case "$EFFECTIVE_CACHE_STORE" in
+    database | redis | memcached | dynamodb) ;;
+    *)
+        echo "NOTE: CACHE_STORE=${EFFECTIVE_CACHE_STORE} is PER-PROCESS — the idempotency" >&2
+        echo "      claim in App\\Jobs\\SendMandantMail cannot cross the process boundary" >&2
+        echo "      (php artisan serve vs. this worker), so duplicate delivery is NOT" >&2
+        echo "      suppressed in this dev stack. Expected here: scripts/e2e-up.sh pins" >&2
+        echo "      'array' for rate-limiter determinism. Production refuses a" >&2
+        echo "      non-shared store fail-closed. Set CACHE_STORE=database in" >&2
+        echo "      backend/.env to get the guard back." >&2
+        ;;
+esac
 
 WORKER_TIMEOUT="${QUEUE_WORKER_TIMEOUT:-60}"
 WORKER_RESTART_DELAY="${QUEUE_WORKER_RESTART_DELAY:-5}"

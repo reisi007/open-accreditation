@@ -109,8 +109,9 @@ if [ -z "${DB_CONNECTION:-}" ] || [ "${DB_QUEUE_CONNECTION:-}" != "${DB_CONNECTI
 fi
 
 # --- Detail 2b: der Idempotenz-Claim braucht einen GETEILTEN Store -------
-# (kein Portal-Detail, sondern unser siebtes; `docker-compose.yml:271-274`
-# begründet denselben Wert bereits für den Scheduler-Lock.)
+# (kein Portal-Detail, sondern unser siebtes; `docker-compose.yml:271-289`
+# begründet denselben Wert inzwischen für BEIDE Locks — den des Schedulers
+# und den des Claims.)
 #
 # `App\Jobs\SendMandantMail` verhindert Doppelzustellung mit einem
 # test-and-set Claim auf dem Default-Cache-Store

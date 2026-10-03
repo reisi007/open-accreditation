@@ -268,10 +268,25 @@ services:
       #   * QUEUE_WORKER_TIMEOUT < DB_QUEUE_RETRY_AFTER (60 < 90) — verhindert
       #     die doppelte Reservierung eines hängenden Jobs; der Supervisor
       #     prüft die Ungleichung beim Start (fail-closed).
-      #   * CACHE_STORE=database — `withoutOverlapping()` ist ein Cache-Lock;
-      #     er muss prozessübergreifend im selben Store liegen, sonst laufen
-      #     zwei Schedule-Takte ineinander. Der DB-Store ist der Repo-Standard
-      #     (config/cache.php:18). DB_CACHE_* auf pgsql pinnt ihn explizit.
+      #   * CACHE_STORE=database — ZWEI unabhaengige Gruende, und beide
+      #     brauchen einen GETEILTEN (prozessuebergreifenden) Store, nicht
+      #     irgendeinen:
+      #       1) `withoutOverlapping()` ist ein Cache-Lock; prozesslokal
+      #          liefen zwei Schedule-Takte ineinander.
+      #       2) Der Idempotenz-Claim in App\Jobs\SendMandantMail
+      #          (`Cache::add('mail-delivery:{deliveryId}', true, TTL)`)
+      #          ist ein test-and-set ueber Prozessgrenzen: `send()` laeuft
+      #          in FPM, `handle()` im Worker. Mit `array` claimten zwei
+      #          Worker denselben Auftrag beide, beide senden, und die
+      #          zweite Zustellung hinterlaesst weder eine `failed_jobs`-
+      #          Zeile noch eine Logzeile — die stille Doppelzustellung,
+      #          die der Claim verhindern soll, bei gesund aussehendem
+      #          Deployment.
+      #     Der DB-Store ist der Repo-Standard (config/cache.php:18);
+      #     DB_CACHE_* auf pgsql pinnt ihn explizit. Grund 2 ist seit
+      #     8950f68 durchgesetzt: `backend-supervisor.sh` verweigert einen
+      #     nicht geteilten Store fail-closed beim Start ("Detail 2b"),
+      #     gepinnt in tests/Feature/QueueSupervisorCacheStoreGuardTest.php.
       QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
       DB_QUEUE_CONNECTION: ${DB_QUEUE_CONNECTION:-pgsql}
       DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-90}
