@@ -75,7 +75,7 @@ use Tests\TestCase;
  * regains a private reader, this fails even though every parsing assertion below
  * would still pass.
  *
- * ## Scope: EIGHT measured divergence classes, not one
+ * ## Scope: TEN measured divergence classes (and one named residue), not one
  *
  * This file once claimed the reader differed from phpdotenv in exactly ONE
  * input. An independent fuzz — 6000 bodies, a different seed AND a different
@@ -86,28 +86,49 @@ use Tests\TestCase;
  * still says what it said, and the header still NAMES the class. A difference
  * outside the list is a bug in the reader, not a documented boundary.
  *
- * The eighth is M2, a BALANCED multiline, and it exists because run 7 changed
- * the alphabet (Befund R7-1). Every alphabet this file was fed until then was
- * ASCII, which made "0 unattributed divergences" a true statement about bytes the
- * file never named. Re-run over a NON-ASCII alphabet the same fuzz found M2 — and
- * it also found that the READER'S OWN ANSWER depended on `LC_ALL` for 209 of 4000
- * bodies. That one is not a class and no class list can hold it: it is not about
- * the grammar, it is the environment deciding for the reader. It was removed at
- * the source (the trims use an explicit byte set now) and pinned by
+ * The eighth is M2, a BALANCED multiline (Befund R7-1); the ninth is U, an
+ * invalid UTF-8 byte together with a `$`, and the tenth is W, a line that is a
+ * bare NAME with no `=` at all — both of those from Befund R8-1, and both out of
+ * the SAME re-fuzz over an invalid-UTF-8 alphabet. Every alphabet this file was
+ * fed until R7 was ASCII, which made "0 unattributed divergences" a true
+ * statement about bytes the file never named; R7's alphabet was non-ASCII and
+ * still contained no byte that is invalid UTF-8, and R8's does — which is the
+ * second half of the same lesson. R7's fuzz also produced a difference which is
+ * deliberately NOT in the list: the reader's OWN answer depended on `LC_ALL` for
+ * 209 of 4000 bodies, because `[[:space:]]` is locale-dependent and phpdotenv's
+ * trim is a byte set. That one is not a class and no class list can hold it: it is
+ * not about the grammar, it is the environment deciding for the reader. It was
+ * removed at the source (the trims use an explicit byte set now) and pinned by
  * `test_the_reader_does_not_depend_on_the_locale()`.
  *
+ * R8's re-fuzz left TWO further differences, and their fates differ — which is
+ * the point of writing both down rather than only the one that was convenient.
+ * (1) `read` itself is locale-dependent when a line ends in an incomplete
+ * multibyte sequence. (2) A bare NAME line with no `=` clears the key for
+ * phpdotenv and not for the reader — and that one is pure ASCII, which is why it
+ * took a THIRD fuzz run and not a cleverer alphabet to surface. (2) FITS the
+ * shape of a class entry — one oracle answer, one reader answer, one locale — and
+ * is therefore the TENTH class, pinned below like the other nine. (1) needs a row
+ * carrying TWO reader answers, one per locale, which the table has no shape for;
+ * it is the one that stays a named, unpinned residue. So "ten classes, all
+ * pinned" is not read as "ten, and nothing is left over" — eleven differences
+ * have been found, and the eleventh is named in the reader's header.
+ *
  * The lesson is written here because this file keeps re-learning it: a
- * differential is only as complete as the ALPHABET it was fed. Two of the three
- * claims it has made — "exactly one difference", "0 unattributed" — were true and
- * useless.
+ * differential is only as complete as the ALPHABET it was fed, and once past the
+ * alphabet it is only as complete as the RUNS. All three of the claims it has
+ * made — "exactly one difference", "0 unattributed", "0 locale-dependent" — were
+ * true and useless.
  *
  * Reachability is stated where it belongs — per class, per key, and measured
  * rather than assumed. For the two keys these scripts ask for
  * (`QUEUE_CONNECTION`, `CACHE_STORE`) exactly one class is reachable by a legal
  * `backend/.env`: the `${VAR}` interpolation, class V. The rest need a byte a
- * connection name does not contain. That is a statement about THESE TWO KEYS and
- * not a property of the reader, which is why it is written as a per-class
- * `reachable` note and not as a general assertion.
+ * connection name does not contain — or, for W, a line that is not an assignment
+ * at all, which is measured to occur in none of this repo's writers. That is a
+ * statement about THESE TWO KEYS and not a property of the reader, which is why
+ * it is written as a per-class `reachable` note and not as a general assertion;
+ * W's note also states what would go wrong if that ever stopped being true.
  */
 class DotenvReaderMatchesPhpDotenvTest extends TestCase
 {
@@ -513,7 +534,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ */
-    /* The documented boundary: eight classes, each pinned in both directions */
+    /* The documented boundary: ten classes, one named residue */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -525,13 +546,30 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * classes; a targeted probe a sixth. The list below replaces the claim
      * rather than narrowing it, and every entry is measured on both sides:
      *
-     * Befund R7-1 added EIGHTH, M2 — a BALANCED multiline — and that fuzz also
-     * produced a ninth difference which is deliberately NOT here: the reader's
+     * Befund R7-1 added the EIGHTH, M2 — a BALANCED multiline — and R8-1 the
+     * NINTH, U (an invalid UTF-8 byte together with a `$`) and the TENTH, W (a
+     * bare NAME line with no `=`). The last two came from re-fuzzing over one
+     * different alphabet, not from thinking harder about the same one. R7's fuzz
+     * ALSO produced a difference which is deliberately NOT here: the reader's
      * answer depended on `LC_ALL` for 209 of 4000 non-ASCII bodies, because
      * `[[:space:]]` is locale-dependent and phpdotenv's trim is a byte set. That
      * one is not a class — it was the environment deciding for the reader — and
      * it was removed at the source. `test_the_reader_does_not_depend_on_the_locale()`
      * is what holds that half of the contract, because a class list cannot.
+     *
+     * ONE measured difference is still outside this list, and saying so is the
+     * point: bash's `read`, not the grammar, delivers fewer lines under a UTF-8
+     * locale when a line ends in an incomplete multibyte sequence (MEASURED: 73
+     * of 3000 bodies locale-dependent, 62 of 3000 on a second seed, 87 of 3000
+     * on a `CACHE_STORE` run; 23 of the first seed's are divergent only under
+     * `C.UTF-8`). Pinning that needs a row carrying two reader answers, one per
+     * locale, which is a change to the SHAPE of this table and is not made here.
+     * Its sibling from the same fuzz — a line that is a bare NAME with no `=`,
+     * phpdotenv `NULL` (`EntryParser.php:76-78`, `Loader/Loader.php:36-37`) and
+     * this reader the earlier value — DID fit the existing shape and is class W
+     * below. The two differ only in how many answers a row has to carry, which
+     * is the whole reason one is pinned and the other is not; neither is
+     * skipped.
      *
      *  - `$oracle` is what `Dotenv\Dotenv::parse()` answers (or, for M, that it
      *    emits nothing at all). These values were measured, not read off the
@@ -644,6 +682,59 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 'UNREACHABLE for both keys: a bash variable cannot hold a NUL at all, so `read` DROPS the '
                 .'byte and carries on — this class is structural, not a parsing choice.',
             ],
+            'U — an invalid UTF-8 byte together with a `$`' => [
+                // PHP double quotes: `\x80` is the byte, `\$` is a literal dollar.
+                // MEASURED (R8-1): phpdotenv answers `3f24` — `?` (`0x3F` is
+                // `mb_substitute_character()`) plus `$` — and the reader `8024`.
+                "QUEUE_CONNECTION=\x80\$\n",
+                '?$',
+                "\x80\$",
+                'U — AN INVALID UTF-8 BYTE TOGETHER WITH A `$`',
+                null,
+                'UNREACHABLE for both keys: it needs BOTH halves, a byte that is not valid UTF-8 AND a '
+                .'`$` in the value, and a connection name written as text carries neither. Each half alone '
+                .'AGREES, and that is what makes this one class instead of "invalid bytes are mangled": '
+                .'MEASURED `K=\\x80` → `80` on both sides (`Resolver::resolve()` returns the value while '
+                .'`$vars === []`, `Loader/Resolver.php:43-45`), and MEASURED `K=\'\\x80$\'` → `8024` on '
+                .'both sides (a `$` inside single quotes is not a var position). NOT class V either: no '
+                .'`${…}` is resolved here, one byte is merely falsified. '
+                .'MEASURED `mb_substr("\\x80$", 0, 2, \'UTF-8\')` → `3f24`.',
+            ],
+            'W — a bare NAME line with no `=` CLEARS the key' => [
+                "QUEUE_CONNECTION=sync\nQUEUE_CONNECTION\n",
+                '',
+                'sync',
+                'W — A BARE NAME LINE CLEARS THE KEY',
+                null,
+                'UNREACHABLE for both keys, and this verdict is about the WRITERS of a `.env` rather than '
+                .'about the keys themselves — MEASURED 2026-10-03: zero lines matching '
+                .'`^\s*(export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*$` in `backend/.env.example`, in '
+                .'`deployment/dev.env`, and in this host\'s own gitignored `backend/.env`. What is NOT '
+                .'true is that it could not matter, and the distance between those two sentences is why '
+                .'this note is this long. MEASURED through Laravel\'s own resolution chain — '
+                .'`LoadEnvironmentVariables::createDotenv()` hands `Env::getRepository()` to '
+                .'`Dotenv::create()`, and `config/queue.php:16` / `config/cache.php:18` read '
+                .'`env($key, \'database\')` — a bare line AFTER a real assignment yields NULL from '
+                .'phpdotenv, `PhpOption\\Option::fromValue(null)` is `None::create()`, and `env()` hands '
+                .'back the CONFIG DEFAULT `database`, while this reader keeps the stale earlier value. '
+                .'The note then takes the WRONG BRANCH: a `.env` holding `QUEUE_CONNECTION=sync` plus a '
+                .'bare `QUEUE_CONNECTION` makes `scripts/e2e-up.sh` print `sync` and say the mail is '
+                .'delivered inline, while the app resolves `database` and needs a worker. Two shapes do '
+                .'NOT do that, both MEASURED: a bare line ALONE answers `\'\'` on BOTH sides and the note '
+                .'falls back to the same config default, and an earlier value that happens to BE the '
+                .'config default agrees by coincidence. The only mechanical writer that could produce '
+                .'the form is a `sed` replacement that lost its `=VALUE`, and every one of those '
+                .'re-checks the line on the next statement (`scripts/e2e-up.sh:139-140`, '
+                .'`.github/workflows/ci.yml:521-529`), so it cannot pass unnoticed. THE GAP, stated '
+                .'because it reads as covered and is not: '
+                .'`test_the_forms_this_repo_writes_for_those_two_keys_are_not_divergent()` collects '
+                .'writers with `^\s*(?:export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*=(.*)$` — the `=` is '
+                .'IN that pattern, so a bare line in a committed writer is not collected and would not '
+                .'make that test red. This verdict rests on the scan quoted above, not on a pin. '
+                .'Befund R8-1; reported as "residue 2" first, promoted here because it fits the one-row '
+                .'shape (one oracle answer, one reader answer, one locale) that the locale residue does '
+                .'not.',
+            ],
         ];
     }
 
@@ -666,21 +757,37 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      *
      * So this is pinned as its own test, and the bodies here are chosen to FAIL a
      * `[[:space:]]` implementation and PASS the byte-set one: each carries a
-     * non-ASCII whitespace character at a trim position, where phpdotenv does not
-     * trim it and a locale-aware class does.
+     * non-ASCII byte at a trim position.
+     *
+     * NOT each of them, though, and the difference is measured (Befund R8-3).
+     * Against the pre-fix reader (`bac5f41~1`, `[[:space:]]` everywhere) exactly
+     * THREE of the SIX `$accepted` bodies change answer between `LC_ALL=C` and
+     * `LC_ALL=C.UTF-8` — `U+3000 before the value`, `U+2028 after the value` and
+     * `U+205F before the value`. The other three do not, because this glibc does
+     * not decode NEL, U+00A0 or an overlong TAB as `[[:space:]]`: NEL → `c28573…`
+     * and U+00A0 → `c2a0…` on both sides, unchanged. Nor does the overlong-TAB
+     * body carry the sentence the old comment put on it: phpdotenv DOES trim
+     * the real TAB in `sync\xC0\x09` (MEASURED: the oracle is `73796e63c0` — the
+     * `\x09` is gone, the `\xC0` stays), so "where phpdotenv does not trim it" is
+     * false of that one body. The three that stay still are not filler, and the
+     * reason is a DIFFERENT assertion: a reader that matched every one of the six
+     * would not merely flip, it would fail against phpdotenv on NEL and U+00A0.
      *
      * The bodies split in two, and the split is measured rather than tidiness.
      * Where phpdotenv ACCEPTS the file — a non-ASCII byte at a VALUE position —
      * the reader must agree with it in both locales. Where phpdotenv REJECTS it —
-     * a non-ASCII byte in front of the NAME is an invalid name, `Parser.php:30` —
-     * there is no oracle, and the only claim available is that the reader agrees
-     * with ITSELF across locales. That second group is not filler: MEASURED under
-     * the old `[[:space:]]`, those bodies were answered `sync` under `LC_ALL=C`
-     * and EMPTY under `LC_ALL=C.UTF-8`, so the name-side trims were exactly as
-     * locale-dependent as the value-side one, and a pin built only from the
-     * accepted group would have left them unwatched. The first cut of this test was
-     * in fact value-side only, and mutations M2/M3/M4 below are the measurement
-     * that says so: all three are GREEN, i.e. unwatched.
+     * a non-ASCII byte in front of the NAME is an invalid name
+     * (`EntryParser::parseName()`, `:107-109`, with `isValidName()` at
+     * `:140-147`; `Parser.php:30` is only the `mapError` that turns that into an
+     * `InvalidFileException`) — there is no oracle, and the only claim available
+     * is that the reader agrees with ITSELF across locales. That second group is
+     * not filler: MEASURED under the old `[[:space:]]`, five of those seven bodies
+     * were answered EMPTY under `LC_ALL=C` and `sync` under `LC_ALL=C.UTF-8`, so
+     * the name-side trims were exactly as locale-dependent as the value-side one,
+     * and a pin built only from the accepted group would have left them
+     * unwatched. The first cut of this test was in fact value-side only, and
+     * mutations M2/M3/M4 below are the measurement that says so: all three are
+     * GREEN, i.e. unwatched.
      *
      * The control matters as much as the cases: the byte set must not have
      * changed anything under `C`, or "0 locale-dependent" would be bought by a
@@ -706,14 +813,18 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // the shape a DATA PROVIDER takes, and mixing the two here is what made
         // the first cut of this test hand `Dotenv::parse()` an array.
         //
-        // Every body carries its non-ASCII whitespace at a TRIM POSITION, which is
-        // the only place the two implementations can disagree: phpdotenv's trim
-        // is the byte set `" \n\r\t\0\x0B"` and glibc's `[[:space:]]` decodes
-        // through the locale's charset table. They are chosen so phpdotenv ACCEPTS
-        // the file — a non-ASCII byte in front of the NAME is an invalid name
-        // (`Parser.php:30`, MEASURED) and a rejected file has no answer to
-        // compare. `U+3000 before the name` and its two siblings were in the first
-        // cut of this test and had to come out.
+        // Every body carries its non-ASCII byte at a TRIM POSITION, which is
+        // where the two implementations can disagree: phpdotenv's trim is the
+        // byte set `" \n\r\t\0\x0B"` and glibc's `[[:space:]]` decodes through
+        // the locale's charset table. Three of the six `$accepted` bodies below
+        // actually flip under the old reader — U+3000, U+2028, U+205F — and the
+        // other three do not; the docblock says so with the numbers. They are
+        // chosen so phpdotenv ACCEPTS the file — a non-ASCII byte in front of the
+        // NAME is an invalid name (`EntryParser::parseName()`, `:107-109`, with
+        // `isValidName()` at `:140-147`; MEASURED, `Dotenv::parse()` throws
+        // `Encountered an invalid name`), and a rejected file has no answer to
+        // compare. `U+3000 before the name` and its two siblings were in the
+        // first cut of this test and had to come out.
         // Two groups, and the split is MEASURED, not tidiness.
         //
         // phpdotenv ACCEPTS: the reader must agree with it in both locales.
@@ -727,13 +838,23 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         ];
 
         // phpdotenv REJECTS — a non-ASCII byte in front of the NAME is an invalid
-        // name (`Parser.php:30`, MEASURED), so there is no oracle to compare
-        // against and the differential cannot speak about these bodies. They are
-        // here because the reader is STILL locale-dependent on them under the old
-        // `[[:space:]]` (MEASURED: U+3000 and the overlong TAB both answer
-        // `sync` under C and an empty string under C.UTF-8), and a name-side trim
-        // that silently depends on the caller's environment is the same defect as
-        // a value-side one — it would just have no test watching it.
+        // name (`EntryParser::parseName()`, `:107-109`, `isValidName()` at
+        // `:140-147`; MEASURED), so there is no oracle to compare against and the
+        // differential cannot speak about these bodies. They are here because the
+        // reader is STILL locale-dependent on them under the old `[[:space:]]`, and
+        // a name-side trim that silently depends on the caller's environment is the
+        // same defect as a value-side one — it would just have no test watching it.
+        //
+        // MEASURED, and both halves of the old sentence here were wrong (Befund
+        // R8-4): the direction is INVERTED — U+3000, space-then-U+3000, U+205F,
+        // `export`+U+3000 and `export `+U+3000 were answered EMPTY under
+        // `LC_ALL=C` and `sync` under `LC_ALL=C.UTF-8`, because the byte was
+        // trimmed off the name only where the class matched it — and the overlong
+        // TAB does not flip AT ALL (` \xC0\x09` answers empty under both locales),
+        // so it is not among the triggers. FIVE of the seven flip; the two that do
+        // not are NEL and the overlong TAB, neither of which this glibc decodes
+        // as `[[:space:]]`. The conclusion this group was built for stands, and
+        // U+3000 and U+205F carry it on their own.
         $rejected = [
             'U+3000 before the name' => "\u{3000}QUEUE_CONNECTION=sync\n",
             'space then U+3000 before the name' => " \u{3000}QUEUE_CONNECTION=sync\n",

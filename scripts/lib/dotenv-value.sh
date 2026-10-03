@@ -13,16 +13,23 @@
 # The contract is DIFFERENTIAL, and it is a claim about a SET, not about every
 # input: for every input in `backend/tests/Feature/DotenvReaderMatchesPhpDotenvTest.php`
 # this function returns exactly what `Dotenv\Dotenv::parse()` returns for the
-# same file and key, and every input where it does NOT is one of the EIGHT
-# classes named below. That test is what keeps both halves true; this file is
-# what they are true of. The classes ARE the contract: a difference outside
-# them is a bug in this file, not a documented boundary.
+# same file and key, and every input where it does NOT is one of the TEN
+# classes named below — or the one MEASURED RESIDUE further down, which is
+# named here for the same reason and is deliberately NOT in the pinned class
+# list yet. That test is what keeps the pinned half true; this file is what it is
+# true of. The classes ARE the contract: a difference outside them and outside
+# that residue is a bug in this file, not a documented boundary.
 #
 # The contract has a SECOND half, and it is the one an alphabet decides: it is a
 # claim about the SET OF INPUTS THE FUZZ REACHED. "0 unattributed" over an ASCII
 # alphabet is not "0 unattributed" over a non-ASCII one — measured 2026-10-03,
 # it was not (see the locale class that was removed below). A class list that
-# only ever gets checked against ASCII is a list of the ASCII cases.
+# only ever gets checked against ASCII is a list of the ASCII cases. And the
+# third run of that lesson is the tenth class below: the invalid-UTF-8 fuzz of
+# 2026-10-03 left two differences, and the second of them needs nothing but
+# ASCII. It was reported as a residue first and PROMOTED to a class afterwards —
+# the two states are the same claim about the same bytes, and the class list is
+# where a claim gets pinned.
 #
 # WHY NOT SHELL OUT TO PHP INSTEAD
 # Because then the differential test would compare PHP with PHP and could not
@@ -41,7 +48,8 @@
 #   * `\n \r \t \v \f \" \\` inside DOUBLE quotes (single quotes are literal)
 #   * the LAST assignment of a key wins
 #
-# WHAT IT DELIBERATELY DOES NOT IMPLEMENT — EIGHT measured classes, not one
+# WHAT IT DELIBERATELY DOES NOT IMPLEMENT — TEN measured classes plus ONE
+# measured residue, not one
 #
 # MEASURED (2026-10-03) with a randomized differential against
 # `Dotenv\Dotenv::parse()`, 6000 bodies per run, over an alphabet deliberately
@@ -64,8 +72,20 @@
 # locale-dependent; AFTER it 0 and 0 — and not ONE answer changed under
 # `LC_ALL=C` in either seed, so the byte set removes the locale dependence and
 # nothing else. The letter M2 below is the one genuine ADDITION that fuzz found;
-# the other residuals are the seven classes below wearing more than one of them at
-# a time, which is the overlap this header already warns about.
+# the other residuals are the nine classes below wearing more than one of them
+# at a time, which is the overlap this header already warns about.
+#
+# RE-FUZZED with an INVALID-UTF-8 alphabet (Befund R8-1, THREE runs of 3000
+# bodies: seed 20261003 and seed 424242 over `QUEUE_CONNECTION`, seed 777 over
+# `CACHE_STORE`): 214 / 194 / 190 divergent bodies, every one of them reduced to
+# a minimal witness, and 0 unattributed once the NINTH and TENTH classes below and
+# the residue further down are counted — 1231 / 1280 / 1249 of the 9000 bodies are
+# refused by phpdotenv outright. That this run found two classes and a residue
+# where the previous ones found one class and nothing is not a contradiction: the
+# R7 alphabet's "lone continuation bytes" are `0x80`-`0xBF`, and those do NOT
+# trigger residue 1 (measured: no flip for any of `0x80`-`0xC1`) — and the tenth
+# class, the one a bare ASCII `K=sync<NL>K` reaches, needed a RUN rather than a
+# cleverer alphabet.
 #
 # The earlier claim here was "exactly one difference", the multiline case M. An
 # independent fuzz over a different alphabet found five further classes, and a
@@ -124,30 +144,151 @@
 #   N — A NUL BYTE cannot be held by a bash variable at all, so `read` DROPS it
 #       and carries on. MEASURED: `K=sy<NUL>nc` → phpdotenv `sy<NUL>nc`
 #       (5 bytes), reader `sync` (4 bytes).
+#   U — AN INVALID UTF-8 BYTE TOGETHER WITH A `$`. `Dotenv\Dotenv::parse()`
+#       runs the entries through `Loader\Loader::load()` → `Resolver::resolve()`,
+#       and `resolve()` hands the value straight back while `$vars === []`
+#       (`Loader/Resolver.php:43-45`) — that is why the reader is byte-exact for
+#       every value without a `$`. A `$` in an UNQUOTED or DOUBLE-QUOTED value
+#       IS recorded as a var position (`EntryParser::processToken`,
+#       `INITIAL_STATE`/`UNQUOTED_STATE`/`DOUBLE_QUOTED_STATE` return `$var =
+#       true`), so the value is then cut with `Str::substr()` — which is
+#       `mb_substr(…, 'UTF-8')` (`Util/Str.php:113-116`) — and mbstring
+#       replaces every byte that is not valid UTF-8 with
+#       `mb_substitute_character()`. MEASURED: `K=\x80$` → phpdotenv `3f24`
+#       (`?$`, `0x3F` is the substitute character; `mb_substitute_character()` is
+#       `int(63)`), this reader `8024`. The substitution measured on its own:
+#       `mb_substr("\x80$", 0, 2, 'UTF-8')` → `3f24`.
+#       BOTH halves are needed and each alone AGREES, which is what makes this
+#       one class and not "invalid bytes are mangled": with no `$` there is no
+#       `Str::substr()` call and the value survives byte-transparent
+#       (`K=\x80` → `80` on both sides, and likewise for every other invalid
+#       byte tried), and a `$` inside SINGLE quotes is not a var position
+#       (`EntryParser::processToken` returns `$var = false` in
+#       `SINGLE_QUOTED_STATE`), so `K='\x80$'` → `8024` on both sides.
+#       It is NOT class V: `K=\x80$` resolves nothing — there is no `${…}` in
+#       it — and what differs is one falsified byte, not a substituted variable.
+#       Befund R8-1.
+#   W — A BARE NAME LINE CLEARS THE KEY. A line that is a name with no `=` at
+#       all, which phpdotenv does NOT reject: `splitStringIntoParts()` returns
+#       `[$line, null]` when there is no `=` (`EntryParser.php:76-78`) and
+#       `Parser::process()` keeps every entry it is handed, so the entry exists;
+#       `Loader::load()` then CLEARS the name (`Loader/Loader.php:36-37`), and
+#       with last-assignment-wins the bare name WINS. This reader treats such a
+#       line as "not an assignment" — the `[ "$rest" != "$line" ] || continue`
+#       in the loop — and keeps the earlier value. MEASURED:
+#       `K=sync<NL>K` → phpdotenv `QUEUE_CONNECTION => NULL` (so
+#       `Dotenv::parse($body)['QUEUE_CONNECTION'] ?? ''` is `''`), this reader
+#       `sync`. Its own inline comment below, "a line without one is a name with
+#       no value, which is not an assignment", is half right and misses the part
+#       that bites: phpdotenv keeps the entry AND lets it win.
+#       The witness alone does not carry the class, and these four measurements
+#       are what make it one:
+#         * the EARLIER ASSIGNMENT IS LOAD-BEARING. `K` ALONE answers `''` on
+#           BOTH sides — there the reader is harmless, and only the pair
+#           diverges.
+#         * an INDENTED bare name is NOT this class. `K=sync<NL><SP><SP>K` makes
+#           phpdotenv REFUSE the whole file ("Encountered an invalid name",
+#           `EntryParser::parseName()`), so there is no oracle for that body; the
+#           unindented form is the class.
+#         * `export K` reaches the SAME answer pair (phpdotenv NULL, reader
+#           `sync`), so the prefix is not a way out — and the trailing newline is
+#           not load-bearing either: the same bytes without it answer identically,
+#           thanks to the `|| [ -n "$line" ]` guard.
+#         * and it is LOCALE-INDEPENDENT — `sync` under `LC_ALL=C` and under
+#           `LC_ALL=C.UTF-8`. That is precisely why the residue below cannot hold
+#           it: one oracle answer, one reader answer, one locale, one table row.
+#       Befund R8-1; it was reported as "residue 2" first and promoted to a class
+#       once it was pinned. FREQUENCY, so nobody reads "rare" as "impossible": 1
+#       witness among the 194 minimized divergences of seed 424242; 0 among the
+#       214 of seed 20261003 and the 190 of a `CACHE_STORE` run — which is exactly
+#       why it took a THIRD run and not a cleverer alphabet to find.
 #
 # REACHABILITY FOR THE TWO KEYS THESE SCRIPTS ASK FOR. `QUEUE_CONNECTION` and
 # `CACHE_STORE` hold connection and store NAMES, and for THOSE TWO keys the
 # classes above cannot be reached by a `backend/.env` a developer writes: a name
 # carries no newline, no quote byte and no control byte; a quoted name spanning
 # two lines (M2) is not a connection name in any form; the line the CI job
-# writes carries no lone `\r`; and nobody writes `${…}` into either key. That is
-# a statement ABOUT THESE TWO KEYS — it is not a property of the reader, and it
-# is therefore written here and pinned per class in the test, not asserted as a
-# general claim.
+# writes carries no lone `\r`; nobody writes `${…}` into either key; class U
+# needs a byte that is not valid UTF-8, which a name written as text cannot
+# carry at all; class W needs a line that is not an assignment at all, which is
+# not a form a `.env` line carries; and the residue below is not something a
+# developer types into a `.env` either. That is a statement ABOUT THESE TWO KEYS —
+# it is not a property of the reader, and it is therefore written here and pinned
+# per class in the test, not asserted as a general claim. And for class W
+# specifically the evidence is about the WRITERS rather than about the keys:
+# MEASURED 2026-10-03, zero lines matching `^\s*(export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*$` in
+# `backend/.env.example`, in `deployment/dev.env`, and in this host's own
+# (gitignored, machine-local) `backend/.env`. What is NOT true is that it could
+# not matter. MEASURED through Laravel's own resolution chain —
+# `LoadEnvironmentVariables::createDotenv()` hands `Env::getRepository()` to
+# `Dotenv::create()`, and `config/queue.php:16` / `config/cache.php:18` read
+# `env($key, 'database')` — a bare line AFTER a real assignment yields NULL from
+# phpdotenv, `PhpOption\Option::fromValue(null)` is `None::create()`, and `env()`
+# hands back the CONFIG DEFAULT `database`, while this reader keeps the stale
+# earlier value. The note then takes the WRONG BRANCH: a `.env` holding
+# `QUEUE_CONNECTION=sync` plus a bare `QUEUE_CONNECTION` makes `scripts/e2e-up.sh`
+# print `sync` and say the mail is delivered inline, while the app resolves
+# `database` and needs a worker. Two shapes do NOT do that, and both are
+# measured: a bare line ALONE answers `''` on both sides and the note falls back
+# to the same config default, and an earlier value that happens to BE the config
+# default agrees by coincidence. The only mechanical writer that could produce
+# the form is a `sed` replacement that lost its `=VALUE`, and every one of those
+# re-checks the line on the next statement (`scripts/e2e-up.sh:139-140`,
+# `.github/workflows/ci.yml:521-529`), so it could not pass unnoticed. The gap
+# that remains is stated in the test's reachability note, and it is a real one:
+# the guard over committed writers matches `…\s*=(.*)$`, and the `=` is IN the
+# pattern, so a bare line in a committed writer is not collected by it.
 #
 # AND the LOCALE is not a class at all, which is the point of the byte set: the
-# reader's answer must not depend on `LC_ALL`. Measured before the fix, 209 of
+# reader's TRIMS must not depend on `LC_ALL`. Measured before the fix, 209 of
 # 4000 non-ASCII bodies did. A class is something the reader cannot do about
 # inside a grammar; this was the environment deciding for it.
 #
-# ONE class IS reachable for them anyway, and it is V: `.env` is legal
-# phpdotenv input, so `QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set
+# MEASURED RESIDUE 1 OF 1 (Befund R8-1, same invalid-UTF-8 fuzz): that sentence
+# is TRUE OF THE TRIMS AND NOT OF `read`, and the re-fuzz shows it — 73 of 3000
+# bodies (seed 20261003; 62 of 3000 on seed 424242, 87 of 3000 on a `CACHE_STORE`
+# run) are still answered differently under `LC_ALL=C.UTF-8` than under
+# `LC_ALL=C`. The cause is one step further down, in bash's line reader and not in
+# this grammar: `while IFS= read -r line` delivers ONE line where phpdotenv sees
+# two when the line ends in an INCOMPLETE multibyte sequence. MEASURED on `read`
+# ALONE, with no trims and no state machine anywhere in the picture:
+# `QUEUE_CONNECTION=\xc3<NL>e` is two lines under `LC_ALL=C` and ONE under
+# `LC_ALL=C.UTF-8`. The trigger is a lead byte `0xC2`-`0xFD` immediately before
+# the newline — MEASURED byte by byte over `0x80`-`0xFF`: those 60 flip, and
+# `0x80`-`0xC1`, `0xFE`, `0xFF` do not; a COMPLETE multi-byte sequence does not,
+# a lead byte followed by ASCII does not, and neither EOF nor `\r` does it — the
+# newline is the only thing that truncates. ALL 73 minimized witnesses from the
+# first seed have that one shape, and it is present in the pre-fix reader too, so
+# the byte set of R7 never touched it.
+#
+# Because phpdotenv splits on `/(\r\n|\n|\r)/`, a BYTE rule, this is under a
+# UTF-8 locale a divergence of its own — `K=\xc3<NL>e` → phpdotenv `c3`, this
+# reader `c30a65` — and 23 of those same 3000 bodies are divergent under
+# `C.UTF-8` while agreeing under `C` (1 the other way round).
+#
+# THE RESIDUE IS REPORTED HERE AND NOT PINNED, and only because of the SHAPE it
+# needs and not because pinning it would be inconvenient. Pinning residue 1
+# requires a `divergenceClasses()` entry that carries TWO reader answers, one per
+# locale, and that entry has no shape in the test today — while its sibling was
+# promoted to class W precisely because it did fit the existing one row per class
+# (one oracle answer, one reader answer, one locale), which is the whole
+# difference between the two. So "TEN classes, all pinned" is TRUE as far as it
+# goes — it covers ten of the eleven differences these three fuzzes found — and
+# this sentence is what keeps the eleventh from being read as covered. Reporting
+# it is the honest half and it is the half that costs nothing; the other half is
+# named here so nobody has to re-run the fuzz to find out what is missing.
+#
+# OF THE TEN, ONE class IS reachable for them anyway, and it is V: `.env` is
+# legal phpdotenv input, so `QUEUE_CONNECTION=${SOME_VAR}` with `SOME_VAR` set
 # earlier in the same file is legal, Laravel resolves it, and this reader does
 # not — the note then names a connection the app never resolves. It is pinned
 # as a documented divergence
 # (`DotenvReaderMatchesPhpDotenvTest::test_the_documented_divergence_classes`)
 # rather than implemented: variable resolution in the shell is a larger surface
-# than a NOTE needs, and the note is a note.
+# than a NOTE needs, and the note is a note. W is the class that had the best
+# chance of joining it, and it does not: it is UNREACHABLE for the two keys for
+# the measured reason above, and the paragraph on it says exactly what would
+# happen if that ever stopped being true.
 #
 # WHAT phpdotenv REJECTS
 #   * a value phpdotenv REJECTS (`K=a b`, whitespace inside an unquoted value)
@@ -221,14 +362,34 @@ dotenv_value() {
         # read a key `exportFOO` as `FOO`, i.e. invent a value that is not there.
         #
         # The test is `${name:6}` against the BYTE SET, anchored with a trailing
-        # `*`. Two traps, both measured, and the first one is worth the whole
-        # comment: a bare bracket class is an UNANCHORED glob inside `[[ ]]`, so
-        # `[[ $x == [$ws] ]]` does not ask "does the first byte belong to this set"
-        # — it asks "does the string CONTAIN one of these bytes ANYWHERE", and
-        # `exportFOO=1` contains a space nowhere yet is read as a prefixed key
-        # `FOO` with a value that is not there. `=~ ^[[:space:]]` was anchored and
-        # was right about WHERE; it was wrong about WHICH BYTES, being the same
-        # locale-dependent class as the trims above. `== ["$ws"]*` is both.
+        # `*`. Both halves are load-bearing and each was measured, because the
+        # previous version of this comment had the anchor backwards and would
+        # have recommended the WRONG code (Befund R8-2):
+        #
+        #   * WHICH BYTES — `["$ws"]` is the explicit ASCII set. `=~
+        #     ^[[:space:]]` was the locale-dependent class the trims above just
+        #     gave up, one line further up the same function.
+        #   * THE `*` — inside `[[ ]]` a bracket class is matched against the
+        #     WHOLE string, not as a substring search, so the naked form means
+        #     "the string IS exactly one byte of this set". MEASURED, bash
+        #     5.2.15, identically under `LC_ALL=C` and `LC_ALL=C.UTF-8`:
+        #     `[[ "se" == [set] ]]` is FALSE, `[[ "se" == [set]* ]]` is TRUE.
+        #     Dropping the star would therefore LOSE `export FOO=1`, which
+        #     phpdotenv accepts (`EntryParser::parseName()`, `:99`): the check
+        #     fails, the prefix is not stripped, and this reader answers EMPTY
+        #     where phpdotenv answers `1`. `dotenvBodies()`' `export prefix` case
+        #     goes red on the spot — MEASURED by running the mutated reader.
+        #
+        # The failure mode this comment used to describe — `exportFOO=1` read as
+        # a prefixed key `FOO`, inventing a value that is not there — is one the
+        # NAKED form cannot produce either, and that is measured too: for the name
+        # `exportFOO` all THREE forms keep it, because `${name:6}` is `OO` and no
+        # byte of the set is an `O` (MEASURED, bash 5.2.15, identically under
+        # `LC_ALL=C` and `LC_ALL=C.UTF-8`). The invention only ever came from
+        # stripping `export` UNCONDITIONALLY.
+        #
+        # `=~ ^[[:space:]]` was anchored and was right about WHERE; it was wrong
+        # about WHICH BYTES. `== ["$ws"]*` is both.
         if [ "${#name}" -gt 6 ] && [ "${name:0:6}" = 'export' ] && [[ "${name:6}" == ["$ws"]* ]]; then
             name="${name:6}"
             name="${name#"${name%%[!"$ws"]*}"}"
