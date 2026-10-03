@@ -676,7 +676,9 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'to collapse into one. MEASURED through the note\'s OWN block, extracted from '
                 .'scripts/e2e-up.sh and not retyped: a `.env` holding `QUEUE_CONNECTION=sync` followed by '
                 .'`QUEUE_CONNECTION="` makes the note print `database` and say a worker is needed, while '
-                .'the app resolves `sync` and delivers inline. The mechanism is that the unterminated '
+                .'the app resolves `sync` and delivers inline. That body is no longer only this sentence — it is a ROW in '
+                .'`queueNoteScenarios()` (Befund R10-3), so the consequence is something a test RUNS now, not a '
+                .'claim this table cell makes. The mechanism is that the unterminated '
                 .'line contributes NO entry at all — `Lines::multilineProcess()` leaves it in '
                 .'`$multilineBuffer` and it never reaches `$output` — so phpdotenv answers with what an '
                 .'EARLIER line left behind while this reader answers with the truncated value of a line '
@@ -1187,12 +1189,19 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             .'way to learn where not to trust it.',
         );
 
-        if ($mechanism !== []) {
+        //
+        // EVERY sentence the row's tokens name, not the FIRST one that
+        // matches. Befund R10-2, MEASURED: the helper this replaces returned
+        // the first hit out of its own map, so the order in which a row wrote
+        // its tokens down decided which half of the claim was checked —
+        // swapping the sibling's two tokens left the suite green. Which
+        // sentences a row owes the header is a property of its TOKENS.
+        foreach ($this->headerSentencesFor($mechanism) as $sentence) {
             $this->assertStringContainsString(
-                $this->headerSentenceFor($mechanism),
+                $sentence,
                 $header,
                 "Class {$label} is pinned on the mechanism `".implode('`, `', $mechanism).'`, but the reader\'s '
-                .'header no longer states it. The label is still there, so this reads as covered while the '
+                .'header no longer states `'.$sentence.'`. The label is still there, so this reads as covered while the '
                 .'sentence a reader of the script acts on is the wrong one — which is what Befund NEU-1 '
                 .'measured: the header named class M correctly and described only HALF of what it does.',
             );
@@ -1206,31 +1215,40 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             .'about reachability is what made the old "exactly one difference" claim sound safer than it was.',
         );
 
-        // And it must ASSERT the mechanism its own form rests on — not merely
-        // that whatever it names is checked. The loop above already proves the
-        // second half; this is the first, and it is the assertion Befund NEU-1
-        // needed and did not have.
+        // And it must assert EXACTLY the mechanisms its own provenance rests
+        // on — same tokens, same ORDER — rather than at least those tokens in
+        // any order.
         //
-        // MEASURED, and this is why it is here: dropping `no-key-at-all` from
-        // M's first row, or `earlier-value-survives` from its sibling, or
-        // deleting the sibling row outright — all three leave the suite FULLY
-        // GREEN, because nothing anywhere said those premises had to be
-        // asserted. The per-row loop cannot catch that: by the time it runs, the
-        // omission has already happened, and what it checks is that the tokens
-        // that SURVIVED are honoured. A premise nothing requires is a comment,
-        // and this is the assertion that makes it a requirement.
+        // MEASURED, and it is Befund R10-2: the per-token `assertContains` this
+        // replaces held MEMBERSHIP and nothing else, so the sibling's list could
+        // be written `['earlier-value-survives', 'multiline-buffered']` and the
+        // suite stayed green — 11 passed, nothing red. The order is not free
+        // text: `requiredMechanismsFor()` answers shared-mechanism-first and
+        // form-second, and the header's two sentences are written in that order
+        // too, so a row that lists them the other way round is asserting about
+        // its provenance in an order nothing else uses.
+        //
+        // EXACT, not "at least", and the tightening is deliberate: a token the
+        // derivation does not ask for is the "mechanism token nobody checks is a
+        // comment in a table cell" this file rejects, and the vocabulary itself
+        // is already fail-closed by the `match` above, which fails an unknown
+        // token with a message that says what to do about it. One `assertSame`
+        // covers membership, order and completeness; it REPLACES the loop
+        // instead of standing beside it, because a premise that cannot fail
+        // where the one beside it holds is the silent restatement this file
+        // documents its opinion about in `assertSiblingProvenance()`.
         [$required, $requiredRows] = $this->requiredMechanismsFor($body);
 
-        foreach ($required as $token) {
-            $this->assertContains(
-                $token,
-                $mechanism,
-                "Class {$label} has a row whose body makes `{$token}` the mechanism of its divergence, but "
-                .'the row asserts '.($mechanism === [] ? 'NO mechanism at all' : '`'.implode('`, `', $mechanism).'`')
-                .'. Asserting the wrong mechanism is worse than asserting none: the row then reads as '
-                .'checked while checking something else.',
-            );
-        }
+        $this->assertSame(
+            $required,
+            $mechanism,
+            "Class {$label} must assert exactly the mechanisms its body's provenance rests on, in the order "
+            .'`requiredMechanismsFor()` derives them'
+            .($required === [] ? ' (none for this body)' : ': `'.implode('`, `', $required).'`')
+            .', and it asserts '.($mechanism === [] ? 'NONE' : '`'.implode('`, `', $mechanism).'`')
+            .'. Asserting the wrong mechanism is worse than asserting none: the row then reads as '
+            .'checked while checking something else.',
+        );
 
         // And a class with a SECOND form must have a row for it. Without this,
         // deleting the sibling row is green too — and class M's prose is
@@ -1239,8 +1257,9 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // COUNTED OVER EVERY ROW SHARING THE LABEL, not over the ones carrying a
         // mechanism: a class whose single form names no mechanism still has to
         // be counted, or `requiredRows = 1` would be satisfied by zero rows and
-        // the whole assertion would be vacuous for the nine classes it was
-        // written around.
+        // the whole assertion would be vacuous for every class it was written
+        // around. It stays vacuous for a class with NO rows at all, though —
+        // there is no row to run it from, and that is Befund R10-1.
         $rows = array_filter(
             self::divergenceClasses(),
             static fn (array $row): bool => $row[3] === $label,
@@ -1257,7 +1276,64 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /**
-     * The sentence the reader's header must carry for a mechanism.
+     * Every class this file claims still HAS a row — counted here, and not in
+     * the test above.
+     *
+     * Befund R10-1 (medium), and the shape of the hole is the reason it is a
+     * separate test rather than one more assertion in the per-row one:
+     * `test_the_documented_divergence_classes_are_documented()` is driven by a
+     * DataProvider, so every assertion inside it is reached THROUGH a row. A
+     * class whose rows were all deleted has no row left to run them from, and
+     * the count it wanted — `requiredRows` — was computed from a body, not read
+     * out of the table, so nothing noticed the absence.
+     *
+     * MEASURED, all three deletions, each on its own, against `ea9ecf0` and
+     * nothing else touched: deleting BOTH of class M's rows → 9 passed, green;
+     * deleting class W's row → 10 passed, green; deleting class V's row → 10
+     * passed, green. So it is PRE-EXISTING, not something the round that found
+     * it introduced — and that half is measured too, on `71946f3` (M was a
+     * single row then): 10 passed at the baseline, and 9 passed, green, for
+     * each of its three deletions. The two halves were NOT equally closed: the
+     * comment above `assertCount($requiredRows, …)` had already named the
+     * vacuity for the row that REMAINS, and `assertContains` had closed the
+     * mechanism side for every surviving row. What was missing is only the
+     * question "how many classes are there", which no row can ask.
+     *
+     * TEN, over ELEVEN rows: class M is pinned over two forms under one label,
+     * which is the whole point of the mechanism column being a list (Befund
+     * NEU-1). The distinct-label form is deliberate — `array_column(…, 3)` then
+     * `array_unique` is what makes the assertion a statement about CLASSES; a
+     * plain `count()` would be a statement about rows and would have been
+     * satisfied by deleting one of M's two rows while adding a duplicate of
+     * another class.
+     *
+     * A number is a weaker guard than the rows themselves, and it is written
+     * as one: the intent is that adding a measured class raises this number in
+     * the same commit that adds the row and the header sentence. Deleting a
+     * class now fails here instead of quietly shortening the list, which is the
+     * half of "a documented boundary that stopped existing has to be removed
+     * from the header, not left standing" that the per-row test structurally
+     * cannot reach.
+     */
+    public function test_every_documented_divergence_class_still_has_a_row(): void
+    {
+        $labels = array_column(self::divergenceClasses(), 3);
+
+        $this->assertCount(
+            10,
+            array_unique($labels),
+            'PREMISE: this file pins TEN divergence classes, one of them (M) over TWO forms. A class that '
+            .'has lost its row — or a label renamed into an eleventh — must change this number in the same '
+            .'commit, because nothing else can notice a class that no longer has a row at all: the '
+            .'per-row test above is driven by those rows, so a class with none of them is never run '
+            .'(Befund R10-1: MEASURED green for both M rows, for W and for V, each deleted on its own, on '
+            .'`ea9ecf0` and on `71946f3` alike). '
+            .'Classes now in the table: '.implode(' / ', array_unique($labels)).'.',
+        );
+    }
+
+    /**
+     * The sentences the reader's header must carry for a row's mechanisms.
      *
      * Per TOKEN rather than per class, because the thing that was measurably
      * wrong was never the label — it was the SENTENCE. A header that says
@@ -1265,24 +1341,46 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * assignment is exactly the failure this guards, so the guard names the two
      * sentences the two forms are told apart by.
      *
-     * `$multiline-buffered` deliberately maps to the sentence shared by both
-     * rows: it is the mechanism they have in common, and pinning it twice would
-     * say nothing extra.
+     * EVERY applicable sentence, and that is the fix for Befund R10-2 rather
+     * than a tidiness change: the version this replaces returned the FIRST map
+     * entry that matched, so of a two-token list exactly one sentence was ever
+     * checked, and which one depended on the map — MEASURED, writing the
+     * sibling's tokens the other way round (`['earlier-value-survives',
+     * 'multiline-buffered']`) left the suite green, 11 passed. The claim a row
+     * makes about the header is a function of its TOKENS; the order somebody
+     * wrote them down in is not part of it, and the token order itself is now
+     * pinned separately by `assertSame($required, $mechanism)` in the caller.
+     * The list this returns is walked in the MAP's order, which is the header's
+     * own order, so the caller's failure message lists the sentences in the
+     * order the reader of the script meets them.
+     *
+     * `$multiline-buffered` maps to the sentence shared by both M rows: it is
+     * the mechanism they have in common. Both rows therefore check that one
+     * shared sentence — not "twice for the same row", which would say nothing,
+     * but once per row, which is what makes a header that keeps the shared
+     * sentence while dropping one of the two form sentences red in BOTH forms.
+     *
+     * An UNKNOWN token yields no sentence and is deliberately not this
+     * helper's business: the `match` in the test fails it first, naming the
+     * token and the remedy, which is a better message than a lookup miss.
      *
      * @param  list<string>  $mechanism
+     * @return list<string>
      */
-    private function headerSentenceFor(array $mechanism): string
+    private function headerSentencesFor(array $mechanism): array
     {
+        $sentences = [];
+
         foreach (['earlier-value-survives' => 'WITH AN EARLIER ASSIGNMENT: phpdotenv keeps the EARLIER value',
             'no-key-at-all' => 'NO EARLIER ASSIGNMENT: phpdotenv emits no key at all',
             'multiline-buffered' => 'MULTILINE, UNBALANCED (`Lines::looksLikeMultilineStart()`)',
         ] as $token => $sentence) {
             if (in_array($token, $mechanism, true)) {
-                return $sentence;
+                $sentences[] = $sentence;
             }
         }
 
-        return implode('`, `', $mechanism);
+        return $sentences;
     }
 
     /**
@@ -1575,7 +1673,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
     }
 
     /* ------------------------------------------------------------------ */
-    /* The 16 scenarios the note has to get right */
+    /* The 17 scenarios the note has to get right */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -1583,7 +1681,10 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * the reader that no worker is needed or that one is. That branch was
      * described by numbers in commit messages ("11 of 16 scenarios wrong",
      * "16/16 in the right branch, before 5/16") that nobody could reproduce —
-     * the scenarios were never in the repo (Befund B9). They are here.
+     * the scenarios were never in the repo (Befund B9). They are here, and the
+     * matrix has grown since those numbers were written: SIXTEEN rows then,
+     * SEVENTEEN now, the seventeenth being the one body class M's own note
+     * prose claims and nothing pinned (Befund R10-3).
      *
      * What this matrix asserts is the thing a reader of the script actually
      * does: it runs the REAL block from `scripts/e2e-up.sh` — extracted from
@@ -1592,50 +1693,96 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * Both the named connection and the branch are taken out of that text, so a
      * test cannot pass while the note says the wrong thing.
      *
-     * The truth for each scenario is not a constant: it is `environment` first,
-     * then `Dotenv::parse()` on the `.env` body, then `config/queue.php`'s
-     * default — read from that config, so this test cannot drift from the
-     * fallback the script actually uses.
+     * FOUR values per row, and the fourth is the one Befund R10-3 added:
+     * `$environment`, the `.env` BODY, what the APP resolves (`$inEnv`), and
+     * what the NOTE prints (`$notePrints`). The first three existed before and
+     * the third was DECORATIVE — it was passed into the test and never read,
+     * while the truth was recomputed in the test body and compared only with
+     * the note. Sixteen rows therefore agreed with themselves and nothing
+     * checked the recorded number. It is checked now, and it is what lets a
+     * row say the two DIFFER: `$inEnv` is the app's answer — environment first,
+     * then `Dotenv::parse()` on the `.env` body — while `$notePrints` is what
+     * the reader and the note's own fallback chain produce, environment first,
+     * then `dotenv-value.sh`, then `config/queue.php`'s default. For the first
+     * sixteen rows the two literals are the same string, written out twice on
+     * purpose — the repeat IS the claim, and the seventeenth row is the case
+     * where it stops being one.
      *
-     * @return array<string, array{0: ?string, 1: ?string, 2: string}>
+     * Neither truth is a constant, and neither is restated here: the app's is
+     * recomputed through `Dotenv::parse()`, the note's through the extracted
+     * reader plus a default read out of `config/queue.php` — so this test cannot
+     * drift from the resolution the scripts actually perform.
+     *
+     * @return array<string, array{0: ?string, 1: ?string, 2: string, 3: string}>
      */
     public static function queueNoteScenarios(): array
     {
         return [
-            'environment wins over .env' => ['sync', "QUEUE_CONNECTION=database\n", 'sync'],
-            'environment wins, no .env at all' => ['sync', null, 'sync'],
-            'environment is not sync, .env says sync' => ['redis', "QUEUE_CONNECTION=sync\n", 'redis'],
-            '.env plain — the form the CI job writes' => [null, "QUEUE_CONNECTION=sync\n", 'sync'],
-            '.env plain, not sync' => [null, "QUEUE_CONNECTION=database\n", 'database'],
-            '.env with an export prefix' => [null, "export QUEUE_CONNECTION=sync\n", 'sync'],
-            '.env indented with spaces' => [null, "  QUEUE_CONNECTION=sync\n", 'sync'],
-            '.env double quoted' => [null, "QUEUE_CONNECTION=\"sync\"\n", 'sync'],
-            '.env single quoted' => [null, "QUEUE_CONNECTION='sync'\n", 'sync'],
-            '.env quoted with an inline comment' => [null, "QUEUE_CONNECTION=\"sync\" # CI\n", 'sync'],
-            '.env unquoted with an inline comment' => [null, "QUEUE_CONNECTION=sync # inline delivery\n", 'sync'],
+            'environment wins over .env' => ['sync', "QUEUE_CONNECTION=database\n", 'sync', 'sync'],
+            'environment wins, no .env at all' => ['sync', null, 'sync', 'sync'],
+            'environment is not sync, .env says sync' => ['redis', "QUEUE_CONNECTION=sync\n", 'redis', 'redis'],
+            '.env plain — the form the CI job writes' => [null, "QUEUE_CONNECTION=sync\n", 'sync', 'sync'],
+            '.env plain, not sync' => [null, "QUEUE_CONNECTION=database\n", 'database', 'database'],
+            '.env with an export prefix' => [null, "export QUEUE_CONNECTION=sync\n", 'sync', 'sync'],
+            '.env indented with spaces' => [null, "  QUEUE_CONNECTION=sync\n", 'sync', 'sync'],
+            '.env double quoted' => [null, "QUEUE_CONNECTION=\"sync\"\n", 'sync', 'sync'],
+            '.env single quoted' => [null, "QUEUE_CONNECTION='sync'\n", 'sync', 'sync'],
+            '.env quoted with an inline comment' => [null, "QUEUE_CONNECTION=\"sync\" # CI\n", 'sync', 'sync'],
+            '.env unquoted with an inline comment' => [null, "QUEUE_CONNECTION=sync # inline delivery\n", 'sync', 'sync'],
             '.env duplicated, sync last' => [
                 null,
                 "QUEUE_CONNECTION=database\nQUEUE_CONNECTION=sync\n",
+                'sync',
                 'sync',
             ],
             '.env duplicated, database last' => [
                 null,
                 "QUEUE_CONNECTION=sync\nQUEUE_CONNECTION=database\n",
                 'database',
+                'database',
             ],
-            '.env has the key, but empty' => [null, "QUEUE_CONNECTION=\n", ''],
-            '.env has no such key' => [null, "APP_ENV=local\n", ''],
-            'no .env file at all' => [null, null, ''],
+            '.env has the key, but empty' => [null, "QUEUE_CONNECTION=\n", '', 'database'],
+            '.env has no such key' => [null, "APP_ENV=local\n", '', 'database'],
+            'no .env file at all' => [null, null, '', 'database'],
+
+            // The one row where `$notePrints` and `$inEnv` DIFFER, and it is
+            // here rather than in `divergenceClasses()` because the thing to
+            // pin is not a reader answer but a NOTE (Befund R10-3). MEASURED
+            // through the note's own block, extracted from `scripts/e2e-up.sh`:
+            // phpdotenv keeps the EARLIER assignment and the app therefore
+            // delivers inline, while the reader takes the truncated value of
+            // the unbalanced line — that answer is empty — and the note falls
+            // back to the config default and says a worker is needed.
+            //
+            // A `divergenceClasses()` row could not carry it: that table's shape
+            // is one body, one oracle answer, one reader answer, and what is
+            // claimed here is what a SCRIPT then DOES with the two different
+            // answers. Two facts make it worth a row here instead: the note is
+            // what a developer acts on, and the fallback it falls back to is
+            // read out of `config/queue.php` by `queueConnectionConfigDefault()`
+            // rather than restated, so neither the fallback nor its value is a
+            // second copy in this file.
+            'class M, second form — the earlier assignment phpdotenv keeps' => [
+                null,
+                "QUEUE_CONNECTION=sync\nQUEUE_CONNECTION=\"\n",
+                'sync',
+                'database',
+            ],
         ];
     }
 
     #[DataProvider('queueNoteScenarios')]
-    public function test_the_queue_note_takes_the_right_branch(?string $environment, ?string $envBody, string $inEnv): void
-    {
+    public function test_the_queue_note_agrees_with_phpdotenv_or_names_the_divergence(
+        ?string $environment,
+        ?string $envBody,
+        string $inEnv,
+        string $notePrints,
+    ): void {
         $key = 'QUEUE_CONNECTION';
 
-        // The truth: environment first, then phpdotenv on the `.env`, then the
-        // framework default read out of config/queue.php.
+        // The framework default, read out of the file rather than restated —
+        // it is the LAST stage of the note's resolution and the reason an
+        // empty answer becomes `database` instead of nothing.
         $configDefault = $this->queueConnectionConfigDefault();
 
         $fromEnvFile = '';
@@ -1647,9 +1794,48 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             }
         }
 
-        $expected = ($environment !== null && $environment !== '')
+        // TWO truths, and conflating them is what made the seventeenth row
+        // unwritable (Befund R10-3). The single `$expected` this replaces was
+        // computed as "environment, else phpdotenv's value if it is not empty,
+        // else the config default" — and that is the NOTE's rule, not the app's:
+        // `config/queue.php` reads `env($key, 'database')`, whose default
+        // applies to a MISSING value, so a `.env` holding `QUEUE_CONNECTION=`
+        // resolves to the empty string in the app while the note prints
+        // `database`. Correcting the record rather than the expectation.
+        //
+        // The APP, through phpdotenv: an empty value stays empty.
+        $appResolves = ($environment !== null && $environment !== '')
             ? $environment
-            : ($fromEnvFile !== '' ? $fromEnvFile : $configDefault);
+            : $fromEnvFile;
+
+        // The NOTE, through ITS OWN reader — not through phpdotenv, which the
+        // first version of this test used in the reader's place and could get
+        // away with only because the two agreed on every one of its sixteen
+        // bodies. Asking the reader directly is what lets a row say "these two
+        // answers differ" instead of only "this one answer".
+        $readerAnswer = $envBody === null ? '' : $this->readWithShellReader($envBody, $key);
+        $noteShouldPrint = ($environment !== null && $environment !== '')
+            ? $environment
+            : ($readerAnswer !== '' ? $readerAnswer : $configDefault);
+
+        // Both recorded truths are LOAD-BEARING. Neither was read before
+        // (Befund R10-3): the third column was passed into this method and never
+        // touched, while the truth was recomputed here and compared only against
+        // the note — so a row could have recorded anything and stayed green.
+        $this->assertSame(
+            $inEnv,
+            $appResolves,
+            "PREMISE: the row records that the app resolves `{$inEnv}` here and phpdotenv says "
+            ."`{$appResolves}`. One of the two is wrong, and the divergence guard below compares against the "
+            .'recorded truth.',
+        );
+        $this->assertSame(
+            $notePrints,
+            $noteShouldPrint,
+            "PREMISE: the row records that the note prints `{$notePrints}` here, and the note's own resolution "
+            ."rule — environment, else `dotenv-value.sh`'s answer, else the config default `{$configDefault}` — "
+            ."says `{$noteShouldPrint}`.",
+        );
 
         $note = $this->runQueueNoteBlock($environment, $envBody);
 
@@ -1659,26 +1845,60 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             "PREMISE: the note must name the connection it resolved.\n--- note as printed ---\n{$note}",
         );
         $this->assertSame(
-            $expected,
+            $notePrints,
             $printed,
-            "The note names `{$printed}` where the app resolves `{$expected}`.\n--- note as printed ---\n{$note}",
+            "The note names `{$printed}` where this row records `{$notePrints}`.\n--- note as printed ---\n{$note}",
         );
 
-        // The branch, read out of the note rather than recomputed from the value.
+        // The branch, read out of the note rather than recomputed from the value
+        // — and taken against WHAT THE NOTE PRINTED, not against what the app
+        // resolves. That is the distinction the seventeenth row exists for: the
+        // note is self-consistent either way, and only the comparison below
+        // says whether that self-consistency agrees with the app.
         $takesSyncBranch = str_contains($note, "With 'sync' the mail is delivered inline");
         $takesWorkerBranch = str_contains($note, "With a connection other than 'sync'");
 
         $this->assertSame(
-            $expected === 'sync',
+            $printed === 'sync',
             $takesSyncBranch,
-            "The note takes the WRONG branch for a resolved connection of `{$expected}`.\n"
+            "The note takes the WRONG branch for the connection it printed, `{$printed}`.\n"
             ."--- note as printed ---\n{$note}",
         );
         $this->assertSame(
-            $expected !== 'sync',
+            $printed !== 'sync',
             $takesWorkerBranch,
             "The note must print exactly one of its two branches.\n--- note as printed ---\n{$note}",
         );
+
+        // And the question the sixteen agreeing rows cannot ask: does the reader
+        // agree with phpdotenv on THIS `.env`, or does it differ in a shape this
+        // file names. Not "if they differ, that is fine" — a difference nobody
+        // can name is a bug in the reader, which is the sentence this file's
+        // whole scope rests on.
+        //
+        // MEASURED (Befund R10-3) on the seventeenth row: the reader answers
+        // `''` where phpdotenv answers `sync`, so the note prints the config
+        // default and says a worker is needed while the app delivers inline.
+        if ($readerAnswer !== $fromEnvFile) {
+            $this->assertSame(
+                ['multiline-buffered', 'earlier-value-survives'],
+                $this->requiredMechanismsFor((string) $envBody)[0],
+                'PREMISE: a `.env` the note reads differently from phpdotenv has to be one of the DOCUMENTED '
+                .'divergences — class M\'s second form, an unbalanced `="` after an earlier assignment. '
+                .'`requiredMechanismsFor()` asks phpdotenv about the body itself instead of trusting a label, '
+                .'so a body that starts disagreeing for some other reason goes red here instead of quietly '
+                .'joining the rows that disagree by design.',
+            );
+
+            $this->assertSame(
+                '',
+                $readerAnswer,
+                'PREMISE: class M\'s second form answers with the TRUNCATED value of the unbalanced line, which '
+                ."is empty here — this row's reader answer is `{$readerAnswer}`. The consequence the note then "
+                .'draws (an empty answer, therefore the config default) belongs to that shape; a different '
+                .'answer would mean this row had stopped measuring the divergence class M\'s prose names.',
+            );
+        }
     }
 
     /**
@@ -1696,7 +1916,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             1,
             preg_match("/env\(\s*'QUEUE_CONNECTION'\s*,\s*'([^']+)'\s*\)/", $config, $matches),
             'PREMISE: config/queue.php must read QUEUE_CONNECTION with a literal default — that value is the '
-            .'third resolution stage of the 16 scenarios, and the note falls back to it.',
+            .'third resolution stage of all 17 scenarios, and the note falls back to it.',
         );
 
         return $matches[1];
@@ -1742,19 +1962,27 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             // for the backend suite, and Symfony's Process MERGES the env it is
             // given over the inherited one (`Process.php:333`,
             // `$env += $this->getDefaultEnv()`), so a scenario cannot un-set it.
-            // With the inherited value in place FIVE of the sixteen scenarios
-            // answered from the test runner instead of from their `.env` — and the
-            // first version of this test reported that as 10 of 16 wrong.
+            // With the inherited value in place SIX of the seventeen scenarios
+            // answered from the test runner instead of from their `.env` — and
+            // the first version of this test reported that as 10 of 16 wrong,
+            // over the sixteen rows the matrix had then.
             //
-            // FIVE, measured (Befund R7-3): removing the `-i` and re-running
-            // names exactly these five as red — `.env plain, not sync`, `duplicated,
-            // database last`, `has the key, but empty`, `has no such key`, and `no
-            // .env file at all`. The three whose environment argument is non-null
+            // SIX, re-measured (Befund R10-3): removing the `-i` and re-running
+            // names exactly these — `.env plain, not sync`, `duplicated,
+            // database last`, `has the key, but empty`, `has no such key`, `no
+            // .env file at all`, and the seventeenth row, which is the note-body
+            // of class M's second form: its recorded note answer is `database`,
+            // the inherited `sync` decides it instead, and the row goes red on
+            // its recorded value. Befund R7-3 measured FIVE of the sixteen before
+            // that row existed. The three whose environment argument is non-null
             // are unaffected, because Process merges the scenario's own value over
-            // the inherited one; and the eleven whose `.env` says `sync` cannot tell
-            // the two sources apart, because both say `sync`. An earlier version of
-            // this comment said six, and the sixth does not exist — which is only
-            // visible because the number is checkable by deleting one argument.
+            // the inherited one; ELEVEN rows still cannot tell the two sources
+            // apart — those eight whose `.env` says `sync` on both sides, plus the
+            // three with an environment of their own — which is the same eleven as
+            // then, since the seventeenth row lands in neither group. An earlier
+            // version of this comment said six of sixteen were affected and named
+            // the wrong sixth, which is only visible because the number is
+            // checkable by deleting one argument.
             $command = ['/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'HOME='.$work];
 
             if ($environment !== null) {
