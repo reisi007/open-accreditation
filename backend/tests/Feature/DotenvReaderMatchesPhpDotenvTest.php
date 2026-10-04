@@ -34,7 +34,10 @@ use Tests\TestCase;
  *    An earlier version of this paragraph called the quoted form "the form the
  *    CI E2E job itself writes". That was false (Befund B3): the job writes and
  *    re-checks the UNQUOTED `QUEUE_CONNECTION=sync`
- *    (`.github/workflows/ci.yml:522` sed, `:529` `grep -q '^QUEUE_CONNECTION=sync$'`),
+ *    (`.github/workflows/ci.yml`: the `-e 's|^QUEUE_CONNECTION=.*|QUEUE_CONNECTION=sync|'`
+ *    argument of the job's `sed -i.bak`, and — in the same block, LAST among the
+ *    six `grep -q` checks that follow that `sed`, one per key it rewrote — the
+ *    `grep -q '^QUEUE_CONNECTION=sync$' .env` that re-checks it),
  *    which the old `grep -E '^QUEUE_CONNECTION='` reader answered correctly. No
  *    committed `.env`, compose file or CI step in this repo assigns either key in
  *    the quoted form; it is a form a developer's own `.env` can carry, and it
@@ -576,11 +579,27 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * `C.UTF-8`). Pinning that needs a row carrying two reader answers, one per
      * locale, which is a change to the SHAPE of this table and is not made here.
      * Its sibling from the same fuzz — a line that is a bare NAME with no `=`,
-     * phpdotenv `NULL` (`EntryParser.php:76-78`, `Loader/Loader.php:36-37`) and
-     * this reader the earlier value — DID fit the existing shape and is class W
-     * below. The two differ only in how many answers a row has to carry, which
-     * is the whole reason one is pinned and the other is not; neither is
-     * skipped.
+     * phpdotenv `NULL` and this reader the earlier value — DID fit the existing
+     * shape and is class W below. `NULL` is TWO branches and one ORDER:
+     * `EntryParser::splitStringIntoParts()` explodes on the FIRST `=` only
+     * (`\explode('=', $line, 2)`) and, where there is no second part, its `else`
+     * hands back `[$line, null]`; that value is not defined, and an undefined
+     * value is what makes `Loader::load()` take its `elseif
+     * ($repository->clear($name))` instead of its `if ($value->isDefined())`,
+     * where it answers `$vars[$name] = null`. The two differ only in how many
+     * answers a row has to carry, which is the whole reason one is pinned and
+     * the other is not; neither is skipped.
+     *
+     * BRANCHES and their RELATIVE order, deliberately not line numbers: an
+     * absolute line number in a FOREIGN file is a claim nothing here checks —
+     * MEASURED, inserting ONE comment line above `splitStringIntoParts()` and
+     * one above `Loader::load()`'s loop, in a COPY of both vendor files, shifts
+     * both ranges this sentence used to cite by one and leaves this filter at 86
+     * passed / 2546 assertions — the same numbers — while both ranges are now off
+     * by one. The four claims were then re-read off the SHIFTED copy and all
+     * four still hold (the `else` really does hand back `null`, the `elseif`
+     * really is the branch for an undefined value); the numbers would not
+     * (Befund R12-2, low).
      *
      * That "how many answers a row carries" is the SHAPE, and Befund NEU-1 is
      * what showed it is not the same question as "how many rows a class has".
@@ -779,9 +798,10 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 'UNREACHABLE for both keys: it needs BOTH halves, a byte that is not valid UTF-8 AND a '
                 .'`$` in the value, and a connection name written as text carries neither. Each half alone '
                 .'AGREES, and that is what makes this one class instead of "invalid bytes are mangled": '
-                .'MEASURED `K=\\x80` → `80` on both sides (`Resolver::resolve()` returns the value while '
-                .'`$vars === []`, `Loader/Resolver.php:43-45`), and MEASURED `K=\'\\x80$\'` → `8024` on '
-                .'both sides (a `$` inside single quotes is not a var position). NOT class V either: no '
+                .'MEASURED `K=\\x80` → `80` on both sides (`Resolver::resolve()` takes its FIRST '
+                .'branch, `if ($vars === []) { return $chars; }`, before it walks a single `$vars`), '
+                .'and MEASURED `K=\'\\x80$\'` → `8024` on both sides (a `$` inside single quotes is '
+                .'not a var position). NOT class V either: no '
                 .'`${…}` is resolved here, one byte is merely falsified. '
                 .'MEASURED `mb_substr("\\x80$", 0, 2, \'UTF-8\')` → `3f24`.',
             ],
@@ -798,8 +818,9 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'true is that it could not matter, and the distance between those two sentences is why '
                 .'this note is this long. MEASURED through Laravel\'s own resolution chain — '
                 .'`LoadEnvironmentVariables::createDotenv()` hands `Env::getRepository()` to '
-                .'`Dotenv::create()`, and `config/queue.php:16` / `config/cache.php:18` read '
-                .'`env($key, \'database\')` — a bare line AFTER a real assignment yields NULL from '
+                .'`Dotenv::create()`, and the `default` key of `config/queue.php` / '
+                .'`config/cache.php` reads `env($key, \'database\')` — a bare line AFTER a '
+                .'real assignment yields NULL from '
                 .'phpdotenv, `PhpOption\\Option::fromValue(null)` is `None::create()`, and `env()` hands '
                 .'back the CONFIG DEFAULT `database`, while this reader keeps the stale earlier value. '
                 .'The note then takes the WRONG BRANCH: a `.env` holding `QUEUE_CONNECTION=sync` plus a '
@@ -809,8 +830,11 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'falls back to the same config default, and an earlier value that happens to BE the '
                 .'config default agrees by coincidence. The only mechanical writer that could produce '
                 .'the form is a `sed` replacement that lost its `=VALUE`, and every one of those '
-                .'re-checks the line on the next statement (`scripts/e2e-up.sh:139-140`, '
-                .'`.github/workflows/ci.yml:521-529`), so it cannot pass unnoticed. THE GAP, stated '
+                .'re-checks the line on the next statement: in `scripts/e2e-up.sh` the '
+                .'`sed -i.bak -E -e \'s|^CACHE_STORE=.*|CACHE_STORE=array|\' .env` is followed by '
+                .'`grep -q \'^CACHE_STORE=array$\' .env`, and the E2E job\'s `sed -i.bak` block in '
+                .'`.github/workflows/ci.yml` is followed by one `grep -q \'^<KEY>=<value>$\' .env` per key '
+                .'it rewrote — so it cannot pass unnoticed. THE GAP, stated '
                 .'because it reads as covered and is not: '
                 .'`test_the_forms_this_repo_writes_for_those_two_keys_are_not_divergent()` collects '
                 .'writers with `^\s*(?:export\s+)?(QUEUE_CONNECTION|CACHE_STORE)\s*=(.*)$` — the `=` is '
@@ -818,7 +842,15 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'make that test red. This verdict rests on the scan quoted above, not on a pin. '
                 .'Befund R8-1; reported as "residue 2" first, promoted here because it fits the one-row '
                 .'shape (one oracle answer, one reader answer, one locale) that the locale residue does '
-                .'not.',
+                .'not. SENTENCES and their RELATIVE order, never line numbers: this row quoted four '
+                .'`:NNN` ranges across four files, and MEASURED — one comment line above each of '
+                .'`config/queue.php`\'s `default`, `config/cache.php`\'s, `e2e-up.sh`\'s `sed`, and the '
+                .'CI job\'s `sed` argument, inserted WHERE THE SUITE ACTUALLY READS THEM (the two configs '
+                .'at boot, the script and the workflow through `repositoryFile()`) with the checkout '
+                .'restored byte-identically afterwards — all four move by one and this filter answers '
+                .'86 passed / 2546 assertions, unchanged. What the readers of those files look up is '
+                .'CONTENT: `queueConnectionConfigDefault()` and the CI\'s own assertions both search with '
+                .'a regex over the whole file, which is why nothing goes red (Befund R12-2, low).',
             ],
         ];
     }
@@ -861,11 +893,32 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * The bodies split in two, and the split is measured rather than tidiness.
      * Where phpdotenv ACCEPTS the file — a non-ASCII byte at a VALUE position —
      * the reader must agree with it in both locales. Where phpdotenv REJECTS it —
-     * a non-ASCII byte in front of the NAME is an invalid name
-     * (`EntryParser::parseName()`, `:107-109`, with `isValidName()` at
-     * `:140-147`; `Parser.php:30` is only the `mapError` that turns that into an
-     * `InvalidFileException`) — there is no oracle, and the only claim available
-     * is that the reader agrees with ITSELF across locales. That second group is
+     * a non-ASCII byte in front of the NAME is an invalid name. `parseName()` runs
+     * three steps on a name — strip an `export` prefix, strip surrounding quotes,
+     * then gate on `isValidName()` — and that gate is the LAST one before the
+     * method returns the name, so it decides every name. Its two patterns are
+     * `~\A[a-zA-Z0-9_.]+\z~` and `~\A[\p{Ll}\p{Lu}\p{M}\p{N}_.]+\z~u`: no `\p{Z}`
+     * (U+3000, U+2028, U+205F), no `\p{C}` (NEL, a stray continuation byte) — so
+     * none of the bytes below can be part of a name. `Parser::parse()` then only
+     * wraps that failure in the `mapError` that throws `InvalidFileException`.
+     *
+     * SYMBOLS and their RELATIVE order, deliberately not line numbers: an absolute
+     * line number in a FOREIGN file is a claim nothing here checks. MEASURED —
+     * inserting ONE comment line above `parseName()` in a COPY of
+     * `vlucas/phpdotenv/src/Parser/EntryParser.php` and loading the copy through a
+     * prepended autoloader pushes every line below it down by one — both of the
+     * lines this paragraph used to cite among them, `isValidName()` because it
+     * sits BELOW the inserted line — and the filter still answers OK (86 tests,
+     * 2546 assertions — the same numbers) while every cited `:NNN` is now wrong by
+     * one. The two numbers are deliberately NOT repeated here: an earlier
+     * revision of this very sentence wrote them out, which is the habit being
+     * removed. The five claims above — both symbols exist, the gate order, both
+     * patterns verbatim, and that neither pattern names `\p{Z}` or `\p{C}` — were
+     * then re-read off the SHIFTED copy and all five still hold; the numbers
+     * would not (Befund R12-1, low).
+     *
+     * So there is no oracle, and the only claim available is that the reader agrees
+     * with ITSELF across locales. That second group is
      * not filler: MEASURED under the old `[[:space:]]`, five of those seven bodies
      * were answered EMPTY under `LC_ALL=C` and `sync` under `LC_ALL=C.UTF-8`, so
      * the name-side trims were exactly as locale-dependent as the value-side one,
@@ -905,11 +958,12 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // actually flip under the old reader — U+3000, U+2028, U+205F — and the
         // other three do not; the docblock says so with the numbers. They are
         // chosen so phpdotenv ACCEPTS the file — a non-ASCII byte in front of the
-        // NAME is an invalid name (`EntryParser::parseName()`, `:107-109`, with
-        // `isValidName()` at `:140-147`; MEASURED, `Dotenv::parse()` throws
-        // `Encountered an invalid name`), and a rejected file has no answer to
-        // compare. `U+3000 before the name` and its two siblings were in the
-        // first cut of this test and had to come out.
+        // NAME is an invalid name (in `EntryParser::parseName()` the name's last gate
+        // is `isValidName()`, whose patterns are `~\A[a-zA-Z0-9_.]+\z~` and
+        // `~\A[\p{Ll}\p{Lu}\p{M}\p{N}_.]+\z~u` — no `\p{Z}`, no `\p{C}`);
+        // MEASURED, `Dotenv::parse()` throws `Encountered an invalid name`), and
+        // a rejected file has no answer to compare. `U+3000 before the name` and
+        // its two siblings were in the first cut of this test and had to come out.
         // Two groups, and the split is MEASURED, not tidiness.
         //
         // phpdotenv ACCEPTS: the reader must agree with it in both locales.
@@ -923,10 +977,12 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         ];
 
         // phpdotenv REJECTS — a non-ASCII byte in front of the NAME is an invalid
-        // name (`EntryParser::parseName()`, `:107-109`, `isValidName()` at
-        // `:140-147`; MEASURED), so there is no oracle to compare against and the
-        // differential cannot speak about these bodies. They are here because the
-        // reader is STILL locale-dependent on them under the old `[[:space:]]`, and
+        // name (in `EntryParser::parseName()` the name's last gate is `isValidName()`,
+        // whose patterns are `~\A[a-zA-Z0-9_.]+\z~` and
+        // `~\A[\p{Ll}\p{Lu}\p{M}\p{N}_.]+\z~u` — no `\p{Z}`, no `\p{C}`);
+        // MEASURED), so there is no oracle to compare against and the differential
+        // cannot speak about these bodies. They are here because the reader
+        // is STILL locale-dependent on them under the old `[[:space:]]`, and
         // a name-side trim that silently depends on the caller's environment is the
         // same defect as a value-side one — it would just have no test watching it.
         //
@@ -1050,8 +1106,15 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // `dotenvBodies()` and `cacheStoreBodies()` are DATA PROVIDERS: each entry is
         // `[$label => [$body, …]]`, so the bodies are the provider's VALUES, not
         // the provider itself. Iterating it directly — the first cut at this test
-        // did — hands `Dotenv::parse()` an array (measured: `TypeError` at
-        // `Dotenv.php:204`) and proves nothing about the locale at all.
+        // did — hands `Dotenv::parse()` an array, and the TYPE DECLARATION is the
+        // whole of what stops it: `public static function parse(string $content)`.
+        // MEASURED, the error is a `TypeError` whose text names the signature and
+        // not a position — `Dotenv\Dotenv::parse(): Argument #1 ($content) must be
+        // of type string, array given` — which is why the declaration is quoted
+        // here and the line it sits on is not: MEASURED, one comment line above it
+        // in a COPY moves the declaration by one and leaves this filter at 86
+        // passed / 2546 assertions, unchanged (Befund R12-2, low).
+        // Either way it proves nothing about the locale.
         foreach ([$this->dotenvBodies(), $this->cacheStoreBodies()] as $key => $provider) {
             foreach ($provider as $bodies) {
                 foreach ($bodies as $body) {
@@ -1351,18 +1414,37 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * wrote them down in is not part of it, and the token order itself is now
      * pinned separately by `assertSame($required, $mechanism)` in the caller.
      * The list this returns is walked in the MAP's order, and that order is
-     * the header's order RUN BACKWARDS — MEASURED, the three entries land on
-     * `scripts/lib/dotenv-value.sh:107`, `:102`, `:96`, strictly descending,
-     * so M's first form yields `NO EARLIER ASSIGNMENT` and then `MULTILINE,
+     * the header's order RUN BACKWARDS — MEASURED, each of the three sentences
+     * occurs EXACTLY ONCE in `scripts/lib/dotenv-value.sh`, and read top-down
+     * the file meets them in this order:
+     *
+     *     `MULTILINE, UNBALANCED (`Lines::looksLikeMultilineStart()`), then
+     *     `NO EARLIER ASSIGNMENT: phpdotenv emits no key at all`, then
+     *     `WITH AN EARLIER ASSIGNMENT: phpdotenv keeps the EARLIER value`
+     *
+     * the exact reverse of the order this helper's map walks them. So M's
+     * first form yields `NO EARLIER ASSIGNMENT` and then `MULTILINE,
      * UNBALANCED`, and its second yields `WITH AN EARLIER ASSIGNMENT` and then
-     * that same shared sentence. The caller's failure message therefore walks
-     * the header BOTTOM-TO-TOP, not in the order a reader of the script meets
-     * the sentences; an earlier version of this sentence claimed it did, and
-     * the claim was false of every list this helper returns (Befund B2, Runde
-     * 11). Nothing pins the map's order — that is precisely the freedom R10-2
-     * measured — so only the SET is a contract here: if a header has lost two
-     * of the three sentences, which one the message names first is not
-     * something a reader may rely on.
+     * that same shared sentence.
+     *
+     * SENTENCES and their RELATIVE order, deliberately not line numbers: an
+     * absolute line number in a FOREIGN file is a claim nothing here checks —
+     * MEASURED, inserting one comment line above M's entry shifts all three
+     * and leaves this suite green — so it goes stale silently. That is the
+     * "a documented boundary that stopped existing has to be removed from the
+     * header, not left standing" rot this file rejects everywhere else, one
+     * file over (Befund R12, low). "Each of the three sentences once, and the
+     * file meets them in the order M, NO EARLIER, WITH AN EARLIER" is what the
+     * map's reversal MEANS, and unlike the numbers it survives any amount of
+     * shifting above the header.
+     *
+     * The caller's failure message therefore walks the header BOTTOM-TO-TOP,
+     * not in the order a reader of the script meets the sentences; an earlier
+     * version of this sentence claimed it did, and the claim was false of every
+     * list this helper returns (Befund B2, Runde 11). Nothing pins the map's
+     * order — that is precisely the freedom R10-2 measured — so only the SET is
+     * a contract here: if a header has lost two of the three sentences, which
+     * one the message names first is not something a reader may rely on.
      *
      * `$multiline-buffered` maps to the sentence shared by both M rows: it is
      * the mechanism they have in common. Both rows therefore check that one
@@ -1970,8 +2052,17 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
 
             // `env -i` is not fussiness: `phpunit.xml` pins `QUEUE_CONNECTION=sync`
             // for the backend suite, and Symfony's Process MERGES the env it is
-            // given over the inherited one (`Process.php:333`,
-            // `$env += $this->getDefaultEnv()`), so a scenario cannot un-set it.
+            // given over the inherited one — TWO steps, both inside `start()`, and
+            // both `+=`, so a key the caller supplies is never overwritten: first
+            // `if ($this->env) { $env += … $this->env … }`, then unconditionally
+            // `$env += … $this->getDefaultEnv() …` (on Windows each is the
+            // `array_diff_ukey(…, 'strcasecmp')` form, which drops the inherited
+            // entries whose keys the caller already has — the same outcome). The
+            // one line this comment used to cite was the SECOND of those two, so
+            // it named the inherited half of the merge and passed over the half
+            // that carries "the env it is given"; MEASURED, one comment line
+            // above either of them moves it by one and leaves this filter at 86
+            // passed / 2546 assertions, unchanged (Befund R12-2, low).
             // With the inherited value in place SIX of the seventeen scenarios
             // answered from the test runner instead of from their `.env` — and
             // the first version of this test reported that as 10 of 16 wrong,
