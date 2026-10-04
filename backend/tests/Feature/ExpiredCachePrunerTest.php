@@ -82,10 +82,44 @@ use Throwable;
  * | operator `<=` → `<` (off-by-one at the boundary) | `…_a_row_whose_expiration_is_exactly_now_is_expired` |
  * | `cache_locks` added to the delete | `…_leaves_the_cache_locks_table_alone` |
  * | the `instanceof DatabaseStore` gate removed | `…_is_a_no_op_on_a_non_database_store` |
- * | the `catch` rethrow replaced by a swallow | `…_logs_the_failure_with_its_context_and_lets_it_out`, `…_reports_a_non_zero_exit_code` |
+ * | the `catch` rethrow replaced by a swallow — `throw $e;` gone **and** `$deleted = 0;` seeded before the `try` (the coherent recipe; see below) | `…_logs_the_failure_with_its_context_and_lets_it_out`, `…_reports_a_non_zero_exit_code` |
  * | the `Log::error` in the `catch` dropped | `…_logs_the_failure_with_its_context_and_lets_it_out` |
  * | `->withoutOverlapping()` dropped | `…_is_registered_daily_and_does_not_overlap` |
  * | the registration deleted | `…_is_registered_daily_and_does_not_overlap`, and `SendMandantMailTest`'s cache-task guard |
+ *
+ * ### The swallow needs a second edit, and this table says so on purpose
+ *
+ * A "rethrow replaced by a swallow" is not one edit. Measured 2026-10-04 on both
+ * engines, class `ExpiredCachePrunerTest`, 13 tests, from `ExpiredCachePruner.php`
+ * with `throw $e;` (`:129`) removed:
+ *
+ * | recipe | what escapes | `Log::info` success line | exit code | Goes red |
+ * |---|---|---|---|---|
+ * | `throw $e;` deleted **alone** | `ErrorException: Undefined variable $deleted` | **not written** — the warning aborts the call | 1 | **1 of 2**: `…_logs_the_failure_with_its_context_and_lets_it_out` |
+ * | `throw $e;` deleted **and** `$deleted = 0;` seeded before the `try` | nothing | written, `'deleted' => 0` | 0 | **2 of 2**: that test **and** `…_reports_a_non_zero_exit_code` |
+ *
+ * So the ledger row for the swallow names the **two-edit** recipe, because that is
+ * the only one that turns both halves red — and the naive one-edit recipe is
+ * documented next to it precisely because it under-reports, and for a reason that
+ * has nothing to do with the exit code:
+ *
+ * `$deleted` is assigned **only inside** the `try` (`ExpiredCachePruner.php:115`)
+ * and first read at the success line (`:137`), so swallowing the exception leaves
+ * it undefined. PHP raises `E_WARNING` (`Undefined variable $deleted` — read back
+ * through this application's own error handler), and Laravel's
+ * `HandleExceptions::handleError()` turns every in-mask error into an
+ * `ErrorException`, which escapes `prune()` and reaches `Kernel::handle()` exactly
+ * like the `QueryException` would. Exit code 1, so
+ * `…_reports_a_non_zero_exit_code` stays **green** — right about the number, for a
+ * cause the mutation was not supposed to have. The success line is never reached
+ * either (measured), so the log test is the *only* thing that catches the one-edit
+ * recipe, and it catches it as `ErrorException` instead of `QueryException`
+ * (`assertInstanceOf` at `:681`, fail-closed on the class, not on the count).
+ *
+ * Two consequences, both permanent: the swallow is pinned by a **two-edit**
+ * mutation, and `…_reports_a_non_zero_exit_code` proves the exit-code contract
+ * only against a reaper that survives its own failure path. Both facts are what
+ * the row above claims; neither was measured by reading the code.
  *
  * The boundary row is the reason the operator is a named constant rather than a
  * habit: `DatabaseStore::many()` keeps a row when `expiration > now` and calls
@@ -601,9 +635,15 @@ class ExpiredCachePrunerTest extends TestCase
      * suite's business.
      *
      * MUTATION: replace `throw $e;` (`ExpiredCachePruner.php:129`) with a
-     * swallow → the `assertInstanceOf` fails (nothing escapes). Drop the
-     * `Log::error` → the spy fails. Write the success line inside the `catch` →
-     * the `shouldNotHaveReceived` fails.
+     * swallow → the `assertInstanceOf` fails, and **which** class it escapes as
+     * depends on the recipe: the coherent one (`$deleted = 0;` seeded before the
+     * `try`) escapes **nothing** → `null`; deleting `throw $e;` on its own leaves
+     * `$deleted` undefined at `:137`, so an `ErrorException` escapes instead —
+     * red either way, and `assertInstanceOf` is what makes the second case
+     * fail-closed rather than counting an unrelated exception as the reaper's
+     * failure (see the class docblock). Drop the `Log::error` → the spy fails.
+     * Write the success line inside the `catch` → the `shouldNotHaveReceived`
+     * fails.
      */
     public function test_a_failed_prune_is_logged_with_its_context_and_lets_the_exception_out(): void
     {
@@ -686,8 +726,21 @@ class ExpiredCachePrunerTest extends TestCase
      * the input and the store are all fine, and that the non-zero below is caused
      * by the broken table alone.
      *
-     * MUTATION: swallow the exception (`ExpiredCachePruner.php:129`) → the command
-     * returns `Command::SUCCESS` and the second call reports 0 like the first.
+     * **This test does not go red for the one-edit swallow, and that is the
+     * measured reason the recipe above needs two edits.** MUTATION: swallow the
+     * exception (`ExpiredCachePruner.php:129`) **and** seed `$deleted = 0;`
+     * before the `try` → nothing escapes, the command returns `Command::SUCCESS`
+     * and the second call reports 0 like the first → red. Delete `throw $e;`
+     * *alone* and this test stays **green**: `$deleted` is undefined at the
+     * success line, PHP raises `E_WARNING`, Laravel's error handler turns it into
+     * an `ErrorException`, and that still reaches `Kernel::handle()` — so the
+     * number under assertion is still non-zero, for a cause that has nothing to do
+     * with the swallow. (SQLite and PostgreSQL 17, measured 2026-10-04: 1 of 2
+     * red for the one-edit recipe, 2 of 2 for the two-edit one; identical on both
+     * engines.) So what this test actually pins is narrower than it looks: the
+     * exit-code contract holds against a reaper that **survives its own failure
+     * path** — which is exactly the shape of the real defect, and not the shape of
+     * the first mutation anyone writes.
      */
     public function test_a_failed_prune_reports_a_non_zero_exit_code(): void
     {
@@ -717,11 +770,16 @@ class ExpiredCachePrunerTest extends TestCase
      * Run a command through the console kernel's `handle()` and return the exit
      * code the `artisan` binary would exit with.
      *
-     * `Kernel::handle()` is the method `artisan` calls (`artisan:26`), so this is
-     * the production path rather than a re-implementation of it. The exception
-     * report and the rendered stack trace go to a `BufferedOutput` and into the
-     * `Log` spy — otherwise every run of this test would write a rendered
-     * `QueryException` into the developer's `storage/logs/laravel.log`.
+     * `Kernel::handle()` is the method `artisan` calls — `artisan` is 18 lines, and
+     * the chain is `$app->handleCommand(new ArgvInput)` at `artisan:16` →
+     * `Application::handleCommand()` → `$kernel->handle(...)` →
+     * `exit($status)` at `artisan:18` — so this is the production path rather than
+     * a re-implementation of it. (An earlier version of this docblock cited
+     * `artisan:26`, a line the 18-line file does not have; the other docblock in
+     * this class cited `:16`/`:18` correctly all along.) The exception report and
+     * the rendered stack trace go to a `BufferedOutput` and into the `Log` spy —
+     * otherwise every run of this test would write a rendered `QueryException`
+     * into the developer's `storage/logs/laravel.log`.
      */
     private function exitCodeOf(string $command): int
     {
