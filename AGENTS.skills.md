@@ -1,13 +1,14 @@
 # Skills-Marker
 
-agents-skills-consumed: aad25d145e92360b8ee7631151c1cdb6dae679eb
+agents-skills-consumed: 6629ad289f6685d58f900a023a8bfa6ab3ba70c4
 geprüft am: 2026-10-04
 
-> Erstmarker. Geprüfter Stand ist genau HEAD des Skills-Repos zum Prüfzeitpunkt
-> (`rev-parse --short HEAD` meldete `aad25d1`) — keine Commits nach dem
-> Marker-SHA, keine Range zu bilden. Der Pfad zum Skills-Repo steht hier bewusst
-> nicht (Marker bleibt bei Verschiebung gültig). Kein Skill ist als „angewendet"
-> aus Lektüre markiert — jede Ja-Zeile nennt `Datei:Zeile` in diesem Repo.
+> Zweitmarker. Geprüfte Range `aad25d14..6629ad2` (`2969d5a`: zwölf Skills
+> gestrafft + Englisch-Pass, Details nach `references/`; `6629ad2`: README).
+> Geprüft am 2026-10-04 gegen `6629ad2` als HEAD des Skills-Repos. Der Pfad
+> zum Skills-Repo steht hier bewusst nicht (Marker bleibt bei Verschiebung
+> gültig). Jede Ja-Zeile nennt `Datei:Zeile` in diesem Repo; Nein-Zeilen
+> nennen den Grund.
 
 ## Skill-Stand
 
@@ -20,27 +21,45 @@ geprüft am: 2026-10-04
 | `ghcr-visibility` | ja | `ci.yml:468-470`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
 | `github-ci-filters` | offen | `ci.yml:11-14`, `.github/workflows/base-image.yml:30`, `.github/workflows/e2e-image.yml:28` | Position 51 in `AGENTS.todo.md` |
 | `model-updater` | nein | | keine Modell-Konfiguration im Projekt (Maschinen-Sache wie `agent-config`) |
-| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:8-14` | Position 50 in `AGENTS.todo.md` |
+| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:8-14`, `e2e-image.yml:59-63`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine); das Projekt definiert keine |
 | `playwright-parallel` | offen | `ci.yml:728-732`, `:759/:761/:763` | Positionen 48, 49 in `AGENTS.todo.md` |
-| `skills-marker` | ja | `AGENTS.skills.md` | (diese Datei = Erstmarker) |
+| `skills-marker` | ja | `AGENTS.skills.md` | |
 | `tailscale-serve` | nein | | kein Tailscale-Bezug im Projekt (repo-weiter grep ohne Treffer) |
 | `ui-review` | ja | `AGENTS.md:365-437`, `:428-429` | |
 | `update-opencode-models` | nein | | keine Modell-Registry im Projekt (wie `model-updater`) |
 | `vision-agents` | ja | `AGENTS.md:422-425` | |
 
-## Offen aus dem Prüflauf 2026-10-04 (Erstmarker, keine Range)
+## Offen aus dem Bereich aad25d14..6629ad2 (2026-10-04)
 
-Kein Vor-Stand: Für einen Erstmarker gibt es keine `<alt>..HEAD`-Range. Stattdessen
-stehen hier die offenen Befunde dieses Prüflaufs — jede Zeile verweist auf
-`AGENTS.todo.md`, wo sie als Position (Log, kein Auftrag) liegt:
+Geänderte Skills in der Range: `agent-config`, `codegraph-project-setup`,
+`github-ci-filters`, `model-updater`, `node-deps`, `skills-marker`,
+`tailscale-serve`, `ui-review`, `update-opencode-models`, `vision-agents`
+(dazu README, kein Skill). Ergebnis je Skill:
 
-- `playwright-parallel` → Positionen 48 (Serial-Pin vs. Named Locks, inkl.
-  Widerspruch und Burst-Nachmessung), 49 (Test-Budget/Akteur-Schlüssel)
-- `node-deps` → Position 50 (`packageManager`-Pin, `overrides`)
-- `github-ci-filters` → Position 51 (Docs-only läuft voll, `paths:`-Inklusion)
+- `node-deps` → bleibt offen (Position 50 in `AGENTS.todo.md`, dort mit
+  Notiz vom 2026-10-04 ergänzt): neuer Absatz „Boundary: manifests vs
+  images" schärft statt zu ändern — `PLAYWRIGHT_VERSION` kommt bereits
+  konform aus dem Lockfile (`e2e-image.yml:58`); `PNPM_VERSION` wird
+  dagegen aus dem `packageManager`-Pin selbst gelesen (`e2e-image.yml:59`),
+  die Pin-Entfernung muss diese Stelle mit umstellen.
+- `skills-marker` → bleibt angewendet (`AGENTS.skills.md`): neuer
+  Drift-Check (§5 Schritt 3) auf dieser Maschine ohne Befund (eingebettete
+  Kopien in der globalen `AGENTS.md` identisch mit `.agents/rules/*.md`,
+  2026-10-04); neue Konventions-Zeilen (§4) regeln hier nichts — keine
+  Skill-Datei im Projekt, also keine neue Zeile.
+- `agent-config` → bleibt nicht anwendbar (Maschine, Begründung wie bisher);
+  keine Referenz in Marker oder Board zeigt auf eine verschobene Stelle —
+  Codeblöcke liegen jetzt in `references/snippets.md`, Abschnitte (§2a, §8)
+  unverändert adressierbar.
+- `github-ci-filters`, `model-updater`, `tailscale-serve`,
+  `codegraph-project-setup`, `ui-review`, `update-opencode-models`,
+  `vision-agents` → nur gestrafft/übersetzt, Details nach `references/`;
+  keine Pflicht, Schwelle oder Ausnahme, auf die sich eine Marker-Zeile oder
+  Position 48–51 stützt, ist entfallen (`wc -l` je `SKILL.md` vorher/nachher
+  verglichen). Tabellenzeilen unverändert.
 
-Dieser Abschnitt wird beim ersten Pull im Skills-Repo durch den
+Dieser Abschnitt wird beim nächsten Pull im Skills-Repo durch den neuen
 Range-Abschnitt (`<dieser-sha>..<neuer-sha>`) ersetzt; bleibt die Liste leer,
 entfällt er ganz.
 

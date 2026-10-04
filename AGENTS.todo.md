@@ -987,6 +987,20 @@ Formalität: CI liest den Pin via `package_json_file` (`ci.yml:422`, `:674`) —
 die skill-konforme Form (`version: 11` im Workflow) braucht die Umstellung
 beider Stellen.
 
+Notiz 2026-10-04 (Skills-Range `aad25d14..6629ad2`): `node-deps` hat einen
+Absatz „Boundary: manifests vs images" bekommen — Ranges bleiben in
+`package.json`, aufgelöste Versionen gehören in Images/Build-Args, und ein
+Caret-Range in einem Build-Arg liefert die Untergrenze, nicht die
+Lockfile-Version. Das ändert den Befund nicht, schärft aber die Beseitigung:
+`PLAYWRIGHT_VERSION` ist bereits konform (Lockfile → `e2e-image.yml:58` →
+`ARG` in `Dockerfile.e2e:111`); `PNPM_VERSION` wird dagegen aus dem
+`packageManager`-Pin selbst gelesen (`e2e-image.yml:59`, `:61`, `:63` →
+Build-Arg `:134` → `ARG PNPM_VERSION` in `Dockerfile.e2e:113`, Default
+`11.23.0`) — fällt der Pin, muss diese Extraktion auf eine Major-Linie im
+Workflow umgestellt werden (wie die `ci.yml`-Ausnahme oben). Die zitierten
+Skill-Zeilen (`SKILL.md:20-25`, `:8-10`) gelten nach dem Englisch-Pass
+unverändert fort.
+
 ### 51 — `github-ci-filters`: Docs-only läuft voll, Image-Jobs mit Inklusionsliste
 
 Skill `github-ci-filters`: `paths-ignore` statt `paths` (Ausfall-Asymmetrie),
