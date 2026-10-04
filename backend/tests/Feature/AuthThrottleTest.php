@@ -353,6 +353,11 @@ class AuthThrottleTest extends TestCase
     public function test_resend_throttle_is_applied_to_the_resend_route(): void
     {
         $this->assertContains('throttle:resend', $this->routeMiddleware('api.admin.applications.resend'));
+
+        // The Park-/Sitzkarte resend (P6 follow-up) triggers a mail exactly like
+        // the pass resend, so it carries the same strict limiter — a mail
+        // trigger must not live in the 300/min admin write budget.
+        $this->assertContains('throttle:resend', $this->routeMiddleware('api.admin.sub-applications.resend'));
     }
 
     private function routeMiddleware(string $routeName): array

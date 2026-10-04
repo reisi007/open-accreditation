@@ -352,6 +352,10 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
 
         Route::get('/sub-applications', [AdminSubApplicationController::class, 'index'])->name('sub-applications.index');
         Route::put('/sub-applications/{subApplication}', [AdminSubApplicationController::class, 'update'])->middleware('throttle:admin')->name('sub-applications.update');
+        // P6 follow-up: the sub counterpart of the pass-resend route above —
+        // same gates, same 422 on a non-mailable status, same `throttle:resend`
+        // limiter (a mail trigger must not share the 300/min admin write budget).
+        Route::post('/sub-applications/{subApplication}/resend', [AdminSubApplicationController::class, 'resend'])->middleware('throttle:resend')->name('sub-applications.resend');
 
         Route::get('/user-media/{media}', [AdminMediaController::class, 'show'])->name('user-media.show');
 

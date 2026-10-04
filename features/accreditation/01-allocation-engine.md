@@ -231,9 +231,11 @@ existiert `AdminApplicationController::resend`
   unverändert. Tests: `SubAllocationMailTest` (24). Ausgenommen mit Begründung:
   `cascadeRevokedSubApplications()` bleibt still (Haupt-Antrag-Mail geht an
   dieselbe Person).
-- ❌ **Weiter offen:** keine `resend`-Route für Sub-Anträge
-  (`POST /api/admin/sub-applications/{id}/resend` mit `can:accreditations.manage`,
-  Team-Scope, 422 bei `requested` — wie beim Haupt-Antrag).
+- ✅ **Umgesetzt 2026-10-04:** `POST /api/admin/sub-applications/{id}/resend`
+  (Gates wie Haupt-Antrag — Mandant → 404, fremdes Team → 403, `requested` ohne
+  `reason` → 422; kein QR-Token-Rebuild: ein Resend dupliziert die Mail, statt
+  den Pass zu entwerten; Tests: `AdminSubApplicationResendTest`, 13).
+  Frontend-Button weiter offen (eigener Task, inkl. i18n DE+EN).
 
 **Folge der verbleibenden Lücke:** Eine manuelle Wiederholung scheitert nicht —
 sie existiert nicht; wer eine Sub-Freigabe erneut versenden will, hat keinen
