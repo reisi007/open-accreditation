@@ -19,9 +19,9 @@ geprüft am: 2026-10-04
 | `codegraph-project-setup` | nein | | nur `.codegraph/.gitignore` (Stub, kein Index); keine Hook-Verdrahtung, kein Projekt-Bezug |
 | `docker-test-image` | ja | `.github/workflows/e2e-image.yml:1-51`, `ci.yml:534` (`container:`) | |
 | `ghcr-visibility` | ja | `ci.yml:522-524`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
-| `github-ci-filters` | offen | `ci.yml:61-67`, `.github/workflows/base-image.yml:65`, `.github/workflows/e2e-image.yml:28` | Position 51 in `AGENTS.todo.md` |
+| `github-ci-filters` | offen | `ci.yml:61-67`, `.github/workflows/base-image.yml:67`, `.github/workflows/e2e-image.yml:44` | Position 51 in `AGENTS.todo.md` |
 | `model-updater` | nein | | keine Modell-Konfiguration im Projekt (Maschinen-Sache wie `agent-config`) |
-| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:8-14`, `e2e-image.yml:76-80`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
+| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:6-11`, `e2e-image.yml:76-80`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine); das Projekt definiert keine |
 | `playwright-parallel` | offen | `ci.yml:782-786`, `:813/:815/:817` | Positionen 48, 49 in `AGENTS.todo.md` |
 | `skills-marker` | ja | `AGENTS.skills.md` | |

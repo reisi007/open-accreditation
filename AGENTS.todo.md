@@ -928,7 +928,7 @@ sondern eine umgegebene, die sich als Code-Fehler ausgab.**
 
 **Widerspruch, gemessen statt vermutet.** `ci.yml:782-786` begründet
 `--workers=1` in **beiden** Profilen mit „parallel workers teilen sich die CI-IP
-und erzeugen 429" (`:759`, `:761`, `:763` pinnen den Wert). Die eigene Messung in
+und erzeugen 429" (`:813`, `:815`, `:817` pinnen den Wert). Die eigene Messung in
 `AppServiceProvider.php:79-80` nennt **~17 Logins/min bei ~8 Workern** gegen ein
 Budget von **40/min** (`:83`) — rund die Hälfte. Beide Zahlen stehen im Repo;
 aufgelöst ist nichts.
@@ -982,7 +982,7 @@ Skill `node-deps` (agents-skills) verbietet den `packageManager`-Pin in
 `package.json` (`SKILL.md:20-25`) und feste Versionen in Manifest/Workspace
 (`:8-10`); Updates laufen via pnpm ins Lockfile. Gemessen:
 `frontend/package.json:6` trägt `"packageManager": "pnpm@11.23.0"`;
-`frontend/pnpm-workspace.yaml:8-14` pinnt sechs `overrides` exakt; konform sind
+`frontend/pnpm-workspace.yaml:6-11` pinnt sechs `overrides` exakt; konform sind
 die Ranges (`frontend/package.json:40-51`, exakt nur die eigene `version:
 0.1.0`) und das Fehlen von `minimumReleaseAgeExclude`. Spannung, nicht nur
 Formalität: CI liest den Pin via `package_json_file` (`ci.yml:476`, `:729`) —
@@ -997,7 +997,7 @@ Lockfile-Version. Das ändert den Befund nicht, schärft aber die Beseitigung:
 `PLAYWRIGHT_VERSION` ist bereits konform (Lockfile → `e2e-image.yml:75` →
 `ARG` in `Dockerfile.e2e:111`); `PNPM_VERSION` wird dagegen aus dem
 `packageManager`-Pin selbst gelesen (`e2e-image.yml:76`, `:78`, `:80` →
-Build-Arg `:134` → `ARG PNPM_VERSION` in `Dockerfile.e2e:113`, Default
+Build-Arg `:151` → `ARG PNPM_VERSION` in `Dockerfile.e2e:113`, Default
 `11.23.0`) — fällt der Pin, muss diese Extraktion auf eine Major-Linie im
 Workflow umgestellt werden (wie die `ci.yml`-Ausnahme oben). Die zitierten
 Skill-Zeilen (`SKILL.md:20-25`, `:8-10`) gelten nach dem Englisch-Pass
