@@ -1275,6 +1275,18 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             'tests/e2e/accreditation.spec.ts',
             'tests/e2e/admin-category.spec.ts',
             'tests/e2e/admin-event.spec.ts',
+            // The sub-application resend spec (Position 47). TWO creators, read out
+            // of its code rather than its imports: `ensurePrimaryMandantSubAccreditation()`
+            // in its shared fixture helper and `registerAndActivateUser()` — the first
+            // registers its `categories`/`events`/`accreditations`/`subAccreditations`
+            // rows itself (`helpers/admin-data.ts:610-657`), the second its account
+            // (`rememberOwnedUserAccount`, :701), and the spec registers the two rows
+            // it POSTs itself (`applications`, `subApplications`) at the file-scope
+            // hooks the guard above demands. Nothing here is UI-created — approving or
+            // denying an existing sub-application writes a status, not a row — so
+            // `UI_CREATE_SITES` has no row for it, which is the claim to revisit if
+            // that spec ever grows a create form.
+            'tests/e2e/admin-sub-resend.spec.ts',
             'tests/e2e/admin-users.spec.ts',
             'tests/e2e/approvals.spec.ts',
             'tests/e2e/badge.spec.ts',
