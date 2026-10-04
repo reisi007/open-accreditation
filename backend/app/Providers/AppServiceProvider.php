@@ -27,8 +27,22 @@ class AppServiceProvider extends ServiceProvider
      * Longest accepted actor value, and the ONLY characters accepted:
      * `[A-Za-z0-9._-]`. Anything else is discarded and the request falls back
      * to the plain per-ip key — i.e. the strict, un-split bucket.
+     *
+     * ## Why the anchor is `\z` and not `$`
+     *
+     * In PCRE `$` matches at the end of the subject **and before a trailing
+     * newline**; `\z` matches only at the very end. So `/^[A-Za-z0-9._-]{1,32}$/`
+     * accepts `"w1\n"`, and `AppServiceProvider::throttleKeyFor()` would put the
+     * WHOLE string — newline included — into the cache key. The bucket name stays
+     * unguessable per actor, so this is hygiene rather than a hole, but the JS
+     * side disagreed: JavaScript's `$` (without `/m`) already means `\z`, so the
+     * harness read a STRICTER rule than the provider applied, and the
+     * cross-language test in `frontend/tests/e2e/throttle-actor.test.ts` read the
+     * pattern from here and silently inherited the difference. `\z` makes both
+     * sides say the same thing; that file translates `\z` → `$` for JS, because
+     * `new RegExp('\\z')` is a literal `z` in JavaScript, not an anchor.
      */
-    private const TEST_ACTOR_PATTERN = '/^[A-Za-z0-9._-]{1,32}$/';
+    private const TEST_ACTOR_PATTERN = '/^[A-Za-z0-9._-]{1,32}\z/';
 
     /**
      * Register any application services.
@@ -216,10 +230,39 @@ class AppServiceProvider extends ServiceProvider
      *
      * 1. **Production behaviour is byte-identical.** Outside `local`/`testing`
      *    the method returns the very string the previous inline
-     *    `'{bucket}:'.$request->ip()` returned, and it returns it without even
-     *    looking at the request headers. Brute-force semantics are untouched:
-     *    15/min per ip for login, 10/min for register. Pinned by
-     *    `tests/Feature/RateLimitTestActorKeyTest`.
+     *    `'{bucket}:'.$request->ip()` returned. Pinned by
+     *    `tests/Feature/RateLimitTestActorKeyTest`, in
+     *    `test_the_actor_header_is_ignored_in_production` (byte for byte, plus
+     *    equal to the no-header form) and
+     *    `test_the_actor_header_does_not_split_the_bucket_in_production_over_http`
+     *    (a DIFFERENT actor name on the same ip is still throttled — the
+     *    discriminating request, since the same name would be 429 either way and
+     *    would prove nothing).
+     *
+     *    Two things in that neighbourhood are deliberately NOT claimed as pinned,
+     *    because nothing observable depends on them and a green suite cannot see
+     *    them. Both mutations below were measured 2026-10-04, on this text as it
+     *    stood; each says which classes stayed green.
+     *
+     *    - *Reading the header only after the environment gate* — an
+     *      implementation nicety, not a security property. Moving
+     *      `$request->header(…)` ABOVE the allow-list leaves the class green,
+     *      because a header read has no effect on the key. The **gate** is the
+     *      security property and it is pinned: by
+     *      `test_the_actor_header_is_ignored_in_production` (key form),
+     *      `test_the_actor_header_is_ignored_in_every_environment_outside_local_and_testing`
+     *      (the allow-list itself) and
+     *      `test_the_actor_header_does_not_split_the_bucket_in_production_over_http`
+     *      (the claim end to end).
+     *    - *The brute-force NUMBERS* — `login` 15/min and `register` 10/min per
+     *      ip are the production values chosen at the two env-dependent floors in
+     *      `boot()`, a deliberate decision, not a test-asserted fact: no test
+     *      anywhere reads `maxAttempts` for a production environment.
+     *      `AuthThrottleTest` pins only the `local`/`testing` side (40/30), and
+     *      mutating `15 → 5` leaves `AuthThrottleTest` AND
+     *      `RateLimitTestActorKeyTest` green (measured). The budgets are frozen
+     *      into the limiters when `boot()` runs, which is also why the production
+     *      tests above assert the KEY and never `maxAttempts`.
      * 2. **The header cannot be used outside `local`/`testing`.** Not
      *    `production`, not `staging`, not any other name — the check is a
      *    positive allow-list, so an environment nobody thought of behaves like
@@ -241,8 +284,29 @@ class AppServiceProvider extends ServiceProvider
      *
      * ## Deliberately NOT applied to the user-keyed limiters
      *
-     * `apply`, `media`, `admin` and `resend` are keyed on the AUTHENTICATED
-     * identity. Adding the actor there would not split a per-ip quota (there is
+     * Six buckets are keyed on the AUTHENTICATED identity, and the list is
+     * deliberately complete rather than illustrative — an enumeration that names
+     * four of six is the shape that rots quietly.
+     *
+     * 1. `apply` — `boot()` below.
+     * 2. `media` — `boot()` below.
+     * 3. `admin` — `boot()` below.
+     * 4. `resend` — `boot()` below.
+     * 5. `auth-logout` — `POST /api/auth/logout`, inline in `routes/api.php:106`
+     *    (`throttle:60,1,auth-logout`), keyed per authenticated user by Laravel's
+     *    `ThrottleRequests::resolveRequestSignature()`.
+     * 6. `auth-me` — `GET /api/auth/me`, `routes/api.php:107`, same mechanism,
+     *    its own limiter PREFIX (both inline routes carry the third parameter
+     *    precisely because the user id is the whole signature).
+     *
+     * Items 5 and 6 are the same class as `admin` and are excluded for the same
+     * reason; they are listed separately because they are not named limiters and
+     * a reader grepping `RateLimiter::for(` would otherwise not find them. They
+     * are also the ONLY two inline `throttle:N,M,prefix` routes in that file —
+     * every other throttle on `routes/api.php` is a named limiter from `boot()` —
+     * so the six above are the complete set, not a sample.
+     *
+     * Adding the actor to any of the six would not split a per-ip quota (there is
      * none) — it would split a per-USER budget, which is a security property:
      * one account flooding the admin write surface must stay visible as one
      * counter. The E2E suite shares a single admin account, so `admin:{id}` is

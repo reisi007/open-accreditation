@@ -15,8 +15,11 @@
  *
  * The backend honours the header in `local` and `testing` ONLY, where it
  * appends the actor to the key (`login:10.0.0.1` → `login:10.0.0.1@w2-p4821`).
- * In every other environment the header is not read at all and the key stays
+ * In every other environment the header does not REACH the key at all: it stays
  * the plain per-ip string, so production brute-force semantics are untouched.
+ * (Whether the provider even opens the header bag there is an implementation
+ * detail no test pins — measured 2026-10-04, reading it before the environment
+ * gate leaves the suite green. The gate is the property, and it is pinned.)
  * There is no credential in here: the value names a worker, and it is only ever
  * a bucket NAME on the other side.
  *
@@ -33,17 +36,39 @@
  * sources and fails if a new context appears unwired — which is exactly what let
  * the previous version of this paragraph go stale.
  *
+ * That scan walks `tests/e2e` RECURSIVELY (47 files measured 2026-10-04) rather
+ * than two hand-listed directories, because two hand-listed directories were
+ * blind: `ownership-probe/` sits beside `helpers/` and was never read, so a new
+ * unwired context in one of its five files passed. Its own text now says so, with
+ * the measured counter-check.
+ *
  * Deliberately NOT covered — each with its reason, so neither reads as an
  * oversight:
  *
- * - **The ui-review screenshot harness** (`tests/screenshots/helpers/dataset.ts`,
- *   1 context, no header). A separate Playwright config, and its login is a
- *   find-or-create of ONE stable review address — one or two `login` hits per run,
- *   not a per-test burst. The backend compensates for that shared-bucket traffic
- *   with an env-dependent floor instead (`public`/`verify` at 300/min in
- *   `local`/`testing`, `AppServiceProvider.php:145,157` — raised for exactly this
- *   harness). A test-only header has no place in a harness whose job is to capture
- *   what a browser sees.
+ * - **The ui-review screenshot harness' OWN request context**
+ *   (`tests/screenshots/helpers/dataset.ts:465` — 1 context, no header). A
+ *   separate Playwright config, and what flows through that context is a
+ *   find-or-create of the STABLE review addresses. There are SEVEN of them
+ *   (`REVIEW_USER_EMAILS`: reviewer, applicant, apply, freigaben, empty,
+ *   druck-1, druck-2), so a run sends **7** `login` POSTs in the steady state
+ *   and **14** against a cold database — each fresh address costs the failed
+ *   login plus the one after activation. COUNTED 2026-10-04, and the previous
+ *   number in this bullet ("one or two per run", "ONE stable address") was
+ *   wrong on both counts; the conclusion it carried is unchanged, because 14 is
+ *   still far below the 40/min `login` floor. The count is `withReviewUser`'s
+ *   invocations on the build path, and the dataset is built ONCE per run
+ *   (`dataset.ts` memoises per process and hands the record to the other
+ *   workers), so 7 is per run, not per capture.
+ *   Two neighbours are deliberately NOT part of this exclusion, so they cannot be
+ *   counted against it: the harness' ADMIN logins run through `loginAdminApi()`,
+ *   which wires the header exactly like every other spec, and each admin/user
+ *   capture logs in through the application's own form (`loginViaUi`, once per
+ *   capture) — that one spends from the same shared per-ip `login` bucket. What
+ *   covers all of it is the backend's env-dependent floor, not a per-capture
+ *   split: `login`/`register` at 40/30 and `public`/`verify` at 300/300 per min
+ *   in `local`/`testing` (`AppServiceProvider.php:128,129,159,171` — raised for
+ *   exactly this harness). A test-only header has no place in a harness whose job
+ *   is to capture what a browser sees.
  * - **Browser contexts** (`browser.newContext` — 4 sites in `a11y.spec.ts` and
  *   `admin-mobile-layout.spec.ts`). Those specs log in through the application's
  *   own login FORM (`getByLabel('E-Mail')` → `Anmelden`, measured at
@@ -60,7 +85,7 @@
 
 /**
  * Must match `AppServiceProvider::TEST_ACTOR_HEADER`. It is a test-only header:
- * the backend reads it in `local`/`testing` and nowhere else.
+ * the backend lets it into the key in `local`/`testing` and nowhere else.
  */
 export const THROTTLE_ACTOR_HEADER = 'X-Test-Actor';
 

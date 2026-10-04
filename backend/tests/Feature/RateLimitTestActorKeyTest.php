@@ -128,10 +128,42 @@ class RateLimitTestActorKeyTest extends TestCase
             $withoutHeader = RateLimiter::limiter('login')($this->request())->key;
 
             // Byte-identical to the pre-Position-49 inline `by('login:'.$ip)`,
-            // and identical to the no-header form: the header is not even read.
+            // and identical to the no-header form: the header does not REACH the
+            // key, so no actor suffix appears. (Whether the header accessor is
+            // called at all is an implementation detail this test deliberately
+            // does not claim — MEASURED 2026-10-04, reading the header before the
+            // environment gate leaves this class green. The gate is what is
+            // pinned; see the security contract in `AppServiceProvider`.)
             $this->assertSame('login:10.0.0.9', $withHeader);
             $this->assertSame($withoutHeader, $withHeader);
         });
+    }
+
+    public function test_an_actor_header_ending_in_a_newline_is_rejected(): void
+    {
+        // MEASURED 2026-10-04, and the reason the provider's pattern ends in PCRE
+        // `\z` instead of `$`: `$` also matches IMMEDIATELY BEFORE a trailing
+        // newline, so `/^[A-Za-z0-9._-]{1,32}$/` returns 1 for "w1\n" — the whole
+        // string, newline included, then lands in the cache key
+        // (`login:10.0.0.9@w1\n`). A bucket name is all this value ever is, so
+        // that is hygiene rather than a hole; the real damage was the
+        // cross-language disagreement: JavaScript's `$` (no `/m`) already means
+        // `\z`, so `frontend/tests/e2e/throttle-actor.test.ts`, which READS this
+        // pattern out of the provider source, was evaluating a stricter rule than
+        // the backend applied — and nothing noticed, because both sides were
+        // "tested".
+        $this->assertSame(
+            'login:10.0.0.9',
+            RateLimiter::limiter('login')($this->withActor($this->request(), "w1\n"))->key,
+            'an actor with a trailing newline must fall back to the shared per-ip bucket, not enter the key',
+        );
+
+        // The plain form still works, so the assertion above is about the
+        // trailing newline and not about a pattern that rejects everything.
+        $this->assertSame(
+            'login:10.0.0.9@w1',
+            RateLimiter::limiter('login')($this->withActor($this->request(), 'w1'))->key,
+        );
     }
 
     public function test_the_actor_header_is_ignored_in_every_environment_outside_local_and_testing(): void
