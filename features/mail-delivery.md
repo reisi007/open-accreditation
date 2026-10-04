@@ -132,7 +132,15 @@ cache tags pruned successfully" und löscht **nichts** (gemessen), weil
 `DatabaseStore` kein `TaggableStore` ist. Der alte Satz, es sei „kein
 `cache:prune` nötig, weil jeder Claim von selbst verschwindet", war damit
 doppelt unzutreffend: **es gibt den Befehl nicht**, und der Claim verschwindet
-nur beim Lesen. Was physikalisch wächst, steht als offener Punkt in Abschnitt 8.
+nur beim Lesen. Was physikalisch wuchs, steht als offener Punkt in Abschnitt 8 —
+**seit 2026-10-04 gebaut statt zurückgestellt** (Nutzerentscheid): `cache:prune-expired`
+(`PruneExpiredCacheRows`, täglich, `withoutOverlapping`), implementiert als
+`ExpiredCachePruner` mit Prädikat `expiration <= now` — **derselben Bedingung,
+die `many()` anwendet** (Vendor `DatabaseStore.php:152-154/437`), also ohne
+semantische Änderung; nur `database`-Store, sonst gemeldeter No-op; `cache_locks`
+ausgenommen (räumt sich selbst). Blacklist-Sorgfalt: nur abgelaufene Zeilen,
+unexpired überleben zwingend (gepinnt inkl. Fail-open-Test „widerrufenes Token
+sperrt nach Reaper weiter").
 
 ### 4.4 Die beiden Größen
 

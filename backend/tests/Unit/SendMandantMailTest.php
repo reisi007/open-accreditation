@@ -314,16 +314,37 @@ class SendMandantMailTest extends TestCase
      * one thing: `probe` is read after its TTL, the delivery's own claim is
      * not.
      *
-     * There is also nothing that could prune it: Laravel 13.33.0 has NO
+     * There was also nothing that could prune it: Laravel 13.33.0 has NO
      * `cache:prune` command (measured — `php artisan list` knows only
      * `cache:prune-stale-tags`, which is Redis-only and reaps stale TAGS), and
-     * no scheduled task touches the cache table. Both are asserted as premises,
+     * no scheduled task touched the cache table. Both are asserted as premises,
      * because a premise that is not measured is how `features/mail-delivery.md`
      * came to promise a `cache:prune` that does not exist.
      *
-     * MUTATION (add a scheduled/`cache:prune` reaper for the cache table):
-     * this test goes red and the honest wording in `features/mail-delivery.md`
-     * §4.3 has to be revisited as a decision rather than as a description.
+     * ## Nutzerentscheid 2026-10-04: a reaper exists, and this test changed
+     *
+     * The docblock above used to end with a MUTATION note predicting exactly
+     * this: *add a scheduled/`cache:prune` reaper for the cache table and this
+     * test goes red*. That is what happened — the board decided to build it
+     * rather than leave it deferred, so the blanket guard at the bottom of this
+     * test ("no scheduled command may mention the cache") had to go.
+     *
+     * **It was replaced, not deleted.** The guard's stated reason was always the
+     * JWT blacklist ("a deletion that is not scoped to expired entries would
+     * resurrect every invalidated token"), and that reason survives the decision:
+     * what changed is that a *scoped* deletion is now allowed. The assertions
+     * below therefore ask the question that is actually load-bearing:
+     *
+     * - the reaper IS scheduled (so its disappearance is still caught here);
+     * - it is the ONLY scheduled command that may touch the cache table — a
+     *   second `cache:*` task trips this;
+     * - and it is not a total wipe.
+     *
+     * The predicate itself cannot be checked from a string scan of the schedule —
+     * that is the whole point of the change: the deletion is scoped in code, not
+     * in the registration. Its BEHAVIOUR is pinned with real mutations (drop the
+     * predicate, invert it) in `tests/Feature/ExpiredCachePrunerTest.php`, which
+     * is where this guard's real teeth moved to.
      */
     public function test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it(): void
     {
@@ -361,13 +382,18 @@ class SendMandantMailTest extends TestCase
         );
 
         // (3) The delivery's own claim expired at the same moment and was never
-        // read again, so its row is still there. This is the part that grows.
+        // read again, so its row is still there — the daily reaper
+        // (`cache:prune-expired`) is what collects it now, and nothing in THIS
+        // test runs it. So the assertion is about the lazy mechanism, not about
+        // the current state of the system: without a read, an expired row is
+        // physically still in the table. That is the part that used to grow.
         $this->assertDatabaseHas(
             'cache',
             ['key' => $claimKey],
             null,
-            'nothing prunes an unread cache row: every delivered mail leaves one behind for good. The window releases '
-            .'the GUARD, not the row.',
+            'no READ prunes an unread cache row: the window releases the GUARD, not the row. What finally collects it '
+            .'is the daily reaper (cache:prune-expired), whose behaviour — including that it spares unexpired rows — '
+            .'is pinned in tests/Feature/ExpiredCachePrunerTest.php.',
         );
 
         // Premises for the two sentences above — see the docblock.
@@ -384,17 +410,52 @@ class SendMandantMailTest extends TestCase
             'PREMISE: Laravel 13.33.0 has no cache:prune command, so nothing in this framework can reap expired cache rows.',
         );
 
-        $scheduled = collect(app(Schedule::class)->events())
+        // ---- The cache-table guard (rewritten 2026-10-04, see the docblock) ----
+        //
+        // Before the decision, this was one blunt assertion: no scheduled command
+        // may contain the string "cache". It is now the question that still has
+        // teeth — is the reaper there, and is it the ONLY cache task? — plus a
+        // refusal of the one shape that would still be catastrophic: a total wipe.
+        $commands = collect(app(Schedule::class)->events())
             ->map(static fn ($event): string => (string) ($event->command ?? ''))
-            ->implode(' ');
+            ->values();
 
-        $this->assertNotSame('', $scheduled, 'PREMISE: the schedule must not be empty, or the check below is vacuous.');
-        $this->assertStringNotContainsString(
-            'cache',
-            $scheduled,
-            'No scheduled task may delete cache rows: the JWT blacklist lives in that table, and a deletion that is '
-            .'not scoped to expired entries would resurrect every invalidated token.',
+        $this->assertNotSame(
+            [],
+            $commands->all(),
+            'PREMISE: the schedule must not be empty, or the checks below are vacuous.',
         );
+
+        $cacheTasks = $commands->filter(
+            static fn (string $command): bool => str_contains($command, 'cache')
+        );
+
+        // Count + contains, not equality: `Schedule::command()` expands a command
+        // into the full child-process invocation (`'/usr/bin/php8.5' 'artisan'
+        // cache:prune-expired`), so the registration can never BE the bare name.
+        $this->assertCount(
+            1,
+            $cacheTasks,
+            'The JWT blacklist lives in the cache table, so the ONLY scheduled command that may touch it is the '
+            .'scoped reaper. A second cache-touching task is how an unscoped deletion gets scheduled by accident.',
+        );
+
+        $this->assertStringContainsString(
+            'cache:prune-expired',
+            (string) $cacheTasks->first(),
+            'The one cache-touching scheduled task must be the scoped reaper (cache:prune-expired).',
+        );
+
+        foreach ($cacheTasks as $command) {
+            foreach (['cache:clear', 'cache:flush'] as $total) {
+                $this->assertStringNotContainsString(
+                    $total,
+                    $command,
+                    'A scheduled total wipe of the cache table would invalidate every blacklisted token and release '
+                    .'every mail claim at once — the same catastrophe as an unscoped delete, reached by a shorter route.',
+                );
+            }
+        }
     }
 
     public function test_a_failed_attempt_releases_the_claim_so_a_retry_can_send(): void
