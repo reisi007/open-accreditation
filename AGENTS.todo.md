@@ -926,7 +926,7 @@ sondern eine umgegebene, die sich als Code-Fehler ausgab.**
 
 ### 48 — Serial-Pin (`--workers=1`) vs. Named Locks (Skill `playwright-parallel`)
 
-**Widerspruch, gemessen statt vermutet.** `ci.yml:728-732` begründet
+**Widerspruch, gemessen statt vermutet.** `ci.yml:782-786` begründet
 `--workers=1` in **beiden** Profilen mit „parallel workers teilen sich die CI-IP
 und erzeugen 429" (`:759`, `:761`, `:763` pinnen den Wert). Die eigene Messung in
 `AppServiceProvider.php:79-80` nennt **~17 Logins/min bei ~8 Workern** gegen ein
@@ -940,7 +940,7 @@ ihn nicht; seriell zu fahren behebt ihn nicht — seriell senkt nur die Spitze
 (Skill-Tabelle: Mutex vs. Rate).
 
 **Was heute schon liegt.** Der E2E-Job setzt `CACHE_STORE=array`
-(`ci.yml:563-570`, `:634`, geprüft `:641`) — mit der dokumentierten Folge, dass
+(`ci.yml:617-624`, `:688`, geprüft `:695`) — mit der dokumentierten Folge, dass
 der RateLimiter dort zustandslos ist; das Throttling-Verhalten deckt
 `AuthThrottleTest` ab. Die Lock-Voraussetzungen liegen ebenfalls bereits:
 `@playwright/test ^1.63.0` (`frontend/package.json:51`, Lock-Release) und
@@ -985,7 +985,7 @@ Skill `node-deps` (agents-skills) verbietet den `packageManager`-Pin in
 `frontend/pnpm-workspace.yaml:8-14` pinnt sechs `overrides` exakt; konform sind
 die Ranges (`frontend/package.json:40-51`, exakt nur die eigene `version:
 0.1.0`) und das Fehlen von `minimumReleaseAgeExclude`. Spannung, nicht nur
-Formalität: CI liest den Pin via `package_json_file` (`ci.yml:422`, `:674`) —
+Formalität: CI liest den Pin via `package_json_file` (`ci.yml:476`, `:729`) —
 die skill-konforme Form (`version: 11` im Workflow) braucht die Umstellung
 beider Stellen.
 
@@ -994,9 +994,9 @@ Absatz „Boundary: manifests vs images" bekommen — Ranges bleiben in
 `package.json`, aufgelöste Versionen gehören in Images/Build-Args, und ein
 Caret-Range in einem Build-Arg liefert die Untergrenze, nicht die
 Lockfile-Version. Das ändert den Befund nicht, schärft aber die Beseitigung:
-`PLAYWRIGHT_VERSION` ist bereits konform (Lockfile → `e2e-image.yml:58` →
+`PLAYWRIGHT_VERSION` ist bereits konform (Lockfile → `e2e-image.yml:75` →
 `ARG` in `Dockerfile.e2e:111`); `PNPM_VERSION` wird dagegen aus dem
-`packageManager`-Pin selbst gelesen (`e2e-image.yml:59`, `:61`, `:63` →
+`packageManager`-Pin selbst gelesen (`e2e-image.yml:76`, `:78`, `:80` →
 Build-Arg `:134` → `ARG PNPM_VERSION` in `Dockerfile.e2e:113`, Default
 `11.23.0`) — fällt der Pin, muss diese Extraktion auf eine Major-Linie im
 Workflow umgestellt werden (wie die `ci.yml`-Ausnahme oben). Die zitierten
@@ -1005,4 +1005,4 @@ unverändert fort.
 
 ### ✅ 51 — `github-ci-filters`: umgesetzt 2026-10-04 (Verifikation Runde 36 steht aus)
 
-**Was gebaut wurde:** `ci.yml` `paths-ignore: ['**/*.md']` auf `push` + `pull_request` (24/649 Pfade, kein `.md`-Leser im Repo, Branch unprotected gemessen); Image-`paths:` **behalten mit Begründung** (Build-Eingabe positiv+winzig; `paths-ignore` ohne Negation unpflegbar) — aber zwei echte Lücken geschlossen: `deployment/Dockerfile` → `deployment/**` (Skripte per `RUN --mount` installiert, bis 24 h Drift), `e2e-image` + `frontend/package.json` (PNPM_VERSION aus Pin, bis 7 Tage Drift). Gate-Gefährdung: 0 Key-Diffs, kein erlöschender Check (Dependabot kann keinen `.md`-only-PR erzeugen). Messung 40 Commits: 9 SKIP / 30 RUN / 0 Mismatch. Echte Bewährung (Docs-Commit ohne Run) erst nach Push beobachtbar.
+**Was gebaut wurde:** `ci.yml` `paths-ignore: ['**/*.md']` auf `push` + `pull_request` (24/649 Pfade, kein `.md`-Leser im Repo, Branch unprotected gemessen); Image-`paths:` **behalten mit Begründung** (Build-Eingabe positiv+winzig; `paths-ignore` ohne Negation unpflegbar) — aber zwei echte Lücken geschlossen: `deployment/Dockerfile` → `deployment/**` (Skripte per `RUN --mount` installiert, bis 24 h Drift), `e2e-image` + `frontend/package.json` (PNPM_VERSION aus Pin, bis 7 Tage Drift). Gate-Gefährdung: 0 Key-Diffs, kein erlöschender Check (Dependabot kann keinen `.md`-only-PR erzeugen). Messung 40 Commits: 9 SKIP / 31 RUN / 0 Mismatch *(korrigiert 2026-10-04, Runde 36, Befund F2: 9+30=39 ≠ 40 — der 40. ist Leer-Commit `324a27e5`, ohne Pfade fällt die Enumeration auf RUN)*. Echte Bewährung beobachtet: Docs-Commit `d048ef2` erzeugte 0 Runs.

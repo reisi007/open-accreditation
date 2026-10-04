@@ -48,8 +48,10 @@ on:
     # `deployment/**` statt `deployment/Dockerfile` (vorher): der Build liest
     # mit `context: deployment` den GANZEN Ordner und installiert daraus drei
     # Skripte per `RUN --mount=type=bind` — `deployment/Dockerfile:216`
-    # (`entrypoint.sh`), `:251` (`backend-supervisor.sh`), `:252`
-    # (`backend-healthcheck.sh`), jeweils mit `sh -n`-Smoke-Test. Die alte
+    # (`entrypoint.sh`, Smoke-Test: Lauf mit `bogus-mode` und Abbruch bei Exit
+    # 64, `:207-221`), `:251` (`backend-supervisor.sh`) und `:252`
+    # (`backend-healthcheck.sh`), beide im `sh -n`-Smoke-Test der Schleife
+    # `:239-254`. Die alte
     # Liste nannte nur das Dockerfile: eine Änderung an `entrypoint.sh` allein
     # hat das Basis-Image NICHT neu gebaut, das publizierte `:8.5`/`:latest`
     # behielt das alte Skript. Gebremst wird das nur durch den nightly Cron

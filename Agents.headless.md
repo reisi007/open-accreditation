@@ -209,9 +209,9 @@ Begründung im Repo selbst widersprüchlich, gefunden beim Schreiben des Komment
 in `ci.yml`.** Zwei Kommentare derselben Datei behaupten Unvereinbares über
 dieselbe Login-Drossel:
 
-- `ci.yml:443-450` (Schritt `CACHE_STORE=array`): mit `array` ist der Limiter
+- `ci.yml:611-624` (Schritt `Prepare backend environment` + `CACHE_STORE=array`-Kommentar): mit `array` ist der Limiter
   **zustandslos** → er kann keine 40 Logins akkumulieren → **kein 429**.
-- `ci.yml:540-544` (Run-Step): geteilte CI-IP + 40/min ⇒ parallele Worker
+- `ci.yml:780` (Run-Step `Run E2E-Suite`, Voll-Lauf `:817`): geteilte CI-IP + 40/min ⇒ parallele Worker
   erzeugen **429** ⇒ darum `--workers=1`.
 
 Beides kann nicht gelten. `CACHE_STORE=array` ist im Job wirksam, es läuft kein

@@ -255,7 +255,7 @@
 # default agrees by coincidence. The only mechanical writer that could produce
 # the form is a `sed` replacement that lost its `=VALUE`, and every one of those
 # re-checks the line on the next statement (`scripts/e2e-up.sh:139-140`,
-# `.github/workflows/ci.yml:521-529`), so it could not pass unnoticed. The gap
+# `.github/workflows/ci.yml:683-696`), so it could not pass unnoticed. The gap
 # that remains is stated in the test's reachability note, and it is a real one:
 # the guard over committed writers matches `…\s*=(.*)$`, and the `=` is IN the
 # pattern, so a bare line in a committed writer is not collected by it.

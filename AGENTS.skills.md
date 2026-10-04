@@ -17,13 +17,13 @@ geprüft am: 2026-10-04
 | `agent-config` | nein | | Maschinen-Konfiguration (opencode.jsonc, MCP, Skill-Registrierung); im Projekt kein opencode.jsonc, keine Modell-/MCP-Datei |
 | `build-verify` | ja | `AGENTS.md:151-155` | |
 | `codegraph-project-setup` | nein | | nur `.codegraph/.gitignore` (Stub, kein Index); keine Hook-Verdrahtung, kein Projekt-Bezug |
-| `docker-test-image` | ja | `.github/workflows/e2e-image.yml:1-34`, `ci.yml:480` | |
-| `ghcr-visibility` | ja | `ci.yml:468-470`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
-| `github-ci-filters` | offen | `ci.yml:11-14`, `.github/workflows/base-image.yml:30`, `.github/workflows/e2e-image.yml:28` | Position 51 in `AGENTS.todo.md` |
+| `docker-test-image` | ja | `.github/workflows/e2e-image.yml:1-51`, `ci.yml:534` (`container:`) | |
+| `ghcr-visibility` | ja | `ci.yml:522-524`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
+| `github-ci-filters` | offen | `ci.yml:61-67`, `.github/workflows/base-image.yml:65`, `.github/workflows/e2e-image.yml:28` | Position 51 in `AGENTS.todo.md` |
 | `model-updater` | nein | | keine Modell-Konfiguration im Projekt (Maschinen-Sache wie `agent-config`) |
-| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:8-14`, `e2e-image.yml:59-63`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
+| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:8-14`, `e2e-image.yml:76-80`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine); das Projekt definiert keine |
-| `playwright-parallel` | offen | `ci.yml:728-732`, `:759/:761/:763` | Positionen 48, 49 in `AGENTS.todo.md` |
+| `playwright-parallel` | offen | `ci.yml:782-786`, `:813/:815/:817` | Positionen 48, 49 in `AGENTS.todo.md` |
 | `skills-marker` | ja | `AGENTS.skills.md` | |
 | `tailscale-serve` | nein | | kein Tailscale-Bezug im Projekt (repo-weiter grep ohne Treffer) |
 | `ui-review` | ja | `AGENTS.md:365-437`, `:428-429` | |
@@ -40,8 +40,8 @@ Geänderte Skills in der Range: `agent-config`, `codegraph-project-setup`,
 - `node-deps` → bleibt offen (Position 50 in `AGENTS.todo.md`, dort mit
   Notiz vom 2026-10-04 ergänzt): neuer Absatz „Boundary: manifests vs
   images" schärft statt zu ändern — `PLAYWRIGHT_VERSION` kommt bereits
-  konform aus dem Lockfile (`e2e-image.yml:58`); `PNPM_VERSION` wird
-  dagegen aus dem `packageManager`-Pin selbst gelesen (`e2e-image.yml:59`),
+  konform aus dem Lockfile (`e2e-image.yml:75`); `PNPM_VERSION` wird
+  dagegen aus dem `packageManager`-Pin selbst gelesen (`e2e-image.yml:76`),
   die Pin-Entfernung muss diese Stelle mit umstellen.
 - `skills-marker` → bleibt angewendet (`AGENTS.skills.md`): neuer
   Drift-Check (§5 Schritt 3) auf dieser Maschine ohne Befund (eingebettete
