@@ -101,8 +101,20 @@ jobs:
         #
         # Der Interpreter folgt der Shebang, weil EIN Parser fuer alle falsch
         # waere: `sh -n` lehnt bash-Syntax ab, die in `scripts/*.sh` vorkommt, und
-        # `bash -n` auf einem `sh`-Skript prueft strenger als noetig. Ohne Shebang
-        # faellt der Fall auf `bash -n` zurueck.
+        # `bash -n` auf einem `sh`-Skript prueft strenger als noetig. Dispatch
+        # ueber EXAKTE Shebang-Formen (Wort fuer Wort, `env`-Wrapper
+        # aufgeloest), NICHT ueber den Substring `bin/sh`: der routete
+        # `#!/usr/bin/env sh` und `#!/usr/bin/env dash` an `bash -n`. Die
+        # Fehlrichtung ist die strengere — fail-closed, also kein False-Green —
+        # aber trotzdem die falsche (heute existiert keine solche Datei; die
+        # Korrektur ist prospektiv). Beide Bodies gegeneinander gemessen, am
+        # selben File-Set und mit PATH-Shims, die jeden Aufruf protokollieren:
+        # ALT routete `env sh` / `env dash` / `bin dash` / `env -S sh` an
+        # `bash -n` (die acht echten Skripte blieben unveraendert bei 3x sh /
+        # 5x bash), NEU schickt genau diese vier Formen an `sh -n`. Fail-Richtung
+        # isoliert: ein `#!/usr/bin/env sh` mit bash-Syntax (Array-Literal) ist
+        # ALT GRUEN (bash parst es) und NEU ROT (dash lehnt es ab). Ohne Shebang
+        # faellt der Fall in beiden auf `bash -n` zurueck.
         #
         # Steht hier, nicht im `frontend`-Job: der Job-Default ist `backend`, der
         # `working-directory: .` hebt ihn auf die Repo-Wurzel. Vorbild ist der
@@ -114,22 +126,75 @@ jobs:
         # gesunden steht (`set -euo pipefail` bricht die Schleife ab, und der
         # Exit-Status des Steps wird der des Skripts).
         #
-        # Die `checked`-Assertion ist kein Schmuck, sondern derselbe Selbst-Check
-        # wie im `backend-pgsql`-Job: `git ls-files` liefert Pfade RELATIV zum
-        # CWD, also sieht der Job-Default `backend` NULL Skripte und der Step
-        # waere GRUEN, ohne etwas zu pruefen (gemessen) — das schlimmste Ergebnis,
-        # weil es sich als Absicherung missverstanden wird. `--full-name` macht
-        # die Pfade zusaetzlich wurzelrelativ, `checked = 0` faengt den Rest ab.
+        # Die CWD-Falle und ihre ZWEI Schliesser — beide gehoeren zusammen, und
+        # in einer frueheren Fassung dieses Kommentars war die Rolle von
+        # `--full-name` genau vertauscht (gemessen in Runde 28):
+        #   * `working-directory: .` hebt den Job-Default `backend` auf. Ohne das
+        #     sieht der Job NULL Skripte: `git ls-files` wertet die Pfadspec
+        #     relativ zum CWD aus, und `'*.sh'` erreicht aus `backend/` keine der
+        #     acht Skripte in `scripts/` und `deployment/` — der Step waere GRUEN,
+        #     ohne etwas zu pruefen. Das ist das schlimmste Ergebnis, weil es sich
+        #     als Absicherung missverstanden wird.
+        #   * `checked = 0 -> exit 1` deckt ab, was `working-directory: .` nicht
+        #     deckt: eine kaputte Pfadspec, ein Skript, das aus `scripts/`
+        #     verschwindet, ein umbenannter Ordner. Dann ist der Step rot, statt
+        #     still nichts zu tun.
+        # `--full-name` ist KEIN Schliesser, es ist Ausgabe-Formatierung: es macht
+        # die gelisteten Pfade wurzelrelativ (die Log-Zeilen bleiben so lesbar,
+        # unabhaengig davon, wo der Step laeuft), aber es aendert die Dateimenge
+        # NICHT — aus `backend/` liefert auch `git ls-files --full-name -- '*.sh'`
+        # 0 (gemessen, Runde 28).
         working-directory: .
         run: |
           set -euo pipefail
+          # Interpreter aus der Shebang bestimmen — GANZE WOERTER, nicht der
+          # Substring `bin/sh` (Begruendung oben). Aufruf: erste Zeile des
+          # Skripts; Rueckgabe: der Basisname des Interpreters.
+          shell_for() {
+            local line=$1
+            case "$line" in
+              '#!'*) ;;                        # Shebang vorhanden: aufloesen
+              *) printf 'bash\n'; return 0 ;;  # keine Shebang ⇒ bash
+            esac
+            line=${line%$'\r'}                 # CRLF: sonst ein Phantom-Interpreter
+            line=${line#\#!}
+            local -a words
+            read -r -a words <<<"$line"
+            local i=0
+            # `env`-Wrapper abschneiden, samt Flags (`env -S bash …`). Die
+            # Muster laufen ueber `case`, nicht ueber `[ … = -… ]`: ein
+            # Shebang-Flag wie `-S` ist fuer das test-Builtin eine OPTION
+            # (`-S` = "ist ein Socket") und vergleicht dann still das Falsche —
+            # die erste Fassung dieses Dispatchers routete `env -S bash -e`
+            # deshalb auf `-S` (`-S: command not found`) und brach den Step ab.
+            if [ "${#words[@]}" -gt 0 ]; then
+              case "${words[0]##*/}" in
+                env) i=1 ;;
+              esac
+            fi
+            while [ "$i" -lt "${#words[@]}" ]; do
+              case "${words[$i]}" in
+                -*) i=$((i + 1)) ;;
+                *) break ;;
+              esac
+            done
+            local interp=''
+            if [ "$i" -lt "${#words[@]}" ]; then
+              interp=${words[$i]##*/}
+            fi
+            case "$interp" in
+              ''|bash) printf 'bash\n' ;;
+              sh|dash) printf 'sh\n' ;;
+              # Fremder Interpreter: der Basisname wird unveraendert aufgerufen.
+              # Fehlt das Binary auf dem Runner, ist der Step ROT statt still —
+              # geraten wird hier nichts.
+              *) printf '%s\n' "$interp" ;;
+            esac
+          }
           checked=0
           while IFS= read -r -d '' script; do
-            if head -n 1 "$script" | grep -q 'bin/sh'; then
-              shell_bin=sh
-            else
-              shell_bin=bash
-            fi
+            IFS= read -r first < "$script" || true
+            shell_bin=$(shell_for "$first")
             "$shell_bin" -n "$script"
             printf 'ok  (%s -n)  %s\n' "$shell_bin" "$script"
             checked=$((checked + 1))
