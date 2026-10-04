@@ -52,6 +52,13 @@ class SubAccreditationTest extends TestCase
     {
         parent::setUp();
 
+        // Position 45 + P6: the sub engine DISPATCHES a `SendMandantMail` job,
+        // which under the suite's `sync` connection runs inline — a dead relay
+        // would abort every decision test in this class. The notifications
+        // themselves are asserted in `SubAllocationMailTest`; here they are only
+        // in the way.
+        Mail::fake();
+
         $this->seed(RoleSeeder::class);
 
         $this->subAllocation = app(SubAllocationService::class);
@@ -1469,69 +1476,6 @@ class SubAccreditationTest extends TestCase
             ->assertStatus(404);
 
         $this->assertDatabaseHas('sub_applications', ['id' => $theirs->id]);
-    }
-
-    /* ---------------------------------------------------------------------
-     | WP-3-d — documented gap: a sub-status change sends no mail
-     | ------------------------------------------------------------------- */
-
-    /**
-     * Tripwire for a deliberately documented gap (WP-3-d, 2026-09-26).
-     *
-     * `AllocationService` mails every main-application status change and
-     * `AdminApplicationController::resend` exists for main applications.
-     * `SubAllocationService` injects **no** mailer and there is no `resend`
-     * route for sub-applications, so an approved or denied Park-/Sitzkarte
-     * never reaches its applicant.
-     *
-     * This was **not** implemented in WP-3 on purpose: it needs mailables
-     * (`app/Mail/**`), Blade views (`resources/views/mail/**`), a `resend`
-     * action in `AdminSubApplicationController` and a route in
-     * `routes/api.php` — all outside that work package's file scope. A
-     * half-built mail format with no resend path would be worse than a
-     * documented gap: it would read as "done" in `features/` while the
-     * applicant still gets nothing. Decision and follow-up spec:
-     * `features/accreditation/01-allocation-engine.md` → „Bekannte Lücke".
-     *
-     * WHEN the gap is closed this test fails on purpose — it is the reminder
-     * that notification and resend route now exist.
-     */
-    public function test_a_sub_status_change_sends_no_mail_today_documented_gap_wp_3_d(): void
-    {
-        Mail::fake();
-
-        $sub = $this->createSubAccreditation(['quota' => 1]);
-        $requested = $this->subRequest($sub, User::factory()->create());
-
-        $this->subAllocation->approveSubApplication($requested);
-
-        $this->assertDatabaseHas('sub_applications', ['id' => $requested->id, 'status' => 'approved']);
-        Mail::assertNothingSent();
-
-        $other = $this->createSubAccreditation(['quota' => 1]);
-        $denied = $this->subRequest($other, User::factory()->create());
-
-        $this->subAllocation->denySubApplication($denied, 'Keine Parkfläche');
-
-        $this->assertDatabaseHas('sub_applications', [
-            'id' => $denied->id,
-            'status' => 'denied',
-            'reason' => 'Keine Parkfläche',
-        ]);
-        Mail::assertNothingSent();
-
-        // Same for the bulk paths.
-        $bulk = $this->createSubAccreditation(['quota' => 1]);
-        $this->subRequest($bulk, User::factory()->create());
-        $this->subRequest($bulk, User::factory()->create());
-
-        $this->subAllocation->approveAllEligible($bulk);
-
-        $this->assertSame(
-            1,
-            SubApplication::query()->where('sub_accreditation_id', $bulk->id)->where('status', 'approved')->count(),
-        );
-        Mail::assertNothingSent();
     }
 
     /* ---------------------------------------------------------------------

@@ -207,37 +207,65 @@ bleibt 404 und wird nie zum Existenzorakel (410). Bei `approved` Haupt- und
 
 ## Bekannte Lücke: keine Benachrichtigung bei Sub-Statuswechsel (WP-3-d)
 
-⚠️ **Bewusst dokumentiert, nicht implementiert (Stand 2026-09-26).**
+⚠️ **Teilweise geschlossen (2026-10-04): Versand umgesetzt, `resend`-Route weiter offen.**
 
 `AllocationService` versendet bei **jedem** Statuswechsel eine Mail
 (`ApplicationApprovedMail` / `ApplicationDeniedMail`), und für Haupt-Anträge
 existiert `AdminApplicationController::resend`
-(`POST /api/admin/applications/{id}/resend`). Für Sub-Anträge gilt beides
-**nicht**:
+(`POST /api/admin/applications/{id}/resend`). Für Sub-Anträge galt beides
+**nicht** — der erste Teil gilt nicht mehr:
 
-- `SubAllocationService` injiziert **keinen** Mailer — weder `approveSelection` /
-  `approveAllEligible` noch `approveSubApplication` / `denySubApplication`
-  versenden etwas.
-- Es gibt **keine** `resend`-Route für Sub-Anträge.
+- ✅ **Versand umgesetzt:** `SubApplicationApprovedMail` /
+  `SubApplicationDeniedMail` samt Blade-Views (`resources/views/mail/sub-application-{approved,denied}.blade.php`),
+  Basis `AbstractSubApplicationMail` (Empfänger `sub_application.user`, Kontext
+  aus `subAccreditation.accreditation`, typabhängige Subjects, Pass-Anhang nur
+  bei `approved` mit Fail-safe). Dispatch aus allen vier manuellen Pfaden
+  (`approveSelection` / `approveAllEligible` / `approveSubApplication` /
+  `denySubApplication`) **und** dem Auto-Pfad (`runAutoSubAllocations`) über
+  `MandantMailerService::send()` → dieselbe Queue (Claim, Retry → DLQ,
+  `failed_jobs.mandant_id`). Mandant: `subAccreditation.accreditation.mandant`
+  (Entscheidungs-Mandant, nicht Antrags-Mandant). **Abweichung vom Folgetask-
+  Entwurf mit Begründung:** Dispatch **innerhalb** der Transaktion (nicht nach
+  dem Commit wie die Haupt-Engine) — sonst verlöre ein Prozess-Tod zwischen
+  Commit und `jobs`-Insert die Mail ohne jede Spur; `after_commit` gilt
+  unverändert. Tests: `SubAllocationMailTest` (22). Ausgenommen mit Begründung:
+  `cascadeRevokedSubApplications()` bleibt still (Haupt-Antrag-Mail geht an
+  dieselbe Person).
+- ❌ **Weiter offen:** keine `resend`-Route für Sub-Anträge
+  (`POST /api/admin/sub-applications/{id}/resend` mit `can:accreditations.manage`,
+  Team-Scope, 422 bei `requested` — wie beim Haupt-Antrag).
 
-**Folge:** eine genehmigte oder abgelehnte Park-/Sitzkarte erreicht den
-Antragsteller nicht. Er sieht den Status nur, wenn er selbst
-`GET /api/sub-applications` aufruft.
+`AllocationService` versendet bei **jedem** Statuswechsel eine Mail
+(`ApplicationApprovedMail` / `ApplicationDeniedMail`), und für Haupt-Anträge
+existiert `AdminApplicationController::resend`
+(`POST /api/admin/applications/{id}/resend`). Für Sub-Anträge galt beides
+**nicht** (Stand 2026-09-26) — der Versand gilt seit 2026-10-04 nicht mehr
+(siehe oben); **weiter offen ist nur die `resend`-Route**:
 
-**Warum hier nicht umgesetzt:** die Umsetzung braucht `SubApplicationApprovedMail`
-/ `SubApplicationDeniedMail` samt Blade-Views (`resources/views/mail/**`), eine
-`resend`-Action in `AdminSubApplicationController` und eine Route in
-`routes/api.php` — sämtlich außerhalb des Datei-Scopes dieses Work-Pakets
-(WP-3). Ein halb gebautes Mail-Format ohne Resend-Weg wäre schlechter als eine
-dokumentierte Lücke: Es würde in `features/` als erfüllt erscheinen, während der
-Antragsteller weiterhin nichts bekommt.
+- ✅ Versand: `SubAllocationService` injiziert `MandantMailerService` — alle vier
+  manuellen Pfade plus Auto-Pfad versenden (Ausnahme mit Begründung:
+  `cascadeRevokedSubApplications`, siehe oben).
+- ❌ Es gibt **keine** `resend`-Route für Sub-Anträge.
 
-**Was ein Folgetask tun muss:** Mailable(s) für Sub-Statuswechsel (Empfänger
-`sub_application.user`, Kontext aus `subAccreditation.accreditation`),
-Dispatch **nach** dem Commit analog zur Haupt-Engine, und
-`POST /api/admin/sub-applications/{id}/resend` mit denselben Gates
-(`can:accreditations.manage`, Team-Scope) und demselben 422-Verhalten bei
-`requested` wie beim Haupt-Antrag. Der Kaskaden-Grund
+**Folge der verbleibenden Lücke:** Eine manuelle Wiederholung scheitert nicht —
+sie existiert nicht; wer eine Sub-Freigabe erneut versenden will, hat keinen
+Endpunkt dafür (Haupt-Anträge: `POST /api/admin/applications/{id}/resend`).
+Der Erstversand erreicht den Antragsteller dagegen per Mail (gegebenenfalls
+über die DLQ sichtbar).
+
+**Warum 2026-09-26 nicht umgesetzt (historisch):** die Umsetzung brauchte
+`SubApplicationApprovedMail` / `SubApplicationDeniedMail` samt Blade-Views
+(`resources/views/mail/**`), eine `resend`-Action in
+`AdminSubApplicationController` und eine Route in `routes/api.php` — sämtlich
+außerhalb des Datei-Scopes dieses Work-Pakets (WP-3). Ein halb gebautes
+Mail-Format ohne Resend-Weg wäre schlechter als eine dokumentierte Lücke: Es
+würde in `features/` als erfüllt erscheinen, während der Antragsteller
+weiterhin nichts bekommt. **Der erste Teil ist seit 2026-10-04 gebaut** (siehe
+oben); der zweite (`resend`) bleibt der offene Rest.
+
+**Was ein Folgetask noch tun muss:** `POST /api/admin/sub-applications/{id}/resend`
+mit denselben Gates (`can:accreditations.manage`, Team-Scope) und demselben
+422-Verhalten bei `requested` wie beim Haupt-Antrag. Der Kaskaden-Grund
 `REASON_PARENT_REVOKED` ist dabei als Deny-`reason` bereits persistiert und
 kann direkt im Mailable ausgegeben werden.
 

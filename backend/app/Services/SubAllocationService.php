@@ -2,12 +2,16 @@
 
 namespace App\Services;
 
+use App\Mail\SubApplicationApprovedMail;
+use App\Mail\SubApplicationDeniedMail;
+use App\Models\Mandant;
 use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -43,9 +47,73 @@ use Illuminate\Validation\ValidationException;
  * sub-row on it is denied), and in the wallet path
  * (`WalletController::ownApprovedSubApplication` — no pass without an
  * approved main application).
+ *
+ * ## Notification (P6 TODO 5, Nutzerentscheid 2026-10-03)
+ *
+ * Every status change this engine writes is notified to the applicant, through
+ * the same queue as the main engine: `MandantMailerService::send()` only
+ * dispatches a `SendMandantMail` job, which owns the idempotency claim, the
+ * retry cap and the dead-letter surface (`failed_jobs.mandant_id`). Nothing here
+ * dials a relay.
+ *
+ * **The dispatch is issued INSIDE the allocating transaction**, not after it —
+ * deliberately different from `AllocationService`, which dispatches once the
+ * commit is behind it. With `config/queue.php` → `after_commit => true` (the
+ * `database` connection, i.e. every deployed environment) that makes "the status
+ * changed" and "a delivery order exists" ONE commit: a rolled-back allocation
+ * leaves no order, a committed one always leaves one. Dispatching after the
+ * commit would leave a window — the process can die between the commit and the
+ * `jobs` insert, and the notification is then gone with no `failed_jobs` row,
+ * no log line and no requeue path. That window is exactly what the Position-45
+ * promise ("no mail should be lost") forbids, so the stronger shape wins here.
+ *
+ * Two consequences are named rather than glossed over:
+ *
+ *  - Under `QUEUE_CONNECTION=sync` (the PHPUnit suite, the E2E stack) the job
+ *    runs INLINE, and `sync` carries no `after_commit` — so there the delivery
+ *    happens while the transaction is open and a relay failure propagates out of
+ *    the allocation. Production does not run `sync` (`deployment/backend-supervisor.sh`
+ *    refuses to start without `QUEUE_CONNECTION=database`); on the suite the
+ *    mail is faked.
+ *  - The CALL SITE is not something a rollback test can see, and the suite does
+ *    not pretend otherwise: MEASURED, moving both dispatch calls behind
+ *    `DB::transaction()` left all 21 tests of `SubAllocationMailTest` green,
+ *    because `after_commit` makes both shapes leave the same facts under the
+ *    only failure a test can stage. The position is therefore pinned as a STATE
+ *    by a queue connection that records the transaction level at push time
+ *    (`test_the_notification_is_dispatched_while_the_allocating_transaction_is_still_open`),
+ *    together with the counter-direction: a dispatch made from outside records
+ *    the baseline. The commit/rollback consequence itself is pinned separately
+ *    (`test_a_committed_approval_leaves_a_delivery_order_on_the_queue`,
+ *    `test_a_rolled_back_allocation_leaves_no_status_change_and_no_delivery_order`).
+ *
+ * The notification is derived from the rows the plan actually wrote: the
+ * dispatch re-reads them with the same `status` filter the idempotent status
+ * write used, so a repeated allocation run never re-sends.
+ *
+ * ### Which paths notify, and which one deliberately does not
+ *
+ * All five write paths of this service notify: `approveSelection`,
+ * `approveAllEligible` (which is also the automatic
+ * `runAutoSubAllocations` path), `approveSubApplication` and `denySubApplication`
+ * (a denial AND a revoke). `setPriority` changes no status and sends nothing,
+ * like the main engine's.
+ *
+ * The one exclusion is `AllocationService::cascadeRevokedSubApplications()`: the
+ * `approved → denied` cascade that fires when the MAIN application is revoked.
+ * It lives in the main engine, not in this service, and it deliberately stays
+ * silent. The applicant of such a row does still learn about the revocation —
+ * the same person receives `ApplicationDeniedMail` for the main application,
+ * because a sub row's `user_id` is denormalised from it — but not as a second,
+ * Parkkarte-shaped mail. Adding one is a follow-up in `AllocationService`, whose
+ * own docblock there still says so.
  */
 final class SubAllocationService
 {
+    public function __construct(
+        private readonly MandantMailerService $mandantMailer,
+    ) {}
+
     /**
      * The 422 message of a sub-approval whose main application is not
      * `approved`. German on purpose: the string reaches the admin UI verbatim,
@@ -64,7 +132,8 @@ final class SubAllocationService
      * not a candidate at all (D9, see `eligibleRequested()`).
      *
      * Quota read and status write share one transaction under a row lock on
-     * the sub-accreditation (R-D4).
+     * the sub-accreditation (R-D4). Every approved row is notified inside that
+     * transaction (`dispatchApprovedMails`).
      */
     public function approveSelection(SubAccreditation $sub, int $limit): AllocationResult
     {
@@ -90,6 +159,9 @@ final class SubAllocationService
 
             AllocationRules::markApproved(SubApplication::class, $plan['approve']);
 
+            // Inside the transaction on purpose — see the class docblock.
+            $this->dispatchApprovedMails($plan['approve']);
+
             return new AllocationResult(count($plan['approve']), 0, $plan['skipped_blacklist']);
         });
     }
@@ -108,6 +180,8 @@ final class SubAllocationService
      * candidates (D9, `eligibleRequested()`) — they stay `requested` and
      * become candidates again if the admin re-approves the main row, exactly
      * like the rows the revoke cascade deliberately leaves alone.
+     *
+     * Both halves notify, inside the same transaction (P6).
      */
     public function approveAllEligible(SubAccreditation $sub): AllocationResult
     {
@@ -128,6 +202,15 @@ final class SubAllocationService
             AllocationRules::markDenied(SubApplication::class, $plan['deny_quota'], AllocationRules::REASON_QUOTA);
             AllocationRules::markDenied(SubApplication::class, $plan['deny_blacklist'], AllocationRules::REASON_BLACKLIST);
 
+            // Inside the transaction on purpose — see the class docblock. Both
+            // halves notify: the surplus and the blacklist matches are exactly
+            // the rows an applicant would otherwise never hear about again.
+            $this->dispatchApprovedMails($plan['approve']);
+            $this->dispatchDeniedMails([
+                ...$plan['deny_quota'],
+                ...$plan['deny_blacklist'],
+            ]);
+
             return new AllocationResult(
                 count($plan['approve']),
                 count($plan['deny_quota']) + count($plan['deny_blacklist']),
@@ -147,7 +230,8 @@ final class SubAllocationService
      * reason.
      *
      * The sub-quota check and the status write share one transaction under a
-     * row lock on the sub-accreditation (R-D4).
+     * row lock on the sub-accreditation (R-D4). The applicant is notified inside
+     * that transaction (P6).
      *
      * @throws ValidationException
      */
@@ -202,6 +286,9 @@ final class SubAllocationService
                 'reason' => null,
             ]);
 
+            // Inside the transaction on purpose — see the class docblock.
+            $this->dispatchApprovedMails([$subApplication->getKey()]);
+
             return $subApplication;
         });
     }
@@ -214,6 +301,9 @@ final class SubAllocationService
      * Shares the row lock of the sub-accreditation with every other writer, so
      * a concurrent bulk run is serialised against this revoke instead of
      * planning against a state that is about to change (R-D4).
+     *
+     * The applicant is notified inside that transaction, with the reason
+     * verbatim — for the revoke case as much as for the fresh denial (P6).
      *
      * @throws ValidationException
      */
@@ -241,6 +331,11 @@ final class SubAllocationService
                 'reason' => $reason,
             ]);
 
+            // Inside the transaction on purpose — see the class docblock. This
+            // path is also the revoke of an `approved` row, which the applicant
+            // has to learn about just as much as a fresh denial.
+            $this->dispatchDeniedMails([$subApplication->getKey()]);
+
             return $subApplication;
         });
     }
@@ -261,6 +356,9 @@ final class SubAllocationService
      * `auto_approve = true` whose `deadline_end` (end of day, 23:59:59) has
      * passed. Returns `[sub_accreditation_id => ['approved' => n, 'denied' => m]]`
      * for the processed sub-accreditations only.
+     *
+     * Notifies through `approveAllEligible()`, so the automatic run is not a
+     * silent variant of the manual one (P6).
      *
      * @return array<int, array{approved: int, denied: int}>
      */
@@ -359,5 +457,139 @@ final class SubAllocationService
         $sub->loadMissing('accreditation:id,mandant_id');
 
         return (int) $sub->accreditation->mandant_id;
+    }
+
+    /* ---------------------------------------------------------------------
+     | Notification
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The relation graph a sub notification needs, loaded once per run.
+     *
+     * Everything the mailables touch: the applicant, the main application
+     * (holder of the `qr_token` the pass barcode encodes), and the main
+     * accreditation behind the sub-accreditation (category/event/team and the
+     * mandant that owns the sub-quota). All four entry points go through
+     * `dispatchApprovedMails()` / `dispatchDeniedMails()`, so this list is what
+     * the queued mail is built from;
+     * `AbstractSubApplicationMail::prepare()` loads the same graph again on the
+     * mailable itself, which is what keeps a hand-built mailable (a test, a
+     * future call site) from lazy-loading inside the view.
+     *
+     * @return list<string>
+     */
+    private function mailContext(): array
+    {
+        return [
+            'user:id,email,name',
+            'application.accreditation.mandant.domains',
+            'subAccreditation.accreditation.category',
+            'subAccreditation.accreditation.event',
+            'subAccreditation.accreditation.team',
+            'subAccreditation.accreditation.mandant:id,name',
+        ];
+    }
+
+    /**
+     * P6: notify every sub-application a run just approved. The
+     * `status = approved` filter mirrors the idempotent status write — only rows
+     * that actually changed are mailed, so a repeated run never re-sends.
+     *
+     * @param  list<int>  $ids
+     */
+    private function dispatchApprovedMails(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        SubApplication::query()
+            ->whereIn('id', $ids)
+            ->where('status', 'approved')
+            ->with($this->mailContext())
+            ->get()
+            ->each(function (SubApplication $subApplication): void {
+                $mandant = $this->mandantFor($subApplication, 'approved');
+
+                if ($mandant === null) {
+                    return;
+                }
+
+                $this->mandantMailer->send(
+                    $mandant,
+                    new SubApplicationApprovedMail($subApplication),
+                );
+            });
+    }
+
+    /**
+     * P6: notify every sub-application a run just denied (quota surplus,
+     * blacklist, an admin decision or a revoke). The reason is printed verbatim
+     * and is never empty on this path: `denySubApplication()` rejects an empty
+     * one, the bulk plan writes `REASON_QUOTA` / `REASON_BLACKLIST`.
+     *
+     * @param  list<int>  $ids
+     */
+    private function dispatchDeniedMails(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        SubApplication::query()
+            ->whereIn('id', $ids)
+            ->where('status', 'denied')
+            ->with($this->mailContext())
+            ->get()
+            ->each(function (SubApplication $subApplication): void {
+                $mandant = $this->mandantFor($subApplication, 'denied');
+
+                if ($mandant === null) {
+                    return;
+                }
+
+                $this->mandantMailer->send(
+                    $mandant,
+                    new SubApplicationDeniedMail($subApplication, (string) $subApplication->reason),
+                );
+            });
+    }
+
+    /**
+     * The mandant whose SMTP relay delivers this sub-application's
+     * notification, or null when the sub-accreditation (or its accreditation, or
+     * its mandant) is gone.
+     *
+     * Mirrors `AllocationService::mandantFor()` down to the reason: the
+     * notification is dispatched INSIDE the allocating transaction here, so a
+     * `TypeError` from a null mandant would not just abort one mail — it would
+     * roll the whole allocation back, and in `runAutoSubAllocations()` it would
+     * starve every sub-accreditation after this one in the loop.
+     *
+     * The referential integrity makes this nearly unreachable (a sub row cascades
+     * with its sub-accreditation, that with its accreditation, that with its
+     * mandant), which is exactly why it needs a guard rather than a repair: a
+     * partially migrated database, a restored dump without FKs, or a future
+     * non-cascading FK would otherwise turn into a silently aborted nightly run.
+     * Skipping one notification is the correct degradation — the decision itself
+     * is committed (or, here, still to be committed independently of the mail),
+     * and every OTHER sub-accreditation in the run must still be decided and
+     * notified.
+     */
+    private function mandantFor(SubApplication $subApplication, string $status): ?Mandant
+    {
+        $mandant = $subApplication->subAccreditation?->accreditation?->mandant;
+
+        if ($mandant !== null) {
+            return $mandant;
+        }
+
+        Log::warning('SubAllocationService: notification skipped — the sub-accreditation of the application no longer exists.', [
+            'sub_application_id' => $subApplication->getKey(),
+            'sub_accreditation_id' => $subApplication->sub_accreditation_id,
+            'status' => $status,
+        ]);
+
+        return null;
     }
 }
