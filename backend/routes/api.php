@@ -201,9 +201,11 @@ Route::middleware('auth:api')->group(function (): void {
 | `throttle:admin` (named limiter, 300/min per authenticated admin user, key
 | `admin:{userId|ip}` — registered in AppServiceProvider). The admin
 | GET/read routes are deliberately NOT throttled: lists are auth-gated
-| already and a shared bucket would harm legit admin browsing. The pass-resend
-| route additionally carries `throttle:resend` (10/min, P5-F2), which is far
-| stricter than the shared admin write budget.
+| already and a shared bucket would harm legit admin browsing. BOTH resend
+| routes additionally carry `throttle:resend` (10/min, P5-F2) — the pass resend
+| (`applications.resend`) and its Park-/Sitzkarte counterpart
+| (`sub-applications.resend`) — which is far stricter than the shared admin
+| write budget.
 |
 */
 Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(function (): void {

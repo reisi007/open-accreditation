@@ -218,7 +218,7 @@ Datei**, am tatsächlich versandten Anhang (`WalletMailAttachmentTest`).
   Zeile (R-D4-Race) wird hier also **nicht** gestoppt — letzte Schranke ist der
   Verify-Endpunkt, der alles ablehnt, dessen Live-Zeile nicht mehr `approved`
   ist (`VerifyResource`, `VerifyController::photo`).
-- **~~Benannter Rest — Sub-Approvals.~~ Erledigt 2026-10-04:** Park-/Sitzkarten-Freigaben laufen über `SubAllocationService` und versenden seitdem per `SubApplicationApprovedMail` / `SubApplicationDeniedMail` (Basis `AbstractSubApplicationMail`) über dieselbe Queue wie die Haupt-Freigaben — der Sub-Pass **wird** angehängt (Google-Anhang; Apple-`.pkpass` mit Fail-safe). Der `SubAccreditationTest`-Tripwire, der die Lücke festnagelte, ist mit der Umsetzung entfernt. Verweis auf den Stand: `features/accreditation/01-allocation-engine.md` (Lücken-Abschnitt: Versand umgesetzt, `resend`-Route weiter offen).
+- **~~Benannter Rest — Sub-Approvals.~~ Erledigt 2026-10-04:** Park-/Sitzkarten-Freigaben laufen über `SubAllocationService` und versenden seitdem per `SubApplicationApprovedMail` / `SubApplicationDeniedMail` (Basis `AbstractSubApplicationMail`) über dieselbe Queue wie die Haupt-Freigaben — der Sub-Pass **wird** angehängt (Google-Anhang; Apple-`.pkpass` mit Fail-safe). Der `SubAccreditationTest`-Tripwire, der die Lücke festnagelte, ist mit der Umsetzung entfernt. Verweis auf den Stand: `features/accreditation/01-allocation-engine.md` (Lücken-Abschnitt: Versand + `resend`-Route umgesetzt, Frontend-Button weiter offen).
 - **Verhältnis zu Position 45 (Queue/DLQ).** Die Anhänge entstehen **zur
   Versandzeit** in `attachments()`, nicht im Mailable-Zustand und nicht im
   Queue-Payload. Die geplante Queue-/DLQ-Umstellung von `MandantMailerService`

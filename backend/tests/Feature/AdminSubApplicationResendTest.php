@@ -54,9 +54,12 @@ use Tests\TestCase;
  * MUTATION, measured on this class alone (2026-10-04), so the pins below are
  * not decorative:
  *
- *  - deleting BOTH `send()` calls → 6 of 13 tests red (the two happy paths,
- *    "does not drag along", the team_admin's own team, and both queue-order
- *    tests). The two 422 tests stay green, correctly: they assert nothing was
+ *  - deleting BOTH `send()` calls → 7 of 13 tests red (the two happy paths,
+ *    "does not drag along", the team_admin's own team, both queue-order
+ *    tests, AND the qr_token test — that one is mail-sensitive through its own
+ *    `Mail::assertSent(…sub approval…)` premise at `:434-437`, which is what
+ *    keeps "untouched" from passing vacuously when nothing was dispatched).
+ *    The two 422 tests stay green, correctly: they assert nothing was
  *    sent.
  *  - deleting the TEAM half of `assertSubApplicationAccessible()` and keeping the
  *    mandant half → exactly ONE test red: the foreign-team 403.

@@ -207,7 +207,7 @@ bleibt 404 und wird nie zum Existenzorakel (410). Bei `approved` Haupt- und
 
 ## Bekannte Lücke: keine Benachrichtigung bei Sub-Statuswechsel (WP-3-d)
 
-⚠️ **Teilweise geschlossen (2026-10-04): Versand umgesetzt, `resend`-Route weiter offen.**
+⚠️ **Geschlossen 2026-10-04 (Versand + `resend`-Route); offen: Frontend-Button.**
 
 `AllocationService` versendet bei **jedem** Statuswechsel eine Mail
 (`ApplicationApprovedMail` / `ApplicationDeniedMail`), und für Haupt-Anträge
@@ -237,11 +237,10 @@ existiert `AdminApplicationController::resend`
   den Pass zu entwerten; Tests: `AdminSubApplicationResendTest`, 13).
   Frontend-Button weiter offen (eigener Task, inkl. i18n DE+EN).
 
-**Folge der verbleibenden Lücke:** Eine manuelle Wiederholung scheitert nicht —
-sie existiert nicht; wer eine Sub-Freigabe erneut versenden will, hat keinen
-Endpunkt dafür (Haupt-Anträge: `POST /api/admin/applications/{id}/resend`).
-Der Erstversand erreicht den Antragsteller dagegen per Mail (gegebenenfalls
-über die DLQ sichtbar).
+**Verbleibende Lücke (nur noch UI):** Der Endpunkt existiert (`POST /api/admin/sub-applications/{id}/resend`),
+aber kein Button ruft ihn auf — wer eine Sub-Freigabe erneut versenden will, muss die Route direkt aufrufen
+(Haupt-Anträge haben den Button in `ApprovalsPage`). Der Erstversand erreicht den Antragsteller per Mail
+(gegebenenfalls über die DLQ sichtbar).
 
 **Warum 2026-09-26 nicht umgesetzt (historisch):** die Umsetzung brauchte
 `SubApplicationApprovedMail` / `SubApplicationDeniedMail` samt Blade-Views
@@ -250,12 +249,13 @@ Der Erstversand erreicht den Antragsteller dagegen per Mail (gegebenenfalls
 außerhalb des Datei-Scopes dieses Work-Pakets (WP-3). Ein halb gebautes
 Mail-Format ohne Resend-Weg wäre schlechter als eine dokumentierte Lücke: Es
 würde in `features/` als erfüllt erscheinen, während der Antragsteller
-weiterhin nichts bekommt. **Der erste Teil ist seit 2026-10-04 gebaut** (siehe
-oben); der zweite (`resend`) bleibt der offene Rest.
+weiterhin nichts bekommt. **Beide Teile sind seit 2026-10-04 gebaut** (siehe
+oben); der offene Rest ist der Frontend-Button.
 
-**Was ein Folgetask noch tun muss:** `POST /api/admin/sub-applications/{id}/resend`
-mit denselben Gates (`can:accreditations.manage`, Team-Scope) und demselben
-422-Verhalten bei `requested` wie beim Haupt-Antrag. Der Kaskaden-Grund
+**Was ein Folgetask noch tun muss:** Button für den Sub-`resend` in der Admin-UI
+(mit i18n DE **und** EN — `check:i18n` bricht sonst), der `POST
+/api/admin/sub-applications/{id}/resend` aufruft und die Backend-Antwort zeigt
+(statt eigenem Lingui-Text — Lehre aus Strom B, TODO 4). Der Kaskaden-Grund
 `REASON_PARENT_REVOKED` ist dabei als Deny-`reason` bereits persistiert und
 kann direkt im Mailable ausgegeben werden.
 

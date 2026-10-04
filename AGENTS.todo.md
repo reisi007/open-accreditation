@@ -376,8 +376,12 @@ grün, **weil nichts mehr versendet wird**, nicht weil sie faken.
 2. **Datei-Validität als PHPUnit-Test (kein Import):** `.pkpass` ist ein gültiges ZIP mit `pass.json`/`icon.png`/`icon@2x.png`/`manifest.json`, die `manifest.json`-Hashes stimmen, **ohne** Certs enthält es **keine** `signature`; die Google-Seite ist strukturell valide (`EventTicketObject` bzw. `savetowallet`-JWT mit `typ`/`aud`).
 3. **Kein Import-E2E.** Die E2E prüft die **Gültigkeit** der gelieferten Datei, nicht die Wallet-Installation.
 4. **Edge cases:** fehlende Credentials (degradierter Unsigned-Pass/Preview), `park`/`seat` (Sub-Pass), nicht-`approved` (kein Pass).
-5. **Sub-Freigabe-Mail — umgesetzt und verifiziert, per §4 entfernt (Runde 19, `APPROVED`, 2026-10-04).** Dauerhaftes in `features/accreditation/01-allocation-engine.md` (Lücken-Abschnitt). **Follow-up `resend`-Route — umgesetzt 2026-10-04:** `POST /api/admin/sub-applications/{id}/resend` (Gates wie Haupt-Antrag, 422 bei `requested`, kein Token-Rebuild; Tests: `AdminSubApplicationResendTest`, 13). Frontend-Button weiter offen (eigener Task, inkl. i18n DE+EN).
+5. **Sub-Freigabe-Mail + `resend`-Route — umgesetzt und verifiziert, per §4 entfernt (Runden 19/20, `APPROVED`, 2026-10-04).** Dauerhaftes in `features/accreditation/01-allocation-engine.md` (Lücken-Abschnitt: Versand + Route umgesetzt, Button offen).
 6. **Verhältnis zur Mail-Zustellung** (Position 45, am 2026-10-04 per §4 entfernt; Vertrag in `features/mail-delivery.md`): beide Freigabe-Mails laufen über `MandantMailerService`; die Anhänge dürfen die Queue-/DLQ-Umstellung (Anhänge in `payload`/Store) **nicht** präjudizieren. *(Eingehalten auch für die Sub-Mails 2026-10-04: derselbe Dispatch-Pfad `send(mandant, mailable)`, Anhänge im Mailable-Payload wie bei `PassMail` — kein eigener Store, kein eigener Mechanismus.)*
+
+### 🟡 OFFEN — Position 47: Sub-`resend`-Button im Admin-Frontend (Folgetask aus P6, 2026-10-04)
+
+**Was fehlt:** kein Button ruft `POST /api/admin/sub-applications/{id}/resend` auf (Verifikator-geprüft: `frontend/src/api/client.ts` kennt nur `resendApplicationMail`, `ApprovalsPage.tsx` nur den Haupt-Antrag). **Umfang:** Button in der Sub-Freigabe-Ansicht, Backend-Antwort zeigen (kein eigener Lingui-Text — Lehre aus Strom B TODO 4), i18n DE **und** EN für jede neue Nachricht (`check:i18n` bricht sonst), Vitest für Client/Hook + Playwright-E2E mit Tag (`@feature:admin:sub-resend`, `@smoke` für Happy-Path).
 
 
 

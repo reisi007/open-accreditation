@@ -139,9 +139,15 @@ class AdminApprovalTest extends TestCase
             ->assertJsonPath('data.0.accreditation.category.name', 'Presse')
             ->assertJsonPath('data.0.accreditation.quota', 10);
 
+        // The path must be sketched here: `assertJsonMissing(['id' => …])` searches
+        // the WHOLE payload as a string, so it also matches a nested `user.id` —
+        // and those ids collide with application ids (measured on Postgres:
+        // `data.0.user.id = 6` while the foreign application was id 6), which
+        // turned a correctly scoped list into a failure. Only the rows' own
+        // `data.*.id` carry the application, and only those may be searched.
         $this->actingAsApi($this->superAdmin())
             ->getJson('/api/admin/applications')
-            ->assertJsonMissing(['id' => $foreignApplication->id]);
+            ->assertJsonPath('data.*.id', fn (array $ids): bool => ! in_array($foreignApplication->id, $ids, true));
     }
 
     public function test_applications_index_available_reflects_approved_count(): void
