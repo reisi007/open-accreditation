@@ -378,12 +378,6 @@ grün, **weil nichts mehr versendet wird**, nicht weil sie faken.
 4. **Edge cases:** fehlende Credentials (degradierter Unsigned-Pass/Preview), `park`/`seat` (Sub-Pass), nicht-`approved` (kein Pass).
 5. **Verhältnis zur Mail-Zustellung** (Position 45, am 2026-10-04 per §4 entfernt; Vertrag in `features/mail-delivery.md`): beide Freigabe-Mails laufen über `MandantMailerService`; die Anhänge dürfen die Queue-/DLQ-Umstellung (Anhänge in `payload`/Store) **nicht** präjudizieren. *(Eingehalten auch für die Sub-Mails 2026-10-04: derselbe Dispatch-Pfad `send(mandant, mailable)`, Anhänge im Mailable-Payload wie bei `PassMail` — kein eigener Store, kein eigener Mechanismus.)*
 
-### ✅ Position 47: Sub-`resend`-Button — umgesetzt und verifiziert (Runde 24, `APPROVED`, 2026-10-04)
-
-**Was gebaut wurde (2026-10-04):** `resendSubApplicationMail()` im API-Client (`requestMessage`, nicht `request` — Route antwortet mit bloßem `{message}`); Button in `SubApplicationRow` (`ApprovalsPage`, einzige Sub-Freigabe-Fläche), nur bei `approved`/`denied` (422 per UI unerreichbar); Erfolg zeigt **Backend-Antwort** via `serverActionMessage` (+ Vertrag `not.toContainText('erneut gesendet.')`); Fehler-Mapping ohne Module-Scope-`t`, 404 bewusst ungemappt. i18n: 2 neue Keys DE+EN (`check:i18n` 467 compiled). Tests: 16 Vitest + E2E `@feature:admin:sub-resend`/`@smoke` (2 passed, Fixture-Besitz mit Ledger, DB nach 3 Läufen leer). Mutation `canResendMail=false` → Vitest 6 rot + E2E 2 rot. **Offen daneben (nicht angefasst):** Backend-Success-Messages deutsch auch für Sub (zweite Stelle derselben Lücke); Host-Heilung `php8.5-gd` per `apt-get` (nächster gd-loser Container braucht sie erneut).
-
-
-
 > **Umfang:** die acht Positionen **30, 31, 32, 33, 34, 35, 36, 37** — davon **32(b)** als **D26** weitergeführt. Alle S1, alle im selben Strang
 > (`frontend/tests/e2e/child-lifetime.spec.ts`, `frontend/tests/e2e/ownership-probe/run-child.ts`,
 > `deployment/Dockerfile.e2e`).

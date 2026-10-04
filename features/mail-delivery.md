@@ -338,9 +338,9 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
 - **Backend-Success-Messages sind deutsch, auch für Sub** (gemessen Runde 24:
-  Haupt- und Sub-Fläche zeigen den Server-String via `serverActionMessage`;
-  `frontend/src/logic/serverActionMessage.ts` dokumentiert das für die Hauptfläche).
-  Zweite Stelle derselben Lücke (erste: Haupt-Freigabe); i18n der Mail- und
+  Haupt-, Sub- und DLQ-Fläche zeigen den Server-String via `serverActionMessage`;
+  `frontend/src/logic/serverActionMessage.ts` dokumentiert alle drei Quellen).
+  Zweite und dritte Stelle derselben Lücke (erste: Haupt-Freigabe); i18n der Mail- und
   Meldungstexte ist ein eigener Auftrag, kein Teil von Position 47.
 
 ## 9. Der Scheduler beobachtet sich selbst (gemessen, nicht behauptet)

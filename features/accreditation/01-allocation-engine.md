@@ -206,9 +206,9 @@ Prüfung auf Eigentum/Mandant passiert weiterhin **zuerst**: eine fremde Zeile
 bleibt 404 und wird nie zum Existenzorakel (410). Bei `approved` Haupt- und
 `requested`/`denied` Sub-Antrag bleibt der alte 422-Zweig unverändert.
 
-## Sub-Statuswechsel-Benachrichtigung (WP-3-d) — umgesetzt, Button offen
+## Sub-Statuswechsel-Benachrichtigung (WP-3-d) — umgesetzt inkl. Button
 
-⚠️ **Geschlossen 2026-10-04 (Versand + `resend`-Route); offen: Frontend-Button.**
+⚠️ **Geschlossen 2026-10-04 (Versand + `resend`-Route + Frontend-Button; verifiziert Runde 24, `APPROVED`).**
 
 `AllocationService` versendet bei **jedem** Statuswechsel eine Mail
 (`ApplicationApprovedMail` / `ApplicationDeniedMail`), und für Haupt-Anträge
@@ -236,12 +236,15 @@ existiert `AdminApplicationController::resend`
   (Gates wie Haupt-Antrag — Mandant → 404, fremdes Team → 403, `requested` ohne
   `reason` → 422; kein QR-Token-Rebuild: ein Resend dupliziert die Mail, statt
   den Pass zu entwerten; Tests: `AdminSubApplicationResendTest`, 13).
-  Frontend-Button weiter offen (eigener Task, inkl. i18n DE+EN).
+  Frontend-Button gebaut 2026-10-04 (Position 47, verifiziert): `SubApplicationRow`
+  in `ApprovalsPage.tsx`, nur bei `approved`/`denied`, zeigt die Backend-Antwort,
+  i18n DE+EN.
 
-**Verbleibende Lücke (nur noch UI):** Der Endpunkt existiert (`POST /api/admin/sub-applications/{id}/resend`),
-aber kein Button ruft ihn auf — wer eine Sub-Freigabe erneut versenden will, muss die Route direkt aufrufen
-(Haupt-Anträge haben den Button in `ApprovalsPage`). Der Erstversand erreicht den Antragsteller per Mail
-(gegebenenfalls über die DLQ sichtbar).
+**Erledigt (Button gebaut):** Der Endpunkt wird seit 2026-10-04 vom Sub-Button
+in `ApprovalsPage` aufgerufen (Position 47); wer die Route direkt aufruft,
+findet sie unter `POST /api/admin/sub-applications/{id}/resend`.
+Der Erstversand erreicht den Antragsteller per Mail (gegebenenfalls
+über die DLQ sichtbar).
 
 **Warum 2026-09-26 nicht umgesetzt (historisch):** die Umsetzung brauchte
 `SubApplicationApprovedMail` / `SubApplicationDeniedMail` samt Blade-Views
@@ -251,9 +254,10 @@ außerhalb des Datei-Scopes dieses Work-Pakets (WP-3). Ein halb gebautes
 Mail-Format ohne Resend-Weg wäre schlechter als eine dokumentierte Lücke: Es
 würde in `features/` als erfüllt erscheinen, während der Antragsteller
 weiterhin nichts bekommt. **Beide Teile sind seit 2026-10-04 gebaut** (siehe
-oben); der offene Rest ist der Frontend-Button.
+oben); gebaut sind Versand, Route und Button — offene Reste dieses Abschnitts
+stehen unter „Offen (bewusst, nicht vergessen)".
 
-**Was ein Folgetask noch tun muss:** Button für den Sub-`resend` in der Admin-UI
+**Erledigt (Folgetask gebaut 2026-10-04, Position 47):** Button für den Sub-`resend` in der Admin-UI
 (mit i18n DE **und** EN — `check:i18n` bricht sonst), der `POST
 /api/admin/sub-applications/{id}/resend` aufruft und die Backend-Antwort zeigt
 (statt eigenem Lingui-Text — Lehre aus Strom B, TODO 4). Der Kaskaden-Grund
@@ -509,9 +513,6 @@ Nachweis gehört ins Postgres-Portabilitäts-Gate.
   Freigabe-Sicht bezieht aktuell Medien des Antragstellers.
 - **P3e-UI-Zähler:** modusabhängige `skipped_blacklist`-Darstellung (siehe
   `AllocationResult`).
-- **Sub-`resend`-Button fehlt (UI)** — Endpunkt und Versand existieren (siehe
-  Abschnitt „Sub-Statuswechsel-Benachrichtigung" oben, WP-3-d), nur kein Button
-  ruft ihn auf.
 - **Row-Lock wirkt nur unter Postgres** — der Mutual-Exclusion-Nachweis für zwei
   Verbindungen gehört ins Postgres-Portabilitäts-Gate des Go-Live-Plans, siehe
   „Atomarität (R-D4)" oben.

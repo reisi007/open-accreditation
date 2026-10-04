@@ -129,11 +129,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
  *
  * `request` cannot serve these endpoints: it unwraps `{data: …}`, and a body
  * without a `data` key would arrive as `undefined` — which is exactly the bug
- * this exists to end. `AdminApplicationController::resend` and
- * `FailedMailController::requeue` both answer `{message: …}` at the top level
- * (MEASURED 2026-10-02), and that message is the SERVER'S account of what it
- * did ("in die Warteschlange gestellt"), which the UI has to show instead of a
- * string of its own.
+ * this exists to end. THREE endpoints answer `{message: …}` at the TOP level:
+ * `POST …/applications/{id}/resend` (`AdminApplicationController::resend`,
+ * `:181`/`:196`), `POST …/sub-applications/{id}/resend`
+ * (`AdminSubApplicationController::resend`, `:192`/`:207`) and
+ * `POST …/failed-mails/{id}/requeue` (`FailedMailController::requeue`, `:99`).
+ * Bare-ness is pinned at the ROOT by `assertJsonPath('message', …)` in
+ * `MailTest.php:406` and `AdminSubApplicationResendTest.php:139`; the requeue
+ * shape rests on its source line — `MailDeadLetterTest.php:221` pins the status,
+ * not the body.
+ *
+ * That list is COMPLETE, and cannot quietly rot: this function is NOT exported,
+ * so its only callers are the three wrappers below — `resendApplicationMail`,
+ * `resendSubApplicationMail` and `requeueFailedMail` (grepped 2026-10-04; named
+ * rather than line-numbered, because an in-file `:NN` goes stale on every edit
+ * above it — which is how this list lost the sub-application resend once). A
+ * fourth endpoint has to be added here in the same breath.
+ *
+ * The message is the SERVER'S account of what it did ("in die Warteschlange
+ * gestellt"), which the UI has to show instead of a string of its own.
  */
 async function requestMessage(path: string, init: RequestInit = {}): Promise<string> {
     const response = await send(path, init);
