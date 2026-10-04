@@ -1360,7 +1360,9 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             // reference, it takes the neighbour's ROW away mid-assertion. That
             // is the F2 shape ("a cleanup that reports success while the row
             // stays" — inverted: a delete that succeeds while somebody else's row
-            // disappears), and `--workers=1` is the only reason it had not fired.
+            // disappears), derived from the FK graph plus the adopting callers,
+            // not reproduced (the window is too narrow for subset runs) — a green
+            // run never contradicted it and must not be read as evidence.
             //
             // The row is SHARED bootstrap master data, exactly like the two venues
             // above: it carries an `E2E Heimverein ` name marker, so the serial

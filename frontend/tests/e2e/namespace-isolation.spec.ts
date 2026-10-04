@@ -739,10 +739,21 @@ test.describe('every writer of the primary mandant logo takes the logo mutex', (
  * hold, and the FK graph makes that worse than a dangling reference:
  * `events.team_id` and `categories.team_id` are `cascade` in
  * `E2E_OWNED_FK_EDGES`, so the delete takes the NEIGHBOUR's row away in the
- * middle of its assertions. MEASURED 2026-10-04 as the reason
- * `ensurePrimaryMandantActivePortalEvent()` stopped registering the bootstrap
- * team; `--workers=1` in CI (the login-throttle pin) is the only reason the
- * `rememberOwnedRow('teams', …)` that sat there had not fired yet.
+ * middle of its assertions.
+ *
+ * That is why `ensurePrimaryMandantActivePortalEvent()` registers no bootstrap
+ * team, and the reason is **derived, not reproduced**. Derived from two static
+ * facts a reader can re-walk from here: the FK chain above, and the adopting
+ * caller (`portal.spec.ts` calls the helper inside a test and reclaims in a
+ * per-test `afterEach`, so that DELETE would have belonged to that test).
+ * NOT reproduced: putting the `rememberOwnedRow('teams', …)` back and running the
+ * suite three times at four workers stayed green (2026-10-04, verification round
+ * 39) — the cascade does not fire. It only misfires while a sibling worker is
+ * inside its own assertion window, and that window is too narrow to hit by
+ * running subsets. So this is a GRAPH argument, and CI's `--workers=1` (the
+ * login-throttle pin, `ci.yml:813-817`) is what held even the opportunity at zero
+ * there: a green run never contradicted it, and must not be read as evidence
+ * for it.
  *
  * ## What this guard does and does not prove
  *
@@ -766,10 +777,33 @@ test.describe('the shared bootstrap rows are never owned by a single test', () =
         .replace(BLOCK_COMMENT, '')
         .replace(LINE_COMMENT, '');
 
-    /** Every kind `helpers/admin-data.ts` registers, in source order. */
+    /**
+     * Every kind `helpers/admin-data.ts` registers, in source order.
+     *
+     * The `\s*` after the paren is load-bearing, and it was a measured blind
+     * spot: four of the thirteen call sites are WRAPPED — `rememberOwnedByUser(`
+     * alone on its line, the kind indented on the next — so a pattern that
+     * demands `('` on one line sees 9 of 13, and `applications` /
+     * `subApplications` are invisible to the guard below — and a `teams`
+     * registration in exactly that shape passed it (round 39's mutation,
+     * 2026-10-04; re-measured after this fix: the same wrap turns the guard
+     * red). `\s` covers the newline, so no `s`/`m` flag is involved.
+     *
+     * The other two widenings close the same hole from the other sides, and both
+     * are measured rather than theoretical — no lint rule pins the quote style in
+     * `tests/e2e/**` (`eslint.config.js` gives that directory no `quotes` rule), so
+     * `'…'`, `"…"` and `` `…` `` are all writable there: the character class takes
+     * all three, and `[^…]` instead of `[a-zA-Z]+` keeps a kind containing a digit
+     * or an underscore from being missed the same way.
+     *
+     * `rememberOwnedUserAccount` stays out of scope on purpose: it registers the
+     * one fixed kind `users` and takes no kind argument
+     * (`helpers/ownership.ts:520`), so it cannot introduce a shared
+     * `teams`/`venues` row.
+     */
     function registeredKinds() {
         const kinds = [];
-        for (const match of ADMIN_DATA_CODE.matchAll(/rememberOwned(?:Row|ByUser)\('([a-zA-Z]+)'/g)) {
+        for (const match of ADMIN_DATA_CODE.matchAll(/rememberOwned(?:Row|ByUser)\(\s*['"`]([^'"`]+)['"`]/g)) {
             kinds.push(match[1]);
         }
         return [...new Set(kinds)];
@@ -798,8 +832,14 @@ test.describe('the shared bootstrap rows are never owned by a single test', () =
         // would make the guard above pass for the wrong reason. The per-worker
         // unique rows of the very same helpers are the control group: they MUST
         // be registered, or the suite leaks them per test.
+        //
+        // `applications` and `subApplications` are the pin on the WRAPPED form:
+        // they occur nowhere on a single line, so a pattern without the `\s*`
+        // loses exactly these two, still finds the first four, and passes — the
+        // scan-not-vacuous test that would otherwise have caught the regression
+        // is the one that has to name them.
         const kinds = registeredKinds();
-        for (const kind of ['categories', 'events', 'accreditations', 'userMedia']) {
+        for (const kind of ['categories', 'events', 'accreditations', 'userMedia', 'applications', 'subApplications']) {
             expect(kinds, `helpers/admin-data.ts registers no ${kind} row — the scan cannot see anything`).toContain(
                 kind,
             );
