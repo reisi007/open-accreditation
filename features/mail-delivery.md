@@ -118,7 +118,7 @@ Tabelle: `DatabaseStore::many()` löscht abgelaufene Zeilen beim Lesen
 nach seinem TTL blockiert er nichts mehr. Für den **Speicher** ist es nichts: eine
 **erfolgreich zugestellte** Mail legt eine Zeile an, die danach niemand noch
 einmal liest (die `deliveryId` ist frisch, es gibt keinen Folge-Claim), und die
-damit dauerhaft in `cache` liegt. Beide Hälften sind gemessen in
+damit bis zum Tages-Reaper in `cache` liegt (Abschnitt 4.3). Beide Hälften sind gemessen in
 `SendMandantMailTest::test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it`
 — inklusive des Gegensatzes zwischen einer **gelesenen** Probe (deren Zeile
 verschwindet) und dem Claim der Zustellung (dessen Zeile bleibt).

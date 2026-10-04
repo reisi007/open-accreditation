@@ -82,8 +82,8 @@ use Throwable;
  * | operator `<=` → `<` (off-by-one at the boundary) | `…_a_row_whose_expiration_is_exactly_now_is_expired` |
  * | `cache_locks` added to the delete | `…_leaves_the_cache_locks_table_alone` |
  * | the `instanceof DatabaseStore` gate removed | `…_is_a_no_op_on_a_non_database_store` |
- * | the `catch` rethrow replaced by a swallow — `throw $e;` gone **and** `$deleted = 0;` seeded before the `try` (the coherent recipe; see below) | `…_logs_the_failure_with_its_context_and_lets_it_out`, `…_reports_a_non_zero_exit_code` |
- * | the `Log::error` in the `catch` dropped | `…_logs_the_failure_with_its_context_and_lets_it_out` |
+ * | the `catch` rethrow replaced by a swallow — `throw $e;` gone **and** `$deleted = 0;` seeded before the `try` (the coherent recipe; see below) | `test_a_failed_prune_is_logged_with_its_context_and_lets_the_exception_out`, `…_reports_a_non_zero_exit_code` |
+ * | the `Log::error` in the `catch` dropped | `test_a_failed_prune_is_logged_with_its_context_and_lets_the_exception_out` |
  * | `->withoutOverlapping()` dropped | `…_is_registered_daily_and_does_not_overlap` |
  * | the registration deleted | `…_is_registered_daily_and_does_not_overlap`, and `SendMandantMailTest`'s cache-task guard |
  *
@@ -95,7 +95,7 @@ use Throwable;
  *
  * | recipe | what escapes | `Log::info` success line | exit code | Goes red |
  * |---|---|---|---|---|
- * | `throw $e;` deleted **alone** | `ErrorException: Undefined variable $deleted` | **not written** — the warning aborts the call | 1 | **1 of 2**: `…_logs_the_failure_with_its_context_and_lets_it_out` |
+ * | `throw $e;` deleted **alone** | `ErrorException: Undefined variable $deleted` | **not written** — the warning aborts the call | 1 | **1 of 2**: `test_a_failed_prune_is_logged_with_its_context_and_lets_the_exception_out` |
  * | `throw $e;` deleted **and** `$deleted = 0;` seeded before the `try` | nothing | written, `'deleted' => 0` | 0 | **2 of 2**: that test **and** `…_reports_a_non_zero_exit_code` |
  *
  * So the ledger row for the swallow names the **two-edit** recipe, because that is
