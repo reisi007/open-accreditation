@@ -10,9 +10,13 @@ use App\Models\CacheRow;
 use App\Models\Mandant;
 use App\Models\User;
 use App\Services\MandantMailerService;
+use Illuminate\Cache\DatabaseStore;
+use Illuminate\Console\Command;
 use Illuminate\Console\Scheduling\CacheEventMutex;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -22,9 +26,12 @@ use Illuminate\Support\Facades\Mail;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\Support\InteractsWithJwtRevocation;
 use Tests\Support\PlainTestMailable;
 use Tests\TestCase;
+use Throwable;
 
 /**
  * The `cache`-table reaper (`cache:prune-expired`, Nutzerentscheid
@@ -55,6 +62,14 @@ use Tests\TestCase;
  * A reaper test that only shows the first half is compatible with
  * `DELETE FROM cache`, and that statement is the incident.
  *
+ * A reaper that only shows the HAPPY path is compatible with a service whose
+ * `catch` block does nothing at all — the whole `try`/`catch` in
+ * `ExpiredCachePruner::prune()` would then be untested, and a reaper that
+ * silently stopped working is invisible from every angle the other tests
+ * measure (the log still says what it always said, the exit code stays 0, and
+ * the table grows). Section F exists for that, and it is the only part of this
+ * file that does not need the table to be healthy.
+ *
  * ## The mutations, and what each one turns red
  *
  * The predicate exists exactly once, in `CacheRow::scopeExpiredAt()`
@@ -67,6 +82,8 @@ use Tests\TestCase;
  * | operator `<=` → `<` (off-by-one at the boundary) | `…_a_row_whose_expiration_is_exactly_now_is_expired` |
  * | `cache_locks` added to the delete | `…_leaves_the_cache_locks_table_alone` |
  * | the `instanceof DatabaseStore` gate removed | `…_is_a_no_op_on_a_non_database_store` |
+ * | the `catch` rethrow replaced by a swallow | `…_logs_the_failure_with_its_context_and_lets_it_out`, `…_reports_a_non_zero_exit_code` |
+ * | the `Log::error` in the `catch` dropped | `…_logs_the_failure_with_its_context_and_lets_it_out` |
  * | `->withoutOverlapping()` dropped | `…_is_registered_daily_and_does_not_overlap` |
  * | the registration deleted | `…_is_registered_daily_and_does_not_overlap`, and `SendMandantMailTest`'s cache-task guard |
  *
@@ -548,7 +565,171 @@ class ExpiredCachePrunerTest extends TestCase
     }
 
     // ------------------------------------------------------------------ F ---
+    // The failure branch. Everything above measures what the reaper DOES; this
+    // section measures what happens when it CANNOT.
+
+    /**
+     * A delete that fails must produce BOTH halves of the contract — the log
+     * line and the escaping exception — because either half alone is a silent
+     * failure in a different way.
+     *
+     * **Why the log alone is not enough:** the reaper runs as a scheduled
+     * command in its own process and `schedule:run` exits 0 even when a task
+     * fails (`ScheduleRunCommand::runEvent()` throws, `handle()` catches +
+     * reports), so a swallowed exception yields a task that has been silently
+     * dead for weeks while the heartbeat says "finished" — measured in
+     * `ScheduledTaskObservabilityTest`. That test pins the same two halves for
+     * `RunAllocations`; it does not reach this service.
+     *
+     * **Why the throw alone is not enough:** the command's own stdout is
+     * discarded (`Event::execute()` hands `Process::run()` a `fn () => true`
+     * output handler), so a reaper that rethrows and says nothing leaves no
+     * durable record of *what* failed, and the next run's log looks like the
+     * first one's.
+     *
+     * The breakage is a **missing table** — `cache.stores.database.table` is the
+     * very key `CacheRow::getTable()` reads (`config/cache.php:45`), so setting
+     * it to a name that does not exist reproduces the production misconfiguration
+     * (`DB_CACHE_TABLE=no_such_table`) instead of simulating one. The reaper
+     * still passes the store gate: `Cache::store()` is still a `DatabaseStore`,
+     * only its table is wrong.
+     *
+     * Only the **exception class** is asserted, never the message: SQLite says
+     * `no such table: …`, PostgreSQL 17 says `relation "…" does not exist`. The
+     * message is asserted to be a non-empty string in the log and no further —
+     * that is the portable half, and the engine-specific half is not this
+     * suite's business.
+     *
+     * MUTATION: replace `throw $e;` (`ExpiredCachePruner.php:129`) with a
+     * swallow → the `assertInstanceOf` fails (nothing escapes). Drop the
+     * `Log::error` → the spy fails. Write the success line inside the `catch` →
+     * the `shouldNotHaveReceived` fails.
+     */
+    public function test_a_failed_prune_is_logged_with_its_context_and_lets_the_exception_out(): void
+    {
+        Log::spy();
+
+        Carbon::setTestNow(Carbon::parse('2026-10-04 09:00:00'));
+
+        $moment = Carbon::now()->getTimestamp();
+
+        // Point the store itself at a table that does not exist, BEFORE the store
+        // is resolved — so the DatabaseStore and the model agree on the broken
+        // name, which is the shape a wrong `DB_CACHE_TABLE` has in production.
+        config(['cache.stores.database.table' => 'no_such_cache_table']);
+
+        $this->useProductionCacheStore();
+
+        $this->assertSame('no_such_cache_table', (new CacheRow)->getTable(),
+            'PREMISE: the reaper must be pointed at the missing table, or the delete below runs against `cache` and succeeds.');
+        $this->assertInstanceOf(DatabaseStore::class, app('cache')->store()->getStore(),
+            'PREMISE: the store gate must still pass — a non-DatabaseStore would be a reported no-op, and the reaper would '
+            .'never reach its delete at all.');
+
+        $escaped = null;
+
+        try {
+            Artisan::call('cache:prune-expired');
+        } catch (Throwable $e) {
+            $escaped = $e;
+        }
+
+        // An exception that ESCAPES is what makes the CLI exit non-zero:
+        // `Illuminate\Foundation\Console\Kernel::handle()` catches, renders and
+        // `return 1` (`vendor/…/Console/Kernel.php:199-205`), and that 1 is the
+        // child's exit code. Measured as an exit code in the test below.
+        $this->assertInstanceOf(
+            QueryException::class,
+            $escaped,
+            'a prune whose DELETE failed must let the exception out — swallowed here, the command would return SUCCESS, '
+            .'the scheduler would log a heartbeat, and a dead reaper would be indistinguishable from one with nothing to do.',
+        );
+
+        Log::shouldHaveReceived('error')
+            ->withArgs(fn (string $message, array $context): bool => $message === 'cache:prune-expired failed'
+                && $context['store'] === 'database'
+                && $context['table'] === 'no_such_cache_table'
+                && $context['moment'] === $moment
+                && $context['exception'] === QueryException::class
+                && is_string($context['error'])
+                && $context['error'] !== ''
+                && array_key_exists('duration_ms', $context))
+            ->once();
+
+        // No `info` line at all, not merely none mentioning the success message:
+        // on this path the reaper is the only writer in the test, so a single
+        // `info` call would BE the success line (or an unrelated one, which would
+        // be its own finding). This is what a swallow looks like from the log
+        // alone — a run that deleted nothing and reported a count anyway.
+        Log::shouldNotHaveReceived('info');
+    }
+
+    /**
+     * The same failure, measured as the thing an operator or a health check
+     * actually acts on: the process exit code.
+     *
+     * `Artisan::call()` cannot answer that question — `Illuminate\Console\Application`
+     * sets `setCatchExceptions(false)` (`vendor/…/Console/Application.php:76`),
+     * so a failing command *throws* out of `call()` instead of returning a
+     * status. The status is produced one layer up, by
+     * `Illuminate\Foundation\Console\Kernel::handle()`, which is precisely what
+     * the `artisan` binary calls (`artisan:16` → `Application::handleCommand()`
+     * → `$kernel->handle(...)` → `exit($status)` at `artisan:18`). Driving that
+     * method is therefore the production path, not a re-implementation of it —
+     * and it is the only place the number `1` is ever produced
+     * (`vendor/…/Console/Kernel.php:204`).
+     *
+     * **The control run is what gives this teeth.** Without it, `assertNotSame(0, …)`
+     * would be satisfied by a harness that returns 7 for everything, and a
+     * command that had never run at all. So the healthy reaper runs first through
+     * the identical path and must report `Command::SUCCESS` — proving the path,
+     * the input and the store are all fine, and that the non-zero below is caused
+     * by the broken table alone.
+     *
+     * MUTATION: swallow the exception (`ExpiredCachePruner.php:129`) → the command
+     * returns `Command::SUCCESS` and the second call reports 0 like the first.
+     */
+    public function test_a_failed_prune_reports_a_non_zero_exit_code(): void
+    {
+        Log::spy();
+
+        $this->useProductionCacheStore();
+        Carbon::setTestNow(Carbon::parse('2026-10-04 09:00:00'));
+
+        $this->assertSame(Command::SUCCESS, $this->exitCodeOf('cache:prune-expired'),
+            'PREMISE: a healthy reaper must exit 0 through this very path, or a non-zero below would prove nothing.');
+
+        // Same misconfiguration as the test above, applied after the control run.
+        config(['cache.stores.database.table' => 'no_such_cache_table']);
+
+        $this->assertNotSame(
+            Command::SUCCESS,
+            $this->exitCodeOf('cache:prune-expired'),
+            'A reaper that could not delete anything must not exit 0 — the supervisor and the scheduler read the exit '
+            .'code, and 0 is how a dead reaper reports success.',
+        );
+    }
+
+    // ------------------------------------------------------------------ G ---
     // Helpers.
+
+    /**
+     * Run a command through the console kernel's `handle()` and return the exit
+     * code the `artisan` binary would exit with.
+     *
+     * `Kernel::handle()` is the method `artisan` calls (`artisan:26`), so this is
+     * the production path rather than a re-implementation of it. The exception
+     * report and the rendered stack trace go to a `BufferedOutput` and into the
+     * `Log` spy — otherwise every run of this test would write a rendered
+     * `QueryException` into the developer's `storage/logs/laravel.log`.
+     */
+    private function exitCodeOf(string $command): int
+    {
+        return $this->app->make(Kernel::class)->handle(
+            new ArgvInput(['artisan', $command]),
+            new BufferedOutput,
+        );
+    }
 
     /**
      * The real logout route, with the token on the wire.

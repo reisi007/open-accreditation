@@ -292,14 +292,13 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   die JWT-Blacklist liegt mit derselben Aufräum-Eigenschaft darin (Einträge
   ~7 Tage, `JwtBlacklistCacheFlushTest`). Ein abgelaufener Eintrag ist aus jedem
   Lesezugriff weg, aber nicht aus der Tabelle, und Laravel **13.33.0** hat
-  keinen Befehl, der das räumt (gemessen, Abschnitt 4.3). Die Form wäre ein
-  täglicher Task, der auf dem konfigurierten Store `expiration <= now` löscht —
-  dieselbe Bedingung, die `DatabaseStore::many()` schon beim Lesen anwendet,
-  also ohne semantische Änderung. **Bewusst nicht gebaut**, weil der
-  Auth-Zustand in derselben Tabelle liegt und ein Fehler dort nicht „zu viel
-  Speicher" bedeutet, sondern zurückgerufene Tokens; das ist eine Entscheidung,
-  keine Kleinigkeit. Wer sie trifft, muss `test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it`
-  mitnehmen — er steht gegen genau diese Entscheidung.
+  keinen eingebauten Befehl, der das räumt (gemessen, Abschnitt 4.3).
+  **Gebaut 2026-10-04** (Nutzerentscheid, siehe Abschnitt 4.3):
+  `cache:prune-expired` (täglich, `withoutOverlapping`), Prädikat
+  `expiration <= now` an einer Stelle, nur `database`-Store, `cache_locks`
+  ausgenommen; unexpired Claim + Blacklist überleben zwingend (gepinnt inkl.
+  Fail-open-Test). Der alte Satz „bewusst nicht gebaut" ist damit Geschichte —
+  er stand hier, weil der Auth-Zustand in derselben Tabelle liegt.
 - **UI** für die Dead-Letter-Liste und den Requeue ist gebaut (Strom B,
   `11e64fc`): `frontend/src/pages/admin/FailedMailsPage.tsx`, geroutet unter
   `tote-briefe` in `App.tsx:326`, Daten über `src/logic/useFailedMails.ts`, die
