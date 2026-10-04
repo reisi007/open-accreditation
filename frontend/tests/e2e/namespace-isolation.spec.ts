@@ -725,6 +725,89 @@ test.describe('every writer of the primary mandant logo takes the logo mutex', (
 });
 
 /**
+ * ## The shared bootstrap rows are not per-test fixtures, and must never be owned as if they were
+ *
+ * Three rows are SHARED master data in the primary mandant: the two venues
+ * (`E2E Heimstadion`, `E2E Portal Arena`) and the bootstrap team
+ * (`E2E Heimverein …`). Every spec may read them at any moment, they carry
+ * stable name markers, and the serial `purgeAllE2EArtifacts()` reclaims them at
+ * the end of each run — which is also why every run recreates them from
+ * nothing, concurrently, in the first seconds of the run.
+ *
+ * `helpers/admin-data.ts` therefore creates them and registers NOTHING. That is
+ * not tidiness; registering one puts a per-test `DELETE` on a row other workers
+ * hold, and the FK graph makes that worse than a dangling reference:
+ * `events.team_id` and `categories.team_id` are `cascade` in
+ * `E2E_OWNED_FK_EDGES`, so the delete takes the NEIGHBOUR's row away in the
+ * middle of its assertions. MEASURED 2026-10-04 as the reason
+ * `ensurePrimaryMandantActivePortalEvent()` stopped registering the bootstrap
+ * team; `--workers=1` in CI (the login-throttle pin) is the only reason the
+ * `rememberOwnedRow('teams', …)` that sat there had not fired yet.
+ *
+ * ## What this guard does and does not prove
+ *
+ * It proves a structural fact about ONE file: the shared-bootstrap helper module
+ * registers no `teams` and no `venues` row. It says nothing about the specs —
+ * `ownership.spec.ts` legitimately creates and owns its own venue, and that is
+ * the difference: a per-test row is created by the test that deletes it, a
+ * shared row is created by whoever lost the race and read by everybody.
+ *
+ * A scan that could not fail would be the F1 shape, so the second test pins its
+ * own reach: the kinds it DOES expect to find are named there.
+ */
+test.describe('the shared bootstrap rows are never owned by a single test', () => {
+    /**
+     * The shared-bootstrap helper module, comment-stripped — for `BLOCK_COMMENT`
+     * and `LINE_COMMENT`, see the logo guard above: a docblock that merely
+     * NAMES `rememberOwnedRow('teams', …)` must not be able to vouch for it.
+     */
+    const ADMIN_DATA_CODE = fs
+        .readFileSync(path.resolve(process.cwd(), 'tests/e2e/helpers/admin-data.ts'), 'utf8')
+        .replace(BLOCK_COMMENT, '')
+        .replace(LINE_COMMENT, '');
+
+    /** Every kind `helpers/admin-data.ts` registers, in source order. */
+    function registeredKinds() {
+        const kinds = [];
+        for (const match of ADMIN_DATA_CODE.matchAll(/rememberOwned(?:Row|ByUser)\('([a-zA-Z]+)'/g)) {
+            kinds.push(match[1]);
+        }
+        return [...new Set(kinds)];
+    }
+
+    test('no shared bootstrap row is registered with the per-test ledger', () => {
+        const shared = [];
+        for (const kind of registeredKinds()) {
+            if (kind === 'teams' || kind === 'venues') {
+                shared.push(kind);
+            }
+        }
+        expect(
+            shared,
+            'helpers/admin-data.ts registers a SHARED bootstrap row into the per-test ownership ledger. ' +
+                'The teardown then DELETEs it in the afterEach of whichever test happened to create it — ' +
+                'while a sibling worker may be mid-assertion on a row that cascades from it ' +
+                "(events/categories → teams is `cascade` in E2E_OWNED_FK_EDGES). These rows are shared " +
+                'master data under stable E2E name markers; the serial purgeAllE2EArtifacts() reclaims them. ' +
+                'Create them, do not own them.',
+        ).toEqual([]);
+    });
+
+    test('the scan is not vacuous: it still finds the per-test kinds it is meant to leave alone', () => {
+        // Without this, emptying the registrations (or a typo in the pattern)
+        // would make the guard above pass for the wrong reason. The per-worker
+        // unique rows of the very same helpers are the control group: they MUST
+        // be registered, or the suite leaks them per test.
+        const kinds = registeredKinds();
+        for (const kind of ['categories', 'events', 'accreditations', 'userMedia']) {
+            expect(kinds, `helpers/admin-data.ts registers no ${kind} row — the scan cannot see anything`).toContain(
+                kind,
+            );
+        }
+    });
+});
+
+/**
  * ## The order the per-test teardown gives rows back, checked against the schema
  *
  * `helpers/ownership.ts` reclaims each test's own rows in the order of

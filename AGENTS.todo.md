@@ -960,6 +960,13 @@ auffällige direkte Zahl.
 
 **Inventar, gemessen 2026-10-04 (keine Shards, keine Locks):** `grep shard` über Configs + `ci.yml` = 0 (keine Shard-Matrix); CI pinnt `--workers=1` in allen drei Invocations (`ci.yml:813/815/817`); genau **ein** `mode: 'serial'`-Block im Repo (`ownership.spec.ts:90`, Probe-Treiber); **kein** Playwright-Named-Lock im Spec-Code (`lock:`-Treffer alle Prosa); Configs tragen bereits `fullyParallel: true` + beide Retry-Profile; `@playwright/test ^1.63.0` (Lock-Release verfügbar).
 
+**Umgesetzt 2026-10-04 (keine Locks, sondern Isolation — gemessen begründet):**
+- Mutex 1 (Venue-Rennen, 5 Aufrufer): Adoption statt Wurf (`admin-data.ts:432-487`) — non-201 → Re-Read → exakte Namensübereinstimmung adoptieren (inkl. Reaktivierung); fail-closed ohne Fund. Gemessen: 5×POST 1×201/4×422; mit Fix `portal.spec.ts` 4/4 bei 4 Workern, ohne Fix 1/3 rot.
+- Mutex 2 (Bootstrap-Team per Test gelöscht): `rememberOwnedRow('teams', …)` entfernt (`:1349`) — geteilte Master Data, serieller Teardown gibt zurück (Regel wie Venues `namespace-isolation.spec.ts:1019-1023`).
+- Gate gegen Rückkehr: `namespace-isolation.spec.ts:758-809` verbietet `rememberOwnedRow('teams'|'venues')` (Mutation beidseitig rot).
+- **Kein `lock:` — bewusst:** Playwright-1.63-Locks sind dispatcher-lokal (kein File, kein prozessübergreifender Mechanismus); sie serialisierten 5 UI-Tests für ein Sub-Sekunden-Fenster, und ein 5. Aufrufer bliebe ungeschützt (Skill: Isolation schlägt Lock). Logo-Datei-Mutex bleibt (deckt zweiten Harness-Prozess). Ownership-Serial-Block unberührt (Treiber-Notwendigkeit, keine Mutex).
+- Rate-Funde → Position 49 (429-Cluster, kein Lock). **Offen:** Laufzeit-Klassifizierung (Skill-Schritt 3: strict mit `--workers=4`, `retries: 0`) — erst danach Worker-Entscheid.
+
 **Position (a):** serielle Läufe durch Named Locks ersetzen
 (`test('…', { lock: '…' }, …)`), nach dem Migrationspfad des Skills: serielle
 Baseline bei `retries: 0` einfrieren, dann `fullyParallel` + Lock. **(b)** steht

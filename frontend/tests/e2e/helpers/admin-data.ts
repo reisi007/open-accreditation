@@ -353,6 +353,42 @@ export const E2E_PURGE_MARKER_ENTRIES = Object.entries(E2E_PURGE_MARKERS);
  * is INACTIVE is reactivated rather than duplicated — that is the whole point
  * of deactivation instead of deletion.
  *
+ * ## The 422 is an OUTCOME, not an error — and that is measured
+ *
+ * These two rows are SHARED master data under stable names, and the serial
+ * `globalTeardown` deletes them at the end of every run (`venueNames` in
+ * `E2E_PURGE_MARKERS`). So every run recreates them FROM NOTHING, and with
+ * `--workers > 1` FIVE callers reach this function in the same second —
+ * `admin-category`, `admin-event` and `admin-users` through
+ * `ensurePrimaryMandantHasTeam()`, plus `portal.spec.ts` in BOTH browser
+ * projects. They all read an empty list, all five POST the same name, and the
+ * name is unique per mandant (`venues_mandant_id_name_unique`,
+ * `backend/database/migrations/2026_09_27_000001_create_venues_table.php:41`),
+ * which `VenueController::rules()` mirrors as `Rule::unique`.
+ *
+ * MEASURED 2026-10-04 against the running dev backend, five CONCURRENT
+ * `POST`s of one name into one mandant: **1 × 201, 4 × 422**, the 422 body
+ * `{"name":["The name has already been taken."]}`, and the winner's row listed
+ * under the exact name with `is_active = true`. Four of five callers therefore
+ * used to land on `throw new Error('Creating the setup venue failed with status
+ * 422')` — a red test whose only cause is that another worker won a race it did
+ * not know it was in. `--workers=1` hid it; that is the whole reason the CI pin
+ * looked free.
+ *
+ * The fix is ADOPTION, not serialisation: on a non-201 the list is read again
+ * and an exact-name match is adopted. Both callers wanted the same shared row,
+ * so handing them the same row is the correct outcome — and it needs no lock,
+ * no extra round trip for the common case, and it covers every future caller
+ * instead of the four that happen to be listed somewhere. (A Playwright
+ * `test(…, { lock })` would serialise five UI tests to protect a sub-second
+ * window, and Playwright locks live in the RUNNER's dispatcher — they cannot
+ * reach a second `playwright test` process at all, which is exactly what the
+ * logo's file mutex below has to exist for.)
+ *
+ * It stays fail-closed: a 422 (or any other non-201) whose re-read finds NO
+ * row of that name is still a failure, with the status in the message. A
+ * validation error that is not a lost race must not be adopted away.
+ *
  * Zero parameters on purpose, for the reason spelled out on `LOGO_LOCK_FILE`
  * below: `tests/e2e` is linted with the PLAIN-JS parser but still built by the
  * strict `tsc -b`, so a parameter type annotation would be an ESLint parse error
@@ -395,7 +431,58 @@ export async function ensurePrimaryMandantHasVenues() {
 
             const create = await api.post('/api/admin/venues', { data: { name } });
             if (create.status() !== 201) {
-                throw new Error(`Creating the setup venue failed with status ${create.status()}`);
+                // Not a 201. Before concluding that it failed, ask the LIST once
+                // more: a sibling worker that read the same empty list a moment
+                // ago has probably just created exactly this row, and the 422 is
+                // then the answer to "somebody else won" rather than a fault.
+                // Only a name that is still NOT listed is a real failure.
+                let adopted = null;
+                const reread = await api.get('/api/admin/venues');
+                if (reread.status() !== 200) {
+                    // The re-read itself failed. Saying "no row of that name is
+                    // listed" here would blame the CREATE for a LIST that never
+                    // answered, which is the kind of false accusation this
+                    // harness exists to remove (see `okStatus` in
+                    // `helpers/ownership.ts`).
+                    throw new Error(
+                        `Creating the setup venue "${name}" failed with status ${create.status()}, and the ` +
+                            `list that would say whether a sibling worker won the race answered ` +
+                            `${reread.status()}. Without that list there is no evidence either way, so this ` +
+                            'refuses to guess.',
+                    );
+                }
+                for (const venue of (await reread.json()).data ?? []) {
+                    if (venue.name === name) {
+                        adopted = venue;
+                        break;
+                    }
+                }
+                if (adopted === null) {
+                    throw new Error(
+                        `Creating the setup venue "${name}" failed with status ${create.status()}, and no ` +
+                            'row of that name is listed afterwards either. A 422 here means the name is ' +
+                            "taken per mandant, so a lost race would leave the winner's row visible — its " +
+                            'absence points at a validation error this helper must not adopt away.',
+                    );
+                }
+                // Same three-way decision as above, now on the winner's row: an
+                // active row is adopted as it stands, a deactivated one is
+                // reactivated (a name stays taken even when inactive).
+                if (adopted.is_active) {
+                    resolved.set(name, adopted);
+                    continue;
+                }
+                const reactivateWinner = await api.put(`/api/admin/venues/${adopted.id}`, {
+                    data: { is_active: true },
+                });
+                if (reactivateWinner.status() !== 200) {
+                    throw new Error(
+                        `Reactivating the concurrently created setup venue "${name}" failed with status ` +
+                            `${reactivateWinner.status()}`,
+                    );
+                }
+                resolved.set(name, (await reactivateWinner.json()).data);
+                continue;
             }
             resolved.set(name, (await create.json()).data);
         }
@@ -1259,12 +1346,29 @@ export async function ensurePrimaryMandantActivePortalEvent() {
                 throw new Error(`Creating the setup team failed with status ${teamCreate.status()}`);
             }
             team = (await teamCreate.json()).data;
-            // Conditional ownership, and that is the point: this branch creates a
-            // SHARED bootstrap team that other specs read in parallel, so it must
-            // only be given back when THIS call is the one that made it. The
-            // `else` branch above adopts a team somebody else created, and
-            // deleting that would break a concurrent test — the F2 shape.
-            rememberOwnedRow('teams', team.id, primary.id);
+            // NO `rememberOwnedRow` here, on purpose — and the reason is the
+            // remaining half of the hazard the removed line used to open.
+            //
+            // Registering the bootstrap team means THIS test deletes it in its
+            // own `afterEach`. That is safe only while every reader of the row is
+            // known, and it is not: the four callers of this helper and of
+            // `ensurePrimaryMandantHasTeam()` ADOPT `teamsList[0]`, so a sibling
+            // worker can be holding this very team — building its event, its
+            // team-level category or its team-admin user on it — when the delete
+            // lands. `events.team_id` and `categories.team_id` are `cascade` in
+            // `E2E_OWNED_FK_EDGES`, so the delete does not merely orphan a
+            // reference, it takes the neighbour's ROW away mid-assertion. That
+            // is the F2 shape ("a cleanup that reports success while the row
+            // stays" — inverted: a delete that succeeds while somebody else's row
+            // disappears), and `--workers=1` is the only reason it had not fired.
+            //
+            // The row is SHARED bootstrap master data, exactly like the two venues
+            // above: it carries an `E2E Heimverein ` name marker, so the serial
+            // `purgeAllE2EArtifacts()` reclaims it (see `E2E_PURGE_SWEEPS`) at the
+            // end of the run — and, like the venues, it is gone at the start of
+            // the next one. `ensurePrimaryMandantHasTeam()` has never registered
+            // it either; this branch now behaves like its sibling instead of
+            // being the one place where "shared" and "per-test owned" collide.
         }
 
         // Self-cleaning: drop THIS worker's leftover portal event before creating
@@ -1297,10 +1401,11 @@ export async function ensurePrimaryMandantActivePortalEvent() {
             throw new Error(`Creating the portal event failed with status ${create.status()}`);
         }
         const createdBody = await create.json();
-        // Per-worker unique, so this row is this test's alone. (The team above is
-        // shared bootstrap data and is NOT registered unless this call created
-        // it; the venues are shared too and are reclaimed by the serial teardown
-        // under their stable names.)
+        // Per-worker unique, so this row is this test's alone. (The team above and
+        // the venues are shared bootstrap data and are NOT registered at all —
+        // the serial teardown reclaims them under their stable `E2E Heimverein ` /
+        // `E2E Heimstadion` / `E2E Portal Arena` names, which is also what keeps
+        // one worker from deleting a row another worker is mid-assertion on.)
         rememberOwnedRow('events', createdBody.data.id, primary.id);
 
         return { event: createdBody.data, team, mandantName: primary.name };
