@@ -6,10 +6,10 @@ import { t } from '@lingui/core/macro';
  *
  * ## The rule, and why it exists
  *
- * Three endpoints answer a bare `{message}` and none of them can know whether
- * the mail left the building: since Position 45 `MandantMailerService::send()`
- * only dispatches `SendMandantMail`, so `POST …/applications/{id}/resend`,
- * `POST …/sub-applications/{id}/resend` and
+ * Of the endpoints that reach THIS function, three answer a bare `{message}`
+ * and none of them can know whether the mail left the building: since Position
+ * 45 `MandantMailerService::send()` only dispatches `SendMandantMail`, so
+ * `POST …/applications/{id}/resend`, `POST …/sub-applications/{id}/resend` and
  * `POST …/failed-mails/{id}/requeue` return as soon as the JOB is written. The
  * server therefore says "in die Warteschlange gestellt" — and `ApprovalsPage`
  * used to answer "E-Mail wurde erneut gesendet" from a string of its own, which

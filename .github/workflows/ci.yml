@@ -91,6 +91,54 @@ jobs:
           - 8025:8025
     steps:
       - uses: actions/checkout@v7  # major tag pin — SHA-pinning (actions/checkout@<full-sha>) is a stronger, immutable option
+      - name: Shell syntax (sh -n / bash -n)
+        # ALLE versionierten Shell-Skripte (`scripts/`, `deployment/`). Ohne diesen
+        # Schritt laeuft `sh -n`/`bash -n` in KEINEM CI-Job — ein Tippfehler in
+        # `entrypoint.sh` oder `test-pgsql.sh` faellt dann erst im Deploy auf.
+        # Bewusst NUR Syntax, KEIN `shellcheck`: das ist nicht ueberall
+        # installiert, und eine apt-Abhaengigkeit waere neuer Ballast in einem
+        # Gate, das sonst nichts tun soll als Tippfehler fangen.
+        #
+        # Der Interpreter folgt der Shebang, weil EIN Parser fuer alle falsch
+        # waere: `sh -n` lehnt bash-Syntax ab, die in `scripts/*.sh` vorkommt, und
+        # `bash -n` auf einem `sh`-Skript prueft strenger als noetig. Ohne Shebang
+        # faellt der Fall auf `bash -n` zurueck.
+        #
+        # Steht hier, nicht im `frontend`-Job: der Job-Default ist `backend`, der
+        # `working-directory: .` hebt ihn auf die Repo-Wurzel. Vorbild ist der
+        # `backend-pgsql`-Job, der mit `../scripts/assert-db-driver.php` bereits
+        # ebendort ein Repo-Skript laedt.
+        #
+        # Fail-closed ist gemessen: ein absichtlich kaputtes Skript macht den
+        # Step rot, obwohl es in der Sortierreihenfolge VOR wie HINTEN den
+        # gesunden steht (`set -euo pipefail` bricht die Schleife ab, und der
+        # Exit-Status des Steps wird der des Skripts).
+        #
+        # Die `checked`-Assertion ist kein Schmuck, sondern derselbe Selbst-Check
+        # wie im `backend-pgsql`-Job: `git ls-files` liefert Pfade RELATIV zum
+        # CWD, also sieht der Job-Default `backend` NULL Skripte und der Step
+        # waere GRUEN, ohne etwas zu pruefen (gemessen) — das schlimmste Ergebnis,
+        # weil es sich als Absicherung missverstanden wird. `--full-name` macht
+        # die Pfade zusaetzlich wurzelrelativ, `checked = 0` faengt den Rest ab.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          checked=0
+          while IFS= read -r -d '' script; do
+            if head -n 1 "$script" | grep -q 'bin/sh'; then
+              shell_bin=sh
+            else
+              shell_bin=bash
+            fi
+            "$shell_bin" -n "$script"
+            printf 'ok  (%s -n)  %s\n' "$shell_bin" "$script"
+            checked=$((checked + 1))
+          done < <(git ls-files --full-name -z -- '*.sh')
+          if [ "$checked" -eq 0 ]; then
+            printf 'no shell scripts found — this gate would check NOTHING\n' >&2
+            exit 1
+          fi
+          printf 'checked %d shell scripts\n' "$checked"
       - name: Setup PHP
         uses: shivammathur/setup-php@v2  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
