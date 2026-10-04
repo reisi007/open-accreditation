@@ -305,10 +305,16 @@ class SendMandantMailTest extends TestCase
      * (`vendor/…/Cache/DatabaseStore.php:147-157`). `add()` reads first
      * (`:214-218`). So an expired claim does release the guard — that is exactly
      * how the duplicate of {@see test_the_claim_window_outlives_the_whole_retry_budget()}
-     * used to get through — but nothing sweeps the rows on its own, and for a
+     * used to get through — but no READ prunes an unread row, and for a
      * DELIVERED mail nobody ever reads that key again: the `deliveryId` is
      * fresh, there is no follow-up claim. One `cache` row per delivered mail
-     * therefore survives forever.
+     * therefore survives only until the daily reaper (`cache:prune-expired`)
+     * collects it. The worst case is bounded and measurable: the claim TTL
+     * alone is 6 h (`SendMandantMail::CLAIM_TTL_SECONDS = 21600`), and the
+     * reaper deletes only what is ALREADY expired, so a row lives that TTL
+     * plus at most one scheduler day (~30 h). Until that reaper existed,
+     * nothing collected it at all — which is why the premise paragraph below
+     * reads the way it does.
      *
      * Measured here in both directions, with two claims that differ in exactly
      * one thing: `probe` is read after its TTL, the delivery's own claim is

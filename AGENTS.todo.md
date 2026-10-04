@@ -585,10 +585,6 @@ Weitere: **Guard-Write mit wiederholter Vorbedingung** (`AllocationRules::markSt
 
 **Das war ein neuer Befund, kein Rest dieser Position (Stand `7d2fe56`):** ein Mailer, der **damals** 132 Exceptions pro Suite-Lauf verschluckte — ein undokumentierter Fehlerpfad, den der Pin nicht adressierte. Festgehalten in `phpunit.xml:262` (Kommentarblock, historisch gescoped) und im Test-Docblock, in **beiden** Richtungen behauptet — `test_the_suite_default_mailer_cannot_open_a_socket()` wird rot, sobald jemand den Service ändert (`EsmtpTransport`-Assertion `PHPUnitEnvPinningTest.php:502-508`, gemessen Runde 16), statt den Docblock still falsch zu lassen. **Er wurde Position 45 (Batch-Tabelle, Zeile am 2026-10-04 per §4 entfernt); die Umsetzung ist `70aa03d` — der Contract steht in `features/mail-delivery.md`.**
 
-### ✅ `cache`-Reaper — gebaut 2026-10-04 (Nutzerentscheid: bauen statt zurückgestellt)
-
-**Was gebaut wurde:** `cache:prune-expired` (`PruneExpiredCacheRows`, täglich, `withoutOverlapping`, in `ScheduledTaskObserver::watch`), implementiert als `ExpiredCachePruner` mit Prädikat `expiration <= now` an genau **einer** Stelle (`CacheRow::scopeExpiredAt`, Konstanten) — derselben Bedingung, die `many()` anwendet. Nur `database`-Store (sonst gemeldeter No-op); `cache_locks` ausgenommen; Fehler → `Log::error` + Rethrow (kein Verschlucken). Tests: `ExpiredCachePrunerTest` (13/62, beide Engines; Prädikat weg/umgedreht/off-by-one → rot; unexpired Claim + Blacklist überleben; widerrufenes Token sperrt nach Reaper weiter). Die alte Wache („kein Scheduled Task darf `cache` enthalten") ist ersetzt: genau ein Task, er heißt `cache:prune-expired`, kein `cache:clear`/`flush`.
-
 ### 🕳️ Benannter Rest, gefunden am 2026-10-03: der Idempotenz-Claim ist im **Dev-Stack** prozesslokal
 
 **Der Wächter aus `8950f68` schützt Prod und bricht dort fail-closed ab, wenn `CACHE_STORE` kein **geteilter** Store ist — im dokumentierten Dev-/E2E-Stack greift er nicht, und der Store ist dort `array`.**

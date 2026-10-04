@@ -77,8 +77,8 @@ use Throwable;
  *
  * | Mutation | Goes red |
  * |---|---|
- * | scope returns `$query` (predicate dropped) | `…_keeps_an_unexpired_claim_row`, `…_keeps_an_unexpired_blacklist_row`, `…_still_revokes_the_token` |
- * | operator `<=` → `>` (predicate inverted) | all three above **plus** `…_deletes_the_expired_claim_row_and_the_expired_blacklist_row`, `…_reports_the_count`, `…_exactly_now` |
+ * | scope returns `$query` (predicate dropped) | `…_keeps_an_unexpired_claim_row`, `…_keeps_an_unexpired_blacklist_row`, `test_an_unexpired_blacklist_entry_still_revokes_the_token_after_a_reaper_run` |
+ * | operator `<=` → `>` (predicate inverted) | all three above **plus** `…_deletes_the_expired_claim_row_and_the_expired_blacklist_row`, `test_it_reports_the_count_and_the_predicate_it_applied`, `test_a_row_whose_expiration_is_exactly_now_is_expired` |
  * | operator `<=` → `<` (off-by-one at the boundary) | `…_a_row_whose_expiration_is_exactly_now_is_expired` |
  * | `cache_locks` added to the delete | `…_leaves_the_cache_locks_table_alone` |
  * | the `instanceof DatabaseStore` gate removed | `…_is_a_no_op_on_a_non_database_store` |
