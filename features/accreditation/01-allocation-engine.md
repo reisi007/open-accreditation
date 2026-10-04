@@ -254,8 +254,7 @@ außerhalb des Datei-Scopes dieses Work-Pakets (WP-3). Ein halb gebautes
 Mail-Format ohne Resend-Weg wäre schlechter als eine dokumentierte Lücke: Es
 würde in `features/` als erfüllt erscheinen, während der Antragsteller
 weiterhin nichts bekommt. **Beide Teile sind seit 2026-10-04 gebaut** (siehe
-oben); gebaut sind Versand, Route und Button — offene Reste dieses Abschnitts
-stehen unter „Offen (bewusst, nicht vergessen)".
+oben); gebaut sind Versand, Route und Button.
 
 **Erledigt (Folgetask gebaut 2026-10-04, Position 47):** Button für den Sub-`resend` in der Admin-UI
 (mit i18n DE **und** EN — `check:i18n` bricht sonst), der `POST

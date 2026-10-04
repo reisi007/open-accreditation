@@ -129,7 +129,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
  *
  * `request` cannot serve these endpoints: it unwraps `{data: …}`, and a body
  * without a `data` key would arrive as `undefined` — which is exactly the bug
- * this exists to end. THREE endpoints answer `{message: …}` at the TOP level:
+ * this exists to end. Of the endpoints that reach THIS function, three answer
+ * `{message: …}` at the TOP level — a claim about this function's callers, not
+ * about the backend, where a top-level `'message' =>` is the norm rather than
+ * the exception (36 in `backend/app/Http/Controllers`, and no endpoint other
+ * than these three is routed through here):
  * `POST …/applications/{id}/resend` (`AdminApplicationController::resend`,
  * `:181`/`:196`), `POST …/sub-applications/{id}/resend`
  * (`AdminSubApplicationController::resend`, `:192`/`:207`) and
