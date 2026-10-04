@@ -376,8 +376,7 @@ grün, **weil nichts mehr versendet wird**, nicht weil sie faken.
 2. **Datei-Validität als PHPUnit-Test (kein Import):** `.pkpass` ist ein gültiges ZIP mit `pass.json`/`icon.png`/`icon@2x.png`/`manifest.json`, die `manifest.json`-Hashes stimmen, **ohne** Certs enthält es **keine** `signature`; die Google-Seite ist strukturell valide (`EventTicketObject` bzw. `savetowallet`-JWT mit `typ`/`aud`).
 3. **Kein Import-E2E.** Die E2E prüft die **Gültigkeit** der gelieferten Datei, nicht die Wallet-Installation.
 4. **Edge cases:** fehlende Credentials (degradierter Unsigned-Pass/Preview), `park`/`seat` (Sub-Pass), nicht-`approved` (kein Pass).
-5. **Sub-Freigabe-Mail + `resend`-Route — umgesetzt und verifiziert, per §4 entfernt (Runden 19/20, `APPROVED`, 2026-10-04).** Dauerhaftes in `features/accreditation/01-allocation-engine.md` (Lücken-Abschnitt: Versand + Route umgesetzt, Button offen).
-6. **Verhältnis zur Mail-Zustellung** (Position 45, am 2026-10-04 per §4 entfernt; Vertrag in `features/mail-delivery.md`): beide Freigabe-Mails laufen über `MandantMailerService`; die Anhänge dürfen die Queue-/DLQ-Umstellung (Anhänge in `payload`/Store) **nicht** präjudizieren. *(Eingehalten auch für die Sub-Mails 2026-10-04: derselbe Dispatch-Pfad `send(mandant, mailable)`, Anhänge im Mailable-Payload wie bei `PassMail` — kein eigener Store, kein eigener Mechanismus.)*
+5. **Verhältnis zur Mail-Zustellung** (Position 45, am 2026-10-04 per §4 entfernt; Vertrag in `features/mail-delivery.md`): beide Freigabe-Mails laufen über `MandantMailerService`; die Anhänge dürfen die Queue-/DLQ-Umstellung (Anhänge in `payload`/Store) **nicht** präjudizieren. *(Eingehalten auch für die Sub-Mails 2026-10-04: derselbe Dispatch-Pfad `send(mandant, mailable)`, Anhänge im Mailable-Payload wie bei `PassMail` — kein eigener Store, kein eigener Mechanismus.)*
 
 ### 🟡 OFFEN — Position 47: Sub-`resend`-Button im Admin-Frontend (Folgetask aus P6, 2026-10-04)
 

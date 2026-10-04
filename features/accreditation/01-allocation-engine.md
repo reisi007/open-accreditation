@@ -182,8 +182,9 @@ Die Regel wird jetzt an drei Stellen erzwungen:
    - Der Write läuft **nicht** über `AllocationRules::markDenied()` (das ist der
      `requested → denied`-Pfad des Allokations-Plans), sondern als eigener
      `approved → denied`-Übergang.
-   - Für die kaskadierten Zeilen wird **keine** Mail versendet — siehe
-     „Bekannte Lücke: keine Benachrichtigung bei Sub-Statuswechsel" unten.
+   - Für die kaskadierten Zeilen wird **keine** Mail versendet — einzige
+     schweigende Sub-Status-Schreibung (Begründung im Abschnitt
+     „Sub-Statuswechsel-Benachrichtigung", Ausnahmen-Aufzählung).
 3. **Wallet-Guard (Defense in Depth):** `WalletController` stellt keinen
    Sub-Pass aus, solange der Haupt-Antrag nicht `approved` ist.
 
@@ -205,7 +206,7 @@ Prüfung auf Eigentum/Mandant passiert weiterhin **zuerst**: eine fremde Zeile
 bleibt 404 und wird nie zum Existenzorakel (410). Bei `approved` Haupt- und
 `requested`/`denied` Sub-Antrag bleibt der alte 422-Zweig unverändert.
 
-## Bekannte Lücke: keine Benachrichtigung bei Sub-Statuswechsel (WP-3-d)
+## Sub-Statuswechsel-Benachrichtigung (WP-3-d) — umgesetzt, Button offen
 
 ⚠️ **Geschlossen 2026-10-04 (Versand + `resend`-Route); offen: Frontend-Button.**
 
@@ -398,7 +399,7 @@ Admin-Akt**, und das ist auch genau der einzige dokumentierte Weg zurück.
 Dieselben Kernregeln über `AllocationRules`; gesperrt wird die
 `sub_accreditations`-Zeile (siehe „Atomarität (R-D4)"). `approveSelection`,
 `approveAllEligible`, `approveSubApplication`, `denySubApplication`,
-`setPriority`, `runAutoSubAllocations`. **Kein** Mailer — siehe „Bekannte Lücke".
+`setPriority`, `runAutoSubAllocations`. Mailer: `MandantMailerService` (injiziert) — Versand aus allen Pfaden außer Kaskade (siehe „Sub-Statuswechsel-Benachrichtigung").
 
 ### `App\Services\AllocationResult` (JSON: `{approved, denied, skipped_blacklist}`)
 
@@ -508,8 +509,9 @@ Nachweis gehört ins Postgres-Portabilitäts-Gate.
   Freigabe-Sicht bezieht aktuell Medien des Antragstellers.
 - **P3e-UI-Zähler:** modusabhängige `skipped_blacklist`-Darstellung (siehe
   `AllocationResult`).
-- **Keine Benachrichtigung bei Sub-Statuswechsel** — bewusst als Lücke
-  dokumentiert, siehe Abschnitt „Bekannte Lücke" oben (WP-3-d).
+- **Sub-`resend`-Button fehlt (UI)** — Endpunkt und Versand existieren (siehe
+  Abschnitt „Sub-Statuswechsel-Benachrichtigung" oben, WP-3-d), nur kein Button
+  ruft ihn auf.
 - **Row-Lock wirkt nur unter Postgres** — der Mutual-Exclusion-Nachweis für zwei
   Verbindungen gehört ins Postgres-Portabilitäts-Gate des Go-Live-Plans, siehe
   „Atomarität (R-D4)" oben.
