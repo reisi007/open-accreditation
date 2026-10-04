@@ -59,9 +59,9 @@ use Throwable;
  * TTL stops suppressing anything. That is what makes "at-least-once **danach**"
  * true — and it is also the mechanism that let a duplicate through when the
  * window was shorter than the retry budget (see the constant). What the TTL
- * does NOT do is keep the `cache` table small: the row survives until something
- * reads that exact key again, and for a delivered mail nothing ever does.
- * `features/mail-delivery.md` §4.3 carries that open item in full.
+ * does NOT do is keep the `cache` table small: no READ collects an unread row,
+ * and a delivered mail's key is never read again. What collects it is the daily
+ * reaper (`cache:prune-expired`) — `features/mail-delivery.md` §4.3 has it in full.
  *
  * **On a claim hit the job THROWS — it does not return.** Returning normally
  * was the bug this replaced: the worker then treats the job as done and

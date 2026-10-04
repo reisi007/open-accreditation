@@ -107,12 +107,19 @@ class ScheduledTaskObservabilityTest extends TestCase
      * child exits, so driving it directly is the real callback path — and it
      * spawns no subprocess.
      *
+     * The list is ALL THREE watched tasks of `routes/console.php`: the two
+     * command tasks plus the daily cache reaper `cache:prune-expired`. A
+     * two-element list left the third registration unobserved here, which is a
+     * coverage gap rather than a misbehaviour — the reaper is watched the same
+     * way (`ScheduledTaskObserver::watch(Schedule::command(…), 'cache:prune-expired')`)
+     * and behaves the same way under `finish()`.
+     *
      * MUTATION: revert `routes/console.php` to a bare
-     * `Schedule::command('allocation:run')` and both tasks fail here.
+     * `Schedule::command('allocation:run')` and all three tasks fail here.
      */
-    public function test_both_production_scheduled_tasks_report_their_outcome(): void
+    public function test_every_production_scheduled_task_reports_its_outcome(): void
     {
-        foreach (['allocation:run', 'reminders:send'] as $task) {
+        foreach (['allocation:run', 'reminders:send', 'cache:prune-expired'] as $task) {
             Log::spy();
 
             $event = $this->scheduledEvent($task);

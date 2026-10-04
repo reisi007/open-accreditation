@@ -118,7 +118,7 @@ Tabelle: `DatabaseStore::many()` löscht abgelaufene Zeilen beim Lesen
 nach seinem TTL blockiert er nichts mehr. Für den **Speicher** ist es nichts: eine
 **erfolgreich zugestellte** Mail legt eine Zeile an, die danach niemand noch
 einmal liest (die `deliveryId` ist frisch, es gibt keinen Folge-Claim), und die
-damit bis zum Tages-Reaper in `cache` liegt (Abschnitt 4.3). Beide Hälften sind gemessen in
+damit bis zum Tages-Reaper in `cache` liegt. Beide Hälften sind gemessen in
 `SendMandantMailTest::test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it`
 — inklusive des Gegensatzes zwischen einer **gelesenen** Probe (deren Zeile
 verschwindet) und dem Claim der Zustellung (dessen Zeile bleibt).
@@ -276,7 +276,7 @@ die Queue-Eigenschaften werden trotzdem echt gemessen:
 | `SendMandantMailTest` | `handle()` direkt: der zweite Lauf **wirft** und sendet nicht; ein Claim, den ein toter Worker hinterlässt, lässt den nächsten Lauf ebenfalls **werfen** (nicht zurückkehren); der Claim ist **begrenzt** (Query-Log/`expiration`) und **atomar geschrieben** (`insert or ignore`/`on conflict do nothing`, kein `do update set`); `CLAIM_TTL_SECONDS > retry_after`; **`CLAIM_TTL_SECONDS > array_sum(backoff())`, als Arithmetik und als Zustand** (Neulauf bei exakt der Backoff-Summe ⇒ Verweigerung, keine zweite Mail); ein **abgelaufener** Claim ist unsichtbar, seine Zeile räumt seit 2026-10-04 `cache:prune-expired` (täglich); ein fehlgeschlagener Lauf gibt den Claim frei; ein gelöschter Mandant wird geloggt und claimt nichts |
 | `MailDeadLetterTest` (neu) | **Ende zu Ende durch den echten Worker**: ein stehengebliebener Claim ⇒ nichts gesendet **und** eine Zeile in `failed_jobs` mit `mandant_id`, Empfänger und Begründung; ein manueller Requeue eines claimten Briefes ⇒ frische `deliveryId`, Mail im ersten Versuch zugestellt, `mailablePayload` unverändert |
 | `QueuedMailAfterCommitTest` (ergänzt) | liest `config('queue.connections.database.after_commit')` **ohne es zu setzen** — die übrigen Tests dieser Klasse stellen die Flag selbst und würden einen Wechsel auf `false` in der Config nicht bemerken |
-| `ScheduledTaskObservabilityTest` | Heartbeat/Fehlerpfad der geplanten Tasks: `schedule:run` mit einem real fehlschlagenden Task ⇒ `Log::error` im Scheduler-Prozess (und `schedule:run` endet trotzdem mit 0 — mitgemessen); beide Produktions-registrierungen tragen den Observer; `allocation:run` schreibt sein Ergebnis ins Anwendungslog und lässt einen Fehler **escapen** (⇒ Exit ≠ 0) |
+| `ScheduledTaskObservabilityTest` | Heartbeat/Fehlerpfad der geplanten Tasks: `schedule:run` mit einem real fehlschlagenden Task ⇒ `Log::error` im Scheduler-Prozess (und `schedule:run` endet trotzdem mit 0 — mitgemessen); alle drei Produktions-Registrierungen tragen den Observer (`allocation:run`, `reminders:send`, `cache:prune-expired`); `allocation:run` schreibt sein Ergebnis ins Anwendungslog und lässt einen Fehler **escapen** (⇒ Exit ≠ 0) |
 
 Testklassen, die nur die **Fachlogik** fahren (Allocation, Badge, QR, …), faken
 die Mail: `send()` ist jetzt ein Dispatch, der auf `sync` sofort läuft, und ein
@@ -365,8 +365,8 @@ konnte nie feuern. Zwei Eingriffe, beide gemessen testbar:
 
 | Wo | Was |
 |---|---|
-| `routes/console.php` | `ScheduledTaskObserver::watch()` hängt `onSuccess`/`onFailure` an beide Tasks. Das sind `then()`-Callbacks, die im **Scheduler-Prozess** laufen und über den Exit-Code des Kindes entscheiden — sie brauchen weder die Kind-Ausgabe noch ein ungleich nullendes `schedule:run`. |
-| `RunAllocations`, `SendReminders` | `Log::info` mit dem Ergebnis (Zähler, Dauer) bzw. `Log::error` mit Ausnahme + Rethrow. Der Observer sagt **DASS** sie liefen und ob sie erfolgreich waren; nur der Command weiß, **was** er getan hat. |
+| `routes/console.php` | `ScheduledTaskObserver::watch()` hängt `onSuccess`/`onFailure` an alle **drei** Tasks — `allocation:run`, `reminders:send` und den täglichen Cache-Reaper `cache:prune-expired`. Das sind `then()`-Callbacks, die im **Scheduler-Prozess** laufen und über den Exit-Code des Kindes entscheiden — sie brauchen weder die Kind-Ausgabe noch ein ungleich nullendes `schedule:run`. |
+| `RunAllocations`, `SendReminders`, `PruneExpiredCacheRows` | `Log::info` mit dem Ergebnis (Zähler, Dauer) bzw. `Log::error` mit Ausnahme + Rethrow. Der Observer sagt **DASS** sie liefen und ob sie erfolgreich waren; nur der Command weiß, **was** er getan hat. |
 
 Der Erfolgs-Heartbeat ist kein Luxus: ohne ihn sind „der stündliche Lauf ist
 kaputt" und „der Scheduler läuft seit drei Tagen nicht" dieselbe Stille — und

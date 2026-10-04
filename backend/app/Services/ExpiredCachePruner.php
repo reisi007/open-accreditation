@@ -27,9 +27,9 @@ use Throwable;
  * - the **JWT blacklist** writes one row per invalidated `jti`.
  *
  * Both rows become invisible at their expiration on their own — that is what the
- * TTL buys — but they sit in the table forever. Laravel 13.33.0 ships no
- * `cache:prune` command, and `cache:prune-stale-tags` is Redis-only (measured:
- * `php artisan list`), so there is no framework mechanism to collect them.
+ * TTL buys — but no READ ever collects them, so until this class existed they sat
+ * in the table indefinitely: Laravel 13.33.0 ships no `cache:prune` command, and
+ * `cache:prune-stale-tags` is Redis-only (measured: `php artisan list`).
  *
  * ## The security boundary, stated as a rule
  *

@@ -15,8 +15,8 @@ use Illuminate\Database\Eloquent\Model;
  * same store the production deployment uses (`CACHE_STORE=database`):
  *
  * - the **idempotency claim** of `App\Jobs\SendMandantMail` — one row per
- *   delivered mail, written with `Cache::add(…, self::CLAIM_TTL_SECONDS)`,
- *   never read again for a delivered mail, so the row outlives its TTL forever;
+ *   delivered mail, written with `Cache::add(…, self::CLAIM_TTL_SECONDS)`, never
+ *   read again — so the row outlives its TTL until the daily reaper reaches it.
  * - the **JWT blacklist** (`php-open-source-saver/jwt-auth`'s `DatabaseCache`
  *   storage, `config('jwt.providers.storage')`) — every logged-out token.
  *
