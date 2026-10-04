@@ -6,6 +6,7 @@ import {
     registerAndActivateUser,
 } from './helpers/admin-data';
 import { reclaimOwnedRows, rememberOwnedByUser, resetOwnedRows } from './helpers/ownership';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -70,7 +71,7 @@ async function createRequestedSubApplication() {
     const { accreditation, subAccreditation } = await ensurePrimaryMandantSubAccreditation();
     const user = await registerAndActivateUser();
 
-    const userApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const userApi = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const login = await userApi.post('/api/auth/login', {
             data: { email: user.email, password: user.password },
@@ -94,7 +95,7 @@ async function createRequestedSubApplication() {
     const allocation = await allocateAccreditationApi(accreditation.id, 'all');
     expect(allocation.approved).toBe(1);
 
-    const subApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const subApi = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const login = await subApi.post('/api/auth/login', { data: { email: user.email, password: user.password } });
         expect(login.status()).toBe(200);

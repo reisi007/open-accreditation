@@ -2,6 +2,7 @@ import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { reclaimOwnedRows, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -39,8 +40,10 @@ test.describe('Auth flow (P1b)', () => {
         const password = 'SecurePassw0rd!';
 
         // Dedicated context: the login cookie (accr_jwt) stays in its cookie jar,
-        // so the subsequent /api/auth/me call is authenticated.
-        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        // so the subsequent /api/auth/me call is authenticated. The throttle
+        // actor header keeps this spec's register/login burst out of the shared
+        // per-ip bucket (see `helpers/throttle-actor.ts`).
+        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const register = await api.post('/api/auth/register', {
                 data: { name: 'E2E Auth User', email, password, password_confirmation: password },
@@ -75,7 +78,7 @@ test.describe('Auth flow (P1b)', () => {
         // Separate test from the register flow above, so it mints its OWN stamp —
         // but still exactly one, hoisted out of the request body.
         const email = `auth-${uniqueSuffix()}@example.test`;
-        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const login = await api.post('/api/auth/login', {
                 data: { email, password: 'wrong-password-123' },

@@ -7,6 +7,7 @@ import { rememberOwnedByUser, rememberOwnedRow, rememberOwnedUserAccount } from 
 import { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
 import { PurgeReclamationFailure } from './purge-failure';
 import { ensureTeamsEnabled } from './teams-enabled';
+import { throttleActorHeaders } from './throttle-actor';
 import { pngFixture } from '../../screenshots/helpers/png-fixtures';
 
 /**
@@ -773,7 +774,7 @@ export async function registerAndActivateUser() {
     const suffix = uniqueSuffix();
     const email = `sub-${suffix}@example.test`;
     const password = 'SecurePassw0rd!';
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const register = await api.post('/api/auth/register', {
             data: { name: 'E2E Sub User', email, password, password_confirmation: password },
@@ -880,7 +881,7 @@ function appliedRowId(id = 0, parentId = 0, expectedParentId = 0, what = 'row') 
 export async function registerAndApplyForAccreditation(accreditationId = 0, name = 'E2E Antragsteller') {
     const email = `approve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
     const password = 'SecurePassw0rd!';
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const register = await api.post('/api/auth/register', {
             data: { name, email, password, password_confirmation: password },
@@ -947,7 +948,7 @@ export async function registerAndApplyForAccreditation(accreditationId = 0, name
 export async function registerUploadPortraitAndApply(accreditationId = 0, name = 'E2E Badge Inhaber') {
     const email = `badge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
     const password = 'SecurePassw0rd!';
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const register = await api.post('/api/auth/register', {
             data: { name, email, password, password_confirmation: password },
@@ -1070,7 +1071,7 @@ export async function ensurePrimaryMandantWalletSetup() {
     const password = user.password;
 
     // Main application (requested) as the user.
-    const userApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const userApi = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const login = await userApi.post('/api/auth/login', { data: { email: user.email, password: user.password } });
         if (login.status() !== 200) {
@@ -1110,7 +1111,7 @@ export async function ensurePrimaryMandantWalletSetup() {
     }
 
     // Sub-application (requested) — requires the approved main first.
-    const subApi = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const subApi = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const login = await subApi.post('/api/auth/login', { data: { email: user.email, password: user.password } });
         if (login.status() !== 200) {

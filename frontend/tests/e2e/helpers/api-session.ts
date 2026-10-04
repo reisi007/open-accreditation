@@ -1,4 +1,5 @@
 import { request } from '@playwright/test';
+import { throttleActorHeaders } from './throttle-actor';
 
 /**
  * The E2E API session primitives, in a module of their own.
@@ -45,10 +46,17 @@ export const FRONTEND_BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5
  * Logs the bootstrap admin in via the API and returns a request context that
  * carries the session cookie for subsequent admin API calls.
  *
+ * The context carries the throttle-actor header (position 49): the `login`
+ * limiter is keyed per client ip, and every worker of a run shares one ip, so
+ * without it N workers share one bucket and a login burst 429s — a cluster of
+ * identical failures that looks like flakiness. The backend reads the header in
+ * `local`/`testing` only; production keys stay plain per-ip. See
+ * `helpers/throttle-actor.ts`.
+ *
  * @returns {Promise<import('@playwright/test').APIRequestContext>}
  */
 export async function loginAdminApi() {
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     const login = await api.post('/api/auth/login', { data: { email: 'admin@example.com', password: 'admin' } });
     if (login.status() !== 200) {
         await api.dispose();

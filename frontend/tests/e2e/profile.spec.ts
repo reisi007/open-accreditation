@@ -3,6 +3,7 @@ import { FRONTEND_BASE_URL, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { pngFixture } from '../screenshots/helpers/png-fixtures';
 import { reclaimOwnedRows, rememberOwnedByUser, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -57,7 +58,7 @@ async function createActivatedSession(prefix = 'profile') {
     const email = `${prefix}-${uniqueSuffix()}@example.test`;
     const password = 'SecurePassw0rd!';
 
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const register = await api.post('/api/auth/register', {
             data: { name: 'E2E Profile User', email, password, password_confirmation: password },
@@ -205,7 +206,7 @@ test.describe('Profile flow (P1c)', () => {
 
     test('profile update requires authentication (401)', { tag: ['@feature:profile'] }, async () => {
         // Fresh context without login → no accr_jwt cookie → guard rejects.
-        const anon = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        const anon = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const put = await anon.put('/api/user/profile', { data: { city: 'Wien' } });
             expect(put.status()).toBe(401);
@@ -313,7 +314,7 @@ test.describe('Profile flow (P1c)', () => {
 
     test('media upload requires authentication and validates input', { tag: ['@feature:profile'] }, async () => {
         // Unauthenticated upload is rejected before reaching the controller.
-        const anon = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        const anon = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const upload = await anon.post('/api/user/media', {
                 multipart: {

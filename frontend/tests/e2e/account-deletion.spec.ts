@@ -7,6 +7,7 @@ import {
 } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { reclaimOwnedRows, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied
 // BEFORE the first create and drained AFTER every test, so a spec that dies
 // half-way still gives back what it managed to build.
@@ -34,7 +35,7 @@ async function createActivatedAccount(prefix = 'account-delete') {
     const email = `${prefix}-${uniqueSuffix()}@example.test`;
     const password = 'SecurePassw0rd!';
 
-    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     try {
         const register = await api.post('/api/auth/register', {
             data: { name: 'E2E Konto Person', email, password, password_confirmation: password },
@@ -295,7 +296,7 @@ test.describe('Konto-Löschung (DSGVO)', () => {
 
             // Server-side proof through a fresh admin session: the account is
             // no longer a member of this mandant, so the list cannot find it.
-            const verify = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+            const verify = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
             try {
                 const login = await verify.post('/api/auth/login', {
                     data: { email: 'admin@example.com', password: 'admin' },

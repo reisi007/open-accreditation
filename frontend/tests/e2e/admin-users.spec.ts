@@ -2,6 +2,7 @@ import { expect, request, test } from '@playwright/test';
 import { FRONTEND_BASE_URL, ensurePrimaryMandantHasTeam, uniqueSuffix } from './helpers/admin-data';
 import { MailpitHelper } from './helpers/mailpit';
 import { reclaimOwnedRows, rememberOwnedUserAccount, resetOwnedRows } from './helpers/ownership';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 // Per-test ownership (tests/e2e/helpers/ownership.ts): the ledger is emptied BEFORE
 // the first create and drained AFTER every test, so a spec that dies half-way
 // still gives back what it managed to build — three fixtures created, the fourth
@@ -39,7 +40,7 @@ test.describe('Admin: Benutzer (P2c)', () => {
         // Setup: a disposable user (registered with the `user` role and
         // activated like in auth.spec) plus a team for the team_admin step.
         const team = await ensurePrimaryMandantHasTeam();
-        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const register = await api.post('/api/auth/register', {
                 data: { name: 'E2E Benutzerverwaltung', email, password, password_confirmation: password },

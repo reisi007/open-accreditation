@@ -972,16 +972,9 @@ auffällige direkte Zahl.
 Baseline bei `retries: 0` einfrieren, dann `fullyParallel` + Lock. **(b)** steht
 in 49 — bewusst zwei Positionen, nicht eine.
 
-### 49 — IP-Quote braucht Test-Budget oder Test-Akteur-Schlüssel, nicht `workers`
+### ✅ 49 — IP-Quote: Akteur-Schlüssel umgesetzt 2026-10-04 (Verifikation Runde 43 steht aus)
 
-Der Hebel gegen eine pro-IP-pro-Zeit-Quote ist ein Budget oder ein
-Akteur-Schlüssel pro Test-Worker, kein Worker-Zähler: geteilte CI-IP heißt
-geteiltes Bucket bei jeder Worker-Zahl (Skill-Falle „IP-based throttle via
-worker count"). Die Limits sind in `AppServiceProvider.php:78-83` ausdrücklich
-als **Development-Floors** dokumentiert (`local`/`testing` 40/30, Produktion
-15/10 — `:83-84`; eigene Buckets für login/register `:85-88`, apply `:94-95`,
-activate/public `:112-116` mit 300 vs. 60) — genau das macht eine Anhebung in
-der Testumgebung legitim statt zu einer Produktänderung.
+**Was gebaut wurde (Skill-konform, gemessen entschieden):** `throttleKeyFor()` (`AppServiceProvider.php:190-232`) — `{bucket}:{ip}` bzw. `{bucket}:{ip}@{actor}`; `X-Test-Actor`-Header (Muster + 32-Zeichen-Deckel) nur in `local`/`testing` (Positiv-Allow-List, Prod liest ihn gar nicht). Alle 5 IP-Limiter darüber; `apply`/`media`/`admin`/`resend` (user-keyed) bewusst ausgenommen. Harness: `throttle-actor.ts` (`w<i>-p<pid>`), 7 Helper-Kontexte + 11 spec-lokale Kontexte (grep-belegt 18/18); Screenshots-Harness + Browser-Kontexte bewusst ausgenommen (eigene Gründe im Docblock). Scan-Test deckt `helpers/` + `*.spec.ts` (Gegenprobe rot). Messung: gleicher Akteur 40×401→429; anderer Akteur 401; ohne Header 429; Prod kein Split. Mutationen alle rot. Tests: 10 (Actor) + 36 + Vitest 38 + 5 Scan. Preis benannt: Header-Rotation in local/testing gibt frische Buckets (nicht exponiert, Floors tragen).
 
 ### 50 — `node-deps`: `packageManager`-Pin + `overrides` gegen die No-Pins-Regel
 

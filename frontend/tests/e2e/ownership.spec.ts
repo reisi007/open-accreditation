@@ -31,6 +31,7 @@ import {
     readProbeRecord,
 } from './ownership-probe/probe-record';
 import { runChild } from './ownership-probe/run-child';
+import { throttleActorHeaders } from './helpers/throttle-actor';
 
 /**
  * The same file-scope ownership hooks every other spec carries — this one eats
@@ -847,7 +848,7 @@ test.describe('the teardown tells a gone account from a refused login', { tag: [
         // mean "the account is gone"; this is the test that keeps 403 out of it.
         const email = `ownership-unactivated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`;
         const password = 'SecurePassw0rd!';
-        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+        const api = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
         try {
             const register = await api.post('/api/auth/register', {
                 data: { name: 'E2E Ownership Unactivated', email, password, password_confirmation: password },

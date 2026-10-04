@@ -14,6 +14,23 @@ use RuntimeException;
 class AppServiceProvider extends ServiceProvider
 {
     /**
+     * Header a TEST client uses to name the test actor it speaks for.
+     *
+     * Honoured in `local` and `testing` ONLY — see
+     * {@see self::throttleKeyFor()} for the contract and the reasoning. The
+     * E2E harness sends this header on its own API traffic
+     * (`frontend/tests/e2e/helpers/throttle-actor.ts`).
+     */
+    public const TEST_ACTOR_HEADER = 'X-Test-Actor';
+
+    /**
+     * Longest accepted actor value, and the ONLY characters accepted:
+     * `[A-Za-z0-9._-]`. Anything else is discarded and the request falls back
+     * to the plain per-ip key — i.e. the strict, un-split bucket.
+     */
+    private const TEST_ACTOR_PATTERN = '/^[A-Za-z0-9._-]{1,32}$/';
+
+    /**
      * Register any application services.
      */
     public function register(): void
@@ -70,22 +87,36 @@ class AppServiceProvider extends ServiceProvider
         // `throttle:register`); the explicit `by()` key guarantees the
         // middleware resolves distinct cache keys for the same ip (without a
         // key it falls back to the route+ip signature shared by both routes).
-        // Both are keyed on the ip only — the previous per-authenticated-user
+        // Both are keyed on the ip — the previous per-authenticated-user
         // branch on `login` was dead code, because the request user is never
         // resolved at middleware time during login; per-ip is the real
-        // brute-force protection. Register is per-ip too.
+        // brute-force protection. Register is per-ip too. (In `local`/`testing`
+        // the ip is joined by the test actor, Position 49 — see
+        // `throttleKeyFor()`; in every other environment the key is the plain
+        // `'{bucket}:{ip}'` this comment describes.)
         // B2-Floor (login/register): limits are env-dependent. In `local` and
         // `testing` the budgets are development floors — the parallel Playwright
         // suite runs ~8 workers behind ONE ip and needs ~17 logins/min on
         // @feature:accreditation (approvals.spec.ts setup helper), and register
         // creates several users concurrently. In `production` the real
         // brute-force values apply: login 15/min, register 10/min.
+        //
+        // Position 49: a raised budget is the WEAKER of the two admissible
+        // answers to a per-ip quota. The rate problem is that every worker of a
+        // suite shares ONE ip, so the bucket is shared at EVERY worker count —
+        // a bigger number only moves the wall (skill `playwright-parallel`,
+        // „Lock vs. rate limiter“: rate is fixed by a throttle key per
+        // worker/test actor, never by a worker count and never by a lock). The
+        // per-actor split therefore lives in the KEY, not in the budget:
+        // `throttleKeyFor()` below appends the test actor in `local`/`testing`
+        // only. The floors stay as the headroom for clients that send no actor
+        // at all (plain curl, a serial run, the screenshot suite).
         $loginLimit = app()->environment('local', 'testing') ? 40 : 15;
         $registerLimit = app()->environment('local', 'testing') ? 30 : 10;
         RateLimiter::for('login', static fn (Request $request): Limit => Limit::perMinute($loginLimit)
-            ->by('login:'.$request->ip()));
+            ->by(self::throttleKeyFor($request, 'login')));
         RateLimiter::for('register', static fn (Request $request): Limit => Limit::perMinute($registerLimit)
-            ->by('register:'.$request->ip()));
+            ->by(self::throttleKeyFor($request, 'register')));
 
         // P3b-F1: applying for accreditations throttles per authenticated user
         // (a scripted flood of applications across many accreditations is the
@@ -110,10 +141,10 @@ class AppServiceProvider extends ServiceProvider
         // 60×200 then 10×429). In `production` the real per-ip value (60/min)
         // applies.
         RateLimiter::for('activate', static fn (Request $request): Limit => Limit::perMinute(30)
-            ->by('activate:'.$request->ip()));
+            ->by(self::throttleKeyFor($request, 'activate')));
         $publicLimit = app()->environment('local', 'testing') ? 300 : 60;
         RateLimiter::for('public', static fn (Request $request): Limit => Limit::perMinute($publicLimit)
-            ->by('public:'.$request->ip()));
+            ->by(self::throttleKeyFor($request, 'public')));
 
         // P4-F3: the QR-verification scan endpoint (`/api/verify/*`) gets its
         // OWN named limiter instead of riding the shared `public` bucket. Before,
@@ -125,7 +156,7 @@ class AppServiceProvider extends ServiceProvider
         // Playwright scans don't trip a 429, 60/min in `production`).
         $verifyLimit = app()->environment('local', 'testing') ? 300 : 60;
         RateLimiter::for('verify', static fn (Request $request): Limit => Limit::perMinute($verifyLimit)
-            ->by('verify:'.$request->ip()));
+            ->by(self::throttleKeyFor($request, 'verify')));
 
         // F5: user-media uploads throttle per authenticated user (a scripted
         // upload flood of portraits/press-ids/attachments is the threat), key
@@ -150,6 +181,102 @@ class AppServiceProvider extends ServiceProvider
         // than the shared `admin` write budget.
         RateLimiter::for('resend', static fn (Request $request): Limit => Limit::perMinute(10)
             ->by('resend:'.($request->user('api')?->getAuthIdentifier() ?? $request->ip())));
+    }
+
+    /**
+     * The rate-limit key of an ip-keyed bucket, with the test-actor carve-out.
+     *
+     * ## The problem this solves (Position 49)
+     *
+     * The ip-keyed buckets — `login`, `register`, `activate`, `public`,
+     * `verify` — count per client ip, and a test suite has ONE ip no matter how
+     * many workers it runs. Every worker therefore spends from the same
+     * counter, so the suite's request rate against a single endpoint grows
+     * linearly with the worker count while the budget stays fixed: a shared CI
+     * address is a shared bucket at EVERY worker count (skill
+     * `playwright-parallel`, „IP-based throttle via worker count“). Neither
+     * fewer workers nor a lock fixes that — a lock serialises, it does not
+     * throttle, so the sequential lane reaches the same requests-per-minute,
+     * only slower.
+     *
+     * ## What the key looks like
+     *
+     * | environment | header      | key                    |
+     * |-------------|-------------|------------------------|
+     * | any         | absent      | `{bucket}:{ip}`        |
+     * | `local`/`testing` | malformed | `{bucket}:{ip}`   |
+     * | `local`/`testing` | `w3-p1234` | `{bucket}:{ip}@w3-p1234` |
+     * | everything else | any   | `{bucket}:{ip}`        |
+     *
+     * The ip stays in the key in every case, so a bucket is still attributable
+     * to an address while debugging, and two actors behind DIFFERENT addresses
+     * still do not share a bucket.
+     *
+     * ## Security contract (this is an auth path — read before changing it)
+     *
+     * 1. **Production behaviour is byte-identical.** Outside `local`/`testing`
+     *    the method returns the very string the previous inline
+     *    `'{bucket}:'.$request->ip()` returned, and it returns it without even
+     *    looking at the request headers. Brute-force semantics are untouched:
+     *    15/min per ip for login, 10/min for register. Pinned by
+     *    `tests/Feature/RateLimitTestActorKeyTest`.
+     * 2. **The header cannot be used outside `local`/`testing`.** Not
+     *    `production`, not `staging`, not any other name — the check is a
+     *    positive allow-list, so an environment nobody thought of behaves like
+     *    production rather than like a test.
+     * 3. **The actor value is a bucket NAME, never a credential.** It is
+     *    length-capped and restricted to `[A-Za-z0-9._-]`; anything else is
+     *    discarded and the request falls back to the plain per-ip bucket. That
+     *    direction is deliberate: a rejected header makes the caller STRICTER
+     *    (it lands in the shared bucket), never more privileged.
+     * 4. **Known cost, stated rather than hidden:** in `local`/`testing` a
+     *    client that rotates the header gets fresh buckets, so the per-ip
+     *    limit is no longer a limit for that client in those two environments.
+     *    That is the point of the carve-out and it is accepted only because
+     *    those environments are not internet-exposed and their budgets are
+     *    already raised (40/30/300 vs 15/10/60). Anyone who wants the real
+     *    brute-force behaviour locally simply does not send the header —
+     *    which is the default for curl, for a serial run and for the ui-review
+     *    screenshot suite.
+     *
+     * ## Deliberately NOT applied to the user-keyed limiters
+     *
+     * `apply`, `media`, `admin` and `resend` are keyed on the AUTHENTICATED
+     * identity. Adding the actor there would not split a per-ip quota (there is
+     * none) — it would split a per-USER budget, which is a security property:
+     * one account flooding the admin write surface must stay visible as one
+     * counter. The E2E suite shares a single admin account, so `admin:{id}` is
+     * indeed shared across workers; that is a separate, deliberate budget
+     * question, not this one.
+     */
+    public static function throttleKeyFor(Request $request, string $bucket): string
+    {
+        $actor = self::testActorFor($request);
+
+        return $bucket.':'.$request->ip().($actor === null ? '' : '@'.$actor);
+    }
+
+    /**
+     * The test actor this request speaks for, or `null` for the plain per-ip
+     * bucket. See {@see self::throttleKeyFor()} — the three ways this returns
+     * `null` are: wrong environment, header absent, header not acceptable.
+     */
+    private static function testActorFor(Request $request): ?string
+    {
+        // Positive allow-list of the two non-production environments. Anything
+        // else — including an environment this code never heard of — is
+        // production as far as the throttle key is concerned.
+        if (! app()->environment('local', 'testing')) {
+            return null;
+        }
+
+        $actor = $request->header(self::TEST_ACTOR_HEADER);
+
+        if (! is_string($actor) || preg_match(self::TEST_ACTOR_PATTERN, $actor) !== 1) {
+            return null;
+        }
+
+        return $actor;
     }
 
     /**

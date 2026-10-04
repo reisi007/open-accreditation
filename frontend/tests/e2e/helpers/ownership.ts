@@ -1,5 +1,6 @@
 import { FRONTEND_BASE_URL, loginAdminApi } from './api-session';
 import { PurgeReclamationFailure } from './purge-failure';
+import { throttleActorHeaders } from './throttle-actor';
 
 /**
  * ## The per-test OWNERSHIP ledger
@@ -1048,7 +1049,7 @@ export async function reclaimOwnedRows() {
  */
 async function loginAsUser(email = '', password = '') {
     const { request } = await import('@playwright/test');
-    const session = await request.newContext({ baseURL: FRONTEND_BASE_URL });
+    const session = await request.newContext({ baseURL: FRONTEND_BASE_URL, extraHTTPHeaders: throttleActorHeaders() });
     const login = await session.post('/api/auth/login', { data: { email, password } });
     if (login.status() === 401) {
         await session.dispose();
