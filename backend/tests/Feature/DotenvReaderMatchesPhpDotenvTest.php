@@ -594,12 +594,23 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * absolute line number in a FOREIGN file is a claim nothing here checks —
      * MEASURED, inserting ONE comment line above `splitStringIntoParts()` and
      * one above `Loader::load()`'s loop, in a COPY of both vendor files, shifts
-     * both ranges this sentence used to cite by one and leaves this filter at 86
-     * passed / 2546 assertions — the same numbers — while both ranges are now off
-     * by one. The four claims were then re-read off the SHIFTED copy and all
-     * four still hold (the `else` really does hand back `null`, the `elseif`
-     * really is the branch for an undefined value); the numbers would not
+     * both ranges this sentence used to cite by one and leaves this filter's
+     * verdict and its assertion count EXACTLY as they were, while both ranges are
+     * now off by one. The four claims were then re-read off the SHIFTED copy and
+     * all four still hold (the `else` really does hand back `null`, the `elseif`
+     * really is the branch for an undefined value); the line numbers would not
      * (Befund R12-2, low).
+     *
+     * The count that proved it is deliberately NOT written down here. It WAS —
+     * this file's own pass count and its assertion count, spelled out at all FIVE
+     * places in this file, and true on the day they were measured. Restating them
+     * would have been the very habit this paragraph removes one layer down
+     * (Befund R13, low): a number nothing re-checks drifts, and a comment that
+     * has drifted is worse than one that never claimed it. What survives is the
+     * METHOD, and it is re-runnable by whoever doubts it: shift the foreign file
+     * in a copy, then run THIS file's filter and compare the verdict. Green
+     * before and green after is the whole claim; the size of the green is not
+     * part of it.
      *
      * That "how many answers a row carries" is the SHAPE, and Befund NEU-1 is
      * what showed it is not the same question as "how many rows a class has".
@@ -848,7 +859,7 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
                 .'CI job\'s `sed` argument, inserted WHERE THE SUITE ACTUALLY READS THEM (the two configs '
                 .'at boot, the script and the workflow through `repositoryFile()`) with the checkout '
                 .'restored byte-identically afterwards — all four move by one and this filter answers '
-                .'86 passed / 2546 assertions, unchanged. What the readers of those files look up is '
+                .'unchanged, verdict and assertion count alike. What the readers of those files look up is '
                 .'CONTENT: `queueConnectionConfigDefault()` and the CI\'s own assertions both search with '
                 .'a regex over the whole file, which is why nothing goes red (Befund R12-2, low).',
             ],
@@ -908,11 +919,12 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * `vlucas/phpdotenv/src/Parser/EntryParser.php` and loading the copy through a
      * prepended autoloader pushes every line below it down by one — both of the
      * lines this paragraph used to cite among them, `isValidName()` because it
-     * sits BELOW the inserted line — and the filter still answers OK (86 tests,
-     * 2546 assertions — the same numbers) while every cited `:NNN` is now wrong by
-     * one. The two numbers are deliberately NOT repeated here: an earlier
-     * revision of this very sentence wrote them out, which is the habit being
-     * removed. The five claims above — both symbols exist, the gate order, both
+     * sits BELOW the inserted line — and the filter still answers OK, verdict and
+     * assertion count identical, while every cited `:NNN` is now wrong by one.
+     * NO counts are repeated here, and that is now literally true: an earlier
+     * revision of this very sentence wrote them out, and the sentence that
+     * explained why it no longer did had written them out one clause earlier.
+     * The five claims above — both symbols exist, the gate order, both
      * patterns verbatim, and that neither pattern names `\p{Z}` or `\p{C}` — were
      * then re-read off the SHIFTED copy and all five still hold; the numbers
      * would not (Befund R12-1, low).
@@ -1112,8 +1124,8 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // not a position — `Dotenv\Dotenv::parse(): Argument #1 ($content) must be
         // of type string, array given` — which is why the declaration is quoted
         // here and the line it sits on is not: MEASURED, one comment line above it
-        // in a COPY moves the declaration by one and leaves this filter at 86
-        // passed / 2546 assertions, unchanged (Befund R12-2, low).
+        // in a COPY moves the declaration by one and leaves this filter
+        // unchanged (Befund R12-2, low).
         // Either way it proves nothing about the locale.
         foreach ([$this->dotenvBodies(), $this->cacheStoreBodies()] as $key => $provider) {
             foreach ($provider as $bodies) {
@@ -1285,8 +1297,19 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
         // MEASURED, and it is Befund R10-2: the per-token `assertContains` this
         // replaces held MEMBERSHIP and nothing else, so the sibling's list could
         // be written `['earlier-value-survives', 'multiline-buffered']` and the
-        // suite stayed green — 11 passed, nothing red. The order is not free
-        // text: `requiredMechanismsFor()` answers shared-mechanism-first and
+        // suite stayed GREEN, nothing red. GREEN is the whole finding, and it is
+        // green because the row IS a data set of
+        // `test_the_documented_divergence_classes_are_documented()`: the test ran,
+        // the check it had passed, and it reported on a list that no longer
+        // described the body. `assertSame` below is what turns that red — MEASURED
+        // on this tree by writing the sibling's two tokens the other way round in this
+        // file (checkout restored byte-identically afterwards): the driver
+        // test's class-M data set goes red and names the order it derived. The
+        // absolute pass count that used to be quoted for that measurement is
+        // deliberately NOT here — it is one number class over the filter-wide
+        // count further up, and a figure nothing re-checks drifts into a lie
+        // (Befund R13, low). The order is not free text:
+        // `requiredMechanismsFor()` answers shared-mechanism-first and
         // form-second, and the header's two sentences are written in that order
         // too, so a row that lists them the other way round is asserting about
         // its provenance in an order nothing else uses.
@@ -1351,16 +1374,34 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * out of the table, so nothing noticed the absence.
      *
      * MEASURED, all three deletions, each on its own, against `ea9ecf0` and
-     * nothing else touched: deleting BOTH of class M's rows → 9 passed, green;
-     * deleting class W's row → 10 passed, green; deleting class V's row → 10
-     * passed, green. So it is PRE-EXISTING, not something the round that found
-     * it introduced — and that half is measured too, on `71946f3` (M was a
-     * single row then): 10 passed at the baseline, and 9 passed, green, for
-     * each of its three deletions. The two halves were NOT equally closed: the
-     * comment above `assertCount($requiredRows, …)` had already named the
-     * vacuity for the row that REMAINS, and `assertContains` had closed the
-     * mechanism side for every surviving row. What was missing is only the
-     * question "how many classes are there", which no row can ask.
+     * nothing else touched: deleting BOTH of class M's rows, deleting class W's
+     * row, and deleting class V's row each left this filter GREEN — the whole
+     * filter, no test red. So it is PRE-EXISTING, not something the round that
+     * found it introduced — and that half is measured too, on `71946f3` (M was a
+     * single row then), where all three deletions were green on their own as
+     * well.
+     *
+     * What each of those six measurements rests on is the VERDICT, not the size
+     * of the green, and it is re-runnable by whoever doubts it — against the tree
+     * that HAD the hole. The absolute per-mutation test counts this paragraph
+     * used to quote are deliberately NOT written here (Befund R13, low — the same
+     * habit as the pass and assertion counts further up, one number class over:
+     * what a deletion costs in tests is not what made the deletion a hole, and a
+     * figure nothing re-checks drifts into a lie).
+     *
+     * On THIS tree each of those three deletions is RED, and it is worth saying
+     * which test, because that is the whole content of the guard: MEASURED by
+     * deleting class W's row from `divergenceClasses()` in this file and running
+     * this file's filter (checkout restored byte-identically afterwards), the
+     * one test that answers is
+     * `test_every_documented_divergence_class_still_has_a_row()`, and it answers
+     * by naming the class that lost its row. "The green goes away" is not the
+     * claim; "the count that no row could ask about is asked, and it names the
+     * class" is. The two halves were NOT equally closed: the comment above
+     * `assertCount($requiredRows, …)` had already named the vacuity for the row
+     * that REMAINS, and `assertContains`
+     * had closed the mechanism side for every surviving row. What was missing
+     * is only the question "how many classes are there", which no row can ask.
      *
      * TEN, over ELEVEN rows: class M is pinned over two forms under one label,
      * which is the whole point of the mechanism column being a list (Befund
@@ -1409,7 +1450,12 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * entry that matched, so of a two-token list exactly one sentence was ever
      * checked, and which one depended on the map — MEASURED, writing the
      * sibling's tokens the other way round (`['earlier-value-survives',
-     * 'multiline-buffered']`) left the suite green, 11 passed. The claim a row
+     * 'multiline-buffered']`) left the suite green, no test red, and the one
+     * sentence that HAD been checked was not the one the row asserts. Both
+     * halves of that are the defect: the surviving check passed, and it checked
+     * the wrong half. Nothing about the SIZE of the green is part of it, which is
+     * why no count is quoted here (Befund R13, low — same habit as the
+     * filter-wide pass count further up, one number class over). The claim a row
      * makes about the header is a function of its TOKENS; the order somebody
      * wrote them down in is not part of it, and the token order itself is now
      * pinned separately by `assertSame($required, $mechanism)` in the caller.
@@ -2061,8 +2107,8 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
             // one line this comment used to cite was the SECOND of those two, so
             // it named the inherited half of the merge and passed over the half
             // that carries "the env it is given"; MEASURED, one comment line
-            // above either of them moves it by one and leaves this filter at 86
-            // passed / 2546 assertions, unchanged (Befund R12-2, low).
+            // above either of them moves it by one and leaves this filter
+            // unchanged (Befund R12-2, low).
             // With the inherited value in place SIX of the seventeen scenarios
             // answered from the test runner instead of from their `.env` — and
             // the first version of this test reported that as 10 of 16 wrong,
