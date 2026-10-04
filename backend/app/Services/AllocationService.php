@@ -415,8 +415,8 @@ final class AllocationService
      * be a duplicate — hence the silence here, which is why this cascade has
      * no `SubAllocationService` to call into. Recorded as the one justified
      * exclusion in `features/accreditation/01-allocation-engine.md`
-     * („Bekannte Lücke"); the follow-up — a sub-shaped mail on top of the
-     * main one — is not built.
+     * („Sub-Statuswechsel-Benachrichtigung (WP-3-d)"); the follow-up — a
+     * sub-shaped mail on top of the main one — is not built.
      */
     private function cascadeRevokedSubApplications(Application $application): void
     {
