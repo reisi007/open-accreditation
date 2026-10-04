@@ -1395,9 +1395,17 @@ class DotenvReaderMatchesPhpDotenvTest extends TestCase
      * this file's filter (checkout restored byte-identically afterwards), the
      * one test that answers is
      * `test_every_documented_divergence_class_still_has_a_row()`, and it answers
-     * by naming the class that lost its row. "The green goes away" is not the
-     * claim; "the count that no row could ask about is asked, and it names the
-     * class" is. The two halves were NOT equally closed: the comment above
+     * BY LISTING THE CLASSES THAT REMAIN, from which the missing one follows —
+     * not by naming the class that lost its row. That distinction is measured,
+     * not stylistic: the message ends in `Classes now in the table: …`, and with
+     * W deleted it lists the NINE survivors and W's own label appears NOWHERE in
+     * the output (`grep -c 'W — A BARE NAME LINE CLEARS THE KEY'` over it = 0).
+     * So what identifies the lost class is the DIFFERENCE against the asserted
+     * TEN, and an earlier version of this sentence claimed a name the code never
+     * printed — the same error class this file exists to reject, one paragraph
+     * above the test it describes. "The green goes away" is not the claim; "the
+     * count that no row could ask about is asked, and the answer carries the
+     * table's contents" is. The two halves were NOT equally closed: the comment above
      * `assertCount($requiredRows, …)` had already named the vacuity for the row
      * that REMAINS, and `assertContains`
      * had closed the mechanism side for every surviving row. What was missing

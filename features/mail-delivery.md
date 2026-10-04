@@ -292,8 +292,39 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   Speicher" bedeutet, sondern zurückgerufene Tokens; das ist eine Entscheidung,
   keine Kleinigkeit. Wer sie trifft, muss `test_an_expired_claim_is_invisible_but_its_row_survives_until_something_reads_it`
   mitnehmen — er steht gegen genau diese Entscheidung.
-- **UI** für die Dead-Letter-Liste und den Requeue (Strom B). Die API ist da;
-  die Oberfläche ist der zweite Ausgang der Zusage „no mail should be lost".
+- **UI** für die Dead-Letter-Liste und den Requeue ist gebaut (Strom B,
+  `11e64fc`): `frontend/src/pages/admin/FailedMailsPage.tsx`, geroutet unter
+  `tote-briefe` in `App.tsx:326`, Daten über `src/logic/useFailedMails.ts`, die
+  Filter-/Meldungshelfer in `src/pages/admin/failedMailUtils.ts`, E2E in
+  `tests/e2e/admin-dlq.spec.ts` (`@feature:admin:dlq`). Die Mandanten-Isolation
+  ist dort **Sicht der Oberfläche**, nicht nur ein Gate: ein fremder Brief
+  antwortet **404** und wird als „existiert nicht (mehr) **oder** gehört zu einem
+  anderen Verband" gemeldet — nicht als leere Liste, die „alles zugestellt"
+  behauptet.
+- **Die Kürzung des Exception-Textes ist eine Zusage an den Client, und es ist
+  die DRITTE der drei angebotenen Formen.** `FailedMailResource` schneidet
+  **serverseitig** auf **500 Zeichen** (`Str::limit`, `FailedMailResource.php:40`).
+  Damit waren die beiden ursprünglich vorgesehenen Formen **beide unmöglich**:
+  „als gekürzt kenntlich machen" setzt einen Marker voraus, den der Client gar
+  nicht setzen kann (er sieht nur die 500 Zeichen), und „den Schnitt vermeiden"
+  setzt einen zweiten Endpunkt voraus. Gebaut wurde deshalb der **Hinweis**
+  statt der Vermeidung: die Seite setzt neben dem Text ein Abzeichen
+  „gekürzt auf 500 Zeichen", erkannt über `isTruncatedException()`
+  (`failedMailUtils.ts`). Die Oberfläche behauptet damit **nicht**, der Schnitt
+  sei ihrer — sie sagt, dass der Server geschnitten hat, und nennt die Zahl.
+  **Die 500 steht genau einmal im Frontend** (`FAILED_MAIL_EXCEPTION_LIMIT`): eine
+  zweite Zahl in der Seite wäre eine zweite, die driften könnte.
+  **Der Erkennungsweg ist absichtlich lose, und die Richtung ist benannt.**
+  `Str::limit` ist `mb_strimwidth($value, 0, 500, '...')` und gibt den Wert
+  unverändert zurück, wenn er schon passt — das `...` ist also **genau dann**
+  da, wenn der Server geschnitten hat, mit **einer** Ausnahme: ein Trace, der von
+  selbst auf `...` endet. Ein **falsch positives** Abzeichen (ganzer Trace) kostet
+  einen falschen Hinweis; ein **falsch negatives** (halber Trace als ganzer
+  dargestellt) kostet den Betreiber die Diagnose. Gekauft ist also der billige
+  Fehler. **Die Länge ist bewusst NICHT Teil der Prüfung** — gemessen: die naive
+  Verschärfung „Marker **und** nahe an 500 Zeichen" fällt durch, weil
+  `mb_strimwidth` **Anzeigebreite** zählt und ein geschnittener CJK-Trace nur
+  250 `String.length`-Einheiten belegt.
 - **Requeue-Historie** (`requeued_count`, letzter Requeue durch wen/wann) ist
   nicht persistiert — nur `Log::info` mit Akteur. Eine eigene Spalte auf
   `failed_jobs` wäre die Form; sie war nicht Teil des Auftrags.
