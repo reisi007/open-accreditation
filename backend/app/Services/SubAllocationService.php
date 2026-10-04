@@ -76,10 +76,12 @@ use Illuminate\Validation\ValidationException;
  *    refuses to start without `QUEUE_CONNECTION=database`); on the suite the
  *    mail is faked.
  *  - The CALL SITE is not something a rollback test can see, and the suite does
- *    not pretend otherwise: MEASURED, moving both dispatch calls behind
- *    `DB::transaction()` left all 21 tests of `SubAllocationMailTest` green,
- *    because `after_commit` makes both shapes leave the same facts under the
- *    only failure a test can stage. The position is therefore pinned as a STATE
+ *    not pretend otherwise: MEASURED 2026-10-04, moving both dispatch calls
+ *    behind `DB::transaction()` turns exactly ONE test red — the state pin named
+ *    below — and leaves every other test of `SubAllocationMailTest` exactly as
+ *    it was (23 of 24 unchanged: 22 green, 1 skipped). `after_commit` is the
+ *    reason: under the only failure a test can stage, both shapes leave the same
+ *    facts. The position is therefore pinned as a STATE
  *    by a queue connection that records the transaction level at push time
  *    (`test_the_notification_is_dispatched_while_the_allocating_transaction_is_still_open`),
  *    together with the counter-direction: a dispatch made from outside records
@@ -87,9 +89,23 @@ use Illuminate\Validation\ValidationException;
  *    (`test_a_committed_approval_leaves_a_delivery_order_on_the_queue`,
  *    `test_a_rolled_back_allocation_leaves_no_status_change_and_no_delivery_order`).
  *
- * The notification is derived from the rows the plan actually wrote: the
- * dispatch re-reads them with the same `status` filter the idempotent status
- * write used, so a repeated allocation run never re-sends.
+ * The notification is derived from the rows the plan actually wrote: the id
+ * lists of the plan (`$plan['approve']`, `$plan['deny_quota']`,
+ * `$plan['deny_blacklist']`, resp. `[$row->getKey()]` on the two single-row
+ * paths) ARE the carrier of the "only what changed" rule, because a repeated
+ * run finds no `requested` candidates at all, plans empty lists, and both
+ * dispatch methods return before they touch the database.
+ *
+ * The `status` filter in the dispatch queries does NOT carry that rule — it is
+ * a belt. MEASURED 2026-10-04: deleting both filters changed no result in any
+ * of the four classes that drive this service — `SubAllocationMailTest`,
+ * `SubAccreditationRevocationTest`, `SubAccreditationTest` and
+ * `AllocationAtomicityTest` produced the identical pass/fail set before and
+ * after — because every call site writes the target status before dispatching,
+ * inside the same transaction, so the filter currently excludes nothing. It is
+ * kept because it re-reads the CURRENT status from the database instead of
+ * trusting the id list, so a future call site that hands over ids the plan did
+ * not write cannot mail a row that is not in the state the mail claims.
  *
  * ### Which paths notify, and which one deliberately does not
  *
@@ -105,8 +121,12 @@ use Illuminate\Validation\ValidationException;
  * silent. The applicant of such a row does still learn about the revocation —
  * the same person receives `ApplicationDeniedMail` for the main application,
  * because a sub row's `user_id` is denormalised from it — but not as a second,
- * Parkkarte-shaped mail. Adding one is a follow-up in `AllocationService`, whose
- * own docblock there still says so.
+ * Parkkarte-shaped mail. The exclusion is named in BOTH directions: this
+ * docblock and the cascade's own in `AllocationService`, which is the method
+ * that would have to send it.
+ *
+ * The silence is pinned as a state, not asserted in a comment:
+ * `test_the_revoke_cascade_notifies_only_the_main_application`.
  */
 final class SubAllocationService
 {
@@ -491,9 +511,14 @@ final class SubAllocationService
     }
 
     /**
-     * P6: notify every sub-application a run just approved. The
-     * `status = approved` filter mirrors the idempotent status write — only rows
-     * that actually changed are mailed, so a repeated run never re-sends.
+     * P6: notify every sub-application a run just approved.
+     *
+     * `$ids` is what makes this idempotent — it is the plan's own approve list,
+     * and a repeated run plans an empty list and returns above. The
+     * `status = approved` filter does not carry that property (MEASURED:
+     * deleting it changes no result in any class that drives this service); it
+     * is the belt that re-reads the current status instead of trusting the
+     * list — see the class docblock.
      *
      * @param  list<int>  $ids
      */
@@ -528,6 +553,9 @@ final class SubAllocationService
      * and is never empty on this path: `denySubApplication()` rejects an empty
      * one, the bulk plan writes `REASON_QUOTA` / `REASON_BLACKLIST`.
      *
+     * The same split as the approval dispatch: the id list is the carrier of
+     * "only what changed", the `status = denied` filter is the belt.
+     *
      * @param  list<int>  $ids
      */
     private function dispatchDeniedMails(array $ids): void
@@ -559,6 +587,20 @@ final class SubAllocationService
      * The mandant whose SMTP relay delivers this sub-application's
      * notification, or null when the sub-accreditation (or its accreditation, or
      * its mandant) is gone.
+     *
+     * **Which relation, and why it is the sub one.** The row names TWO
+     * accreditations: `sub_accreditation_id` (the thing whose quota was just
+     * spent) and `application_id` (the main application the pass hangs on).
+     * They coincide for every row the product writes — `apply` derives both
+     * from one accreditation — so no test could tell the two apart, and
+     * swapping them leaves the whole suite green. The sub-quota decision
+     * belongs to the sub-accreditation: its quota, its blacklist scope
+     * (`mandantId()`) and this service's row lock all hang off it, so the
+     * mandant that decided is the one that has to deliver. A row whose two
+     * ends point at different mandants is out-of-band state (direct DB write,
+     * a restored dump, a future call site), and there the sub-accreditation's
+     * mandant is still the one that owns the decision being notified. Pinned
+     * by `test_the_mandant_of_the_sub_accreditation_wins_over_the_one_of_the_main_application`.
      *
      * Mirrors `AllocationService::mandantFor()` down to the reason: the
      * notification is dispatched INSIDE the allocating transaction here, so a

@@ -401,10 +401,22 @@ final class AllocationService
      * - the write is **not** routed through `AllocationRules::markDenied()`,
      *   which is the `requested → denied` path of the allocation plan. This is
      *   an `approved → denied` invalidation with a different trigger.
-     * - no mail is sent for the cascaded rows. Sub-status changes are not
-     *   notified at all (a documented gap, see
-     *   `features/accreditation/01-allocation-engine.md`); inventing mails
-     *   here would be a half-feature.
+     * - no mail is sent for the cascaded rows — and THIS cascade is the one
+     *   sub-status write that stays silent. P6 closed the rest: every other
+     *   sub-status change notifies its own applicant, out of
+     *   `SubAllocationService` (single approve, single deny/revoke,
+     *   `approveSelection`, `approveAllEligible`).
+     *
+     * The applicant of a cascaded row does learn about the revocation, but
+     * from the MAIN letter: a sub row's `user_id` is denormalised from the
+     * main application, so the `ApplicationDeniedMail` that
+     * `denyApplication()` sends for that application reaches the very same
+     * address. A second, Parkkarte-shaped letter about the same decision would
+     * be a duplicate — hence the silence here, which is why this cascade has
+     * no `SubAllocationService` to call into. Recorded as the one justified
+     * exclusion in `features/accreditation/01-allocation-engine.md`
+     * („Bekannte Lücke"); the follow-up — a sub-shaped mail on top of the
+     * main one — is not built.
      */
     private function cascadeRevokedSubApplications(Application $application): void
     {

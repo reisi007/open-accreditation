@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Mail\ApplicationDeniedMail;
 use App\Mail\SubApplicationApprovedMail;
 use App\Mail\SubApplicationDeniedMail;
 use App\Models\Accreditation;
@@ -16,6 +17,7 @@ use App\Models\SubAccreditation;
 use App\Models\SubApplication;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\AllocationService;
 use App\Services\MandantMailerService;
 use App\Services\SubAllocationService;
 use App\Services\WalletPassService;
@@ -64,6 +66,8 @@ use ZipArchive;
  *    pass, and a build failure is skipped instead of taking the mail down;
  *  - the mandant: resolved through the SUB-accreditation, and stamped onto
  *    `failed_jobs` by the real provider, mandant-isolated in the DLQ surface;
+ *  - the one silent path: the revoke cascade notifies the main application and
+ *    nobody twice;
  *  - the transaction: a commit leaves a delivery order, a rollback leaves
  *    neither status nor order.
  */
@@ -618,6 +622,70 @@ class SubAllocationMailTest extends TestCase
     }
 
     /**
+     * WHICH relation `mandantFor()` walks — a question the test above cannot
+     * answer. A sub-application names TWO accreditations, and for every row the
+     * product writes they are one and the same (`apply` derives both from a
+     * single accreditation), so the two chains collapse into the same value.
+     * MEASURED: replacing `subAccreditation.accreditation.mandant` with
+     * `application.accreditation.mandant` in `mandantFor()` left every other
+     * test of this class green.
+     *
+     * The row below is therefore out of band ON PURPOSE, and it is the shape
+     * that tells the two apart: the sub-accreditation — and with it the quota
+     * just spent, the blacklist scope and the row lock — belongs to mandant B,
+     * while the main application it hangs on belongs to mandant A. The
+     * notification reports B's decision, so the delivery order must carry B;
+     * with the relation swapped it carries A and this test fails.
+     */
+    public function test_the_mandant_of_the_sub_accreditation_wins_over_the_one_of_the_main_application(): void
+    {
+        config(['queue.default' => 'database', 'queue.connections.database.after_commit' => true]);
+
+        $foreign = $this->mandantB->accreditations()->create([
+            'category_id' => $this->category($this->mandantB)->id,
+            'scope' => 'season',
+            'quota' => 20,
+        ]);
+        $sub = $this->subAccreditation($foreign, ['quota' => 5]);
+
+        $applicant = $this->member($this->mandantA, ['email' => 'out-of-band@example.test']);
+        $main = Application::create([
+            'accreditation_id' => $this->accreditation()->id,
+            'user_id' => $applicant->id,
+            'status' => 'approved',
+            'priority' => false,
+        ]);
+
+        $row = SubApplication::create([
+            'sub_accreditation_id' => $sub->id,
+            'application_id' => $main->id,
+            'user_id' => $applicant->id,
+            'status' => 'requested',
+            'priority' => false,
+        ]);
+
+        // The premise, asserted rather than assumed: without two different
+        // mandants at the two ends the row below would prove nothing.
+        $this->assertSame($this->mandantA->id, (int) $main->accreditation->mandant_id, 'precondition: the main application is mandant A\'s');
+        $this->assertSame($this->mandantB->id, (int) $sub->accreditation->mandant_id, 'precondition: the sub-accreditation is mandant B\'s');
+
+        $this->subAllocation->approveSubApplication($row);
+
+        $this->assertDatabaseCount('jobs', 1);
+
+        $job = QueuedMailPayload::mailJob((string) DB::table('jobs')->value('payload'));
+
+        $this->assertNotNull($job);
+        $this->assertSame(SubApplicationApprovedMail::class, $job->mailableClass);
+        $this->assertSame(
+            $this->mandantB->id,
+            $job->mandantId,
+            'the notification reports the sub-quota decision, so it must be delivered by the mandant that owns the sub-accreditation',
+        );
+        $this->assertSame('out-of-band@example.test', $job->recipient);
+    }
+
+    /**
      * The dead-letter surface, end to end through the REAL worker and the REAL
      * provider: a sub mail that used up its attempts lands in `failed_jobs`
      * carrying the mandant of its sub-accreditation, and a `mandant_admin`
@@ -702,10 +770,12 @@ class SubAllocationMailTest extends TestCase
      * The rollback test below cannot see it: `after_commit` makes "dispatched
      * inside the transaction" and "dispatched after the commit" leave the SAME
      * observable facts under the only failure a test can stage (a rollback), so
-     * a suite that pinned nothing else would be green for both — MEASURED: with
-     * the dispatch moved behind `DB::transaction()`, all 21 tests of this class
-     * stayed green. The difference is the crash window between commit and
-     * `jobs` insert, which no in-process test can produce.
+     * a suite that pinned nothing else would be green for both — MEASURED
+     * 2026-10-04: with the dispatch moved behind `DB::transaction()`, exactly
+     * ONE test of this class goes red (this one) and every other stays exactly
+     * as it is (23 of 24 unchanged: 22 green, 1 skipped). The difference is the
+     * crash window between commit and `jobs` insert, which no in-process test
+     * can produce.
      *
      * So it is measured directly, with a queue connector that records the
      * transaction level **at the moment the job is pushed**:
@@ -878,6 +948,83 @@ class SubAllocationMailTest extends TestCase
         $this->assertDatabaseCount('failed_jobs', 0);
         $this->assertSame(2, SubApplication::query()->where('sub_accreditation_id', $sub->id)->where('status', 'requested')->count());
         $this->assertSame(0, SubApplication::query()->where('sub_accreditation_id', $sub->id)->where('status', 'approved')->count());
+    }
+
+    /* ---------------------------------------------------------------------
+     | 6. The one silent path — the revoke cascade
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The single documented exclusion of P6: `AllocationService`'s
+     * `cascadeRevokedSubApplications()` writes sub rows and sends NOTHING.
+     *
+     * Both halves of that decision existed only in prose — the `features/` note
+     * and two docblocks. What this pins is the pair of claims together, because
+     * either alone is cheap:
+     *
+     *  - **no second, Parkkarte-shaped mail** for the cascaded row, and
+     *  - **the same person still hears about the revocation**, through the MAIN
+     *    letter — the justification the silence rests on, which only holds
+     *    because `sub_applications.user_id` is denormalised from the main
+     *    application. Hence the asserted premise below.
+     *
+     * MUTATION: routing the cascade through `SubAllocationService::denySubApplication()`
+     * (the follow-up that was deliberately not built) sends the sub denial, and
+     * the count assertion fails (`actual size 1 matches expected size 0`).
+     * Removing the cascade instead leaves the row `approved` and fails the
+     * `assertDatabaseHas` above.
+     */
+    public function test_the_revoke_cascade_notifies_only_the_main_application(): void
+    {
+        $sub = $this->subAccreditation($this->accreditation(), ['quota' => 5]);
+        $applicant = $this->member($this->mandantA, ['email' => 'park@example.test']);
+        $row = $this->subRequest($sub, $applicant);
+
+        // The park card the cascade will pull back: it must be an APPROVED row,
+        // since only those cascade.
+        $this->subAllocation->approveSubApplication($row);
+
+        // A fresh fake, so every count below is about the REVOKE alone and not
+        // about the approval that preceded it.
+        Mail::fake();
+
+        $main = Application::query()->findOrFail($row->application_id);
+
+        // The premise of the whole decision: both letters would reach one
+        // address.
+        $this->assertSame($applicant->id, (int) $row->user_id);
+        $this->assertSame((int) $row->user_id, (int) $main->user_id, 'precondition: user_id is denormalised from the main application');
+
+        app(AllocationService::class)->denyApplication($main, 'Widerruf');
+
+        // The cascade really ran — otherwise "no sub mail" would be vacuous.
+        $this->assertDatabaseHas('sub_applications', [
+            'id' => $row->id,
+            'status' => 'denied',
+            'reason' => AllocationService::REASON_PARENT_REVOKED,
+        ]);
+
+        // NOTE the assertion shape: `Mail::assertNotSent($class, 'prose')` does
+        // NOT take a message — its second argument is a RECIPIENT ADDRESS
+        // (`MailFake::assertNotSent` builds a `hasTo($address)` callback over
+        // `Arr::wrap($callback)`), so a sentence there silently asserts "nobody
+        // was mailed to that sentence" and passes whatever the engine did.
+        // MEASURED on this very test: with the cascade notifying it reported 1
+        // sent sub denial and stayed green.
+        $this->assertCount(
+            0,
+            Mail::sent(SubApplicationDeniedMail::class),
+            'the cascade is the one sub-status write that stays silent — a second letter about the same decision is a duplicate',
+        );
+
+        Mail::assertNotSent(SubApplicationApprovedMail::class);
+
+        Mail::assertSent(ApplicationDeniedMail::class, 1);
+
+        $denial = Mail::sent(ApplicationDeniedMail::class)->sole();
+
+        $this->assertSame($applicant->email, $denial->to[0]['address'], 'the main letter must reach the applicant of the sub row, not somebody else');
+        $this->assertSame('Widerruf', $denial->reason);
     }
 
     /* ---------------------------------------------------------------------

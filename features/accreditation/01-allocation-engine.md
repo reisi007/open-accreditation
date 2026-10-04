@@ -228,24 +228,12 @@ existiert `AdminApplicationController::resend`
   Entwurf mit Begründung:** Dispatch **innerhalb** der Transaktion (nicht nach
   dem Commit wie die Haupt-Engine) — sonst verlöre ein Prozess-Tod zwischen
   Commit und `jobs`-Insert die Mail ohne jede Spur; `after_commit` gilt
-  unverändert. Tests: `SubAllocationMailTest` (22). Ausgenommen mit Begründung:
+  unverändert. Tests: `SubAllocationMailTest` (24). Ausgenommen mit Begründung:
   `cascadeRevokedSubApplications()` bleibt still (Haupt-Antrag-Mail geht an
   dieselbe Person).
 - ❌ **Weiter offen:** keine `resend`-Route für Sub-Anträge
   (`POST /api/admin/sub-applications/{id}/resend` mit `can:accreditations.manage`,
   Team-Scope, 422 bei `requested` — wie beim Haupt-Antrag).
-
-`AllocationService` versendet bei **jedem** Statuswechsel eine Mail
-(`ApplicationApprovedMail` / `ApplicationDeniedMail`), und für Haupt-Anträge
-existiert `AdminApplicationController::resend`
-(`POST /api/admin/applications/{id}/resend`). Für Sub-Anträge galt beides
-**nicht** (Stand 2026-09-26) — der Versand gilt seit 2026-10-04 nicht mehr
-(siehe oben); **weiter offen ist nur die `resend`-Route**:
-
-- ✅ Versand: `SubAllocationService` injiziert `MandantMailerService` — alle vier
-  manuellen Pfade plus Auto-Pfad versenden (Ausnahme mit Begründung:
-  `cascadeRevokedSubApplications`, siehe oben).
-- ❌ Es gibt **keine** `resend`-Route für Sub-Anträge.
 
 **Folge der verbleibenden Lücke:** Eine manuelle Wiederholung scheitert nicht —
 sie existiert nicht; wer eine Sub-Freigabe erneut versenden will, hat keinen
