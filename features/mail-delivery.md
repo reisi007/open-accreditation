@@ -366,7 +366,7 @@ konnte nie feuern. Zwei Eingriffe, beide gemessen testbar:
 | Wo | Was |
 |---|---|
 | `routes/console.php` | `ScheduledTaskObserver::watch()` hängt `onSuccess`/`onFailure` an alle **drei** Tasks — `allocation:run`, `reminders:send` und den täglichen Cache-Reaper `cache:prune-expired`. Das sind `then()`-Callbacks, die im **Scheduler-Prozess** laufen und über den Exit-Code des Kindes entscheiden — sie brauchen weder die Kind-Ausgabe noch ein ungleich nullendes `schedule:run`. |
-| `RunAllocations`, `SendReminders`, `PruneExpiredCacheRows` | `Log::info` mit dem Ergebnis (Zähler, Dauer) bzw. `Log::error` mit Ausnahme + Rethrow. Der Observer sagt **DASS** sie liefen und ob sie erfolgreich waren; nur der Command weiß, **was** er getan hat. |
+| `RunAllocations`, `SendReminders`, `PruneExpiredCacheRows` (via Services) | `Log::info` mit dem Ergebnis (Zähler, Dauer) bzw. `Log::error` mit Ausnahme + Rethrow — das Logging sitzt in den Services (`ExpiredCachePruner::prune()`, nicht im Command, das nur delegiert). Der Observer sagt **DASS** sie liefen und ob sie erfolgreich waren; nur der Command weiß, **was** er getan hat. |
 
 Der Erfolgs-Heartbeat ist kein Luxus: ohne ihn sind „der stündliche Lauf ist
 kaputt" und „der Scheduler läuft seit drei Tagen nicht" dieselbe Stille — und

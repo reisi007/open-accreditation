@@ -255,8 +255,8 @@ registriert nur — der Aufrufer ist Betrieb, nicht Code. **Wer ihn startet, und
   mit echter `database`-Connection — dort steht der Worker.
 
 **Die verbleibende Lücke ist damit eng und ehrlich benannt:** im E2E/CI-Stack feuert **kein** Scheduler —
-`allocation:run` (stündlich) und `reminders:send` (täglich), beide `withoutOverlapping()`
-(`routes/console.php:24,33`), laufen dort nie von selbst, und `sync` kann strukturell **keinen** toten Brief
+`allocation:run` (stündlich), `reminders:send` (täglich) und `cache:prune-expired` (täglich)
+(`routes/console.php:24,33,56`), alle mit `withoutOverlapping()`, laufen dort nie von selbst, und `sync` kann strukturell **keinen** toten Brief
 erzeugen (`Job::fail()` schreibt keine `failed_jobs`-Zeile; nur ein Worker tut das). Position 46 ist damit
 **umgesetzt** (`8c3301a`, Board: „überall außer im E2E-Stack"); was bleibt, ist eine **Beobachtungslücke**, kein
 Betriebsdefekt: „`allocation:run` läuft stündlich" ist eine Zusage, die im CI-Stack **nicht** beobachtbar ist.

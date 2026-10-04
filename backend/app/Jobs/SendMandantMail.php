@@ -137,10 +137,10 @@ final class SendMandantMail implements ShouldQueue
      * re-run at exactly `array_sum(backoff())` and must be refused with no
      * second mail sent.
      *
-     * What a finite window does NOT do is keep the `cache` table small: an
-     * expired entry is dropped from every read (`DatabaseStore::many()`), but
-     * its ROW survives until something reads that exact key again — and for a
-     * delivered mail nothing ever does. See `features/mail-delivery.md` §4.3.
+     * What a finite window does NOT do is keep the `cache` table small: no READ
+     * collects an unread row, and a delivered mail's key is never read again.
+     * What collects it is the daily reaper (`cache:prune-expired`) — until that
+     * reaper existed, nothing did; `features/mail-delivery.md` §4.3 in full.
      *
      * Six hours is ~4.4x the retry budget and still far below anything an
      * operator would call an outage; a manual requeue never has to wait for it
