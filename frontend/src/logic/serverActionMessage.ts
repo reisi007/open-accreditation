@@ -6,9 +6,10 @@ import { t } from '@lingui/core/macro';
  *
  * ## The rule, and why it exists
  *
- * Two endpoints answer a bare `{message}` and neither of them can know whether
+ * Three endpoints answer a bare `{message}` and none of them can know whether
  * the mail left the building: since Position 45 `MandantMailerService::send()`
- * only dispatches `SendMandantMail`, so `POST …/applications/{id}/resend` and
+ * only dispatches `SendMandantMail`, so `POST …/applications/{id}/resend`,
+ * `POST …/sub-applications/{id}/resend` and
  * `POST …/failed-mails/{id}/requeue` return as soon as the JOB is written. The
  * server therefore says "in die Warteschlange gestellt" — and `ApprovalsPage`
  * used to answer "E-Mail wurde erneut gesendet" from a string of its own, which
@@ -21,11 +22,11 @@ import { t } from '@lingui/core/macro';
  * ## What that costs, named rather than hidden
  *
  * The backend messages are German only (`AdminApplicationController:181/196`,
- * `FailedMailController:99`), so an admin on the `en` locale reads a German
- * success line. That is a localization gap in the BACKEND — `message` is not a
- * translatable resource there — and it is reported rather than papered over: the
- * alternative (a localized string of our own) is the claim this module exists to
- * delete.
+ * `AdminSubApplicationController:192/207`, `FailedMailController:99`), so an
+ * admin on the `en` locale reads a German success line. That is a localization
+ * gap in the BACKEND — `message` is not a translatable resource there — and it
+ * is reported rather than papered over: the alternative (a localized string of
+ * our own) is the claim this module exists to delete.
  *
  * The fallback branch below is the only case where this function invents text:
  * a 2xx whose body carried no `message` at all. It says what is true then and

@@ -56,7 +56,10 @@ Subagenten.**
 Es war ein **Namensproblem**: `getent hosts dind` löst auf, `dind:8025`,
 `dind:1025` und `dind:5432` sind offen. Der Compose-Stack bindet seine Ports auf
 den `dind`-Container, nicht auf `localhost`; die Shell sieht `localhost` als einen
-anderen Namespace.
+anderen Namespace. **Konkret für E2E:** `frontend/tests/e2e/helpers/mailpit.ts`
+defaultet auf `http://localhost:8025/api/v1` — ohne `MAILPIT_API_URL=http://dind:8025/api/v1`
+fallen Mail-Specs **im Setup** (nicht an einer Assertion). Gemessen 2026-10-04
+(Runde 24: ein verlorener Lauf).
 
 **Regel:** Bevor ein Dienst als unerreichbar gilt, **muss der Alternative-Host
 versucht werden.** Mindestens: der Containername, `dind`, der gemeldete
