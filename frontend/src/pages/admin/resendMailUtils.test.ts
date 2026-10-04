@@ -31,4 +31,34 @@ describe('resendMailErrorMessage', () => {
     it('falls back for unknown errors', () => {
         expect(resendMailErrorMessage(new Error('boom'), i18n)).toBe('E-Mail konnte nicht gesendet werden.');
     });
+
+    it('names the SUB-application in the 422 message, not the main one', () => {
+        // The sub-row lives in the "Sub-Anträge" table; borrowing the main
+        // request's sentence there would be true only by accident.
+        expect(
+            resendMailErrorMessage(new ApiError(422, 'Sub-application has no mailable status.', {}), i18n, 'subApplication'),
+        ).toBe('Für diesen Sub-Antrag kann keine E-Mail gesendet werden.');
+    });
+
+    it('names the SUB-application in the 403 message, not the main one', () => {
+        expect(resendMailErrorMessage(new ApiError(403, 'Forbidden', {}), i18n, 'subApplication')).toBe(
+            'Keine Berechtigung für diesen Sub-Antrag.',
+        );
+    });
+
+    it('keeps the server message for a sub-application 404 (foreign mandant)', () => {
+        // No mapping for 404 by design: the body's own words ("No query results
+        // for model […]") are more truthful than any sentence of ours.
+        expect(
+            resendMailErrorMessage(
+                new ApiError(404, 'No query results for model [App\\Models\\SubApplication] 999.', {}),
+                i18n,
+                'subApplication',
+            ),
+        ).toBe('No query results for model [App\\Models\\SubApplication] 999.');
+    });
+
+    it('falls back for an unknown sub-application error', () => {
+        expect(resendMailErrorMessage(new Error('boom'), i18n, 'subApplication')).toBe('E-Mail konnte nicht gesendet werden.');
+    });
 });

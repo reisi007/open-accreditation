@@ -893,6 +893,10 @@ msgstr "Für diesen Mandanten ist die Liste der toten Briefe nicht erreichbar."
 #~ msgid "Für diesen Mandanten ist kein Briefverlauf erreichbar."
 #~ msgstr "Für diesen Mandanten ist kein Briefverlauf erreichbar."
 
+#: src/pages/admin/resendMailUtils.ts
+msgid "Für diesen Sub-Antrag kann keine E-Mail gesendet werden."
+msgstr "Für diesen Sub-Antrag kann keine E-Mail gesendet werden."
+
 #: src/pages/admin/FailedMailsPage.tsx
 msgid "gekürzt auf {limit} Zeichen"
 msgstr "gekürzt auf {limit} Zeichen"
@@ -1070,6 +1074,10 @@ msgstr "Keine Berechtigung für die Liste der toten Briefe."
 #: src/pages/admin/resendMailUtils.ts
 msgid "Keine Berechtigung für diesen Antrag."
 msgstr "Keine Berechtigung für diesen Antrag."
+
+#: src/pages/admin/resendMailUtils.ts
+msgid "Keine Berechtigung für diesen Sub-Antrag."
+msgstr "Keine Berechtigung für diesen Sub-Antrag."
 
 #: src/pages/admin/failedMailUtils.ts
 msgid "Keine Berechtigung, tote Briefe erneut einzureihen."

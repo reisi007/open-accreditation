@@ -889,6 +889,10 @@ msgstr "No email can be sent for this application."
 msgid "Für diesen Mandanten ist die Liste der toten Briefe nicht erreichbar."
 msgstr "The dead-letter list is not reachable for this organisation."
 
+#: src/pages/admin/resendMailUtils.ts
+msgid "Für diesen Sub-Antrag kann keine E-Mail gesendet werden."
+msgstr "No email can be sent for this sub-application."
+
 #: src/pages/admin/FailedMailsPage.tsx
 msgid "gekürzt auf {limit} Zeichen"
 msgstr "truncated to {limit} characters"
@@ -1066,6 +1070,10 @@ msgstr "Not authorised to read the dead-letter list."
 #: src/pages/admin/resendMailUtils.ts
 msgid "Keine Berechtigung für diesen Antrag."
 msgstr "No permission for this application."
+
+#: src/pages/admin/resendMailUtils.ts
+msgid "Keine Berechtigung für diesen Sub-Antrag."
+msgstr "No permission for this sub-application."
 
 #: src/pages/admin/failedMailUtils.ts
 msgid "Keine Berechtigung, tote Briefe erneut einzureihen."

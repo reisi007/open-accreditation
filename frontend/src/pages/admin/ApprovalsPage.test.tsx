@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { useEffect } from 'react';
 import { SWRConfig, useSWRConfig, type ScopedMutator } from 'swr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api/client';
 import type { AdminApplication, AdminSubApplication, Blacklist } from '../../api/types';
 import { renderWithProviders } from '../../test-setup';
 import { ApprovalsPage } from './ApprovalsPage';
@@ -16,6 +17,7 @@ const {
     listAdminSubApplicationsMock,
     listBlacklistsMock,
     updateAdminApplicationMock,
+    resendSubApplicationMailMock,
 } = vi.hoisted(() => {
     const serverApps: AdminApplication[] = [];
     const serverSubApps: AdminSubApplication[] = [];
@@ -31,6 +33,7 @@ const {
         listAdminSubApplicationsMock: vi.fn(async () => serverSubApps.map((row) => ({ ...row }))),
         listBlacklistsMock: vi.fn(async () => serverBlacklists.map((row) => ({ ...row }))),
         updateAdminApplicationMock: vi.fn(),
+        resendSubApplicationMailMock: vi.fn(async () => 'E-Mail wurde erneut in die Warteschlange gestellt.'),
     };
 });
 
@@ -46,6 +49,7 @@ vi.mock('../../api/client', async (importOriginal) => {
         listBadgeTemplates: vi.fn(async () => []),
         listBlacklists: listBlacklistsMock,
         resendApplicationMail: vi.fn(async () => undefined),
+        resendSubApplicationMail: resendSubApplicationMailMock,
         allocateAccreditation: vi.fn(),
         exportBadges: vi.fn(),
         createBlacklist: vi.fn(),
@@ -92,6 +96,11 @@ function makeSubApplication(id: number): AdminSubApplication {
             team: null,
         },
     } as unknown as AdminSubApplication;
+}
+
+/** `makeSubApplication` with a decided status — the only two the backend can mail. */
+function makeDecidedSubApplication(id: number, status: 'approved' | 'denied'): AdminSubApplication {
+    return { ...makeSubApplication(id), status, reason: status === 'denied' ? 'Zu viele Anträge.' : null };
 }
 
 function makeBlacklist(id: number, email: string): Blacklist {
@@ -242,5 +251,113 @@ describe('ApprovalsPage VIP toggle', () => {
 
         expect(await within(row).findByText('VIP-Status konnte nicht geändert werden.')).toBeInTheDocument();
         expect(within(row).getByLabelText('VIP')).not.toBeChecked();
+    });
+});
+
+/**
+ * The sub-row resend button (Position 47): the Park-/Sitzkarte counterpart of
+ * the main-request one, on the SAME surface the admin approves/denies a
+ * sub-application.
+ *
+ * The success text is the SERVER's, not ours — `AdminSubApplicationController::resend`
+ * only dispatches a `SendMandantMail` job, so "wurde erneut gesendet" would be a
+ * claim about a relay this process never talked to (see
+ * `logic/serverActionMessage.ts`).
+ */
+describe('ApprovalsPage sub-application resend', () => {
+    async function openSubTab(subApps: AdminSubApplication[]) {
+        const user = userEvent.setup();
+        serverSubApps.push(...subApps);
+        renderPage();
+        await user.click(screen.getByRole('tab', { name: 'Sub-Anträge' }));
+        return user;
+    }
+
+    it('offers no resend button on a requested sub-application', async () => {
+        // MEASURED: the backend mails `approved` and `denied` only and answers
+        // 422 for anything else (`AdminSubApplicationController::resend:186-210`).
+        // A button there could only ever fail.
+        await openSubTab([makeSubApplication(1)]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        expect(within(row).queryByRole('button', { name: 'E-Mail erneut senden' })).not.toBeInTheDocument();
+        expect(resendSubApplicationMailMock).not.toHaveBeenCalled();
+    });
+
+    it('resends the approved sub-application mail and shows the SERVER message', async () => {
+        const user = await openSubTab([makeDecidedSubApplication(1, 'approved')]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(resendSubApplicationMailMock).toHaveBeenCalledWith(1);
+        const status = await within(row).findByRole('status');
+        expect(status).toHaveTextContent('E-Mail wurde erneut in die Warteschlange gestellt.');
+        // The invented wording must be GONE, not merely joined by the right one:
+        // a UI that showed both would still assert delivery it cannot know.
+        expect(status).not.toHaveTextContent('erneut gesendet.');
+    });
+
+    it('resends a denied sub-application mail as well', async () => {
+        const user = await openSubTab([makeDecidedSubApplication(2, 'denied')]);
+        const row = await screen.findByRole('row', { name: /p2@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(resendSubApplicationMailMock).toHaveBeenCalledWith(2);
+        expect(await within(row).findByRole('status')).toHaveTextContent(
+            'E-Mail wurde erneut in die Warteschlange gestellt.',
+        );
+    });
+
+    it('shows the fallback for a 200 whose body carried no message', async () => {
+        // The one case where the UI does invent text — and it says what is true:
+        // the job was ACCEPTED, nothing about the relay.
+        resendSubApplicationMailMock.mockResolvedValueOnce('');
+        const user = await openSubTab([makeDecidedSubApplication(1, 'approved')]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(await within(row).findByRole('status')).toHaveTextContent('Zustellauftrag angenommen.');
+    });
+
+    it('surfaces a 422 as the SUB-application message', async () => {
+        resendSubApplicationMailMock.mockRejectedValueOnce(
+            new ApiError(422, 'Sub-application has no mailable status.', {}),
+        );
+        const user = await openSubTab([makeDecidedSubApplication(1, 'approved')]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(await within(row).findByRole('alert')).toHaveTextContent(
+            'Für diesen Sub-Antrag kann keine E-Mail gesendet werden.',
+        );
+        expect(within(row).queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    it('surfaces a 403 as the SUB-application permission message', async () => {
+        resendSubApplicationMailMock.mockRejectedValueOnce(new ApiError(403, 'This action is unauthorized.', {}));
+        const user = await openSubTab([makeDecidedSubApplication(1, 'approved')]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(await within(row).findByRole('alert')).toHaveTextContent('Keine Berechtigung für diesen Sub-Antrag.');
+    });
+
+    it('surfaces a 404 (foreign mandant) with the server message, unmapped', async () => {
+        resendSubApplicationMailMock.mockRejectedValueOnce(
+            new ApiError(404, 'No query results for model [App\\Models\\SubApplication] 999.', {}),
+        );
+        const user = await openSubTab([makeDecidedSubApplication(1, 'approved')]);
+        const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+        await user.click(within(row).getByRole('button', { name: 'E-Mail erneut senden' }));
+
+        expect(await within(row).findByRole('alert')).toHaveTextContent(
+            'No query results for model [App\\Models\\SubApplication] 999.',
+        );
     });
 });

@@ -10,6 +10,7 @@ import {
     listMandants,
     requeueFailedMail,
     resendApplicationMail,
+    resendSubApplicationMail,
     setUnauthorizedHandler,
     uploadLogo,
     uploadMyHeader,
@@ -289,5 +290,59 @@ describe('api client — dead letters', () => {
         expect(error).toBeInstanceOf(ApiError);
         if (!(error instanceof ApiError)) return;
         expect(error.status).toBe(422);
+    });
+
+    it('returns the SERVER message of the sub-application resend', async () => {
+        // MEASURED on the running backend:
+        // `AdminSubApplicationController::resend` answers the same bare
+        // `{message}` as its main-application counterpart, and the UI must show
+        // THAT string — a translated string of our own would be a claim about a
+        // relay this process never talked to (see `logic/serverActionMessage.ts`).
+        const fetchMock = stubFetch({ message: 'E-Mail wurde erneut in die Warteschlange gestellt.' });
+
+        await expect(resendSubApplicationMail(7)).resolves.toBe('E-Mail wurde erneut in die Warteschlange gestellt.');
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('/api/admin/sub-applications/7/resend');
+        expect(init?.method).toBe('POST');
+    });
+
+    it('raises the sub-application resend 422 (requested / no mailable reason) as an ApiError', async () => {
+        stubFetch({ message: 'Sub-application has no mailable status.' }, 422);
+
+        const error = await resendSubApplicationMail(7).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(422);
+        expect(error.message).toBe('Sub-application has no mailable status.');
+    });
+
+    it('raises the sub-application resend 403 (team_admin on a foreign team) as an ApiError', async () => {
+        stubFetch({ message: 'This action is unauthorized.' }, 403);
+
+        const error = await resendSubApplicationMail(7).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(403);
+    });
+
+    it('raises the sub-application resend 404 (foreign mandant) as an ApiError', async () => {
+        // A foreign mandant is a 404 and NOT a 403 — the controller scopes the
+        // route binding to the current mandant before anything else. Swallowing
+        // it would render "you may not" where the truth is "not yours to see".
+        stubFetch({ message: 'No query results for model [App\\Models\\SubApplication] 999.' }, 404);
+
+        const error = await resendSubApplicationMail(999).catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) return;
+        expect(error.status).toBe(404);
+        expect(error.message).toBe('No query results for model [App\\Models\\SubApplication] 999.');
+    });
+
+    it('yields an empty string for a sub-application resend body without a message', async () => {
+        // The fallback path of `serverActionMessage`: a 2xx whose body carries no
+        // `message` must be reachable, and it must not be a crash.
+        stubFetch({ data: null }, 200);
+
+        await expect(resendSubApplicationMail(7)).resolves.toBe('');
     });
 });

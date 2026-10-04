@@ -18,6 +18,7 @@ import {
     listBadgeTemplates,
     listBlacklists,
     resendApplicationMail,
+    resendSubApplicationMail,
     updateAdminApplication,
     updateAdminSubApplication,
 } from '../../api/client';
@@ -720,6 +721,8 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
     const priorityFlag = useSyncedFlag(application.priority);
     const [actionError, setActionError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+    const [resendBusy, setResendBusy] = useState(false);
 
     const handleTogglePriority = async (next: boolean) => {
         priorityFlag.set(next);
@@ -746,8 +749,31 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
         }
     };
 
+    const handleResendMail = async () => {
+        setActionError(null);
+        setResendSuccess(null);
+        setResendBusy(true);
+        try {
+            // The SERVER's account of what it did, not our own string — the same
+            // contract as the main-application row above, for the same reason
+            // (see `logic/serverActionMessage.ts`): this endpoint only ORDERS the
+            // delivery job.
+            const message = await resendSubApplicationMail(application.id);
+            setResendSuccess(serverActionMessage(message, i18n));
+        } catch (err) {
+            setActionError(resendMailErrorMessage(err, i18n, 'subApplication'));
+        } finally {
+            setResendBusy(false);
+        }
+    };
+
     const canApprove = application.status === 'requested' || application.status === 'denied';
     const canDeny = application.status === 'requested' || application.status === 'approved';
+    // The statuses the backend can actually mail are `approved` and `denied`
+    // (MEASURED, `AdminSubApplicationController::resend:186-210`): anything else
+    // answers 422. Mirroring that here keeps the button off the rows on which it
+    // can only fail.
+    const canResendMail = application.status === 'approved' || application.status === 'denied';
 
     return (
         <tr>
@@ -824,6 +850,11 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                         {actionError}
                     </p>
                 ) : null}
+                {resendSuccess ? (
+                    <p role="status" className="mb-2 max-w-48 text-sm text-success">
+                        {resendSuccess}
+                    </p>
+                ) : null}
                 <div className="flex flex-wrap justify-end gap-2">
                     {canApprove ? (
                         <button type="button" className="btn btn-sm btn-success" disabled={busy} onClick={() => void handleApprove()}>
@@ -838,6 +869,17 @@ function SubApplicationRow({ application, onChanged, onDeny }: SubApplicationRow
                     {canDeny ? (
                         <button type="button" className="btn btn-sm btn-error btn-outline" onClick={() => onDeny(application)}>
                             {i18n._(t`Ablehnen`)}
+                        </button>
+                    ) : null}
+                    {canResendMail ? (
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            disabled={resendBusy}
+                            onClick={() => void handleResendMail()}
+                        >
+                            {resendBusy ? <span className="loading loading-spinner loading-xs"></span> : null}
+                            {i18n._(t`E-Mail erneut senden`)}
                         </button>
                     ) : null}
                 </div>

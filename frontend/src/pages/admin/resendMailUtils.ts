@@ -3,15 +3,48 @@ import { t } from '@lingui/core/macro';
 import { ApiError } from '../../api/client';
 
 /**
- * Localize an error raised by POST /api/admin/applications/{id}/resend.
+ * Which kind of row the admin clicked "resend" on.
+ *
+ * Both resend endpoints reject for the same reasons (422 no mailable
+ * status/reason, 403 foreign team scope, 404 foreign mandant) but name a
+ * DIFFERENT row in the UI: the main applications table says "Antrag", the
+ * sub-applications table says "Sub-Antrag". The mapped sentences therefore
+ * carry the subject, instead of the sub-row borrowing the main row's wording —
+ * which would be true only by accident, and only until someone reads the table
+ * header.
+ */
+export type ResendSubject = 'application' | 'subApplication';
+
+/**
+ * Localize an error raised by
+ * `POST /api/admin/applications/{id}/resend` or its sub-application counterpart.
  *
  * The backend answers 422/403 with English `{message}` bodies, so those
  * statuses are mapped to localized strings here. Field errors (unexpected on
- * this endpoint) and other ApiError messages keep the existing ApiError
- * handling; network failures and unknown errors fall back to a generic
- * localized message.
+ * these endpoints) and other ApiError messages keep the existing ApiError
+ * handling — including the **404** of a foreign mandant, whose body
+ * ("No query results for model […]") is the server's own words and is more
+ * truthful than any sentence of ours. Network failures and unknown errors fall
+ * back to a generic localized message.
+ *
+ * `subject` defaults to `'application'`, which is the main-request wording; a
+ * sub-row passes `'subApplication'` explicitly.
  */
-export function resendMailErrorMessage(err: unknown, i18n: I18n): string {
+export function resendMailErrorMessage(err: unknown, i18n: I18n, subject: ResendSubject = 'application'): string {
+    // Built inside the function on purpose: the `t` macro must never run at
+    // module scope (blank shell chunk in the production bundle — see
+    // `frontend/AGENTS.md`).
+    const sentences =
+        subject === 'subApplication'
+            ? {
+                  unmailable: t`Für diesen Sub-Antrag kann keine E-Mail gesendet werden.`,
+                  forbidden: t`Keine Berechtigung für diesen Sub-Antrag.`,
+              }
+            : {
+                  unmailable: t`Für diesen Antrag kann keine E-Mail gesendet werden.`,
+                  forbidden: t`Keine Berechtigung für diesen Antrag.`,
+              };
+
     if (err instanceof ApiError) {
         const first = Object.values(err.info.errors ?? {})
             .flat()
@@ -20,10 +53,10 @@ export function resendMailErrorMessage(err: unknown, i18n: I18n): string {
             return first;
         }
         if (err.status === 422) {
-            return i18n._(t`Für diesen Antrag kann keine E-Mail gesendet werden.`);
+            return i18n._(sentences.unmailable);
         }
         if (err.status === 403) {
-            return i18n._(t`Keine Berechtigung für diesen Antrag.`);
+            return i18n._(sentences.forbidden);
         }
         if (err.message !== '') {
             return err.message;

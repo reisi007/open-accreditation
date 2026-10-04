@@ -567,6 +567,25 @@ export const updateAdminSubApplication = (id: number, action: ApplicationAction)
         body: JSON.stringify(action),
     });
 
+/**
+ * Order the status mail for ONE sub-application again — the Park-/Sitzkarte
+ * counterpart of `resendApplicationMail`, and the same contract:
+ *
+ *  - `AdminSubApplicationController::resend` answers a BARE `{message}`
+ *    ("E-Mail wurde erneut in die Warteschlange gestellt."), so it is read by
+ *    `requestMessage`, never by `request` (that one unwraps `{data: …}` and
+ *    would hand `undefined` to the UI).
+ *  - The message is the SERVER's account of what it did; since Position 45
+ *    `MandantMailerService::send()` only dispatches a job, so neither this
+ *    endpoint nor the UI may claim the mail was sent. `''` only when the body
+ *    carries no message at all.
+ *  - A foreign mandant answers **404**, a `team_admin` on a foreign team
+ *    **403**, and a `requested` row (or a denied one without a reason) **422**
+ *    — all `ApiError`s the caller must surface, never swallow.
+ */
+export const resendSubApplicationMail = (subApplicationId: number): Promise<string> =>
+    requestMessage(`/api/admin/sub-applications/${subApplicationId}/resend`, { method: 'POST' });
+
 export interface BlacklistPayload {
     email?: string;
     domain?: string;
