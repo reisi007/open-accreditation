@@ -958,6 +958,8 @@ der RateLimiter dort zustandslos ist; das Throttling-Verhalten deckt
 Helper-Indirektion und sind nur zur Laufzeit messbar. Keine Datei trägt eine
 auffällige direkte Zahl.
 
+**Inventar, gemessen 2026-10-04 (keine Shards, keine Locks):** `grep shard` über Configs + `ci.yml` = 0 (keine Shard-Matrix); CI pinnt `--workers=1` in allen drei Invocations (`ci.yml:813/815/817`); genau **ein** `mode: 'serial'`-Block im Repo (`ownership.spec.ts:90`, Probe-Treiber); **kein** Playwright-Named-Lock im Spec-Code (`lock:`-Treffer alle Prosa); Configs tragen bereits `fullyParallel: true` + beide Retry-Profile; `@playwright/test ^1.63.0` (Lock-Release verfügbar).
+
 **Position (a):** serielle Läufe durch Named Locks ersetzen
 (`test('…', { lock: '…' }, …)`), nach dem Migrationspfad des Skills: serielle
 Baseline bei `retries: 0` einfrieren, dann `fullyParallel` + Lock. **(b)** steht
