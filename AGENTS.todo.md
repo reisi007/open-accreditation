@@ -30,6 +30,7 @@
 > **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **4 Positionen** in der Batch-Tabelle (**17, 21, 23, 25** — alle vier stehengeblieben, weil lebende Querverweise daran hängen; in der Tabelle ist damit **keine** offene Zeile mehr). **Positionen 45 (Mail-Zustellung: Queue/DLQ) und 46 (Scheduler) sind am 2026-10-04 per §4 entfernt** — beide Ströme implementiert und verifiziert (Verdicts 12, 13, 14 `APPROVED`, kein `critical`/`high`; CI-Lauf `37183737789` zu `219c398`, alle vier Jobs grün). **GATE 4 GRÜN (Lauf `37034641045`, SHA `ab4c0c7`, 2026-10-02, **alle vier Jobs**):** SQLite **1771 passed** (9047 Assertions) · Postgres **1 skipped + 1770 passed** (9041) (= **dieselben** 1771) · Vitest **52 Dateien / 552 Tests** · E2E **157 passed** · `check:i18n` **436** · Pint/Lint/Build clean. **Gate 3 war auf `267c767` rot** (Lauf `37023069080`: `QrTokenV2Test`, „actual size 4 matches expected size 3" — nur Postgres) und ist auf `ab4c0c7` **behoben, nicht etikettiert**: die Behauptung `assertCount(3, explode('.'))` war nie eine Format-Invariante, sondern eine Eigenschaft der Id-Sequenz. **Sieben Positionen — 8, 9, 12, 22, 38, 41, 42 — sind am 2026-10-02 per §4 entfernt:** alle vier Wellen sind verifiziert (Verdict `APPROVED`, kein `critical`/`high`), ihr Dauerinhalt steht in `features/`, im Code und in den Wellen-Abschnitten. **Geschlossen, aber stehengeblieben sind 4:**
 > 17, 21, 23, 25 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (Begründung: „Offen bei Übergabe").
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-04, nach dem §4-Schnitt):** **4 Zeilen** in der Batch-Tabelle = **0 offen** + **4 stehengeblieben** (17, 21, 23, 25 — lebende Querverweise). **Die sieben Positionen 8, 9, 12, 22, 38, 41, 42 sind entfernt** (verifiziert `APPROVED`), mit ihnen **45** (dieselbe Zeile, jetzt geschlossen). **Position 46** (kein Scheduler) stand nie in dieser Tabelle, sondern unter P6, und ist mit 45 entfernt. **Position 47** (Sub-`resend`-Button, P6-Block, Runden 24/25 `APPROVED`) ist am 2026-10-04 ebenfalls per §4 entfernt.
+> **Positionen 48–51 (2026-10-04, Skills-Marker-Erstmarker `AGENTS.skills.md`, Doku-only):** vier neue Positionen am Dateiende — 48 (Serial-Pin vs. Named Locks), 49 (Test-Budget/Akteur-Schlüssel), 50 (`packageManager`/`overrides`), 51 (CI-Pfadfilter). Nichts davon ist implementiert; die GHCR-Prüfung (beide Packages public) steht im Marker, nicht als Position.
 > **Position 10 ist am 2026-09-30 per §4 entfernt** — drei Verifikationsrunden, Verdict **`APPROVED`**, kein critical/high. Ihre Befunde sind **nicht** ins Board gewandert, sondern in `features/auth/01-auth-and-roles.md` (F1-Wächter, F3-Akteur, F5-Invariante, F6-Zustandstest, F4s **offene** Produktfrage) und `features/badges-qr.md` (Content-Stream-Defekt, `/Length`-Extraktor); beides vom Sweep-Agenten **am Code verifiziert**, nicht geglaubt.
 > **Der Sweep hat dabei eine Nutzerentscheidung gefunden, die ich beim Schreiben der Zeile verloren hatte:** die Verzögerung der `/konto`-Manifest-Eintragung stand ausschließlich dort. Zurück als **43**.
 > **Position 10 ist am 2026-09-29 per §4 entfernt** (Konto-Löschung, dritte Verifikations-Runde: `APPROVED`, kein critical/high). Ihr **F1/F3/F4/F5/F6 stehen in `features/auth/01-auth-and-roles.md`**, die Badge-Befunde in `features/badges-qr.md` — gegen den Code geprüft, nicht geglaubt (§3).
@@ -910,3 +911,92 @@ Runner, striktes Profil, **142 passed / 52 skipped / 0 failed**, **null** Login-
 konnte der Verifikator **unter keiner Bedingung reproduzieren**; was er in dieser Grössenordnung
 antraf, war ein **totes `php artisan serve`** mit 502 auf jedem API-Call — **kein Code-Fehler,
 sondern eine umgegebene, die sich als Code-Fehler ausgab.**
+
+---
+
+## 🔒 Serial-E2E, Login-Quote und Skills-Nachtrag (Positionen 48–51, 2026-10-04)
+
+> **Herkunft:** Erstmarker `AGENTS.skills.md` (`agents-skills-consumed: aad25d1`,
+> geprüft 2026-10-04 — HEAD des Skills-Repos, keine Range zu bilden).
+> **Nichts hiervon ist implementiert** — das sind Positionen, keine
+> Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur
+> auf ausdrücklichen Auftrag (`AGENTS.md:125-127`). GHCR-Verdikt (beide Packages
+> public, anonymer Pull-Token erteilt + `gh api visibility=public`, 2026-10-04)
+> steht im Marker und braucht keine Position.
+
+### 48 — Serial-Pin (`--workers=1`) vs. Named Locks (Skill `playwright-parallel`)
+
+**Widerspruch, gemessen statt vermutet.** `ci.yml:728-732` begründet
+`--workers=1` in **beiden** Profilen mit „parallel workers teilen sich die CI-IP
+und erzeugen 429" (`:759`, `:761`, `:763` pinnen den Wert). Die eigene Messung in
+`AppServiceProvider.php:79-80` nennt **~17 Logins/min bei ~8 Workern** gegen ein
+Budget von **40/min** (`:83`) — rund die Hälfte. Beide Zahlen stehen im Repo;
+aufgelöst ist nichts.
+
+**Warum die Begründung nicht trägt.** Der Limiter ist pro IP geschlüsselt
+(`:85-86`, `->by('login:'.$request->ip())`), der Zähler liegt im
+Backend-Prozess, nicht im Worker. Arbeit auf mehr Worker zu verteilen entlastet
+ihn nicht; seriell zu fahren behebt ihn nicht — seriell senkt nur die Spitze
+(Skill-Tabelle: Mutex vs. Rate).
+
+**Was heute schon liegt.** Der E2E-Job setzt `CACHE_STORE=array`
+(`ci.yml:563-570`, `:634`, geprüft `:641`) — mit der dokumentierten Folge, dass
+der RateLimiter dort zustandslos ist; das Throttling-Verhalten deckt
+`AuthThrottleTest` ab. Die Lock-Voraussetzungen liegen ebenfalls bereits:
+`@playwright/test ^1.63.0` (`frontend/package.json:51`, Lock-Release) und
+`fullyParallel: true` (`frontend/playwright.config.ts:24`).
+
+**Burst-Mechanismus: unverifiziert.** Direkt gezählt, keine übernommene Zahl
+(die frühere „38 Logins in einer Datei" war ein Miscount): meiste direkte
+`loginAdminApi`-Aufrufe `ownership.spec.ts` mit **8** bei 13 Tests (`:175`,
+`:281`, `:322`, `:354`, `:516`, `:638`, `:739`, `:912`, Import `:3`);
+`approvals.spec.ts` **0** direkte (geht über `helpers/admin-data`,
+`helpers/created-row`, `helpers/ownership`); meiste direkte
+`POST /api/auth/login` **2** (`auth.spec.ts`, `admin-sub-resend.spec.ts`,
+`account-deletion.spec.ts`); `helpers/admin-data.ts` trägt **14**
+`loginAdminApi`-Aufrufstellen — die echten HTTP-Zahlen verstecken sich hinter
+Helper-Indirektion und sind nur zur Laufzeit messbar. Keine Datei trägt eine
+auffällige direkte Zahl.
+
+**Position (a):** serielle Läufe durch Named Locks ersetzen
+(`test('…', { lock: '…' }, …)`), nach dem Migrationspfad des Skills: serielle
+Baseline bei `retries: 0` einfrieren, dann `fullyParallel` + Lock. **(b)** steht
+in 49 — bewusst zwei Positionen, nicht eine.
+
+### 49 — IP-Quote braucht Test-Budget oder Test-Akteur-Schlüssel, nicht `workers`
+
+Der Hebel gegen eine pro-IP-pro-Zeit-Quote ist ein Budget oder ein
+Akteur-Schlüssel pro Test-Worker, kein Worker-Zähler: geteilte CI-IP heißt
+geteiltes Bucket bei jeder Worker-Zahl (Skill-Falle „IP-based throttle via
+worker count"). Die Limits sind in `AppServiceProvider.php:78-83` ausdrücklich
+als **Development-Floors** dokumentiert (`local`/`testing` 40/30, Produktion
+15/10 — `:83-84`; eigene Buckets für login/register `:85-88`, apply `:94-95`,
+activate/public `:112-116` mit 300 vs. 60) — genau das macht eine Anhebung in
+der Testumgebung legitim statt zu einer Produktänderung.
+
+### 50 — `node-deps`: `packageManager`-Pin + `overrides` gegen die No-Pins-Regel
+
+Skill `node-deps` (agents-skills) verbietet den `packageManager`-Pin in
+`package.json` (`SKILL.md:20-25`) und feste Versionen in Manifest/Workspace
+(`:8-10`); Updates laufen via pnpm ins Lockfile. Gemessen:
+`frontend/package.json:6` trägt `"packageManager": "pnpm@11.23.0"`;
+`frontend/pnpm-workspace.yaml:8-14` pinnt sechs `overrides` exakt; konform sind
+die Ranges (`frontend/package.json:40-51`, exakt nur die eigene `version:
+0.1.0`) und das Fehlen von `minimumReleaseAgeExclude`. Spannung, nicht nur
+Formalität: CI liest den Pin via `package_json_file` (`ci.yml:422`, `:674`) —
+die skill-konforme Form (`version: 11` im Workflow) braucht die Umstellung
+beider Stellen.
+
+### 51 — `github-ci-filters`: Docs-only läuft voll, Image-Jobs mit Inklusionsliste
+
+Skill `github-ci-filters`: `paths-ignore` statt `paths` (Ausfall-Asymmetrie),
+beide Trigger filtern, Branch-Protection vorher prüfen. Gemessen: `ci.yml:11-14`
+hat **keinen** Pfadfilter — ein Docs-only-Commit fährt die volle Pipeline;
+`base-image.yml:30` und `e2e-image.yml:28` nutzen `paths:`-Inklusionslisten statt
+`paths-ignore`. Filter-sicher wäre es: der Branch ist unprotected (`gh api
+…/branches/main/protection` → 404 `Branch not protected`, 2026-10-04), und der
+Step-1-Sweep fand keinen Check, der eine `.md`-Datei als Input liest (kein
+quoted `.md`-Literal in `backend/app`, `backend/tests`, `frontend/src`,
+`frontend/tests`, `scripts`). Position: `paths-ignore` für `ci.yml` prüfen und
+die Image-`paths:` auf `paths-ignore` umstellen oder die Abweichung begründen —
+ohne ein Gate zu schwächen (Skill Schritt 4).
