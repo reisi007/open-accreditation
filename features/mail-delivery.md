@@ -349,7 +349,7 @@ läuft. Zwei Folgen, beide gemessen (Laravel 13.33.0, nicht vermutet):
 | `ScheduleRunCommand::runEvent()` wirft, `handle()` fängt und kehrt normal zurück | `vendor/…/Scheduling/ScheduleRunCommand.php:215-224` | `schedule:run` endet mit **Exit 0**, der Task wird als `DONE` gemeldet |
 
 Damit war der `if ! php artisan schedule:run`-Zweig in
-`deployment/backend-supervisor.sh:169` für einen kaputten Task **tödlich** — er
+`deployment/backend-supervisor.sh:212` für einen kaputten Task **tödlich** — er
 konnte nie feuern. Zwei Eingriffe, beide gemessen testbar:
 
 | Wo | Was |

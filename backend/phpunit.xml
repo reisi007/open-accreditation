@@ -260,19 +260,23 @@
             nicht mehr durch Disziplin.
 
             WAS `array` NICHT schliesst — und der Grund, warum MAIL_HOST/MAIL_PORT
-            hier stehen bleiben: `MandantMailerService::send()` nennt den
-            Mailer **explizit** (`Mail::mailer('smtp')`, `:54`), nicht den
-            Default. Dieser Pfad laeuft also weiter ueber den `smtp`-Mailer und
-            weiter ueber MAIL_HOST:MAIL_PORT.
+            hier stehen bleiben (Stand `7d2fe56`; Mechanik seit `70aa03d`
+            verlagert, Zahlen nicht neu gemessen): `MandantMailerService::send()`
+            nannte den Mailer **explizit** (`Mail::mailer('smtp')`, damals `:54`),
+            nicht den Default. Seit `70aa03d` dispatcht `send()` nur
+            (`MandantMailerService.php:64-67`); der explizite `smtp`-Aufruf lebt
+            in `deliver():79` (job-seitig) und wirft dort — Retry → DLQ — statt
+            geschluckt zu werden. Dieser Pfad laeuft also weiter ueber den
+            `smtp`-Mailer und weiter ueber MAIL_HOST:MAIL_PORT.
 
-            GEMESSEN, nicht behauptet: **132** Aufrufe dieses Pfades gehen
+            GEMESSEN an `7d2fe56`, nicht behauptet (nicht neu gemessen): **132** Aufrufe dieses Pfades gehen
             ohne `Mail::fake()` durch (`AllocationTest` 62,
             `AllocationQrTokenQueryTest` 16, `AllocationAtomicityTest` 15,
             `AllocationQrTokenUpgradeTest` 8, `SubAccreditationRevocationTest` 6,
-            `MandantMailerTest` 25), und jeder davon **wirft in diesem Zustand
+            `MandantMailerTest` 25), und jeder davon **warf damals
             `TransportException: Connection could not be established with host
-            "127.0.0.1:1025"`** — der Sende-Versuch wird von `send()` als
-            `Throwable` geschluckt und geloggt, also ist die Suite gruen. Das
+            "127.0.0.1:1025"`** — der Sende-Versuch wurde von `send()` als
+            `Throwable` geschluckt und geloggt, also war die Suite gruen. Das
             heisst: `array` schliesst den einen Pfad, der die Suite sichtbar rot
             machen konnte (500 statt 201, die zwei Tests oben), aber **nicht**
             jeden. Wer diese 132 stummen Connect-Versuche schliessen will,
