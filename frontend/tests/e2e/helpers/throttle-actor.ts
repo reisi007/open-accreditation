@@ -54,21 +54,53 @@
  *   and **14** against a cold database — each fresh address costs the failed
  *   login plus the one after activation. COUNTED 2026-10-04, and the previous
  *   number in this bullet ("one or two per run", "ONE stable address") was
- *   wrong on both counts; the conclusion it carried is unchanged, because 14 is
- *   still far below the 40/min `login` floor. The count is `withReviewUser`'s
+ *   wrong on both counts; the conclusion it carried is unchanged, because 14 is a
+ *   per-RUN slice spread over a run of minutes rather than one window, and the
+ *   floor it spends from is budgeted for the whole suite by worker count — not
+ *   won by making this one slice small. The count is `withReviewUser`'s
  *   invocations on the build path, and the dataset is built ONCE per run
  *   (`dataset.ts` memoises per process and hands the record to the other
  *   workers), so 7 is per run, not per capture.
  *   Two neighbours are deliberately NOT part of this exclusion, so they cannot be
  *   counted against it: the harness' ADMIN logins run through `loginAdminApi()`,
  *   which wires the header exactly like every other spec, and each admin/user
- *   capture logs in through the application's own form (`loginViaUi`, once per
- *   capture) — that one spends from the same shared per-ip `login` bucket. What
- *   covers all of it is the backend's env-dependent floor, not a per-capture
- *   split: `login`/`register` at 40/30 and `public`/`verify` at 300/300 per min
- *   in `local`/`testing` (`AppServiceProvider.php:128,129,159,171` — raised for
- *   exactly this harness). A test-only header has no place in a harness whose job
- *   is to capture what a browser sees.
+ *   capture logs in through the application's own form — `loginViaUi`, once per
+ *   capture (`ui-screenshots.spec.ts:644` admin, `:646` user) — which spends from
+ *   the same shared per-ip `login` bucket. COUNTED 2026-10-04 from the manifest
+ *   (`routes` × `states` × `viewports`, the loop at `ui-screenshots.spec.ts:614-617`,
+ *   one `loginViaUi` per expanded test), NOT estimated: the 14 `auth: 'admin'` and
+ *   3 `auth: 'user'` routes expand to **47** form logins in that generic spec —
+ *   admin 37 = 6 routes × 2 states × 2 viewports (24) + 5 × 1 × 2 (10) + the 3
+ *   desktop-only badge-editor routes × 1 × 1 (3); user 10 = 2 × 2 × 2 (8) + 1 × 1 × 2
+ *   (2) — and `badge-print.spec.ts:64` adds **1**. So **48 form logins in one
+ *   pass** over the whole screenshot suite, next to the 7/14 from the bullet above.
+ *   48 is the TOTAL of a run that spans minutes, not a per-minute rate: this harness
+ *   deliberately holds `workers: 2` against exactly that budget
+ *   (`playwright.screenshots.config.ts:69-72`), and neither the rate those 48
+ *   produce per minute nor a 429 this harness ever took on `login` is measured
+ *   from this file. The project split skips each capture in the viewport it does
+ *   not render, so no capture logs in twice.
+ *
+ *   WHICH floor covers WHICH harness — not one floor for both. Attributing all
+ *   four to this harness was wrong, and it made the exclusion rest on numbers
+ *   that were never raised for it (`AppServiceProvider.php`):
+ *
+ *   - `login` 40 / `register` 30 per min in `local`/`testing` (`:128`, `:129`).
+ *     The provider names the PARALLEL E2E SUITE as their reason — ~17 logins/min
+ *     on `@feature:accreditation` (`:114-115`) plus concurrent `register` — and
+ *     calls them the headroom for clients that send NO actor at all (`:126-127`),
+ *     this screenshot suite among them. It CONSUMES that floor; it did not create
+ *     it. (It does send `register` POSTs of its own: 7 against a cold database,
+ *     the `withReviewUser` branch at `dataset.ts:469`, none in the steady state.)
+ *   - `public` 300 / `verify` 300 per min (`:159`, `:171`) — THESE two are raised
+ *     for this harness, and measurably so: 2 workers on ONE ip exhausted the old
+ *     60/min mid-run, a 70-GET burst answering exactly 60×200 then 10×429
+ *     (`:151-156`; the same reasoning for `verify` at `:163-170`).
+ *
+ *   So the exclusion does rest on a floor — and the floor MEASURED for this harness
+ *   is the `public`/`verify` pair, while the login budget is borrowed headroom.
+ *   A test-only header still has no place in a harness whose job is to capture what
+ *   a browser sees.
  * - **Browser contexts** (`browser.newContext` — 4 sites in `a11y.spec.ts` and
  *   `admin-mobile-layout.spec.ts`). Those specs log in through the application's
  *   own login FORM (`getByLabel('E-Mail')` → `Anmelden`, measured at
