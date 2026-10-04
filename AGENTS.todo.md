@@ -962,8 +962,8 @@ auffällige direkte Zahl.
 
 **Umgesetzt 2026-10-04 (keine Locks, sondern Isolation — gemessen begründet):**
 - Mutex 1 (Venue-Rennen, 5 Aufrufer): Adoption statt Wurf (`admin-data.ts:432-486`) — non-201 → Re-Read → exakte Namensübereinstimmung adoptieren (inkl. Reaktivierung); fail-closed ohne Fund. Gemessen: 5×POST 1×201/4×422; mit Fix `portal.spec.ts` 4/4 bei 4 Workern, ohne Fix 1 failed / 3 passed.
-- Mutex 2 (Bootstrap-Team per Test gelöscht): `rememberOwnedRow('teams', …)` entfernt (`:1349`) — geteilte Master Data, serieller Teardown gibt zurück (Regel wie Venues `namespace-isolation.spec.ts:1019-1023). Abgeleitet aus FK-Graph (`events.team_id`/`categories.team_id` = `cascade`) + adoptierenden Aufrufern, nicht per Reproduktion (Fenster zu klein für Teilmengen-Läufe).
-- Gate gegen Rückkehr: `namespace-isolation.spec.ts:758-808` verbietet `rememberOwnedRow('teams'|'venues')` (Mutation beidseitig rot).
+- Mutex 2 (Bootstrap-Team per Test gelöscht): `rememberOwnedRow('teams', …)` entfernt (`:1349`) — geteilte Master Data, serieller Teardown gibt zurück (Regel wie Venues `namespace-isolation.spec.ts:1059-1063`). Abgeleitet aus FK-Graph (`events.team_id`/`categories.team_id` = `cascade`) + adoptierenden Aufrufern, nicht per Reproduktion (Fenster zu klein für Teilmengen-Läufe).
+- Gate gegen Rückkehr: `namespace-isolation.spec.ts:769-848` verbietet `rememberOwnedRow('teams'|'venues')` (Mutation beidseitig rot).
 - **Kein `lock:` — bewusst:** Playwright-1.63-Locks sind dispatcher-lokal (kein File, kein prozessübergreifender Mechanismus); sie serialisierten 5 UI-Tests für ein Sub-Sekunden-Fenster, und ein 5. Aufrufer bliebe ungeschützt (Skill: Isolation schlägt Lock). Logo-Datei-Mutex bleibt (deckt zweiten Harness-Prozess). Ownership-Serial-Block unberührt (Treiber-Notwendigkeit, keine Mutex).
 - Rate-Funde → Position 49 (429-Cluster, kein Lock). **Offen:** Laufzeit-Klassifizierung (Skill-Schritt 3: strict mit `--workers=4`, `retries: 0`) — erst danach Worker-Entscheid.
 
