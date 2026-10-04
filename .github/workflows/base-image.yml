@@ -27,8 +27,43 @@ name: Build and Push Base Image
 on:
   push:
     branches: [ "main" ]
+    # ------------------------------------------------------------------------
+    # Include-Liste (`paths`), BEWUSST kein `paths-ignore` — die Abweichung vom
+    # Skill `github-ci-filters` (Schritt 2) ist hier die richtige Form und
+    # gemessen begründet:
+    #
+    # Der Skill empfiehlt `paths-ignore` für den DOKU-Fall: die Ignore-Menge
+    # (eine Handvoll `.md`) ist winzig, die interessante Menge (aller Code) ist
+    # riesig. Hier ist es umgekehrt: die Build-Eingabemenge ist POSITIV und
+    # winzig (der Build-Kontext selbst), die Ignore-Menge wäre "alles andere im
+    # Repo". `paths-ignore` kann das nicht ausdrücken — es gibt dort keine
+    # Negation (`!`), nur `paths` kennt sie. Man müsste also `backend/**`,
+    # `frontend/**`, `features/**` … einzeln auflisten und stünde dann vor
+    # derselben Aufgabe wie heute: eine Liste pflegelassen, die auseinanderlaufen
+    # kann. Und jeder Fehler geht in die gefährliche Richtung: ein neuer
+    # Ordner, den niemand ignoriert, löst stattdessen einen unnötigen Image-Build
+    # mit Tag-Push auf `:8.5`/`:latest` aus (teuer, aber harmlos) — ein neuer
+    # Input, den niemand GELISTET hat, wird nie gebaut (still, dauerhaft).
+    #
+    # `deployment/**` statt `deployment/Dockerfile` (vorher): der Build liest
+    # mit `context: deployment` den GANZEN Ordner und installiert daraus drei
+    # Skripte per `RUN --mount=type=bind` — `deployment/Dockerfile:216`
+    # (`entrypoint.sh`), `:251` (`backend-supervisor.sh`), `:252`
+    # (`backend-healthcheck.sh`), jeweils mit `sh -n`-Smoke-Test. Die alte
+    # Liste nannte nur das Dockerfile: eine Änderung an `entrypoint.sh` allein
+    # hat das Basis-Image NICHT neu gebaut, das publizierte `:8.5`/`:latest`
+    # behielt das alte Skript. Gebremst wird das nur durch den nightly Cron
+    # (`0 1 * * *`) — also bis zu 24 h Drift auf genau dem Skript, das der
+    # Deploy ausführt (AGENTS.md §10 A6). Der Kontext-Pfad als Muster zu
+    # nehmen macht die Liste an den Kontext gekoppelt statt an eine Aufzählung:
+    # eine neue Datei in `deployment/` kann nicht mehr übersehen werden.
+    #
+    # Der Root-`.dockerignore` ist bewusst NICHT gelistet: laut eigener
+    # Dokumentation in `.dockerignore` wird er für `context: deployment` gar
+    # nicht gelesen — er ist damit kein Build-Input.
+    # ------------------------------------------------------------------------
     paths:
-      - 'deployment/Dockerfile'
+      - 'deployment/**'
       - '.github/workflows/base-image.yml'
   schedule:
     - cron: '0 1 * * *'

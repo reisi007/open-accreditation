@@ -8,9 +8,63 @@ name: CI
 # Unterschiedlich ist nur das Fehler-Budget: verzeihendes Profil für
 # Push/PR/Default-Dispatch, striktes Profil für `schedule` (Nightly) und
 # `e2e_suite=strict` (siehe Run-Step).
+#
+# --------------------------------------------------------------------------
+# `paths-ignore: '**/*.md'` auf BEIDEN dateiändernden Events (Skill
+# `github-ci-filters`). Vorher fuhr ein Commit, der einen Satz Prosa änderte,
+# die volle Pipeline (Backend + Backend-pgsql + Frontend + E2E-Shards).
+#
+# Warum `paths-ignore` und nicht `paths`: die Ausfall-Asymmetrie. Eine zu
+# schmale Ignore-Liste kostet EINEN überflüssigen Lauf (laut, harmlos);
+# eine zu schmale Include-Liste heißt "dieser Job läuft für diese Datei
+# nie" — ohne Fehler, ein gefilterter Workflow ist kein fehlgeschlagener
+# Workflow. Und-Semantik upstream: sind ALLE geänderten Pfade ignoriert,
+# läuft der Workflow nicht; trifft ein Pfade NICHTS, läuft er. Doku+Code
+# kann deshalb nie still übersprungen werden.
+#
+# Warum NUR `.md` (gemessen, nicht angenommen):
+#   * Zwei unabhängige Sweeps (zitiertes `.md`-Literal; `backend/app`,
+#     `frontend/src`, `backend/tests`, `frontend/tests`, `scripts`,
+#     `deployment`, `.github`) fanden KEINEN Laufzeit-Leser: kein
+#     `file_get_contents`/`readFileSync`/Fixture-Array zeigt auf eine
+#     versionierte `.md`. Die Treffer sind Prosa in Kommentaren sowie ein
+#     externer CHANGELOG-Link im Laravel-Default-View.
+#   * Kein Markdown-Lint, kein Link-Checker im Repo (Suche nach
+#     markdownlint/remark/linkinator/lychee/vale: 0 Treffer) — die
+#     "Doku braucht einen eigenen Lauf"-Sonderfall der Skill-Step-1-Regel
+#     greift nicht.
+#   * `.md` = 24 versionierte Dateien (5 Root, `features/**`, `AGENTS.*`,
+#     `Agents.headless.md`, `backend/README.md`, `frontend/README.md`, …).
+#
+# Warum `.github/**` hier NICHT ignoriert wird (gemessen, und nicht nur
+# Konvention der Skill-Regel): `ci.yml` ist selbst ein Gate-Input.
+# `backend/tests/Feature/DotenvReaderMatchesPhpDotenvTest.php:458,1785` liest
+# es per `repositoryFile('.github/workflows/ci.yml')` und prüft die
+# sed/grep-Zeilen der Job-Definition; `frontend/tests/e2e/ownership-probe/
+# run-child.test.ts:536` liest es per `readFileSync` und pinned, dass der
+# `e2e`-Job in einem `container:` mit `options: --init` steckt. Ein
+# `.github/**` in der Ignore-Liste würde diese Tests still verschwinden
+# lassen — die Pipeline muss immer in der Lage sein, sich selbst zu testen.
+#
+# Warum `'**/*.md'` und nicht `'*.md'`: letzteres matcht nur die Repo-Wurzel.
+# `'**/*.md` matcht in jeder Tiefe, inklusive Wurzel.
+#
+# Warum KEIN `branches:`-Filter dazukommt: es gibt hier keinen, den man
+# behalten müsste — Trigger ist bewusst "alle Branches". Branch- und
+# Pfadfilter komponieren mit UND; ein `branches: [main]` hier wäre eine
+# Trigger-Verengung und damit eine eigene, hier nicht beauftragte Änderung.
+#
+# `schedule` und `workflow_dispatch` bleiben unberührt: Pfadfilter werden
+# upstream nur für `push`/`pull_request` ausgewertet — der Nightly
+# (Flakiness-Detektor, striktes Budget) und der manuelle Dispatch laufen
+# unverändert an jedem Tag, auch wenn der Tag nur Doku bewegt hat.
 on:
   push:
+    paths-ignore:
+      - '**/*.md'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
   # Nightly: dieselbe volle Suite, aber mit dem strikten Profil (retries: 0,
   # maxFailures: 1) — der Flakiness-Detektor.
   schedule:

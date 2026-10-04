@@ -7,8 +7,9 @@ name: Build and Push accriditation-e2e Image
 #
 # Rebuild-Trigger (Playwright-Browser sind an die @playwright/test-Version
 # gebunden!):
-#   * Push auf main bei Aenderung von Dockerfile.e2e, Workflow oder
-#     frontend/pnpm-lock.yaml (Dependabot-Bumps -> Image muss nachziehen)
+#   * Push auf main bei Aenderung von `deployment/**` (Build-Kontext UND
+#     Dockerfile.e2e), von `frontend/pnpm-lock.yaml` ODER von
+#     `frontend/package.json` (Dependabot-Bumps -> Image muss nachziehen)
 #   * Weekly (Mo 02:00 UTC) als Frische-Untergrenze
 #   * workflow_dispatch manuell
 #
@@ -25,10 +26,26 @@ name: Build and Push accriditation-e2e Image
 on:
   push:
     branches: [ "main" ]
+    # ------------------------------------------------------------------------
+    # Include-Liste (`paths`), BEWUSST kein `paths-ignore` — Abweichung vom
+    # Skill `github-ci-filters` (Schritt 2), hier gemessen begründet. Die
+    # ausführliche Begründung steht in `base-image.yml` (gleiche Form, gleiche
+    # Gründe); der eine Unterschied ist, dass dieser Workflow zusätzlich Dateien
+    # AUSSERHALB des Build-Kontexts liest — der `versions`-Step unten zieht
+    # ZWEI Dateien per `sed`:
+    #   * `frontend/pnpm-lock.yaml` -> `PLAYWRIGHT_VERSION`  (war gelistet)
+    #   * `frontend/package.json`   -> `PNPM_VERSION` aus dem `packageManager`-Pin
+    #                                    (war NICHT gelistet)
+    # Ein `paths-ignore` könnte die beiden nicht von `frontend/**` ausnehmen —
+    # es kennt keine Negation — und würde damit jeden Frontend-Commit einen
+    # Image-Build plus Tag-Push auf `:latest` auslösen. Genau der Fall, den
+    # der Nightly nur mit bis zu 7 Tagen Latenz auffängt.
+    # ------------------------------------------------------------------------
     paths:
-      - 'deployment/Dockerfile.e2e'
-      - '.github/workflows/e2e-image.yml'
+      - 'deployment/**'
       - 'frontend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - '.github/workflows/e2e-image.yml'
   schedule:
     - cron: '0 2 * * 1'
   workflow_dispatch:

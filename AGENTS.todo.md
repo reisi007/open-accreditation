@@ -1001,16 +1001,6 @@ Workflow umgestellt werden (wie die `ci.yml`-Ausnahme oben). Die zitierten
 Skill-Zeilen (`SKILL.md:20-25`, `:8-10`) gelten nach dem Englisch-Pass
 unverändert fort.
 
-### 51 — `github-ci-filters`: Docs-only läuft voll, Image-Jobs mit Inklusionsliste
+### ✅ 51 — `github-ci-filters`: umgesetzt 2026-10-04 (Verifikation Runde 36 steht aus)
 
-Skill `github-ci-filters`: `paths-ignore` statt `paths` (Ausfall-Asymmetrie),
-beide Trigger filtern, Branch-Protection vorher prüfen. Gemessen: `ci.yml:11-14`
-hat **keinen** Pfadfilter — ein Docs-only-Commit fährt die volle Pipeline;
-`base-image.yml:30` und `e2e-image.yml:28` nutzen `paths:`-Inklusionslisten statt
-`paths-ignore`. Filter-sicher wäre es: der Branch ist unprotected (`gh api
-…/branches/main/protection` → 404 `Branch not protected`, 2026-10-04), und der
-Step-1-Sweep fand keinen Check, der eine `.md`-Datei als Input liest (kein
-quoted `.md`-Literal in `backend/app`, `backend/tests`, `frontend/src`,
-`frontend/tests`, `scripts`). Position: `paths-ignore` für `ci.yml` prüfen und
-die Image-`paths:` auf `paths-ignore` umstellen oder die Abweichung begründen —
-ohne ein Gate zu schwächen (Skill Schritt 4).
+**Was gebaut wurde:** `ci.yml` `paths-ignore: ['**/*.md']` auf `push` + `pull_request` (24/649 Pfade, kein `.md`-Leser im Repo, Branch unprotected gemessen); Image-`paths:` **behalten mit Begründung** (Build-Eingabe positiv+winzig; `paths-ignore` ohne Negation unpflegbar) — aber zwei echte Lücken geschlossen: `deployment/Dockerfile` → `deployment/**` (Skripte per `RUN --mount` installiert, bis 24 h Drift), `e2e-image` + `frontend/package.json` (PNPM_VERSION aus Pin, bis 7 Tage Drift). Gate-Gefährdung: 0 Key-Diffs, kein erlöschender Check (Dependabot kann keinen `.md`-only-PR erzeugen). Messung 40 Commits: 9 SKIP / 30 RUN / 0 Mismatch. Echte Bewährung (Docs-Commit ohne Run) erst nach Push beobachtbar.
