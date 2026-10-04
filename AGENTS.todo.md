@@ -983,7 +983,7 @@ Skill `node-deps` (agents-skills) verbietet den `packageManager`-Pin in
 (`:8-10`); Updates laufen via pnpm ins Lockfile. Gemessen:
 `frontend/package.json:6` trägt `"packageManager": "pnpm@11.23.0"`;
 `frontend/pnpm-workspace.yaml:6-11` pinnt sechs `overrides` exakt; konform sind
-die Ranges (`frontend/package.json:40-51`, exakt nur die eigene `version:
+die Ranges (`frontend/package.json:29-77`, exakt nur die eigene `version:
 0.1.0`) und das Fehlen von `minimumReleaseAgeExclude`. Spannung, nicht nur
 Formalität: CI liest den Pin via `package_json_file` (`ci.yml:476`, `:729`) —
 die skill-konforme Form (`version: 11` im Workflow) braucht die Umstellung
