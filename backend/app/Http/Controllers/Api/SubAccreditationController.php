@@ -37,6 +37,31 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  *                                            NOT enforced (overbooking
  *                                            allowed, the P3d allocation
  *                                            decides)
+ *
+ * ## The five `apply` refusals are catalog strings
+ *
+ * `sub_accreditations.*` in `lang/{de,en}/messages.php`, negotiated by
+ * `SetRequestLocale`, same mechanism as the main-row twin in
+ * `AccreditationController`. All five were English literals while its sibling
+ * three hundred lines away had already been localized — this action was written
+ * as a near-copy, in a different session, and the SPA reads both through ONE
+ * call site (`MyAccreditationsPage` renders `err.message` verbatim on the sub
+ * button), so the miss was invisible in the main-row specs.
+ *
+ * A SEPARATE group rather than `accreditations.*`: every sentence here is about
+ * the sub row, and the main-row keys would name the wrong one. The duplicate
+ * guard uses ONE key at both of its `abort()`s (the explicit check and the
+ * `UNIQUE` race catch below it) for the same reason as over there — they state
+ * one fact, and two keys would let the two answers drift apart.
+ *
+ * `not_found` is not a refusal the applicant caused: it answers 404 for a sub
+ * that is inactive, or whose main accreditation is. It is a catalog string
+ * anyway, because that body reaches the same `err.message` the user reads.
+ *
+ * It is NOT the body for a foreign sub or a non-existent id — `SubAccreditation`
+ * scopes its route binding to the current mandant, so those two 404 from the
+ * binding with Laravel's own wording and never reach this method (measured; see
+ * `SubAccreditationTest::test_sub_apply_inactive_or_foreign_sub_is_404`).
  */
 class SubAccreditationController extends Controller
 {
@@ -75,7 +100,7 @@ class SubAccreditationController extends Controller
             ->whereHas('accreditation', fn (Builder $q) => $q->forMandant($mandant->id)->active())
             ->first();
 
-        abort_if($sub === null || ! $sub->active, 404, 'Sub-accreditation not found.');
+        abort_if($sub === null || ! $sub->active, 404, __('messages.sub_accreditations.not_found'));
 
         // (2) Main dependency (D9): a sub-application is only possible on top
         // of an approved main application for the sub's accreditation. With
@@ -88,17 +113,17 @@ class SubAccreditationController extends Controller
             ->orderBy('id')
             ->first();
 
-        abort_if($application === null, 422, 'Approve the main accreditation first.');
+        abort_if($application === null, 422, __('messages.sub_accreditations.main_not_approved'));
 
         // (3) Deadline window (Carbon, no SQL date arithmetic). A window runs
         // from 00:00:00 of `deadline_start` through 23:59:59 of
         // `deadline_end` (the day counts in full).
         if ($sub->deadline_start !== null && now()->lt($sub->deadline_start->startOfDay())) {
-            abort(422, 'Applications for this sub-accreditation are not open yet.');
+            abort(422, __('messages.sub_accreditations.not_open_yet'));
         }
 
         if ($sub->deadline_end !== null && now()->gt($sub->deadline_end->endOfDay())) {
-            abort(422, 'The application deadline for this sub-accreditation has passed.');
+            abort(422, __('messages.sub_accreditations.deadline_passed'));
         }
 
         // (4) Duplicate guard: the unique (sub_accreditation_id,
@@ -111,7 +136,7 @@ class SubAccreditationController extends Controller
             ->exists();
 
         if ($duplicate) {
-            abort(422, 'You have already applied for this sub-accreditation.');
+            abort(422, __('messages.sub_accreditations.already_applied'));
         }
 
         // (5) Quota is deliberately NOT enforced here — overbooking is
@@ -126,7 +151,7 @@ class SubAccreditationController extends Controller
             ]);
         } catch (QueryException $e) {
             if (str_contains($e->getMessage(), 'UNIQUE')) {
-                abort(422, 'You have already applied for this sub-accreditation.');
+                abort(422, __('messages.sub_accreditations.already_applied'));
             }
 
             throw $e;

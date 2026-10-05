@@ -6,11 +6,11 @@
  * deliberately does NOT cover are documented in `lang/de/messages.php` — read
  * that one first; this file only adds the language.
  *
- * ## NINE of the TEN keys are byte-identical to the literals they replace
+ * ## FOURTEEN of the FIFTEEN keys are byte-identical to the literals they replace
  *
- * They are the English the literals in `app/Http/Controllers/Api/` already
- * answered, character for character — which is a CONTRACT, not an accident of
- * typing:
+ * The first nine (of the first ten) are the English the literals in
+ * `app/Http/Controllers/Api/` already answered, character for character — which
+ * is a CONTRACT, not an accident of typing:
  *
  *  - `frontend/tests/e2e/helpers/ownership.ts` classifies the withdraw 422 by
  *    WHOLE-MESSAGE equality against `'Only pending (requested) applications can
@@ -29,7 +29,23 @@
  * English applicant about a sub-application when he clicked the main row's
  * button.
  *
- * ## The one string that is NOT byte-identical to what it replaces
+ * ## The five `sub_accreditations.*` keys, and a weaker reason to pin them
+ *
+ * They are byte-identical too — five more English literals from
+ * `SubAccreditationController::apply` — but the REASON is not the E2E
+ * classifier, and the difference is measured rather than assumed: grepping
+ * `frontend/src` and `frontend/tests` for these five sentences returns NOTHING,
+ * where the two withdraw bodies each have a classifier entry, a spec assertion
+ * and a PHP assertion tying them together.
+ *
+ * So their byte-identity is a courtesy, not a contract: nothing outside this
+ * file can break if they are reworded. They stay unchanged because that is the
+ * default for a translation catalog — the EN answer a client got yesterday does
+ * not change because the DE one improved — and because a rewording would buy
+ * no test, only a diff. Stating that here keeps the strong claim (pinned by the
+ * E2E harness) from being copied onto the keys it does not cover.
+ *
+ * ## The one string of the fifteen that is NOT byte-identical to what it replaces
  *
  * `media.no_image` was German on both sides already, so this catalog INVENTS an
  * English variant where none existed. It is here for the same reason the 422
@@ -61,6 +77,14 @@ return [
         'not_open_yet' => 'Applications for this accreditation are not open yet.',
         'deadline_passed' => 'The application deadline for this accreditation has passed.',
         'already_applied' => 'You have already applied for this accreditation.',
+    ],
+
+    'sub_accreditations' => [
+        'not_found' => 'Sub-accreditation not found.',
+        'main_not_approved' => 'Approve the main accreditation first.',
+        'not_open_yet' => 'Applications for this sub-accreditation are not open yet.',
+        'deadline_passed' => 'The application deadline for this sub-accreditation has passed.',
+        'already_applied' => 'You have already applied for this sub-accreditation.',
     ],
 
     'applications' => [

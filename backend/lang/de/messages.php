@@ -7,10 +7,10 @@
  *
  * `mails.php` holds the admin mail surfaces (resend, requeue). This file holds
  * everything else that answers a `{message}` or an `abort()` text which a
- * reader can see: the apply guards, the withdraw guard, the wallet-pass
- * refusals, the badge export's missing template and the media endpoints'
- * missing image. The split is by SURFACE, not by language, so both files are
- * read together when asking "what does this endpoint say".
+ * reader can see: the apply guards, the sub-apply guards, the withdraw guard,
+ * the wallet-pass refusals, the badge export's missing template and the media
+ * endpoints' missing image. The split is by SURFACE, not by language, so both
+ * files are read together when asking "what does this endpoint say".
  *
  * ## Why these strings exist at all
  *
@@ -40,6 +40,36 @@
  * catalog answers in whatever language its author typed, so every remaining
  * literal is one more exception to this file's existence.
  *
+ * ## `sub_accreditations.*` — five more, from a direct twin
+ *
+ * `SubAccreditationController::apply` is a near-copy of
+ * `AccreditationController::apply`, written in a different session: six
+ * `abort()` sites, five sentences, ALL of them English, while the main-row twin
+ * three lines above them was already cataloged. Both are read by ONE SPA call
+ * site — `MyAccreditationsPage` renders `err.message` verbatim on the sub
+ * button — so this was a second "the refusal you just got is in a foreign
+ * language" surface, invisible in the main-row specs.
+ *
+ * The group exists rather than reusing `accreditations.*` because every one of
+ * the five sentences is about the SUB row, and the main-row keys are not
+ * interchangeable: `messages.accreditations.already_applied` would tell a German
+ * applicant about the wrong row. Same argument as
+ * `applications.sub_withdraw_not_pending` one group down.
+ *
+ * `not_found` is the one key here that is NOT a refusal the applicant caused:
+ * it answers 404 for a sub that is inactive, or whose main accreditation is.
+ * It is here anyway, because the SPA can reach it — `MyAccreditationsPage`
+ * renders that body verbatim on the same button.
+ *
+ * It is NOT the body for a foreign sub or a non-existent id, and the
+ * difference is measured, not assumed: `SubAccreditation::`
+ * `resolveRouteBindingQuery()` scopes the lookup to the host's mandant, so
+ * those two 404 with Laravel's own `'No query results for model…'` and never
+ * reach the controller (asserted in `SubAccreditationTest::
+ * test_sub_apply_inactive_or_foreign_sub_is_404`). A framework body is not
+ * ours to translate — the same reason `accreditations.invalid_token` stays out
+ * of this file, seen from the other side.
+ *
  * ## DE is the source language, and the German answers CHANGE
  *
  * `SetRequestLocale::DEFAULT_LOCALE` is `de`, so the DE catalog is what an
@@ -68,12 +98,16 @@
  *
  * ## Keys are grouped by the surface that answers them
  *
- * Nested one level (`badges.*`, `accreditations.*`, `applications.*`,
- * `wallet.*`, `media.*`), because a flat file would name the SENTENCE and a
- * grouped one names the ENDPOINT — and the reader of a 422 body wants the
- * second. Where two branches of the same contract needed different nouns, they
- * got different keys instead of one interpolated string: an English admin must
- * not read "this sub-application" about a main row, in either language.
+ * Nested one level (`badges.*`, `accreditations.*`, `sub_accreditations.*`,
+ * `applications.*`, `wallet.*`, `media.*`), because a flat file would name the
+ * SENTENCE and a grouped one names the ENDPOINT — and the reader of a 422 body
+ * wants the second. Where two branches of the same contract needed different
+ * nouns, they got different keys instead of one interpolated string: an English
+ * admin must not read "this sub-application" about a main row, in either
+ * language. `accreditations.*` and `sub_accreditations.*` are two ENDPOINTS of
+ * one UI button, not two languages of one sentence — see the section above.
+ *
+ * Fifteen keys in six groups.
  *
  * ## What each group does NOT cover, named rather than implied
  *
@@ -92,6 +126,14 @@ return [
         'not_open_yet' => 'Für diese Akkreditierung sind noch keine Anträge möglich.',
         'deadline_passed' => 'Die Antragsfrist für diese Akkreditierung ist abgelaufen.',
         'already_applied' => 'Du hast dich für diese Akkreditierung bereits beworben.',
+    ],
+
+    'sub_accreditations' => [
+        'not_found' => 'Sub-Akkreditierung nicht gefunden.',
+        'main_not_approved' => 'Die Haupt-Akkreditierung muss zuerst freigegeben werden.',
+        'not_open_yet' => 'Für diese Sub-Akkreditierung sind noch keine Anträge möglich.',
+        'deadline_passed' => 'Die Antragsfrist für diese Sub-Akkreditierung ist abgelaufen.',
+        'already_applied' => 'Du hast dich für diese Sub-Akkreditierung bereits beworben.',
     ],
 
     'applications' => [

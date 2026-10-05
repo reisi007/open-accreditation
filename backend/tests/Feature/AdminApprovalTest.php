@@ -878,10 +878,10 @@ class AdminApprovalTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
-     | P3d fixes — English apply errors + inactive main accreditation
+     | P3d fixes — localized apply errors + inactive main accreditation
      | ------------------------------------------------------------------- */
 
-    public function test_sub_apply_without_approved_main_uses_english_message(): void
+    public function test_sub_apply_without_approved_main_answers_the_catalog(): void
     {
         $accreditation = $this->createAccreditation(['quota' => 20]);
         $sub = $this->createSub($accreditation, 'park', 5);
@@ -890,7 +890,13 @@ class AdminApprovalTest extends TestCase
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Approve the main accreditation first.');
+            // German, because that is what this suite's baseline client speaks
+            // (`TestCase::speakGermanByDefault`) and what the key says. The body
+            // was the English literal `'Approve the main accreditation first.'`
+            // — the very string whose absence from the controllers
+            // `ApiMessageLocaleTest` now scans for. Both locales are pinned per
+            // key there.
+            ->assertJsonPath('message', __('messages.sub_accreditations.main_not_approved'));
     }
 
     public function test_sub_apply_on_inactive_main_accreditation_is_404(): void
@@ -901,7 +907,12 @@ class AdminApprovalTest extends TestCase
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
-            ->assertStatus(404);
+            ->assertStatus(404)
+            // The 404 body is a catalog string, not a framework default: the
+            // SPA renders `err.message` on the same button. Asserting it here
+            // means the inactive-main path and the 404 message cannot drift
+            // apart again.
+            ->assertJsonPath('message', __('messages.sub_accreditations.not_found'));
     }
 
     /* ---------------------------------------------------------------------

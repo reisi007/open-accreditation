@@ -413,7 +413,11 @@ class SubAccreditationTest extends TestCase
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$sub->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Approve the main accreditation first.');
+            // German, because that is what this suite's baseline client speaks
+            // (`TestCase::speakGermanByDefault`) and what the key says; the body
+            // was an English literal until `messages.sub_accreditations.*`
+            // landed. Both locales are pinned per key in `ApiMessageLocaleTest`.
+            ->assertJsonPath('message', __('messages.sub_accreditations.main_not_approved'));
     }
 
     public function test_sub_apply_with_requested_or_denied_main_is_422(): void
@@ -471,12 +475,25 @@ class SubAccreditationTest extends TestCase
 
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$inactive->id.'/apply')
-            ->assertStatus(404);
+            ->assertStatus(404)
+            // The INACTIVE sub is the catalog branch: the route's binding
+            // resolves it (same mandant), and the controller's own
+            // `! $sub->active` check refuses it. The body is a catalog string,
+            // not a framework default, because the SPA renders `err.message` on
+            // this button; both locales are pinned per key in
+            // `ApiMessageLocaleTest`.
+            ->assertJsonPath('message', __('messages.sub_accreditations.not_found'));
 
         $categoryB = $this->mandantB->categories()->create(['name' => 'Presse', 'slug' => 'presse-b']);
         $accreditationB = $this->mandantB->accreditations()->create(['category_id' => $categoryB->id, 'scope' => 'season', 'quota' => 20]);
         $foreign = $accreditationB->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
 
+        // The FOREIGN sub never reaches the controller: `SubAccreditation::
+        // resolveRouteBindingQuery()` scopes the lookup to the host's mandant, so
+        // the binding answers 404 itself — `'No query results for model
+        // [App\Models\SubAccreditation] …'`, Laravel's wording. Measured, and
+        // deliberately NOT asserted as copy: that body belongs to the framework,
+        // and a framework body is not something this catalog may translate.
         $this->actingAsApi($user)
             ->postJson('/api/sub-accreditations/'.$foreign->id.'/apply')
             ->assertStatus(404);

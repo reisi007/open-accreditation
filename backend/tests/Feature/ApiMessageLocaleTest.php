@@ -20,24 +20,33 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * The nine `{message}` bodies outside the mail surfaces answer in the
- * REQUEST's language.
+ * The `{message}` bodies outside the mail surfaces answer in the REQUEST's
+ * language — FIFTEEN keys, asserted over the two apply actions, the two
+ * withdraw actions, the wallet passes, the badge export and the five media
+ * routes.
  *
  * ## The defect this pins
  *
- * Eight of the nine were ENGLISH literals in `app/Http/Controllers/Api/` and
- * the SPA renders every one of them VERBATIM — `ApplyPage`,
- * `MyAccreditationsPage` and `ApprovalsPage` all show `err.message` — so a
- * German-locale applicant was refused in a foreign language on his own screen,
- * and the media 404 was the same sentence in German on five different routes.
- * The ninth (`MediaAccelRedirectTest.php:338`) was German and stayed that way.
+ * Every one of them was a hardcoded literal in `app/Http/Controllers/Api/` and
+ * the SPA renders most of them VERBATIM — `ApplyPage`, `MyAccreditationsPage`
+ * and `ApprovalsPage` all show `err.message` — so a German-locale applicant was
+ * refused in a foreign language on his own screen. Fourteen were ENGLISH; the
+ * media 404 was the same German sentence on five different routes.
+ *
+ * The set came in three passes, and the shape of the third is why this class
+ * has one method per ENDPOINT rather than one per key: `AccreditationController`
+ * (the main apply) was localized first, then the remaining nine bodies, then the
+ * five of `SubAccreditationController::apply` — a near-copy of the first action,
+ * written in another session, which therefore carried the whole defect a second
+ * time while its twin was already fixed. Both are read through the SAME SPA call
+ * site, so no main-row assertion could have seen it.
  *
  * ## What makes a test of "it is localized" non-vacuous here
  *
  *  - **BOTH locales on EVERY surface.** Not one endpoint: the gap was measured
- *    across the apply guards, the withdraw guards, the wallet refusals, the
- *    badge export and five media routes, and a fix on the first four would
- *    leave the fifth English.
+ *    across the apply guards, the sub-apply guards, the withdraw guards, the
+ *    wallet refusals, the badge export and five media routes, and a fix on the
+ *    first four would leave the fifth English.
  *  - **The catalogs themselves**, because "the endpoint answers something" and
  *    "the endpoint answers the CATALOG's sentence" are different claims. Laravel
  *    answers a missing key with the key itself (`messages.badges.no_template`),
@@ -45,7 +54,9 @@ use Tests\TestCase;
  *  - **That no literal came back.** The last test in this class scans the
  *    controller sources for the exact English sentences this file replaced, so a
  *    re-introduced literal fails HERE instead of silently answering one route
- *    in a catalog language and its sibling in a hardcoded one.
+ *    in a catalog language and its sibling in a hardcoded one. Its file list is
+ *    GLOBBED over all three directory depths, after a hand-kept list of four
+ *    top-level controllers turned out to cover 4 of the 11 that exist.
  *
  * ## The asymmetry, stated rather than averaged away
  *
@@ -54,10 +65,13 @@ use Tests\TestCase;
  * WHOLE-MESSAGE equality and a reworded EN string would fail every E2E run that
  * carries a decided row. The DE wording is free to be German — that is the fix.
  * `media.no_image` is the one key where DE and EN agree, and
- * `test_the_german_media_wording_is_unchanged_byte_for_byte` pins why.
+ * `test_the_german_media_wording_is_unchanged_byte_for_byte` pins why. The five
+ * sub-apply keys are byte-identical too, but NOTHING enforces that: measured, no
+ * frontend source or test contains those sentences, and the class says so at the
+ * assertion rather than borrowing the withdraw pair's stronger claim.
  *
  * ## MUTATIONS, measured on 2026-10-05 over this class and the six classes whose
- * assertions this change touches (`AccreditationTest`, `BadgeTest`,
+ * assertions the first change touches (`AccreditationTest`, `BadgeTest`,
  * `SubAccreditationRevocationTest`, `WalletTest`, `MediaAccelRedirectTest`,
  * `MandantMediaSelfServiceTest`, plus `ServerMessageLocaleTest` as the
  * neighbour that must not move) — 298 tests before, 298 after:
@@ -77,6 +91,67 @@ use Tests\TestCase;
  *  - restoring the literal in `WalletController::ownApprovedSubApplication` →
  *    **4 red**: the wallet test here, the source scan, and both existing specs
  *    that pin that body (`SubAccreditationRevocationTest`, `WalletTest`).
+ *
+ * ## The sub-apply pass, measured 2026-10-05 over this class + `SubAccreditationTest`
+ * ## + `AdminApprovalTest` — 136 before, 136 after
+ *
+ *  - `'Approve the main accreditation first.'` back into
+ *    `SubAccreditationController` → **4 red**: the sub-apply method here, the
+ *    source scan, and the two specs that moved to the key.
+ *  - `'Sub-accreditation not found.'` back into the 404 branch → **4 red**: the
+ *    sub-apply method, the scan, and the two specs that pin that body —
+ *    `AdminApprovalTest::test_sub_apply_on_inactive_main_accreditation_is_404`
+ *    and `SubAccreditationTest::test_sub_apply_inactive_or_foreign_sub_is_404`.
+ *    Those two were 2 of the 4 only because both body assertions came with the
+ *    key; without them this mutation would have been a 404 body with no reader
+ *    test at all.
+ *  - `'Applications for this sub-accreditation are not open yet.'` back → **2
+ *    red** (this method, the scan). The window and duplicate branches of
+ *    `SubAccreditationTest` assert the STATUS only, which is why this method
+ *    exists per key.
+ *  - one of the two `already_applied` sites back to the literal while the other
+ *    keeps the key → **2 red** (this method, the scan). See the limit below:
+ *    the scan proves neither site is a literal, not that they are the SAME key.
+ *  - the DE key deleted → **exactly 1 red** (catalog parity). Not 3: the EN
+ *    value IS the English literal, so `fallback_locale = en` substitutes it
+ *    silently and the German client is answered in English. The same trap
+ *    {@see test_a_missing_key_is_answered_from_the_fallback_catalog_not_the_key()}
+ *    describes, measured a second time on a key where the fallback is not a
+ *    German sentence.
+ *  - the German value pasted into the EN catalog → **2 red** (the byte-identical
+ *    assertion and the per-key difference).
+ *  - the whole group deleted from EN → **3 red**.
+ *  - **the scan's coverage guard, which is the point of this pass**: with the
+ *    top-level glob removed and no coverage guard — the state the class was in
+ *    before this change, whose file list named 4 of the 11 controllers in `Api/`
+ *    — and `'Approve the main accreditation first.'` back in the controller, the
+ *    scan stayed **GREEN**. Three tests were red and the one whose whole job is
+ *    "did a literal come back" was not among them. Adding the guard makes the
+ *    narrowed glob red on its own (1 red), so the gate cannot be narrowed
+ *    silently again.
+ *  - the 404 fixture pointed at a NON-EXISTENT id → **1 red**: the mandant-scoped
+ *    binding answers 404 with `'No query results for model
+ *    [App\Models\SubAccreditation] …'`, so `not_found` is pinned for the
+ *    INACTIVE branch only. A FOREIGN sub behaves the same way — which is a
+ *    correction, not a detail: an earlier draft of this test's comment called
+ *    the binding "unscoped" and predicted the opposite, and the assertion
+ *    caught it in the run below.
+ *
+ * ## Two limits, named rather than implied
+ *
+ *  - **The `UNIQUE` race catch has no test of its own.** The explicit duplicate
+ *    check always wins in a test — reaching the catch needs both queries to slip
+ *    through — so the body it answers is not observable. The scan proves it is
+ *    not a literal; nothing proves it is the SAME key as the explicit check. The
+ *    two states could be replaced by two different catalog keys and only the
+ *    scan would notice, which is why the controller docblock says ONE key there
+ *    instead of leaving it to chance.
+ *  - **The binding's 404 body is Laravel's and stays untranslated.** It reaches
+ *    the same `err.message` a user reads, and it is still an English framework
+ *    string on a German screen — the same shape of defect this class exists for,
+ *    one layer below our code. Localizing it would mean translating
+ *    `ModelNotFoundException` text, which is a framework contract, not copy; the
+ *    honest statement is that the gate above ends where our code starts.
  */
 class ApiMessageLocaleTest extends TestCase
 {
@@ -165,6 +240,106 @@ class ApiMessageLocaleTest extends TestCase
             ->assertSuccessful();
 
         $this->assertGuardsBothLocales($open->id, 'messages.accreditations.already_applied', $user);
+    }
+
+    /* ---------------------------------------------------------------------
+     | The sub-apply guards
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The sub-row twin's five refusals, both locales.
+     *
+     * `SubAccreditationController::apply` is a near-copy of the action above,
+     * written in a different session, and it carried all five sentences in
+     * English while its twin three hundred lines away was already cataloged.
+     * What made the miss invisible is that BOTH are read through one SPA call
+     * site (`MyAccreditationsPage` renders `err.message` on the sub button), so
+     * a German applicant hit one of the two in a foreign language and neither
+     * main-row spec could see it.
+     *
+     * All five in ONE method, like the main row's three: they are five branches
+     * of one endpoint with one display site, and asserting them together is
+     * what makes "every branch of this action is cataloged" a claim instead of
+     * a list of the ones somebody remembered.
+     */
+    public function test_the_sub_apply_guards_answer_in_the_requested_language(): void
+    {
+        $user = $this->user();
+
+        // (0) 404. An INACTIVE sub: the route's binding is mandant-scoped
+        //     (`SubAccreditation::resolveRouteBindingQuery`), so the row
+        //     resolves and the controller's own `! $sub->active` check is what
+        //     refuses it — that is the branch `not_found` belongs to. A
+        //     non-existent id, and equally a FOREIGN sub, never arrive: the
+        //     binding answers 404 with Laravel's own wording. Measured, both.
+        $inactive = $this->accreditation()->subAccreditations()->create([
+            'type' => 'park', 'quota' => 5, 'active' => false,
+        ]);
+
+        $this->assertSubApplyBothLocales($inactive->id, $user, 'messages.sub_accreditations.not_found', 404);
+
+        // (1) No approved main row — the D9 dependency.
+        $noMain = $this->accreditation()->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+
+        $this->assertSubApplyBothLocales($noMain->id, $user, 'messages.sub_accreditations.main_not_approved', 422);
+
+        // (2)+(3) Both window edges under ONE `now`, so the two fixtures differ
+        //     only in which edge they sit on. Each needs its own sub: the window
+        //     check runs BEFORE the duplicate guard, so one row reused for both
+        //     would answer the second request with `not_open_yet` again and the
+        //     "deadline passed" assertion would be testing the wrong branch.
+        Carbon::setTestNow('2026-09-01 10:00:00');
+
+        $notYet = $this->accreditation()->subAccreditations()->create([
+            'type' => 'seat', 'quota' => 5,
+            'deadline_start' => '2026-09-10', 'deadline_end' => '2026-09-20',
+        ]);
+        $this->approvedMain($notYet->accreditation, $user);
+
+        $this->assertSubApplyBothLocales($notYet->id, $user, 'messages.sub_accreditations.not_open_yet', 422);
+
+        $closed = $this->accreditation()->subAccreditations()->create([
+            'type' => 'seat', 'quota' => 5,
+            'deadline_start' => '2026-08-10', 'deadline_end' => '2026-08-20',
+        ]);
+        $this->approvedMain($closed->accreditation, $user);
+
+        $this->assertSubApplyBothLocales($closed->id, $user, 'messages.sub_accreditations.deadline_passed', 422);
+
+        // (4) The duplicate guard, on a sub with NO deadlines — the window
+        //     branches must not be what refuses it.
+        Carbon::setTestNow('2026-09-15 12:00:00');
+
+        $open = $this->accreditation()->subAccreditations()->create(['type' => 'park', 'quota' => 5]);
+        $application = $this->approvedMain($open->accreditation, $user);
+        SubApplication::create([
+            'sub_accreditation_id' => $open->id,
+            'application_id' => $application->id,
+            'user_id' => $user->id,
+            'status' => 'requested',
+            'priority' => false,
+        ]);
+
+        $this->assertSubApplyBothLocales($open->id, $user, 'messages.sub_accreditations.already_applied', 422);
+    }
+
+    /**
+     * The five EN bodies are the literals they replaced, character for character.
+     *
+     * WEAKER than the withdraw pair above, and deliberately asserted as such:
+     * measured, `frontend/src` and `frontend/tests` contain none of these five
+     * sentences, so no E2E classifier or Vitest assertion can break on a
+     * rewording. They are pinned because an EN client got these strings before
+     * the catalog existed, not because anything enforces it — the difference is
+     * written down so the strong claim stays attached to the keys that earn it.
+     */
+    public function test_the_english_sub_apply_bodies_are_the_literals_they_replaced(): void
+    {
+        $this->assertSame('Sub-accreditation not found.', __('messages.sub_accreditations.not_found', locale: 'en'));
+        $this->assertSame('Approve the main accreditation first.', __('messages.sub_accreditations.main_not_approved', locale: 'en'));
+        $this->assertSame('Applications for this sub-accreditation are not open yet.', __('messages.sub_accreditations.not_open_yet', locale: 'en'));
+        $this->assertSame('The application deadline for this sub-accreditation has passed.', __('messages.sub_accreditations.deadline_passed', locale: 'en'));
+        $this->assertSame('You have already applied for this sub-accreditation.', __('messages.sub_accreditations.already_applied', locale: 'en'));
     }
 
     /* ---------------------------------------------------------------------
@@ -555,7 +730,7 @@ class ApiMessageLocaleTest extends TestCase
      * Every other test in this class asks "does the endpoint answer the catalog".
      * This one asks the question none of them can: whether somebody put a
      * literal BACK. A re-introduced English string would keep every catalog
-     * assertion green on the nine routes under test and reintroduce the defect on
+     * assertion green on the routes under test and reintroduce the defect on
      * the next one — so the gate is on the SOURCES, where the defect actually
      * lives, and it covers the siblings that are only reachable through the
      * tests this class cannot see.
@@ -567,6 +742,11 @@ class ApiMessageLocaleTest extends TestCase
             'Applications for this accreditation are not open yet.',
             'The application deadline for this accreditation has passed.',
             'You have already applied for this accreditation.',
+            'Sub-accreditation not found.',
+            'Approve the main accreditation first.',
+            'Applications for this sub-accreditation are not open yet.',
+            'The application deadline for this sub-accreditation has passed.',
+            'You have already applied for this sub-accreditation.',
             'Only pending (requested) applications can be withdrawn.',
             'Only pending (requested) sub-applications can be withdrawn.',
             'The main accreditation was withdrawn, this wallet pass is no longer valid.',
@@ -575,29 +755,35 @@ class ApiMessageLocaleTest extends TestCase
             'Kein Bild hinterlegt.',
         ];
 
+        // GLOBBED, not hand-listed. `glob('…/Api/**/*.php')` does NOT recurse in
+        // PHP — `**` is just `*` — so the two directory globs below cover only
+        // the NESTED controllers, and the four top-level files this gate used to
+        // name one by one were a hand-kept list. Measured 2026-10-05: it held
+        // 4 of the 11 controllers in `Api/`, so seven were invisible to it,
+        // `SubAccreditationController` among them — the very controller whose
+        // literals this list now carries. A hand-list is a hole that opens the
+        // moment a controller is added; the third glob has no such step.
+        $patterns = [
+            app_path('Http/Controllers/Api/*.php'),
+            app_path('Http/Controllers/Api/*/*.php'),
+            app_path('Http/Controllers/Api/*/*/*.php'),
+        ];
+
         $sources = [];
-        foreach (glob(app_path('Http/Controllers/Api/**/*.php')) ?: [] as $file) {
-            $sources[$file] = file_get_contents($file);
+        foreach ($patterns as $pattern) {
+            foreach (glob($pattern) ?: [] as $file) {
+                $sources[$file] = file_get_contents($file);
+            }
         }
-        // `glob` does not recurse on every platform; walk it explicitly so a
-        // controller in a nested namespace cannot slip past the gate.
-        foreach (glob(app_path('Http/Controllers/Api/*/*.php')) ?: [] as $file) {
-            $sources[$file] = file_get_contents($file);
-        }
-        $sources[app_path('Http/Controllers/Api/AccreditationController.php')] = file_get_contents(
-            app_path('Http/Controllers/Api/AccreditationController.php')
-        );
-        $sources[app_path('Http/Controllers/Api/ApplicationController.php')] = file_get_contents(
-            app_path('Http/Controllers/Api/ApplicationController.php')
-        );
-        $sources[app_path('Http/Controllers/Api/SubApplicationController.php')] = file_get_contents(
-            app_path('Http/Controllers/Api/SubApplicationController.php')
-        );
-        $sources[app_path('Http/Controllers/Api/WalletController.php')] = file_get_contents(
-            app_path('Http/Controllers/Api/WalletController.php')
-        );
 
         $this->assertNotEmpty($sources, 'the controller scan found no sources — the glob is wrong, the gate is vacuous');
+        // The gate is only as good as its coverage: a single scanned file would
+        // pass while every other controller went unexamined.
+        $this->assertGreaterThan(
+            30,
+            count($sources),
+            'the controller scan covers fewer files than the app has controllers — the glob is wrong, the gate is blind',
+        );
 
         foreach ($replaced as $literal) {
             foreach ($sources as $file => $contents) {
@@ -653,10 +839,10 @@ class ApiMessageLocaleTest extends TestCase
     /**
      * One apply guard, both locales, on a row nothing else can refuse.
      *
-     * The DE request comes SECOND on purpose: `withHeader()` writes into
-     * `defaultHeaders` and STICKS, so the reverse order would let a leaked
-     * English header make the German assertion pass against an English answer.
-     * Per-request headers keep the two calls independent.
+     * Both `Accept-Language` values are PER-REQUEST, which is the part that
+     * matters: `withHeader()` writes into `defaultHeaders` and STICKS, so a
+     * leaked English header would make the German assertion pass against an
+     * English answer. The loop order is irrelevant to that.
      */
     private function assertGuardsBothLocales(int $accreditationId, string $key, User $user): void
     {
@@ -666,6 +852,43 @@ class ApiMessageLocaleTest extends TestCase
                 ->assertStatus(422)
                 ->assertJsonPath('message', __($key, locale: $locale));
         }
+    }
+
+    /**
+     * The sub-row twin of {@see assertGuardsBothLocales()}, with the status code
+     * as a parameter because one of the five branches is a 404 and the other
+     * four are 422s.
+     *
+     * Ten requests on ONE user in the calling test, against a `throttle:apply`
+     * budget of 30/min (`SubAccreditationTest::`
+     * `test_sub_apply_rate_limit_blocks_31st_request` measures that number) —
+     * so a branch added here has headroom, but not ten of them.
+     */
+    private function assertSubApplyBothLocales(int $subId, User $user, string $key, int $status): void
+    {
+        foreach (['de', 'en'] as $locale) {
+            $this->actingAsApi($user)
+                ->postJson('/api/sub-accreditations/'.$subId.'/apply', [], ['Accept-Language' => $locale])
+                ->assertStatus($status)
+                ->assertJsonPath('message', __($key, locale: $locale));
+        }
+    }
+
+    /**
+     * The approved main row the sub apply's dependency check looks for.
+     *
+     * Written directly instead of through `POST /api/accreditations/{id}/apply`
+     * + an approval, because the branch under test is the SUB action: spending
+     * main-apply requests on the fixture would eat the same 30/min bucket.
+     */
+    private function approvedMain(Accreditation $accreditation, User $user): Application
+    {
+        return Application::create([
+            'accreditation_id' => $accreditation->id,
+            'user_id' => $user->id,
+            'status' => 'approved',
+            'priority' => false,
+        ]);
     }
 
     /**
