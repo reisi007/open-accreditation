@@ -928,7 +928,7 @@ sondern eine umgegebene, die sich als Code-Fehler ausgab.**
 
 **Widerspruch, gemessen statt vermutet.** `ci.yml:782-786` begründet
 `--workers=1` in **beiden** Profilen mit „parallel workers teilen sich die CI-IP
-und erzeugen 429" (`:813`, `:815`, `:817` pinnen den Wert). Die eigene Messung in
+und erzeugen 429" (`:857`, `:859`, `:861` pinnen den Wert). Die eigene Messung in
 `AppServiceProvider.php:79-80` nennt **~17 Logins/min bei ~8 Workern** gegen ein
 Budget von **40/min** (`:83`) — rund die Hälfte. Beide Zahlen stehen im Repo;
 aufgelöst ist nichts.

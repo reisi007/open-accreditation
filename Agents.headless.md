@@ -204,26 +204,18 @@ haben **gemessen verschiedene** Gründe:
 | Kürzer Testlauf unter Last | **3–5×** gebläht (14 → 56 ms bei 24 Spinnern auf 18 Kernen) | Rauschen ist toleriert (`retries: 2`, `maxFailures: 10`) |
 | Folge von Parallelität | grüne Ampel **ohne Aussagekraft**, OOM killt `mariadbd` | ein RetRY, ein rerun |
 
-**Playwright steht in BEIDEN CI-Profilen auf `--workers=1` — und hier ist die
-Begründung im Repo selbst widersprüchlich, gefunden beim Schreiben des Kommentars
-in `ci.yml`.** Zwei Kommentare derselben Datei behaupten Unvereinbares über
-dieselbe Login-Drossel:
+**Playwright läuft im strikten CI-Profil mit `--workers=4` (gemessen grün 2026-10-05, Position 48) — die Passage unten beschreibt den Vorzustand und bleibt als dessen Begründung lesbar.** Dass zwei Kommentare derselben Datei Unvereinbares über die Login-Drossel behaupteten, wurde durch Messung entschieden, nicht durch Auswahl: der strikte Lauf mit 4 Workern zeigte weder 429-Cluster noch Mutex-Kollision.
 
 - `ci.yml:611-624` (Schritt `Prepare backend environment` + `CACHE_STORE=array`-Kommentar): mit `array` ist der Limiter
   **zustandslos** → er kann keine 40 Logins akkumulieren → **kein 429**.
 - `ci.yml:780` (Run-Step `Run E2E-Suite`, Voll-Lauf `:817`): geteilte CI-IP + 40/min ⇒ parallele Worker
   erzeugen **429** ⇒ darum `--workers=1`.
 
-Beides kann nicht gelten. `CACHE_STORE=array` ist im Job wirksam, es läuft kein
-`config:cache`, also löst `config/cache.php:18` zur **Request-Zeit** auf — die
-zweite Begründung träfe für genau diesen Job dann nicht mehr. **Welche zutrifft,
-ist nicht gemessen**, weil der einzige Ort, an dem es beobachtbar ist, ein voller
-CI-E2E-Lauf ist.
+Beides konnte nicht gelten. Der gemessene Ausweg (statt Auswahl einer der beiden
+Begründungen): strikter Lauf mit `--workers=4` — grün, also weder 429-Cluster
+noch Mutex. **Also damals:** `--workers=1` war der Zustand, nicht die Begründung.
 
-**Also:** `--workers=1` ist der Zustand, nicht die Begründung. Wer diese Datei
-zitiert, zitiert damit einen Grund, der zwei widersprechende Quellen hat — und
-das ist keiner. Was gemessen ist: der Ratenbegrenzer existiert, und parallele
-Logins sind darauf angewiesen. **`backend-pgsql` läuft unabhängig davon seriell**,
+**`backend-pgsql` läuft unabhängig davon seriell**,
 weil paratest pro Worker eine eigene Test-DB braucht und der Job gegen **eine**
 Wegwerf-DB fährt — diese Begründung ist widerspruchsfrei.
 

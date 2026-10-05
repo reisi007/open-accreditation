@@ -158,7 +158,7 @@ Fehler-Budget:
 | Profil | Config | Fehler-Budget (CI) | Gate |
 |---|---|---|---|
 | **Smoke** | `frontend/playwright.config.ts` | `retries: 2`, `maxFailures: 10` | `push` / `pull_request` / `workflow_dispatch` — `--grep @smoke --workers=1` (kritischer Pfad, schnell) |
-| **Nightly** | `frontend/playwright.regression.config.ts` | `retries: 0`, `maxFailures: 1` | `schedule`-Cron — **volle** Suite, serial |
+| **Nightly** | `frontend/playwright.regression.config.ts` | `retries: 0`, `maxFailures: 1` | `schedule`-Cron — **volle** Suite, parallel (`--workers=4` seit Messlauf 2026-10-05) |
 
 Die Event-Auswahl hängt allein an `github.event_name` (`schedule` ⇒ volle Suite, sonst
 `@smoke`). Stand 2026-09-26 ist `pull_request` im `if:` des E2E-Jobs **tatsächlich**

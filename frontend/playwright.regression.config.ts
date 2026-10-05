@@ -46,14 +46,23 @@ import base from './playwright.config.ts';
  * `pnpm exec playwright test -c playwright.regression.config.ts --list` —
  * the list must be identical to the base config's.
  *
- * `workers` is raised in ci.yml (`--workers=4`, Position 48 measurement run,
- * skill step 3 — reverts to `--workers=1` without a green verdict), not here.
+ * `workers` is NOT decided in this file: the profile inherits the base
+ * config's `workers: process.env.CI ? 4 : 8` (`playwright.config.ts:27`).
+ * The `--workers=4` on the strict branch in ci.yml only ECHOES that base
+ * value; the two FORGIVING branches are the ones that actually PIN a value,
+ * by lowering it to `--workers=1`. Whoever audits the worker count belongs in
+ * `playwright.config.ts:27` and then in ci.yml's run step — not here.
  * The backend's per-IP login throttle (`RateLimiter::for('login')` at 40/min
- * in local/testing per AppServiceProvider) was the documented reason for the
- * old pin; `CACHE_STORE=array` in the E2E job removed the 429 symptom but not
- * the shared CI IP. The known DB-state accumulation between specs
- * (AGENTS.todo.md, WP-9-D4) is still open — a red strict run classifies as
- * mutex (named lock) or rate (Position 49), never as a reason to re-pin blindly.
+ * in local/testing per AppServiceProvider) was the documented reason for those
+ * pins; `CACHE_STORE=array` in the E2E job removed the 429 symptom but not the
+ * shared CI IP. The strict branch's parallel measurement run came out GREEN
+ * (2026-10-05, board decision), so `--workers=4` there STAYS; the known
+ * DB-state accumulation between specs (AGENTS.todo.md, WP-9-D4) is still open.
+ * A red strict run is therefore classified, not blindly re-pinned: mutex
+ * (named lock) or rate (Position 49). That classification has a THRESHOLD — a
+ * red test caused by TIMEOUT / a slow test is NEITHER rate nor mutex (see the
+ * vCPU-oversubscription caveat in the ci.yml run step) and must not be filed
+ * as a collision.
  */
 export default defineConfig(base, {
     // Always 0 (CI and local): a first-attempt failure IS the result.

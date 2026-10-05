@@ -795,9 +795,13 @@ jobs:
         # production gelten 15/min) → parallel workers teilen sich die CI-IP und
         # erzeugen 429 Too-Many-Attempts-Flakes (P2b-F9). Serial läuft grün.
         #
-        # Der STRICTE Zweig fährt abweichend `--workers=4`. Das ist ein MESSLAUF,
-        # kein Dauerzustand — Begründung, Klassifikation und Rückbau-Bedingung
-        # stehen an seinem Zweig (unten).
+        # Der STRICTE Zweig fährt `--workers=4`, die beiden verzeihenden Zweige
+        # bleiben auf `--workers=1`. Der Basiswert kommt aus
+        # `playwright.config.ts:27` (`workers: process.env.CI ? 4 : 8`); das
+        # CLI-Flag ECHOT ihn — gepinnt wird in den verzeihenden Zweigen.
+        # Der Parallel-Messlauf ist GRÜN, `--workers=4` bleibt deshalb (Beweis-
+        # Führung, Klassifikation und die Rückbau-Bedingung NUR FÜR DEN ROT-FALL
+        # stehen an seinem Zweig, unten).
         #
         # Zwei Laufprofile, EIN Testset (gleiche testDir/Projects/baseURL) —
         # Unterschied ist nur das Fehler-Budget, nicht die Abdeckung:
@@ -812,11 +816,13 @@ jobs:
         #     `e2e_suite=strict` ist der strikte Lauf jetzt jederzeit per
         #     `gh workflow run` reproduzierbar.
         #
-        #     MESSLAUF (Position 48, Skill `playwright-parallel` Schritt 3,
-        #     2026-10-05): dieser Zweig fährt `--workers=4` statt `--workers=1`,
-        #     bewusst OHNE vorher `lock:` zu setzen. Schritt 3 der Migration ist
-        #     genau diese eine Messung — erst parallel ohne Lock fahren, dann die
-        #     Fehlerbilder klassifizieren (Schritt 4):
+        #     MESSLAUF, gefahren, GRÜN (Position 48, Skill
+        #     `playwright-parallel` Schritt 3, 2026-10-05, Lauf 37277096174):
+        #     dieser Zweig fährt `--workers=4` statt `--workers=1`, bewusst OHNE
+        #     `lock:`. Ergebnis: 168 passed / 0 failed — kein einziges Fehlerbild,
+        #     also weder Rate-Cluster noch Mutex-Kollision. `--workers=4` BLEIBT
+        #     deshalb hier (Skill-Schritt 6: grün bei `retries: 0`). Sollte dieser
+        #     Zweig künftig rot werden, wird zuerst klassifiziert (Schritt 4):
         #       * `429`/`403`-Cluster                        → RATE (Login-Throttle
         #         pro geteilter CI-IP). Ein Lock heilt das NICHT; der sequentielle
         #         Weg erreicht dieselbe Rate, nur langsamer (Skill: „A lock is a
@@ -826,13 +832,16 @@ jobs:
         #     `retries: 0` macht beide Klassen überhaupt erst unterscheidbar — bei
         #     `retries: 2` verschwindet der erste Versuch still im Retry.
         #
-        #     **KEIN Dauerzustand.** Zurück auf `--workers=1` plus grünes Verdikt,
-        #     BEVOR an diesem Zweig weitergebaut wird. Was der Messlauf NICHT
-        #     auflockert, ist das Fehler-Budget: `retries: 0` und die Verdict-
-        #     Schärfe des Profils bleiben unangetastet.
+        #     **RÜCKBAU NUR BEI ROT.** Da der Messlauf grün war, ist
+        #     `--workers=4` der entschiedene Stand. Wird dieser Zweig wieder rot,
+        #     gilt: erst klassifizieren (oben), und nur bei RATE oder MUTEX zurück
+        #     auf `--workers=1`; ein Rot wegen Timeout/Slow-Test (unten) ist weder
+        #     Rate noch Mutex und wird dort eingeordnet, nicht als Kollision
+        #     umgedeutet. Was der Messlauf NICHT auflockert, ist das Fehler-Budget:
+        #     `retries: 0` und die Verdict-Schärfe des Profils bleiben unangetastet.
         #
-        #     **Grenze der Aussage, vor dem ersten Lauf notiert:** `maxFailures: 1`
-        #     (`playwright.regression.config.ts:62`) bricht beim ERSTEN roten
+        #     **Grenze der Aussage (gilt unverändert):** `maxFailures: 1`
+        #     (`playwright.regression.config.ts:72`) bricht beim ERSTEN roten
         #     Test ab. Der Lauf belegt damit „kollidiert ab Test X" bzw. „gar
         #     nicht" — NICHT „welche noch sonst". Die Klassifizierung in Schritt 4
         #     beginnt mit dem ersten Cluster; eine vollständige Fehlerliste gäbe nur
