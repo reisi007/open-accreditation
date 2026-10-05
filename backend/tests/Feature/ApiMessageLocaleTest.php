@@ -109,9 +109,16 @@ use Tests\TestCase;
  *    red** (this method, the scan). The window and duplicate branches of
  *    `SubAccreditationTest` assert the STATUS only, which is why this method
  *    exists per key.
- *  - one of the two `already_applied` sites back to the literal while the other
- *    keeps the key → **2 red** (this method, the scan). See the limit below:
- *    the scan proves neither site is a literal, not that they are the SAME key.
+ *  - `'You have already applied for this sub-accreditation.'` back at the
+ *    EXPLICIT duplicate check (`SubAccreditationController.php:139`, the
+ *    `if ($duplicate)` block) → **2 red** (this method, the scan). That branch
+ *    is reachable: the sub-apply method's case (4) inserts the row first, so
+ *    the guard's OWN body is what answers.
+ *  - the same literal back at the `UNIQUE` race catch (`:154`) → **1 red** (the
+ *    scan alone). One, not two, and the difference IS the limit below: no test
+ *    reaches that catch, because the explicit check always wins first. The scan
+ *    still proves neither site is a literal — it does not prove they are the
+ *    SAME key.
  *  - the DE key deleted → **exactly 1 red** (catalog parity). Not 3: the EN
  *    value IS the English literal, so `fallback_locale = en` substitutes it
  *    silently and the German client is answered in English. The same trap

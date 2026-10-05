@@ -351,7 +351,7 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   spräche ein Endpoint je Zweig anders). **Erledigt 2026-10-05 (übrige Meldungen + Sub-Apply):**
   neuer Katalog `lang/{de,en}/messages.php` (15 Keys, DE+EN) für Apply/Withdraw/
   Wallet/Badge/Media/Sub-Apply-Flächen; `fetchBinary` trägt `Accept-Language` (Docblock-
-  Auflage erfüllt); Tests `ApiMessageLocaleTest` (14) + Vitest/E2E je Locale.
+  Auflage erfüllt); Tests `ApiMessageLocaleTest` (16) + Vitest/E2E je Locale.
   Bewusst nicht lokalisiert (kein UI-Leser): `Mandant not found` (Tenancy-
   Invariante), `Invalid verification token.`; `media.no_image` ohne SPA-Leser
   trotzdem lokalisiert (nicht-SPA-Clients). Nebenbei geheilt: `approvals.spec.ts`
