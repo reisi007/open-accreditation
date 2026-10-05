@@ -1411,6 +1411,27 @@ test.describe('every spec that creates fixtures gives them back itself', () => {
             // that spec ever grows a create form.
             'tests/e2e/admin-sub-resend.spec.ts',
             'tests/e2e/admin-users.spec.ts',
+            // The API-message-locale spec. TWO creators, read out of its code
+            // rather than its imports: `ensurePrimaryMandantAccreditation()` and
+            // `registerAndActivateUser()` — the first registers its own
+            // `categories`/`events`/`accreditations` rows
+            // (`helpers/admin-data.ts:620/630/648`), the second its ACCOUNT
+            // (`rememberOwnedUserAccount`, :789, resolved by email —
+            // `helpers/ownership.ts:194`), and the spec pays the file-scope hooks
+            // the guard above demands. The one row it creates outside those two
+            // helpers — the `application` its own submit writes — is WITHDRAWN
+            // through the owner route in each of the two tests, with the account
+            // cascade (`applications.user_id` → `cascadeOnDelete`,
+            // `2026_08_14_000005_create_accreditations_tables.php:56`) as the
+            // backstop and not the receipt. `UI_CREATE_SITES` therefore has no row
+            // for it, and that is a claim rather than an omission: the create is
+            // the ACTION route `POST /api/accreditations/{id}/apply`
+            // (`api/client.ts:477-478`), which the collection-route scan above
+            // excludes on purpose, and the row it writes is the applicant's OWN
+            // `applications` row, given back through the owner route inside the
+            // same test. Revisit that if the spec ever grows a create form whose
+            // row it does not give back itself.
+            'tests/e2e/api-message-locale.spec.ts',
             'tests/e2e/approvals.spec.ts',
             'tests/e2e/badge.spec.ts',
             // The ownership spec itself, since the tests that pin the teardown's
