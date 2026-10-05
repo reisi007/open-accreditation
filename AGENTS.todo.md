@@ -64,10 +64,10 @@
 > mit der Begründung im Klartext: ein toter Kanal macht die Suite nicht rot, er macht sie *grün aus einem Grund,
 > den niemand notiert hat* · die **Dauerlektion** in `AGENTS.md` §7 (`:341`, `:353-359`): fünf Runden,
 > **kein einziger Verhaltensfehler** — gescheitert sind die *Aussagen über* den Code. „Wem ein Befund gehört"
-> steht in `AGENTS.md:165`.
+> steht in `AGENTS.md:157-159`.
 > **Nur Board-eigen war die Zahlenlehre in ihrer schärfsten Formulierung** („ein Commit, der über den Baum
 > schreibt, auf dem er sitzt, ist keine Ausnahme, sondern die Regel") — die tragende Regel steht in
-> `AGENTS.md` §2 (`:66`, „Snapshot, kein Zustand"). **Ein Nebenbefund ist offen und *nicht* ins Board gewandert,
+> `AGENTS.md` §2 (`:66`, „Snapshot, kein Zustand"). **Ein Nebenbefund war beim Sweep offen und *nicht* ins Board gewandert,
 > weil er eine `features/`-Zeile betrifft und §4 diese Datei nicht schneidet:** `features/venue-master-data.md:360-361`
 > trug die **veralteten** Gate-Zahlen `1534/1533` noch im Text (echt damals: `1732/1731`) — **erledigt in `3f71027`** (aktuelle CI-Zahlen `1983/1982+1 skipped`, Lauf `37280377310`).
 > **Der Sweep hat eine Nutzerentscheidung gefunden, die die Zeile allein trug:** §7 Auflage 3 hat in Position 13
