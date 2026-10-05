@@ -149,10 +149,16 @@ use Tests\TestCase;
  *  - **The `UNIQUE` race catch has no test of its own.** The explicit duplicate
  *    check always wins in a test — reaching the catch needs both queries to slip
  *    through — so the body it answers is not observable. The scan proves it is
- *    not a literal; nothing proves it is the SAME key as the explicit check. The
- *    two states could be replaced by two different catalog keys and only the
- *    scan would notice, which is why the controller docblock says ONE key there
- *    instead of leaving it to chance.
+ *    not a literal; nothing proves it is the SAME key as the explicit check —
+ *    and the drift is UNSEEN, not merely untested. Measured 2026-10-05:
+ *    pointing the catch at the other EXISTING key
+ *    (`messages.sub_accreditations.not_open_yet`) left **0 red**, both in the
+ *    136-test scope named above and in a broad API run (491 passed, 3291
+ *    assertions). The scan cannot see that mutation because it searches for
+ *    the ENGLISH LITERALS, and a second catalog key is not a literal — so
+ *    NOBODY notices when the two states drift onto different keys. Which is
+ *    exactly why the controller docblock says ONE key there instead of leaving
+ *    it to chance.
  *  - **The binding's 404 body is Laravel's and stays untranslated.** It reaches
  *    the same `err.message` a user reads, and it is still an English framework
  *    string on a German screen — the same shape of defect this class exists for,
