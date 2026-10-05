@@ -4,16 +4,33 @@ import { ApiError } from '../../api/client';
 import { resendMailErrorMessage } from './resendMailUtils';
 
 describe('resendMailErrorMessage', () => {
-    it('maps a 422 (no mailable status/reason) to a localized message', () => {
-        expect(resendMailErrorMessage(new ApiError(422, 'Application has no mailable status.', {}), i18n)).toBe(
+    // The bodies fed in below are the REAL ones, byte for byte, and BOTH locales
+    // are offered per case because that is what the endpoints answer depending
+    // on `Accept-Language` — the mapping has to be blind to which one it got.
+    //
+    //  - **422** carries a CATALOG string, `__('mails.*')` from
+    //    `backend/lang/{de,en}/mails.php` (German by default, English wherever
+    //    the header negotiates `en`). The English literals these tests used to
+    //    feed in are what the controllers answered BEFORE the catalogs landed:
+    //    no longer producible, and keeping them left the test asserting against
+    //    a body the server can no longer send.
+    //  - **403** carries NO message at all — `abort_unless($query->exists(), 403)`
+    //    without message text, which the exception handler renders as
+    //    `{"message": ""}`. `'Forbidden'` was never this endpoint's body.
+    //
+    // Both facts, with the controller line numbers, are stated in
+    // `resendMailUtils`' own docblock.
+    it.each([
+        ['de', 'Für diesen Antrag gibt es keinen versendbaren Status.'],
+        ['en', 'This application has no mailable status.'],
+    ])('maps a 422 (no mailable status) from the %s catalog to a localized message', (locale, body) => {
+        expect(resendMailErrorMessage(new ApiError(422, body, {}), i18n), `locale ${locale}`).toBe(
             'Für diesen Antrag kann keine E-Mail gesendet werden.',
         );
     });
 
     it('maps a 403 (foreign team scope) to a localized message', () => {
-        expect(resendMailErrorMessage(new ApiError(403, 'Forbidden', {}), i18n)).toBe(
-            'Keine Berechtigung für diesen Antrag.',
-        );
+        expect(resendMailErrorMessage(new ApiError(403, '', {}), i18n)).toBe('Keine Berechtigung für diesen Antrag.');
     });
 
     it('keeps field errors from the error info', () => {
@@ -32,16 +49,22 @@ describe('resendMailErrorMessage', () => {
         expect(resendMailErrorMessage(new Error('boom'), i18n)).toBe('E-Mail konnte nicht gesendet werden.');
     });
 
-    it('names the SUB-application in the 422 message, not the main one', () => {
+    it.each([
+        ['de', 'Für diesen Sub-Antrag gibt es keinen versendbaren Status.'],
+        ['en', 'This sub-application has no mailable status.'],
+    ])(
+        'names the SUB-application in the 422 message, not the main one (%s catalog)',
         // The sub-row lives in the "Sub-Anträge" table; borrowing the main
         // request's sentence there would be true only by accident.
-        expect(
-            resendMailErrorMessage(new ApiError(422, 'Sub-application has no mailable status.', {}), i18n, 'subApplication'),
-        ).toBe('Für diesen Sub-Antrag kann keine E-Mail gesendet werden.');
-    });
+        (locale, body) => {
+            expect(resendMailErrorMessage(new ApiError(422, body, {}), i18n, 'subApplication'), `locale ${locale}`).toBe(
+                'Für diesen Sub-Antrag kann keine E-Mail gesendet werden.',
+            );
+        },
+    );
 
     it('names the SUB-application in the 403 message, not the main one', () => {
-        expect(resendMailErrorMessage(new ApiError(403, 'Forbidden', {}), i18n, 'subApplication')).toBe(
+        expect(resendMailErrorMessage(new ApiError(403, '', {}), i18n, 'subApplication')).toBe(
             'Keine Berechtigung für diesen Sub-Antrag.',
         );
     });

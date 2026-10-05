@@ -22,8 +22,8 @@ import { t } from '@lingui/core/macro';
  * ## What that costs, named rather than hidden
  *
  * Nothing, since 2026-10-05. The backend messages used to be German only
- * (`AdminApplicationController:181/196`, `AdminSubApplicationController:192/207`,
- * `FailedMailController:99`), so an admin on the `en` locale read a German
+ * (`AdminApplicationController:186/201`, `AdminSubApplicationController:201/216`,
+ * `FailedMailController:109`), so an admin on the `en` locale read a German
  * success line. They now live in `backend/lang/{de,en}/mails.php` and the server
  * negotiates them from `Accept-Language`
  * (`backend/app/Http/Middleware/SetRequestLocale.php`), which the API client sets

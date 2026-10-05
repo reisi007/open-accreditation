@@ -187,10 +187,18 @@ test.describe('Admin Sub-Antrag E-Mail erneut senden (Position 47)', () => {
      * produce an English server answer. Re-measured after the fix — deleting
      * `headers.set('Accept-Language', …)` from `send()` turns THIS test red.
      *
-     * The German sibling test is the control — same endpoint, same fixture, one
-     * language apart, and on a browser locale that disagrees with the app too
-     * (Chromium `en-US` vs. the app's `de`). Without that pair, "the English
-     * case shows English" could be satisfied by a UI hardcoded to one language.
+     * The German sibling tests are this one's COUNTERPART, not its control, and
+     * the difference is what a control is FOR: a control stays green while the
+     * thing under test is broken. These do not — every test in this file hangs
+     * on the SAME single line, `send()`'s `headers.set('Accept-Language', …)`,
+     * because that header is the only carrier of the app's locale. Take it away
+     * and the language is decided by the BROWSER instead: Chromium's default
+     * `en-US` answers the two German tests in English, and this test's `de-DE`
+     * context answers it in German — the very mutation measured above, read from
+     * the other side. So the pair does NOT confirm this test from the outside.
+     * What it establishes is narrower and still real: the two tests DISAGREE
+     * about the language, so neither can pass on a row that renders one fixed
+     * language whatever the header says.
      *
      * `not.toContainText('sent again')` is the other half: the EN catalog says
      * "queued" because `send()` only dispatches, and a translator improving the

@@ -72,7 +72,7 @@ use Tests\TestCase;
  *    no-header test and the `q=0` test (which resolves to the default). The
  *    German-by-header cases stay green, correctly — they name German explicitly.
  *  - deleting the `q=0` filter, i.e. deferring wholly to Symfony →
- *    **exactly 1 red**: `test_a_refused_language_is_not_used…`, the measured
+ *    **exactly 1 red**: `test_a_refused_language_is_dropped…`, the measured
  *    consequence of `Request::getPreferredLanguage()` ignoring the weight.
  */
 class ServerMessageLocaleTest extends TestCase
@@ -258,15 +258,32 @@ class ServerMessageLocaleTest extends TestCase
     }
 
     /**
-     * `q=0` means "explicitly NOT acceptable", not "lowest preference".
+     * `q=0` means "explicitly NOT acceptable", not "lowest preference" — and
+     * what the filter does with such an item is DROP it from the candidate
+     * list. It is not a veto over the outcome, which is exactly why this test
+     * is named DROPPED and not "is not used": a list emptied by refusals falls
+     * back to `DEFAULT_LOCALE` unconditionally, so a client that refuses
+     * German is still answered in German.
+     *
+     * All four measurements are recorded on `SetRequestLocale` — in its class
+     * docblock and again in `acceptableLanguages()`: `en;q=0` → `de` (below),
+     * `en;q=0,de;q=1` → `de`, `de;q=0,en;q=1` → `en`, and `de;q=0` → `de`.
+     * The last one is the case a "not used" name would have claimed and been
+     * wrong about.
      *
      * Measured before this test existed: Symfony's own
      * `Request::getPreferredLanguage()` returns `en` for `Accept-Language: en;q=0`,
      * because it ignores the weight entirely. Honouring the refusal is the one
      * case where using the framework helper as-is would answer a client in the
      * language it just said it does not want.
+     *
+     * So the property under test is the removal from the CANDIDATE list —
+     * which is what makes this the single red of "delete the filter" in the
+     * class docblock's mutation list. The German it then lands on is the
+     * DEFAULT, and that half is pinned directly by
+     * `test_a_request_that_names_no_language_gets_german`.
      */
-    public function test_a_refused_language_is_not_used_even_when_it_is_the_only_one_offered(): void
+    public function test_a_refused_language_is_dropped_from_the_candidate_list(): void
     {
         $this->actingAsApi($this->superAdmin())
             ->postJson(

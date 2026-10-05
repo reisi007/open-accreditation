@@ -46,17 +46,28 @@ use Symfony\Component\HttpFoundation\Response;
  * queue workers, where there is no `Accept-Language` at all. Mail bodies are
  * hardcoded German and untouched by either value; see `lang/de/mails.php`.
  *
- * ## `q=0` is honoured — the one place this does NOT defer to Symfony
+ * ## `q=0` is REMOVED from the list — the one place this does NOT defer to Symfony
  *
  * `Request::getPreferredLanguage()` is the framework's own helper and does the
  * q-sorting and the `de-DE` → `de` subtag reduction correctly. But it IGNORES
  * `q=0`, and `q=0` means "explicitly not acceptable": measured,
- * `Accept-Language: en;q=0` returns `en` from it. Shipping that would let a
- * client that refused English receive English — the one case where honouring the
- * header is the difference between a correct and an actively wrong answer. So
- * the q=0 items are filtered out here before the remaining list is handed to
- * Symfony, which keeps the standard's semantics and adds only the part the
- * standard has and Symfony's helper drops.
+ * `Accept-Language: en;q=0` returns `en` from it. Shipping that would answer a
+ * client in the one language it has just said it does not want — the case where
+ * honouring the header is the difference between a correct and an actively wrong
+ * answer. So the q=0 items are filtered out here before the remaining list is
+ * handed to Symfony, which keeps the standard's sorting and adds only the part
+ * the standard has and Symfony's helper drops.
+ *
+ * ### Removed is not vetoed — read this before citing the heading
+ *
+ * What the filter buys is exactly this much: a refused language is never
+ * SELECTED. It is not a veto over the outcome. Measured through `resolve()` on
+ * 2026-10-05: `en;q=0` → `de`, `en;q=0,de;q=1` → `de`, `de;q=0,en;q=1` → `en`,
+ * and **`de;q=0` → `de`** — a list emptied by refusals falls back to
+ * `DEFAULT_LOCALE` unconditionally, so a client that refuses German is still
+ * answered in German. "A refused language is not used" is therefore the wrong
+ * summary of this file; the sentence that fits the code is "a refused language
+ * is not selected".
  *
  * ## `Vary: Accept-Language`
  *
@@ -80,9 +91,11 @@ class SetRequestLocale
      * `frontend/lingui.config.ts` — the SPA and the API must offer the same set,
      * or one of them will negotiate a language the other cannot answer.
      *
-     * `SetRequestLocaleTest` asserts the catalogs on disk exist for exactly
-     * these locales, so a locale added here without its `lang/<locale>/` files
-     * fails there rather than in production.
+     * `Tests\Feature\ServerMessageLocaleTest::`
+     * `test_every_supported_locale_has_a_catalog_on_disk`
+     * (backend/tests/Feature/ServerMessageLocaleTest.php:427) asserts the catalogs
+     * on disk exist for exactly these locales, so a locale added here without its
+     * `lang/<locale>/mails.php` fails there rather than in production.
      *
      * @var list<string>
      */
@@ -163,9 +176,11 @@ class SetRequestLocale
         $languages = [];
 
         foreach (AcceptHeader::fromString($acceptLanguage)->all() as $item) {
-            // `q=0` is "not acceptable", not "lowest preference". Dropping the
-            // item entirely is what makes `en;q=0` fall through to German
-            // instead of answering English to a client that refused it.
+            // `q=0` is "not acceptable", not "lowest preference": dropping the
+            // item takes it out of the CANDIDATE list, which is what makes
+            // `en;q=0` fall through to German. It vetoes nothing — an emptied
+            // list still yields DEFAULT_LOCALE, so `de;q=0` resolves to `de`
+            // (measured; the class docblock spells the difference out).
             if ($item->getQuality() <= 0.0) {
                 continue;
             }

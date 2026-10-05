@@ -72,11 +72,11 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
  * transport, which is how a second copy of the 401 handler and the error mapping
  * would have drifted.
  *
- * `Accept-Language` is set HERE, on both transports (`send` and
- * `fetchBinary`), because the server answers `{message}` bodies in the
- * negotiated language — the resend/requeue surfaces show them verbatim, and they
- * used to be hardcoded German. One header on one place per transport beats
- * setting it at the three call sites, where the next endpoint would forget it.
+ * `Accept-Language` is set HERE because the server answers `{message}` bodies in
+ * the negotiated language — the resend/requeue surfaces show them verbatim, and
+ * they used to be hardcoded German. One header on one place beats setting it at
+ * the three call sites, where the next endpoint would forget it. The BINARY
+ * transport deliberately does not set it; `fetchBinary` says why.
  */
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -731,16 +731,33 @@ export const deleteBadgeImage = (id: number): Promise<void> =>
 /**
  * Shared binary-response fetch. The `request` helper only unwraps JSON
  * envelopes — badge exports and wallet passes answer binary, so they are
- * fetched here. JSON `{message}` error bodies (e.g. the 422 "no default
- * template") are still surfaced as ApiError for the caller, which is what lets
- * the UI show a real message instead of silently downloading the error body.
+ * fetched here. JSON `{message}` error bodies (e.g. the badge export's 422 "No
+ * badge template.") are still surfaced as ApiError for the caller, which is what
+ * lets the UI show a real message instead of silently downloading the error body.
+ *
+ * ## No `Accept-Language` here — measured, not forgotten
+ *
+ * `send` sets it because the resend/requeue surfaces render the server's
+ * `{message}` verbatim and THOSE bodies are catalog strings
+ * (`backend/lang/{de,en}/mails.php`). No binary endpoint answers a catalog
+ * string: every error body reachable through this transport is a hardcoded
+ * literal that skips the catalogs entirely — English at
+ * `BadgeExportController.php:89,102,108` (the 422 pinned byte-for-byte by
+ * `BadgeTest.php:813`) and `WalletController.php:77,103,129,163,166,174`, German
+ * at `BadgeExportController.php:94`. Neither follows the negotiated locale, which
+ * is exactly why the header localized nothing here. It used to carry a comment
+ * claiming the opposite, with the badge 422 as its example; that claim was wrong,
+ * so the line is gone rather than re-argued.
+ *
+ * Whoever first answers a binary endpoint with `__('…')` puts the header back in
+ * THIS function — and brings a test that shows an English client getting English,
+ * which is what the removed claim never had. Measured 2026-10-05 for that: the
+ * only `__(` calls in `app/` are in `FailedMailController`,
+ * `AdminApplicationController` and `AdminSubApplicationController`, and none of
+ * the three is reachable from `badges/export` or the two wallet routes.
  */
 async function fetchBinary(path: string, init: RequestInit = {}): Promise<Response> {
-    // Same negotiation as `send` — see its docblock. Set on both transports so
-    // a JSON `{message}` error body from a binary endpoint (the badge export's
-    // 422 "no default template") is localized too.
     const headers = new Headers(init.headers);
-    headers.set('Accept-Language', activeUiLocale());
 
     let response: Response;
     try {
