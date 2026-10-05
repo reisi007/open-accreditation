@@ -62,11 +62,7 @@ Fachwissen her wie einen Senior Architekten. Die direkte Anrede „Senior Archit
   `SET CONSTRAINTS ALL DEFERRED` hebt den Check auf PG 17 nicht auf), dort jetzt ein dokumentierter
   **Skip**; `QrTokenV2Test` band seine Precondition an die feste Id 1, der Legacy-Schlüssel wird
   jetzt **für die tatsächlich erzeugte Id abgeleitet** (auf SQLite byte-identisch zur alten
-  Konstante). **Stand 2026-09-30, lokal gemessen:** SQLite **1732 passed / 0 failed / 1 skipped**,
-  PostgreSQL **1731 passed / 0 failed / 2 skipped** — deckungsgleich, denn `1732 = 1731 + 1`, und
-  der eine Unterschied ist genau der dokumentierte `AllocationAtomicityTest`-Skip. Die *beide*
-  Postgres-Skips sind **zwei verschiedene Tests**: dieser plus der umgebungsbedingte in `MailTest` —
-  das war früher als „der eine Skip" notiert und ist falsch.
+  Konstante). **Stand 2026-10-05, aus CI-Lauf `37280377310` gelesen (nicht selbst gefahren):** SQLite **1983 passed** (12501 Assertions), PostgreSQL **1982 passed + 1 skipped** (12495) — deckungsgleich, denn `1983 = 1982 + 1`; der eine Unterschied ist der dokumentierte `AllocationAtomicityTest`-Skip. Der frühere Mailpit-Skip ist seit `7d2fe56` (2026-10-01) weg (Probe entfernt) — die alte „zwei verschiedene Tests"-Identität ist damit Geschichte.
   **Diese Zahlen sind ein Snapshot, kein Zustand** — sie veralten mit jedem Test, und
   `features/venue-master-data.md:360-361` trug dieselbe Zahl noch Wochen später. **Wer sie zitiert,
   prüft sie vorher gegen einen Lauf**; die **Regel** darüber (beide Engines, deckungsgleich,

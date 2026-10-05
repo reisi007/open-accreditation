@@ -357,10 +357,12 @@ Team-Achse des Schreib-Guards ist eine gewöhnliche `exists()`-Abfrage auf
 `Team::forMandant()->whereIn('id', …)->where('venue_id', …)` und damit auf
 beiden Engines gleich. Gate: dieselbe Suite auf SQLite `:memory:` **und** auf
 echtem PostgreSQL 17 (`bash scripts/test-pgsql.sh`), beide grün — zuletzt
-gemessen am **2026-10-01**: SQLite **1732 passed / 1 skipped / 0 failed**,
-PostgreSQL **1731 passed / 2 skipped / 0 failed** (deckungsgleich, denn
-`1732 = 1731 + 1`; der eine Unterschied ist genau der dokumentierte
-`AllocationAtomicityTest`-Skip, der zweite der umgebungsbedingte in `MailTest`).
+aus CI-Lauf `37280377310` gelesen (2026-10-05, nicht selbst gefahren):
+SQLite **1983 passed** (12501 Assertions),
+PostgreSQL **1982 passed + 1 skipped** (12495; deckungsgleich, denn
+`1983 = 1982 + 1`; der eine Unterschied ist der dokumentierte
+`AllocationAtomicityTest`-Skip — der frühere Mailpit-Skip ist seit `7d2fe56`
+weg).
 Die frühere Fassung dieser Zeile nannte **1534 / 1533** — ein Snapshot vom
 2026-09-27, der ~200 Tests hinter dem Stand lag. `AGENTS.md` §2 sagt dazu
 ausdrücklich: die Zahlen sind ein Snapshot, kein Zustand, und wer sie zitiert,
