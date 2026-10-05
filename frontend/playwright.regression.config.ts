@@ -46,13 +46,14 @@ import base from './playwright.config.ts';
  * `pnpm exec playwright test -c playwright.regression.config.ts --list` —
  * the list must be identical to the base config's.
  *
- * `workers` is deliberately NOT raised here. ci.yml pins `--workers=1` for
- * this profile (the backend's per-IP login throttle, `RateLimiter::for('login')`
- * at 40/min in local/testing per AppServiceProvider, is the documented reason;
- * `CACHE_STORE=array` in the E2E job removed the 429 symptom but not the shared
- * CI IP), and parallelising now would inject self-inflicted load flakiness into
- * the run that was just made decisive — while the known DB-state accumulation
- * between specs (AGENTS.todo.md, WP-9-D4) is still open.
+ * `workers` is raised in ci.yml (`--workers=4`, Position 48 measurement run,
+ * skill step 3 — reverts to `--workers=1` without a green verdict), not here.
+ * The backend's per-IP login throttle (`RateLimiter::for('login')` at 40/min
+ * in local/testing per AppServiceProvider) was the documented reason for the
+ * old pin; `CACHE_STORE=array` in the E2E job removed the 429 symptom but not
+ * the shared CI IP. The known DB-state accumulation between specs
+ * (AGENTS.todo.md, WP-9-D4) is still open — a red strict run classifies as
+ * mutex (named lock) or rate (Position 49), never as a reason to re-pin blindly.
  */
 export default defineConfig(base, {
     // Always 0 (CI and local): a first-attempt failure IS the result.

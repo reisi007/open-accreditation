@@ -789,11 +789,15 @@ jobs:
           VITE_API_PROXY: http://127.0.0.1:8000
       - name: Run E2E-Suite (${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'strict') && 'volle Suite, strikt' || (inputs.e2e_suite == 'smoke' && 'nur @smoke' || 'volle Suite, verzeihend') }})
         working-directory: frontend
-        # Serial (--workers=1) in BEIDEN Profilen: Backend-Login-Limiter
-        # (RateLimiter::for('login'), 40/min pro IP laut AppServiceProvider —
-        # das ist der local/testing-Floor, in production gelten 15/min) →
-        # parallel workers teilen sich die CI-IP und erzeugen 429
-        # Too-Many-Attempts-Flakes (P2b-F9). Serial läuft grün.
+        # `--workers=1` in den beiden VERZEIHENDEN Zweigen (`@smoke`-Zweig und
+        # `else`-Zweig): Backend-Login-Limiter (RateLimiter::for('login'), 40/min
+        # pro IP laut AppServiceProvider — das ist der local/testing-Floor, in
+        # production gelten 15/min) → parallel workers teilen sich die CI-IP und
+        # erzeugen 429 Too-Many-Attempts-Flakes (P2b-F9). Serial läuft grün.
+        #
+        # Der STRICTE Zweig fährt abweichend `--workers=4`. Das ist ein MESSLAUF,
+        # kein Dauerzustand — Begründung, Klassifikation und Rückbau-Bedingung
+        # stehen an seinem Zweig (unten).
         #
         # Zwei Laufprofile, EIN Testset (gleiche testDir/Projects/baseURL) —
         # Unterschied ist nur das Fehler-Budget, nicht die Abdeckung:
@@ -807,6 +811,36 @@ jobs:
         #     Der `schedule`-Zweig war historisch der einzige Weg dorthin; über
         #     `e2e_suite=strict` ist der strikte Lauf jetzt jederzeit per
         #     `gh workflow run` reproduzierbar.
+        #
+        #     MESSLAUF (Position 48, Skill `playwright-parallel` Schritt 3,
+        #     2026-10-05): dieser Zweig fährt `--workers=4` statt `--workers=1`,
+        #     bewusst OHNE vorher `lock:` zu setzen. Schritt 3 der Migration ist
+        #     genau diese eine Messung — erst parallel ohne Lock fahren, dann die
+        #     Fehlerbilder klassifizieren (Schritt 4):
+        #       * `429`/`403`-Cluster                        → RATE (Login-Throttle
+        #         pro geteilter CI-IP). Ein Lock heilt das NICHT; der sequentielle
+        #         Weg erreicht dieselbe Rate, nur langsamer (Skill: „A lock is a
+        #         mutex, not a rate limiter").
+        #       * Fremddaten, reihenfolgeabhängiges Verhalten, `422 venue` NACH
+        #         dem Suite-Start (im Clean-Run nicht vorhanden) → MUTEX.
+        #     `retries: 0` macht beide Klassen überhaupt erst unterscheidbar — bei
+        #     `retries: 2` verschwindet der erste Versuch still im Retry.
+        #
+        #     **KEIN Dauerzustand.** Zurück auf `--workers=1` plus grünes Verdikt,
+        #     BEVOR an diesem Zweig weitergebaut wird. Was der Messlauf NICHT
+        #     auflockert, ist das Fehler-Budget: `retries: 0` und die Verdict-
+        #     Schärfe des Profils bleiben unangetastet.
+        #
+        #     **Grenze der Aussage, vor dem ersten Lauf notiert:** `maxFailures: 1`
+        #     (`playwright.regression.config.ts:62`) bricht beim ERSTEN roten
+        #     Test ab. Der Lauf belegt damit „kollidiert ab Test X" bzw. „gar
+        #     nicht" — NICHT „welche noch sonst". Die Klassifizierung in Schritt 4
+        #     beginnt mit dem ersten Cluster; eine vollständige Fehlerliste gäbe nur
+        #     `maxFailures: 0` (dort bewusst nicht angefasst).
+        #     Zweite, davon unabhängige Grenze: `ubuntu-latest` ist je nach
+        #     Sichtbarkeit 4- oder 2-vCPU, und 4 Worker auf 2 vCPU übersubskribieren.
+        #     Ein Rot wegen Timeout/Slow-Test ist weder Rate noch Mutex und darf
+        #     NICHT als Kollision klassifiziert werden.
         #   * `e2e_suite=smoke` → nur die `@smoke`-Specs über
         #     playwright.config.ts (schnelle Iterationsläufe, kein Gate).
         #   * sonst (push / pull_request / `e2e_suite=full`) → VOLLE Suite
@@ -820,7 +854,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = 'schedule' ] || [ "${{ inputs.e2e_suite }}" = 'strict' ]; then
-            pnpm exec playwright test -c playwright.regression.config.ts --workers=1
+            pnpm exec playwright test -c playwright.regression.config.ts --workers=4
           elif [ "${{ inputs.e2e_suite }}" = 'smoke' ]; then
             pnpm exec playwright test --workers=1 --grep @smoke
           else

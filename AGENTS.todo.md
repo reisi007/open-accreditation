@@ -965,7 +965,7 @@ auffällige direkte Zahl.
 - Mutex 2 (Bootstrap-Team per Test gelöscht): `rememberOwnedRow('teams', …)` entfernt (`:1349`) — geteilte Master Data, serieller Teardown gibt zurück (Regel wie Venues `namespace-isolation.spec.ts:1059-1063`). Abgeleitet aus FK-Graph (`events.team_id`/`categories.team_id` = `cascade`) + adoptierenden Aufrufern, nicht per Reproduktion (Fenster zu klein für Teilmengen-Läufe).
 - Gate gegen Rückkehr: `namespace-isolation.spec.ts:769-848` verbietet `rememberOwnedRow('teams'|'venues')` (Mutation beidseitig rot).
 - **Kein `lock:` — bewusst:** Playwright-1.63-Locks sind dispatcher-lokal (kein File, kein prozessübergreifender Mechanismus); sie serialisierten 5 UI-Tests für ein Sub-Sekunden-Fenster, und ein 5. Aufrufer bliebe ungeschützt (Skill: Isolation schlägt Lock). Logo-Datei-Mutex bleibt (deckt zweiten Harness-Prozess). Ownership-Serial-Block unberührt (Treiber-Notwendigkeit, keine Mutex).
-- Rate-Funde → Position 49 (429-Cluster, kein Lock). **Offen:** Laufzeit-Klassifizierung (Skill-Schritt 3: strict mit `--workers=4`, `retries: 0`) — erst danach Worker-Entscheid.
+- Rate-Funde → Position 49 (429-Cluster, kein Lock). **Messlauf (Skill-Schritt 3):** strict `--workers=1` → `--workers=4` (`ci.yml`, nur strict-Zweig; `:815`/`:817` unangetastet) + Regressions-Config-Kommentar nachgezogen. Klassifizierung nach Befundbild (429/403 → 49, Mutex → Lock, Timeout → Übereinsubskription). Ohne grünes Verdikt zurück auf `--workers=1`.
 
 **Position (a):** serielle Läufe durch Named Locks ersetzen
 (`test('…', { lock: '…' }, …)`), nach dem Migrationspfad des Skills: serielle
