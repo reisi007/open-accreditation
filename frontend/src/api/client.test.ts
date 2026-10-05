@@ -6,6 +6,7 @@ import {
     deleteMandant,
     deleteMyHeader,
     deleteMyLogo,
+    exportBadges,
     getMe,
     listFailedMails,
     listMandants,
@@ -92,6 +93,49 @@ describe('api client', () => {
             await listMandants();
 
             expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept-Language')).toBe('en');
+        });
+
+        /**
+         * The binary transport answers THREE catalog refusals of its own
+         * (`messages.badges.no_template`, `messages.wallet.main_revoked`,
+         * `messages.wallet.*_not_approved`), and the caller renders each body
+         * verbatim. It carried no `Accept-Language` until then, on the measured
+         * ground that no binary endpoint answered a catalog string — a premise
+         * that stopped holding when those literals became keys.
+         *
+         * The mutation this guards: deleting the one line from `fetchBinary`
+         * turns this test red. Without it, the badge export's 422 and both wallet
+         * refusals would answer in the BROWSER's language while the rest of the
+         * page renders in the app's — the same defect the header above was
+         * added for, on the one transport that had been left out.
+         */
+        it('carries the locale on the BINARY transport, whose refusals are catalog strings', async () => {
+            const fetchMock = stubFetch(new Blob(['x']), 200, {
+                'Content-Type': 'application/pdf',
+            });
+
+            i18n.activate('en');
+            await exportBadges(7, { format: 'pdf' });
+
+            expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept-Language')).toBe('en');
+        });
+
+        it('keeps the caller-supplied Content-Type next to it on the binary export', async () => {
+            // The two headers have different owners: `Accept`/`Content-Type` are
+            // the CALLER's statement about the payload, the locale is the APP's.
+            // One `new Headers(init.headers)` serves both, and this asserts the
+            // caller's header survived the addition.
+            const fetchMock = stubFetch(new Blob(['x']), 200, {
+                'Content-Type': 'application/pdf',
+            });
+
+            i18n.activate('de');
+            await exportBadges(7, { format: 'pdf' });
+
+            const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+            expect(headers.get('Accept-Language')).toBe('de');
+            expect(headers.get('Content-Type')).toBe('application/json');
+            expect(headers.get('Accept')).toBe('application/pdf, text/csv');
         });
     });
 

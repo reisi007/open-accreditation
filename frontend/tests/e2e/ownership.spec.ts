@@ -1006,9 +1006,11 @@ test.describe('a decided application is carried by the cascade, and the carry is
     });
 
     test('a 422 is tolerated only when it is the backend saying "the row is decided"', async () => {
-        // The classifier, from both ends: the two MEASURED bodies, and bodies
-        // that must NOT classify — a validation 422, a foreign 422, an HTML body
-        // and an empty one. A tolerance that cannot tell the intended answer
+        // The classifier, from both ends: the MEASURED bodies — all four, because
+        // the backend answers in the negotiated language and this harness sends
+        // no `Accept-Language` at all (measured; see helpers/ownership.ts) — and
+        // bodies that must NOT classify: a validation 422, a foreign 422, an HTML
+        // body and an empty one. A tolerance that cannot tell the intended answer
         // from a wrong one is the defect this whole file was written against,
         // and a substring rule on a German backend sentence would be exactly
         // that one layer down.
@@ -1019,6 +1021,20 @@ test.describe('a decided application is carried by the cascade, and the carry is
                 '{"message":"Only pending (requested) sub-applications can be withdrawn."}',
             ),
         ).toBe(TEARDOWN_DECIDED.DECIDED);
+        // The pair this harness ACTUALLY receives: no header on the wire, so the
+        // backend answers in its own default. Both routes, both languages of the
+        // sentence — a tolerance for only the language that happens to arrive is
+        // a tolerance one locale bump away from failing every teardown in the run.
+        expect(
+            classifyNotWithdrawableBody(
+                '{"message":"Nur Anträge im Status „beantragt“ können zurückgezogen werden."}',
+            ),
+        ).toBe(TEARDOWN_DECIDED.DECIDED);
+        expect(
+            classifyNotWithdrawableBody(
+                '{"message":"Nur Sub-Anträge im Status „beantragt“ können zurückgezogen werden."}',
+            ),
+        ).toBe(TEARDOWN_DECIDED.DECIDED);
         expect(classifyNotWithdrawableBody('<html><body>422 Unprocessable</body></html>')).toBe(TEARDOWN_DECIDED.UNKNOWN);
         expect(classifyNotWithdrawableBody('')).toBe(TEARDOWN_DECIDED.UNKNOWN);
         expect(classifyNotWithdrawableBody(JSON.stringify({ error: 'Only pending (requested) applications can be withdrawn.' })))
@@ -1027,6 +1043,13 @@ test.describe('a decided application is carried by the cascade, and the carry is
         // sentence, and a `startsWith` rule would have accepted it.
         expect(
             classifyNotWithdrawableBody('{"message":"Only pending (requested) applications can be withdrawn, mostly."}'),
+        ).toBe(TEARDOWN_DECIDED.UNKNOWN);
+        // The German near miss, which is the one a `contains`-style rule would
+        // swallow once the sentence is the one this harness actually receives.
+        expect(
+            classifyNotWithdrawableBody(
+                '{"message":"Nur Anträge im Status „beantragt“ können zurückgezogen werden, meistens."}',
+            ),
         ).toBe(TEARDOWN_DECIDED.UNKNOWN);
     });
 });

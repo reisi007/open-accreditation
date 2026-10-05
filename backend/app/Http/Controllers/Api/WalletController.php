@@ -30,6 +30,16 @@ use Throwable;
  * `approved` status (anything else → 422 `{message}`). Wallet build failures
  * are reported (logged) and answered with a clean 500 `{message}`.
  *
+ * ## Three refusals, three keys — and why not one
+ *
+ * `wallet.not_approved` and `wallet.sub_not_approved` are separate keys because
+ * the two routes name DIFFERENT rows, and an English applicant must not be told
+ * about a "sub-application" when he clicked the main row's button — the same
+ * reason `mails.php` keeps `no_mailable_status` apart from
+ * `sub_no_mailable_status`. `wallet.main_revoked` is a third key because it is a
+ * different STATUS (410, not 422) and a different fact: the row is gone rather
+ * than not yet approved.
+ *
  * ## Sub-passes and a revoked main accreditation (R-D5)
  *
  * D9 only ever allows a sub-application on top of an **approved** main
@@ -51,8 +61,21 @@ class WalletController extends Controller
     /**
      * The 410 message for a sub-pass whose main accreditation was revoked.
      * Surfaced verbatim in the API response.
+     *
+     * This is the catalog KEY, not the sentence: the wording lives in
+     * `lang/{de,en}/messages.php` and `SetRequestLocale` negotiates it, because
+     * the SPA renders this body verbatim (`MyAccreditationsPage` shows
+     * `err.message` after a failed download) and an English applicant was told
+     * about a revoked pass in English only by accident of authorship.
+     *
+     * The const survives as the KEY so the single-source property it had as a
+     * literal is kept: a PHP const cannot call `__()`, so resolving the sentence
+     * here would have meant deleting the name — and the two specs that assert
+     * this body (`SubAccreditationRevocationTest`, reached from two different
+     * states) refer to it by meaning, not by string, so the const is what tells
+     * a reader those two are one contract.
      */
-    private const MAIN_REVOKED = 'The main accreditation was withdrawn, this wallet pass is no longer valid.';
+    private const MAIN_REVOKED = 'messages.wallet.main_revoked';
 
     public function __construct(private readonly WalletPassService $wallet) {}
 
@@ -126,7 +149,7 @@ class WalletController extends Controller
             ])
             ->findOrFail($application->id);
 
-        abort_unless($application->status === 'approved', 422, 'Only approved applications can be downloaded as a wallet pass.');
+        abort_unless($application->status === 'approved', 422, __('messages.wallet.not_approved'));
 
         return $application;
     }
@@ -160,10 +183,10 @@ class WalletController extends Controller
         // 410 (with a reason) — whether the cascade has already denied the
         // sub-row or not.
         if ($subApplication->application?->status !== 'approved') {
-            abort(410, self::MAIN_REVOKED);
+            abort(410, __(self::MAIN_REVOKED));
         }
 
-        abort_unless($subApplication->status === 'approved', 422, 'Only approved sub-applications can be downloaded as a wallet pass.');
+        abort_unless($subApplication->status === 'approved', 422, __('messages.wallet.sub_not_approved'));
 
         return $subApplication;
     }

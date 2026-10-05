@@ -57,7 +57,7 @@ class SubApplicationController extends Controller
             ->findOrFail($subApplication->id);
 
         if ($subApplication->status !== 'requested') {
-            abort(422, 'Only pending (requested) sub-applications can be withdrawn.');
+            abort(422, __('messages.applications.sub_withdraw_not_pending'));
         }
 
         $subApplication->delete();

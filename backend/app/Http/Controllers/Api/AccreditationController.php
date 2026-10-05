@@ -32,6 +32,16 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  *                                        deadline window, duplicate guard,
  *                                        quota NOT enforced (overbooking
  *                                        allowed, P3c allocation decides)
+ *
+ * ## The three `apply` guards are catalog strings
+ *
+ * `not_open_yet`, `deadline_passed` and `already_applied` come from
+ * `lang/{de,en}/messages.php` and are negotiated by `SetRequestLocale`. They
+ * were English literals, which put the refusal a German-locale applicant reads
+ * on his own screen — `ApplyPage` renders `err.message` verbatim — in a foreign
+ * language. The duplicate guard uses ONE key at both of its `abort()`s (the
+ * explicit check and the `UNIQUE` race catch below it), because they state one
+ * fact and two keys would make the two answers drift apart.
  */
 class AccreditationController extends Controller
 {
@@ -94,11 +104,11 @@ class AccreditationController extends Controller
         // from 00:00:00 of `deadline_start` through 23:59:59 of
         // `deadline_end` (the day counts in full).
         if ($accreditation->deadline_start !== null && now()->lt($accreditation->deadline_start->startOfDay())) {
-            abort(422, 'Applications for this accreditation are not open yet.');
+            abort(422, __('messages.accreditations.not_open_yet'));
         }
 
         if ($accreditation->deadline_end !== null && now()->gt($accreditation->deadline_end->endOfDay())) {
-            abort(422, 'The application deadline for this accreditation has passed.');
+            abort(422, __('messages.accreditations.deadline_passed'));
         }
 
         // (3) Duplicate guard: the unique (accreditation_id, user_id) constraint
@@ -110,7 +120,7 @@ class AccreditationController extends Controller
             ->exists();
 
         if ($duplicate) {
-            abort(422, 'You have already applied for this accreditation.');
+            abort(422, __('messages.accreditations.already_applied'));
         }
 
         // (4) Quota is deliberately NOT enforced here — overbooking is allowed,
@@ -124,7 +134,7 @@ class AccreditationController extends Controller
             ]);
         } catch (QueryException $e) {
             if (str_contains($e->getMessage(), 'UNIQUE')) {
-                abort(422, 'You have already applied for this accreditation.');
+                abort(422, __('messages.accreditations.already_applied'));
             }
 
             throw $e;

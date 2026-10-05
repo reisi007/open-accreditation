@@ -157,7 +157,7 @@ class EventTypeController extends Controller
         $path = $eventType->logo_path;
 
         if ($path === null || ! $this->storage->exists($path)) {
-            return response()->json(['message' => 'Kein Bild hinterlegt.'], 404);
+            return response()->json(['message' => __('messages.media.no_image')], 404);
         }
 
         return $this->storage->accelResponse(

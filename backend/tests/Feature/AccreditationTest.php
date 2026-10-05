@@ -267,7 +267,11 @@ class AccreditationTest extends TestCase
         $this->actingAsApi($this->createUser())
             ->postJson('/api/accreditations/'.$accreditation->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Applications for this accreditation are not open yet.');
+            // German, because that is what this suite's baseline client speaks
+            // (`TestCase::speakGermanByDefault`) and what the key says; the body
+            // was an English literal until `messages.accreditations.*` landed.
+            // Both locales are pinned per key in `ApiMessageLocaleTest`.
+            ->assertJsonPath('message', __('messages.accreditations.not_open_yet'));
 
         $this->assertDatabaseMissing('applications', ['accreditation_id' => $accreditation->id]);
 
@@ -322,7 +326,7 @@ class AccreditationTest extends TestCase
         $this->actingAsApi($this->createUser())
             ->postJson('/api/accreditations/'.$accreditation->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'The application deadline for this accreditation has passed.');
+            ->assertJsonPath('message', __('messages.accreditations.deadline_passed'));
 
         $this->assertDatabaseMissing('applications', ['accreditation_id' => $accreditation->id]);
 
@@ -350,7 +354,7 @@ class AccreditationTest extends TestCase
         $this->actingAsApi($user)
             ->postJson('/api/accreditations/'.$accreditation->id.'/apply')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'You have already applied for this accreditation.');
+            ->assertJsonPath('message', __('messages.accreditations.already_applied'));
 
         $this->assertDatabaseCount('applications', 1);
     }
@@ -534,7 +538,10 @@ class AccreditationTest extends TestCase
             $this->actingAsApi($user)
                 ->deleteJson('/api/applications/'.$application->id)
                 ->assertStatus(422)
-                ->assertJsonPath('message', 'Only pending (requested) applications can be withdrawn.');
+                // The E2E teardown classifies this body by WHOLE-MESSAGE equality
+                // against the EN catalog value (`helpers/ownership.ts`); both
+                // catalogs are pinned in `ApiMessageLocaleTest`.
+                ->assertJsonPath('message', __('messages.applications.withdraw_not_pending'));
 
             $this->assertDatabaseHas('applications', ['id' => $application->id]);
         }

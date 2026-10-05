@@ -22,11 +22,21 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * Streams the approved applications of one accreditation as a PDF (A6 cards)
  * or a CSV (DE-Excel, `;`-separated). `template_id` null → the mandant's
- * default template; without a default the export answers 422 "No badge
- * template". A foreign accreditation/template is 404; team_admin is scoped to
+ * default template; without a default the export answers 422
+ * `messages.badges.no_template` (see below). A foreign
+ * accreditation/template is 404; team_admin is scoped to
  * his own team's accreditations (403 otherwise). Download headers:
  * `Content-Type application/pdf` / `text/csv; charset=UTF-8` and
  * `Content-Disposition: attachment`.
+ *
+ * ## The 422 body is a catalog string, and the binary transport carries the locale
+ *
+ * `badges.no_template` is negotiated by `SetRequestLocale` from
+ * `Accept-Language`, and this is the FIRST binary endpoint that answers one —
+ * which is why `fetchBinary()` in `frontend/src/api/client.ts` sets that header.
+ * The reason it used not to: no binary endpoint answered a catalog string then,
+ * so the header would have localized nothing. It does now, and `ApprovalsPage`
+ * renders the body verbatim in its export alert.
  *
  * ## F2 — a domain-less mandant cannot produce verifiable badges
  *
@@ -105,7 +115,7 @@ class BadgeExportController extends Controller
         }
 
         $template = BadgeTemplate::query()->forMandant($mandantId)->default()->orderBy('id')->first();
-        abort_if($template === null, 422, 'No badge template.');
+        abort_if($template === null, 422, __('messages.badges.no_template'));
 
         return $template;
     }

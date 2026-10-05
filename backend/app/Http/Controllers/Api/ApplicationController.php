@@ -64,8 +64,18 @@ class ApplicationController extends Controller
 
         // The plain, non-concurrent case: the row is already decided, so the
         // withdraw is a client error (422, unchanged contract).
+        //
+        // The 422 body is a catalog string (`lang/{de,en}/messages.php`), and
+        // that has a consequence OUTSIDE this repo that is easy to miss: the
+        // E2E teardown deletes decided rows through a Playwright API context,
+        // which sends NO `Accept-Language` (measured 2026-10-05), so the backend
+        // answers it in the DE default — the German sentence, not the English
+        // one this key used to be. `helpers/ownership.ts` classifies this 422
+        // by WHOLE-MESSAGE equality, so its list carries both catalogs; a
+        // teardown that cannot classify it fails the run instead of silently
+        // keeping the row.
         if ($scoped->status !== 'requested') {
-            abort(422, 'Only pending (requested) applications can be withdrawn.');
+            abort(422, __('messages.applications.withdraw_not_pending'));
         }
 
         DB::transaction(function () use ($scoped): void {

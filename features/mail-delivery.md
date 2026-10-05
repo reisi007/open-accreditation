@@ -348,11 +348,15 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   (5 Keys, `queued` nie „sent"), Frontend sendet UI-Locale über `send`
   (Binär-Transport ohne Katalogstrings ausgenommen), Anzeige weiter Server-Wort. Tests: `ServerMessageLocaleTest` (18),
   Vitest + E2E je Locale. 422-Bodies derselben Endpoints mit lokalisiert (sonst
-  spräche ein Endpoint je Zweig anders). **Weiter offen (eigener Auftrag):** i18n der
-  übrigen Meldungstexte — 10 zitierte Stellen (`BadgeTest:813/1270`,
-  `AccreditationTest:270/325/353/537`, `SubAccreditationRevocationTest:312/338/379`,
-  `MediaAccelRedirectTest:338`; Stichprobe, keine Vollzählung), die die UI
-  wörtlich zeigt.
+  spräche ein Endpoint je Zweig anders). **Erledigt 2026-10-05 (übrige Meldungen):**
+  neuer Katalog `lang/{de,en}/messages.php` (10 Keys, DE+EN) für Apply/Withdraw/
+  Wallet/Badge/Media-Flächen; `fetchBinary` trägt `Accept-Language` (Docblock-
+  Auflage erfüllt); Tests `ApiMessageLocaleTest` (14) + Vitest/E2E je Locale.
+  Bewusst nicht lokalisiert (kein UI-Leser): `Mandant not found` (Tenancy-
+  Invariante), `Invalid verification token.`; `media.no_image` ohne SPA-Leser
+  trotzdem lokalisiert (nicht-SPA-Clients). Nebenbei geheilt: `approvals.spec.ts`
+  Blacklist-Zählung (deterministisch rot mit neuer Spec-Datei → gegen gerenderte
+  Zeilen geprüft).
 
 ## 9. Der Scheduler beobachtet sich selbst (gemessen, nicht behauptet)
 

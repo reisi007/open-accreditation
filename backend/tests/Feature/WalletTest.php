@@ -102,7 +102,7 @@ class WalletTest extends TestCase
             $this->actingAsApi($user)
                 ->get('/api/applications/'.$application->id.'/wallet')
                 ->assertStatus(422)
-                ->assertJsonPath('message', 'Only approved applications can be downloaded as a wallet pass.');
+                ->assertJsonPath('message', __('messages.wallet.not_approved'));
 
             $this->actingAsApi($user)
                 ->getJson('/api/applications/'.$application->id.'/wallet/google')
@@ -252,7 +252,7 @@ class WalletTest extends TestCase
         $this->actingAsApi($user)
             ->get('/api/sub-applications/'.$sub->id.'/wallet')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Only approved sub-applications can be downloaded as a wallet pass.');
+            ->assertJsonPath('message', __('messages.wallet.sub_not_approved'));
     }
 
     public function test_sub_application_of_foreign_mandant_is_404(): void

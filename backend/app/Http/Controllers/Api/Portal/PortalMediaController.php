@@ -50,7 +50,7 @@ class PortalMediaController extends Controller
 
         if ($path === null || ! $this->storage->exists($path)) {
             return response()->json([
-                'message' => 'Kein Bild hinterlegt.',
+                'message' => __('messages.media.no_image'),
             ], 404);
         }
 

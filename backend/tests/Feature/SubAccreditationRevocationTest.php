@@ -309,7 +309,7 @@ class SubAccreditationRevocationTest extends TestCase
         $this->actingAsApi($me)
             ->getJson('/api/sub-applications/'.$row->id.'/wallet')
             ->assertStatus(410)
-            ->assertJsonPath('message', 'The main accreditation was withdrawn, this wallet pass is no longer valid.');
+            ->assertJsonPath('message', __('messages.wallet.main_revoked'));
     }
 
     public function test_the_wallet_refuses_a_sub_pass_whose_main_row_is_not_approved_even_if_the_sub_row_is(): void
@@ -335,7 +335,7 @@ class SubAccreditationRevocationTest extends TestCase
         $this->actingAsApi($me)
             ->getJson('/api/sub-applications/'.$row->id.'/wallet')
             ->assertStatus(410)
-            ->assertJsonPath('message', 'The main accreditation was withdrawn, this wallet pass is no longer valid.');
+            ->assertJsonPath('message', __('messages.wallet.main_revoked'));
     }
 
     public function test_the_wallet_refuses_a_sub_pass_whose_main_row_is_still_requested(): void
@@ -376,7 +376,7 @@ class SubAccreditationRevocationTest extends TestCase
         $this->actingAsApi($me)
             ->getJson('/api/sub-applications/'.$row->id.'/wallet')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Only approved sub-applications can be downloaded as a wallet pass.');
+            ->assertJsonPath('message', __('messages.wallet.sub_not_approved'));
     }
 
     public function test_the_wallet_still_serves_an_approved_sub_pass_on_an_approved_main_application(): void

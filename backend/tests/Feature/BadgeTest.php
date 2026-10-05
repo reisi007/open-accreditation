@@ -810,7 +810,7 @@ class BadgeTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/accreditations/'.$accreditation->id.'/badges/export', ['format' => 'pdf'])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'No badge template.');
+            ->assertJsonPath('message', __('messages.badges.no_template'));
     }
 
     public function test_export_with_foreign_template_id_is_404(): void

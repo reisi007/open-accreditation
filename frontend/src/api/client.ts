@@ -76,7 +76,7 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
  * the negotiated language — the resend/requeue surfaces show them verbatim, and
  * they used to be hardcoded German. One header on one place beats setting it at
  * the three call sites, where the next endpoint would forget it. The BINARY
- * transport deliberately does not set it; `fetchBinary` says why.
+ * transport sets it too, and `fetchBinary` says why it used not to.
  */
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -731,33 +731,39 @@ export const deleteBadgeImage = (id: number): Promise<void> =>
 /**
  * Shared binary-response fetch. The `request` helper only unwraps JSON
  * envelopes — badge exports and wallet passes answer binary, so they are
- * fetched here. JSON `{message}` error bodies (e.g. the badge export's 422 "No
- * badge template.") are still surfaced as ApiError for the caller, which is what
- * lets the UI show a real message instead of silently downloading the error body.
+ * fetched here. JSON `{message}` error bodies (e.g. the badge export's 422
+ * `messages.badges.no_template`) are still surfaced as ApiError for the caller,
+ * which is what lets the UI show a real message instead of silently downloading
+ * the error body.
  *
- * ## No `Accept-Language` here — measured, not forgotten
+ * ## `Accept-Language` IS here now, because binary endpoints answer catalog
+ * strings
  *
- * `send` sets it because the resend/requeue surfaces render the server's
- * `{message}` verbatim and THOSE bodies are catalog strings
- * (`backend/lang/{de,en}/mails.php`). No binary endpoint answers a catalog
- * string: every error body reachable through this transport is a hardcoded
- * literal that skips the catalogs entirely — English at
- * `BadgeExportController.php:89,102,108` (the 422 pinned byte-for-byte by
- * `BadgeTest.php:813`) and `WalletController.php:77,103,129,163,166,174`, German
- * at `BadgeExportController.php:94`. Neither follows the negotiated locale, which
- * is exactly why the header localized nothing here. It used to carry a comment
- * claiming the opposite, with the badge 422 as its example; that claim was wrong,
- * so the line is gone rather than re-argued.
+ * It used to be absent, and the reason was measured rather than assumed: no
+ * binary endpoint answered a catalog string then, so the header would have
+ * localized nothing. That stopped being true on 2026-10-05, when the last three
+ * hardcoded English literals in `app/Http/Controllers/Api/` became
+ * `__('messages.…')` — `BadgeExportController`'s 422 and `WalletController`'s
+ * 410 and both 422s, all reachable from this transport, all rendered verbatim by
+ * the caller (`ApprovalsPage`'s export alert, `MyAccreditationsPage`'s wallet
+ * error line).
  *
- * Whoever first answers a binary endpoint with `__('…')` puts the header back in
- * THIS function — and brings a test that shows an English client getting English,
- * which is what the removed claim never had. Measured 2026-10-05 for that: the
- * only `__(` calls in `app/` are in `FailedMailController`,
- * `AdminApplicationController` and `AdminSubApplicationController`, and none of
- * the three is reachable from `badges/export` or the two wallet routes.
+ * So the header is set here for the same reason it is set in `send`, and the
+ * header note in `send` no longer says the binary transport is the exception.
+ * Two refusals reachable through this transport stay hardcoded literals —
+ * `'Mandant not found'` (`WalletController::currentMandant`) and
+ * `'No mandant context for this request.'` (`BadgeExportController`) — because
+ * both are internal tenancy invariants rather than copy, which is also why this
+ * paragraph names the catalog keys instead of claiming every binary body is
+ * localized.
  */
 async function fetchBinary(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
+    // The refusals reachable through this transport are catalog strings
+    // (`backend/lang/{de,en}/messages.php`) rendered verbatim by the caller, so
+    // the app's locale has to reach the backend here exactly as it does in
+    // `send`. Read at CALL time — see `logic/uiLocale.ts`.
+    headers.set('Accept-Language', activeUiLocale());
 
     let response: Response;
     try {

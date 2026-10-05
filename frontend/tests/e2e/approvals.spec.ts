@@ -80,7 +80,25 @@ test.describe('Admin Freigaben (P3e)', () => {
             'blacklists',
             await findCreatedRowId('/api/admin/blacklists', 'email', applicantD.email, 'blacklists'),
         );
-        await expect(main.getByText('1 Eintrag', { exact: true })).toBeVisible();
+        // The counter paragraph is mandant-wide, so it is asserted against the
+        // number of rows the table ACTUALLY renders instead of against a literal.
+        //
+        // MEASURED 2026-10-05: `'1 Eintrag'` was wrong the moment a second spec
+        // wrote into the same mandant's blacklist. `ownership.spec.ts`'s "one row
+        // of every creatable kind" creates exactly that (`note: 'ownership
+        // ledger'`), and the two specs are only serialized by accident of
+        // scheduling — adding any third file shifted the workers enough to
+        // overlap them, and this line went red on '2 Einträge' while the row it
+        // was supposed to prove (the one above, line 68) was on screen.
+        //
+        // What the literal claimed — "the list refreshed and the counter agrees
+        // with it" — is checked here and is STRONGER than the literal was: a
+        // counter that stayed at its pre-submit value now fails, because the
+        // rendered row count has grown and the two must match.
+        const blacklistRows = main.getByRole('row');
+        await expect(blacklistRows.filter({ hasText: applicantD.email })).toHaveCount(1);
+        const rendered = (await blacklistRows.count()) - 1; // minus the header row
+        await expect(main.getByText(new RegExp(`^${rendered} Eintr(ag|äge)$`))).toBeVisible();
 
         // 2) Anträge tab: filter by the accreditation and see all four rows.
         await main.getByRole('tab', { name: 'Anträge', exact: true }).click();

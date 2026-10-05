@@ -250,16 +250,40 @@ export const TEARDOWN_ROUTE_PROBE_ID = 2147483647;
  * So the 422 is a hand-over, and the honest ledger entry is "carried", not
  * "reclaimed" and not "failed".
  *
- * It is tolerated ONLY when the body is one of these two messages, and the list
+ * It is tolerated ONLY when the body is one of these messages, and the list
  * is literal rather than a `startsWith`: the whole reason the 404 classifier
  * above exists is that a total tolerance cannot tell the intended answer from a
  * wrong one, and a substring rule on a German backend sentence is the same
- * mistake one layer down. MEASURED 2026-10-01, both bodies verbatim:
+ * mistake one layer down.
  *
- * | route                                  | body                                                 |
+ * ### FOUR bodies, because the backend answers in two languages
+ *
+ * These routes speak `backend/lang/{de,en}/messages.php`
+ * (`messages.applications.withdraw_not_pending` and its `sub_` sibling), and
+ * **both** catalog values are legitimate answers to "the row is decided" — the
+ * DE one is what this harness actually receives, and it is not a guess:
+ *
+ * - MEASURED 2026-10-05, Playwright 1.63: `request.newContext()` sends NO
+ *   `Accept-Language` at all (a one-line local server printing the header
+ *   answers `undefined`). So the teardown's DELETE cannot name a language.
+ * - `SetRequestLocale::DEFAULT_LOCALE` is `de`, so the answer is the GERMAN
+ *   sentence. Before the catalogs existed both routes answered English; the
+ *   list below would then have matched, and it does not match it any more.
+ *
+ * Keeping only the English pair would have turned every carried teardown row
+ * into `UNKNOWN`, which FAILS the run — a red E2E suite with no cause written
+ * anywhere near it. Adding both keeps the classifier fail-closed exactly as it
+ * was: a third body, a validation 422 or a reworded catalog is still `UNKNOWN`.
+ *
+ * | route                                  | body (EN)                                            |
  * |----------------------------------------|------------------------------------------------------|
  * | `DELETE /api/applications/{id}`        | `Only pending (requested) applications can be withdrawn.` |
  * | `DELETE /api/sub-applications/{id}`    | `Only pending (requested) sub-applications can be withdrawn.` |
+ *
+ * The German pair is below in the same list, and
+ * `ApiMessageLocaleTest::test_the_english_withdraw_bodies_are_byte_identical_to_the_e2e_classifier`
+ * asserts BOTH ends of that link from the backend side, so a reworded EN
+ * catalog fails a PHP test instead of an E2E run.
  *
  * `body` is `''` for a body that could not be read. That is `UNKNOWN`, and
  * `UNKNOWN` is a FAILURE downstream.
@@ -270,8 +294,16 @@ export const TEARDOWN_DECIDED = {
 };
 
 const TEARDOWN_DECIDED_MESSAGES = [
+    // EN — `lang/en/messages.php`. The teardown receives neither of these; they
+    // are here because the classifier is a property of the CONTRACT, not of one
+    // client's header, and a harness that only tolerates the language it happens
+    // to be sent is a harness whose tolerance depends on a default.
     'Only pending (requested) applications can be withdrawn.',
     'Only pending (requested) sub-applications can be withdrawn.',
+    // DE — `lang/de/messages.php`, and this is the one this harness gets: no
+    // `Accept-Language` on the wire, so the backend's own default decides.
+    'Nur Anträge im Status „beantragt“ können zurückgezogen werden.',
+    'Nur Sub-Anträge im Status „beantragt“ können zurückgezogen werden.',
 ];
 
 /**
