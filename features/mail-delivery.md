@@ -343,6 +343,22 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   Oberfläche zuerst bricht.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
+- **Der Idempotenz-Claim ist im Dev-/E2E-Stack prozesslokal — bewusst, mit Hinweis
+  statt Guard.** Der Prod-Wächter („Detail 2b" in `deployment/backend-supervisor.sh`,
+  festgehalten in `backend/AGENTS.md`) bricht fail-closed ab, wenn `CACHE_STORE` kein
+  **geteilter** Store ist; `scripts/e2e-up.sh` pinnt dort
+  unbedingt `array` (Rate-Limiter-Determinismus), und `scripts/dev-worker.sh` fährt
+  daneben einen **echten** Worker — zwei Prozesse mit je eigenem `array`-Store, also
+  **beide** `Cache::add()` gelingen, **beide** senden, **keine** `failed_jobs`-Zeile,
+  **keine** Logzeile. Der Start **benennt** das in einem `NOTE:` auf stderr
+  (`:102-113`), statt den dokumentierten Dev-Weg abzubrechen; der Hinweis benennt
+  auch den Ausweg (`CACHE_STORE=database` in `backend/.env`). **Grenze, die der Hinweis
+  nicht schließt:** Dev fährt **einen** Worker, und Doppelzustellung braucht zwei
+  gleichzeitig — praktisch unerreichbar, solange das so bleibt. **Wer lokal einen
+  zweiten Worker startet, holt den Defekt zurück**, und der Hinweis warnt dann zu
+  spät. Für einen Entwickler-Stack ist das akzeptiert (Mailpit fängt die Zustellung
+  ab); für Prod wäre dieselbe Konstellation unakzeptabel, und genau dort steht der
+  fail-closed Wächter. Stand: benannt am 2026-10-03, umgesetzt in `4f429d9`.
 - **Backend-Success-Messages deutsch/englisch (umgesetzt 2026-10-05):** `SetRequestLocale`
   (API-Middleware, `Accept-Language`, DE-Default, `Vary` angehängt), `lang/{de,en}/mails.php`
   (5 Keys, `queued` nie „sent"), Frontend sendet UI-Locale über `send`
