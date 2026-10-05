@@ -87,7 +87,7 @@
  *
  *   - `login` 40 / `register` 30 per min in `local`/`testing` (`:128`, `:129`).
  *     The provider names the PARALLEL E2E SUITE as their reason — ~17 logins/min
- *     on `@feature:accreditation` (`:114-115`) plus concurrent `register` — and
+ *     on `@feature:accreditation` (`:113-115`) plus concurrent `register` — and
  *     calls them the headroom for clients that send NO actor at all (`:126-127`),
  *     this screenshot suite among them. It CONSUMES that floor; it did not create
  *     it. (It does send `register` POSTs of its own: 7 against a cold database,
