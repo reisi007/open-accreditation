@@ -21,7 +21,7 @@ geprüft am: 2026-10-04
 | `ghcr-visibility` | ja | `ci.yml:522-524`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
 | `github-ci-filters` | offen | `ci.yml:61-67`, `.github/workflows/base-image.yml:67`, `.github/workflows/e2e-image.yml:44` | Position 51 in `AGENTS.todo.md` |
 | `model-updater` | nein | | keine Modell-Konfiguration im Projekt (Maschinen-Sache wie `agent-config`) |
-| `node-deps` | offen | `frontend/package.json:6`, `frontend/pnpm-workspace.yaml:6-11`, `e2e-image.yml:76-80`, `Dockerfile.e2e:113` | Position 50 in `AGENTS.todo.md` |
+| `node-deps` | angewendet | Pin + Overrides entfernt (Verifikation Runde 48, `APPROVED` steht aus) | Position 50 umgesetzt, Board-Vermerk folgt |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine); das Projekt definiert keine |
 | `playwright-parallel` | offen | `ci.yml:782-786`, `:813/:815/:817` | Positionen 48, 49 in `AGENTS.todo.md` |
 | `skills-marker` | ja | `AGENTS.skills.md` | |

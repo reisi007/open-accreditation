@@ -18,16 +18,34 @@ updates:
       minor-and-patch:
         applies-to: version-updates
         update-types: ["minor", "patch"]
-    ignore:
-      # Versions sind bewusst via frontend/pnpm-workspace.yaml gepinnt
-      # (Overrides) — Dependabot-Updates würden dort gegen den Workspace laufen.
-      - dependency-name: "nanoid"
-      - dependency-name: "react-router"
-      - dependency-name: "react-router-dom"
-      - dependency-name: "brace-expansion"
-      - dependency-name: "svgo"
-      - dependency-name: "postcss"
-      - dependency-name: "undici"
+    # KEIN `ignore:`-Block — bewusst, und das ist eine Entscheidung, keine
+    # Lücke. Bis `f2f8d4a` (Position 50) stand hier ein `ignore` über
+    # nanoid, react-router, react-router-dom, brace-expansion, svgo, postcss,
+    # undici mit der Begründung "Versions sind via Overrides gepinnt". Mit
+    # dem `packageManager`-Pin fielen auch die 6 Overrides; die Begründung
+    # beschrieb damit nichts mehr, was existierte — und `ignore` ohne
+    # `versions`/`update-types` wirkt auf ALLE Update-Arten, auch auf
+    # Security-Updates (GitHub-Doku, "Ignoring specific dependencies": ein
+    # `ignore` unterdrückt genau die PRs, die bei einer Advisory entstehen
+    # würden). Ein toter Ignore-Block ist also kein Kosmetik-Eintrag, sondern
+    # ein blinder Fleck im Security-Pfad.
+    #
+    # Warum das Entfernen keine PR-Flut auslöst (alles gemessen, nicht
+    # angenommen): 6 der 7 Pakete sind transitiv (nur react-router-dom steht
+    # in package.json). Dependabot legt Version-Update-PRs per Default NUR
+    # für explizit im Manifest deklarierte Direkt-Deps an — für transitive
+    # Pakete kämen ohne `ignore` also von vornherein keine Versions-PRs.
+    # Unter den 7 war zum Messzeitpunkt 4× bereits der Registry-Stand im
+    # Lockfile (brace-expansion 5.0.12, svgo 4.1.0, postcss 8.5.28,
+    # undici 8.11.2), der Ignore war dort ein reiner No-op.
+    #
+    # Einziger echter Fall: react-router-dom (direkt, `^7.18.1`) — Lockfile
+    # 7.18.2, Registry 7.18.4. Der Ignore unterdrückte also einen
+    # in-Range-Patch, der jetzt wieder als PR auftaucht. Das ist gewollt:
+    # in-Range-Patches landen in der Gruppe `minor-and-patch`, und der
+    # Auto-Merge-Guard in workflows/automerge.yml mergt genau diese Gruppe
+    # nach grüner CI. Major-Bumps bleiben unangetastet, weil die Allowlist
+    # dort auf `minor-and-patch` bzw. semver-minor/patch steht.
   - package-ecosystem: github-actions
     directory: "/"
     schedule: {interval: "weekly"}

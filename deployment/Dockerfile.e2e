@@ -7,7 +7,8 @@
 # Zusätzlich für die E2E-CI (ci.yml, Job `e2e`) vorinstalliert:
 #   * Composer (Dist-Binary, wie Prod via composer:latest)
 #   * Node.js (aktuelles v26, offizielles Linux-Binary)
-#   * pnpm (exakt frontend/package.json#packageManager)
+#   * pnpm (MAJOR-LINIE via PNPM_VERSION, Default/Workflow: 11 — kein
+#     packageManager-Pin, der existiert seit Position 50 nicht mehr)
 #   * Playwright-Chromium inkl. apt-System-Deps (Version == @playwright/test,
 #     aufgelöst aus frontend/pnpm-lock.yaml)
 #
