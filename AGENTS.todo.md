@@ -62,15 +62,14 @@
 > wachsen können") · die **vier blinden Wächter** — vier verbotene **Aufrufe** *und* die vier
 > `protected`-**Transport-Properties** dahinter — in `backend/tests/Feature/ForbiddenJwtCookieChannelTest.php:14-80`,
 > mit der Begründung im Klartext: ein toter Kanal macht die Suite nicht rot, er macht sie *grün aus einem Grund,
-> den niemand notiert hat* · die **Dauerlektion** in `AGENTS.md` §7 (`:347-353`, `:358-361`): fünf Runden,
+> den niemand notiert hat* · die **Dauerlektion** in `AGENTS.md` §7 (`:341`, `:353-359`): fünf Runden,
 > **kein einziger Verhaltensfehler** — gescheitert sind die *Aussagen über* den Code. „Wem ein Befund gehört"
 > steht in `AGENTS.md:165`.
 > **Nur Board-eigen war die Zahlenlehre in ihrer schärfsten Formulierung** („ein Commit, der über den Baum
 > schreibt, auf dem er sitzt, ist keine Ausnahme, sondern die Regel") — die tragende Regel steht in
-> `AGENTS.md` §2 (`:70`, „Snapshot, kein Zustand"). **Ein Nebenbefund ist offen und *nicht* ins Board gewandert,
+> `AGENTS.md` §2 (`:66`, „Snapshot, kein Zustand"). **Ein Nebenbefund ist offen und *nicht* ins Board gewandert,
 > weil er eine `features/`-Zeile betrifft und §4 diese Datei nicht schneidet:** `features/venue-master-data.md:360-361`
-> trägt die **veralteten** Gate-Zahlen `1534/1533` noch im Text (echt: `1732/1731`) — `AGENTS.md:66` **nennt** die
-> Stelle, der Satz selbst ist aber nicht korrigiert.
+> trug die **veralteten** Gate-Zahlen `1534/1533` noch im Text (echt damals: `1732/1731`) — **erledigt in `3f71027`** (aktuelle CI-Zahlen `1983/1982+1 skipped`, Lauf `37280377310`).
 > **Der Sweep hat eine Nutzerentscheidung gefunden, die die Zeile allein trug:** §7 Auflage 3 hat in Position 13
 > ihren **ersten Anwendungsfall verloren** — der Nutzer hat die Rückgabe überschritten. Zurück als **44**.
 > **Positionen 5, 6 und 43 sind am 2026-10-01 per §4 entfernt** — 5 und 6 in **einer** Verifikationsrunde mit Verdict
@@ -132,7 +131,7 @@
 >   halbe Form: nach `-g home` standen **60 Zeilen `run-106324` + 4 Zeilen `run-108270`, 0 ohne Vorgänger,
 >   0 geändert → ebenfalls „ja"** — ein Batch aus **zwei** Läufen, von dem die 60 Zeilen die Zahlen des *letzten*
 >   Laufs tragen. `runKeys.length === 1` ist die Bedingung, und die `nein`-Klausel **nennt die Schlüssel**. Der
->   Satz, dass ein Teillauf eine Lücke erzeugt, stand ab `e42a4a6` in `AGENTS.md:401` — aber nur als **„JEDE Zeile
+>   Satz, dass ein Teillauf eine Lücke erzeugt, stand ab `e42a4a6` in `AGENTS.md:397-399` — aber nur als **„JEDE Zeile
 >   hat einen Vorgänger"**; die **Ein-Generation**-Hälfte steht im Code und **nirgends sonst** (Lücke, gemeldet).
 > · **Ein Test, der die Klebzeile nicht behauptete.** `contentCountFrom()` war korrekt in eine reine, voll getestete
 >   Funktion verschoben — aber die **eine** Zeile, die entscheidet, ob der gemessene Wert oder eine Konstante ins
