@@ -345,10 +345,13 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
 - **Backend-Success-Messages deutsch/englisch (umgesetzt 2026-10-05):** `SetRequestLocale`
   (API-Middleware, `Accept-Language`, DE-Default, `Vary` angehängt), `lang/{de,en}/mails.php`
-  (5 Keys, `queued` nie „sent"), Frontend sendet UI-Locale auf beiden Transporten
-  (`uiLocale.ts`), Anzeige weiter Server-Wort. Tests: `ServerMessageLocaleTest` (18),
+  (5 Keys, `queued` nie „sent"), Frontend sendet UI-Locale über `send`
+  (Binär-Transport ohne Katalogstrings ausgenommen), Anzeige weiter Server-Wort. Tests: `ServerMessageLocaleTest` (18),
   Vitest + E2E je Locale. 422-Bodies derselben Endpoints mit lokalisiert (sonst
-  spräche ein Endpoint je Zweig anders).
+  spräche ein Endpoint je Zweig anders). **Weiter offen (eigener Auftrag):** i18n der
+  übrigen Meldungstexte — 12 weitere Endpunkte mit hartkodierten Literalen, die die UI
+  wörtlich zeigt (`BadgeTest:813/1270`, `AccreditationTest:270/325/353/537`,
+  `SubAccreditationRevocationTest:312/338/379`, `MediaAccelRedirectTest:338`).
 
 ## 9. Der Scheduler beobachtet sich selbst (gemessen, nicht behauptet)
 
