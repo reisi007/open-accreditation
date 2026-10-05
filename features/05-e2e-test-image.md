@@ -68,7 +68,8 @@ gilt:
 - **Der Digest ist derselbe wie der `image_ref`-Output von `base-image.yml`.** Ein
   Push setzt Tag und Digest; beide können per Konstruktion nicht auseinanderlaufen.
 - **`PLAYWRIGHT_VERSION` und `PNPM_VERSION` sind gegen das Repo fixiert** (aus
-  `pnpm-lock.yaml` bzw. `package.json#packageManager`), nicht geraten.
+  `pnpm-lock.yaml` bzw. Workflow-Major-Linie `version: 11`, nicht geraten; seit
+  Position 50 (2026-10-05) kein `packageManager`-Pin mehr).
 
 **Was ausdrücklich NICHT garantiert wird**
 
@@ -113,7 +114,8 @@ Digest muss CI-Laufzeit sein.
      am Artefakt
    - Composer (Dist-Binary via `COPY --from=composer:2`)
    - Node.js (aktuelles `v26`, offizielles Linux-Binary von nodejs.org)
-   - pnpm (exakt `frontend/package.json#packageManager`)
+   - pnpm (Major-Linie `version: 11` im CI-Workflow; kein `packageManager`-Pin
+     mehr seit Position 50, 2026-10-05)
    - Playwright-Chromium inkl. apt-Deps (`PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`,
      Version == `@playwright/test` via Build-Arg)
 2. **`.github/workflows/e2e-image.yml`** — Rebuild-Trigger:

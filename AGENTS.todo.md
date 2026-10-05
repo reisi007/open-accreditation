@@ -976,18 +976,9 @@ in 49 — bewusst zwei Positionen, nicht eine.
 
 **Was gebaut wurde (Skill-konform, gemessen entschieden):** `throttleKeyFor()` (`AppServiceProvider.php:316-321` Helper, `testActorFor()` `:328-344` mit Gate `:333`, 5 Limiter `:128-173`, Security-Contract) — `{bucket}:{ip}` bzw. `{bucket}:{ip}@{actor}`; `X-Test-Actor`-Header (Muster `\z`-verankert, 32-Zeichen-Deckel) nur in `local`/`testing` (Positiv-Allow-List; beobachtbare Key-Gleichheit gepinnt, Read-Reihenfolge bewusst nicht behauptet). Alle 5 IP-Limiter darüber; user-keyed vollständig: `apply`/`media`/`admin`/`resend` + inline `auth-logout`/`auth-me` (Begründung je Punkt). Harness: `throttle-actor.ts` (`w<i>-p<pid>`), 7 Helper-Kontexte + 11 spec-lokale Kontexte (grep-belegt 18/18); Screenshots-Harness + Browser-Kontexte bewusst ausgenommen. Scan-Test rekursiv über 47 Dateien (Gegenprobe rot). Messung: gleicher Akteur 40×401→429; anderer Akteur 401; ohne Header 429; Prod kein Split. Mutationen rot bis auf zwei bewusst grüne (Read-Reihenfolge, Prod-Budget — im Docblock benannt). Tests: 11/226 (Actor) + 28/1683 (Throttle-Bereich) + Vitest 97. Preis benannt: Header-Rotation in local/testing gibt frische Buckets (nicht exponiert, Floors tragen).
 
-### 50 — `node-deps`: `packageManager`-Pin + `overrides` gegen die No-Pins-Regel
+### ✅ 50 — `node-deps`: No-Pins-Regel umgesetzt 2026-10-05 (Verifikation Runde 48 steht aus)
 
-Skill `node-deps` (agents-skills) verbietet den `packageManager`-Pin in
-`package.json` (`SKILL.md:20-25`) und feste Versionen in Manifest/Workspace
-(`:8-10`); Updates laufen via pnpm ins Lockfile. Gemessen:
-`frontend/package.json:6` trägt `"packageManager": "pnpm@11.23.0"`;
-`frontend/pnpm-workspace.yaml:6-11` pinnt sechs `overrides` exakt; konform sind
-die Ranges (`frontend/package.json:29-77`, exakt nur die eigene `version:
-0.1.0`) und das Fehlen von `minimumReleaseAgeExclude`. Spannung, nicht nur
-Formalität: CI liest den Pin via `package_json_file` (`ci.yml:476`, `:729`) —
-die skill-konforme Form (`version: 11` im Workflow) braucht die Umstellung
-beider Stellen.
+**Was gebaut wurde:** `packageManager`-Pin gelöscht; 6 Overrides gelöscht (alle gemessen redundant bzw. auf Verwundbares fixiert — brace-expansion 5.0.9, svgo 4.0.2, undici 7.29.0 hielten Fixes fest); aufgelöst via pnpm (`brace-expansion` → 5.0.12, `svgo` → 4.1.0 + css-select/css-what, `postcss` → 8.5.28, `undici` → 8.11.2): `pnpm audit` **17 → 2** Advisories. CI: `package_json_file` → `version: 11` (beide Jobs); e2e-Image: `PNPM_VERSION` als Workflow-`env` Major-Linie; `Dockerfile.e2e` `ARG PNPM_VERSION=11`. Kein Override musste aus Sicherheit bleiben. Gates: frozen-install, tsc, build (i18n 0 missing), lint, Vitest 612/612; `npx pnpm@11` frozen grün. A4-Register geschlossen (svgo-Fix existiert).
 
 Notiz 2026-10-04 (Skills-Range `aad25d14..6629ad2`): `node-deps` hat einen
 Absatz „Boundary: manifests vs images" bekommen — Ranges bleiben in

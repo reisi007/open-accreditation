@@ -473,7 +473,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
-          package_json_file: frontend/package.json
+          # Skill `node-deps`: die pnpm-Version steht als MAJOR-LINIE hier im
+          # Workflow — nicht als `packageManager`-Pin in package.json (das ist
+          # der Fall, den die Regel verbietet) und nicht als exakte Version
+          # (derselbe Pin an anderer Stelle). `package_json_file` ist damit
+          # obsolet: ohne Pin steht dort nichts mehr zu lesen.
+          version: 11
       - uses: actions/setup-node@v7  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
         with:
           node-version: 26
@@ -726,7 +731,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6  # major tag pin — SHA-pinning is a stronger, immutable option
         with:
-          package_json_file: frontend/package.json
+          # Skill `node-deps`: die pnpm-Version steht als MAJOR-LINIE hier im
+          # Workflow — nicht als `packageManager`-Pin in package.json (das ist
+          # der Fall, den die Regel verbietet) und nicht als exakte Version
+          # (derselbe Pin an anderer Stelle). `package_json_file` ist damit
+          # obsolet: ohne Pin steht dort nichts mehr zu lesen.
+          version: 11
       - uses: actions/setup-node@v7  # major tag pin — SHA-pinning (actions/setup-node@<full-sha>) is a stronger, immutable option
         with:
           node-version: 26

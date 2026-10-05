@@ -34,8 +34,10 @@
 #   GARANTIERT NICHT: dass dieses Image bit-reproduzierbar ist. Drei Inputs
 #   driften unabhängig vom Repo-Stand: `composer:2` (beweglicher Major-Tag),
 #   `latest-v<NODE_MAJOR>.x/` auf nodejs.org (das „latest“-Verzeichnis wandert)
-#   und der Base-Digest selbst (rotiert nightly). Nur `PLAYWRIGHT_VERSION` und
-#   `PNPM_VERSION` sind gegen das Lockfile/Repo fixiert.
+#   und der Base-Digest selbst (rotiert nightly). `PLAYWRIGHT_VERSION` ist gegen
+#   das Lockfile fixiert; `PNPM_VERSION` ist eine MAJOR-LINIE (11) und driftet
+#   innerhalb ihrer Linie mit — derselbe Typ Fehler wie `composer:2`, nur ohne
+#   Build-Eingabe aus dem Repo.
 #
 #   AUFLÖSUNG DES HÜHN-EI-PROBLEMS: Der Digest ist CI-Laufzeit-Wert (er rotiert
 #   mit jedem `base-image.yml`-Lauf) und darf deshalb NICHT im Repo stehen —
@@ -101,16 +103,17 @@ USER root
 
 # --- Build-Args (Workflow e2e-image.yml extrahiert Repo-Werte) -------------
 # WP-5-f: Defaults an den Lockfile-Stand angeglichen. Sie greifen nur, wenn das
-# Image ohne Build-Args gebaut wird (lokal); der CI-Workflow extrahiert beide
-# Werte frisch aus dem Repo und überschreibt sie.
+# Image ohne Build-Args gebaut wird (lokal); der CI-Workflow überschreibt beide.
 #   PLAYWRIGHT_VERSION = frontend/pnpm-lock.yaml → '@playwright/test@1.63.0'
-#   PNPM_VERSION       = frontend/package.json#packageManager = pnpm@11.23.0
-# Vorher standen hier 1.62.1 / 11.21.0 — der E2E-Container lief damit mit einem
-# Browser, der nicht zum Lockfile passte, bzw. mit einer pnpm-Major unter der
-# des Repo-Managers.
+#                          (exakt; die Quelle der Wahrheit für Browser-Version)
+#   PNPM_VERSION       = MAJOR-LINIE 11 (e2e-image.yml `env:`, dort auch
+#                          umgestellt). Vorher stand hier 1.62.1 / 11.21.0 —
+#                          der E2E-Container lief damit mit einem Browser, der
+#                          nicht zum Lockfile passte, bzw. mit einer pnpm-Version,
+#                          die hinter der des Repo-Managers lag.
 ARG PLAYWRIGHT_VERSION=1.63.0
 ARG NODE_MAJOR=26
-ARG PNPM_VERSION=11.23.0
+ARG PNPM_VERSION=11
 
 # Playwright-Browser liegen global unter /ms-playwright
 # (Pfad-Konvention der offiziellen Playwright-Images).
@@ -166,7 +169,9 @@ RUN NODE_VERSION="$(curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/
     && rm -f "/tmp/node-${NODE_VERSION}-linux-x64.tar.xz" /tmp/SHASUMS256.txt \
     && node --version && npm --version
 
-# pnpm — exakt die Version aus frontend/package.json (packageManager)
+# pnpm — MAJOR-LINIE aus PNPM_VERSION (Default/Workflow-Input: 11). `pnpm@11`
+# ist für npm eine Range und damit die aktuelle 11.x; ein `packageManager`-Pin
+# existiert bewusst nicht mehr (Skill `node-deps`).
 RUN npm install -g "pnpm@${PNPM_VERSION}" && pnpm --version
 
 # Playwright-Chromium inkl. apt-System-Deps — Version == @playwright/test.

@@ -37,12 +37,7 @@ Geänderte Skills in der Range: `agent-config`, `codegraph-project-setup`,
 `tailscale-serve`, `ui-review`, `update-opencode-models`, `vision-agents`
 (dazu README, kein Skill). Ergebnis je Skill:
 
-- `node-deps` → bleibt offen (Position 50 in `AGENTS.todo.md`, dort mit
-  Notiz vom 2026-10-04 ergänzt): neuer Absatz „Boundary: manifests vs
-  images" schärft statt zu ändern — `PLAYWRIGHT_VERSION` kommt bereits
-  konform aus dem Lockfile (`e2e-image.yml:75`); `PNPM_VERSION` wird
-  dagegen aus dem `packageManager`-Pin selbst gelesen (`e2e-image.yml:76`),
-  die Pin-Entfernung muss diese Stelle mit umstellen.
+- `node-deps` → umgesetzt 2026-10-05 (Position 50, Board-Vermerk folgt Verifikation): Pin + Overrides entfernt, `PNPM_VERSION` ist Workflow-Major-Linie (keine `packageManager`-Extraktion mehr).
 - `skills-marker` → bleibt angewendet (`AGENTS.skills.md`): neuer
   Drift-Check (§5 Schritt 3) auf dieser Maschine ohne Befund (eingebettete
   Kopien in der globalen `AGENTS.md` identisch mit `.agents/rules/*.md`,

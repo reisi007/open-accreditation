@@ -627,6 +627,9 @@ Leer zu Projektstart. Befunde aus Reviews werden hier (resolved) bzw. in `AGENTS
   Version. Re-evaluieren, wenn (a) ein `svgo`-Release mit Fix erscheint, (b) Iconify
   von der CSS-Klassen-Nutzung auf den Vite-Plugin-Pfad wechselt (dann verarbeitet
   SVGO ggf. eigene Icons) oder (c) SVGO je zur Laufzeit auf User-Uploads gelegt wird.
+  **Geschlossen 2026-10-05 (Position 50):** `svgo` 4.1.0 erschienen und per
+  `pnpm update svgo` eingespielt (Lockfile; `pnpm audit` 17 → 2 Advisories, beide
+  svgo-Treffer weg). Pfad und Begründung oben bleiben als Historie stehen.
 
 - **A5 (accepted 2026-09-28, medium):** Die **Konto-Löschung** (Nutzer selbst, `mandant_admin`
   und `super_admin`) ist **unumkehrbar und protokolliert nur in das Anwendungslog** — es gibt

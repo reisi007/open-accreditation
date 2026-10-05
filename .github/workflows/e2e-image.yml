@@ -30,16 +30,15 @@ on:
     # Include-Liste (`paths`), BEWUSST kein `paths-ignore` — Abweichung vom
     # Skill `github-ci-filters` (Schritt 2), hier gemessen begründet. Die
     # ausführliche Begründung steht in `base-image.yml` (gleiche Form, gleiche
-    # Gründe); der eine Unterschied ist, dass dieser Workflow zusätzlich Dateien
+    # Gründe); der eine Unterschied ist, dass dieser Workflow eine Datei
     # AUSSERHALB des Build-Kontexts liest — der `versions`-Step unten zieht
-    # ZWEI Dateien per `sed`:
-    #   * `frontend/pnpm-lock.yaml` -> `PLAYWRIGHT_VERSION`  (war gelistet)
-    #   * `frontend/package.json`   -> `PNPM_VERSION` aus dem `packageManager`-Pin
-    #                                    (war NICHT gelistet)
-    # Ein `paths-ignore` könnte die beiden nicht von `frontend/**` ausnehmen —
-    # es kennt keine Negation — und würde damit jeden Frontend-Commit einen
-    # Image-Build plus Tag-Push auf `:latest` auslösen. Genau der Fall, den
-    # der Nightly nur mit bis zu 7 Tagen Latenz auffängt.
+    # `frontend/pnpm-lock.yaml` per `sed` für `PLAYWRIGHT_VERSION`.
+    # `frontend/package.json` stand in dieser Liste, weil `PNPM_VERSION` aus dem
+    # `packageManager`-Pin kam (Skill `node-deps`: der Pin ist weg, die Datei
+    # wird nicht mehr gelesen). Der Eintrag bleibt BEWUSST trotzdem stehen:
+    # eine Include-Liste kennt keine Negation, und das Fehlverhalten einer zu
+    # weiten Liste ist ein überflüssiger Image-Build, das einer zu engen ein
+    # E2E-Container, der nicht zum Lockfile passt. Fail-safe wins.
     # ------------------------------------------------------------------------
     paths:
       - 'deployment/**'
@@ -53,6 +52,16 @@ on:
 env:
   REGISTRY: ghcr.io
   OWNER: ${{ github.repository_owner }}
+  # Skill `node-deps`: MAJOR-LINIE, nicht exakte Version. Dieselbe Form wie
+  # `version: 11` bei `pnpm/action-setup` in ci.yml. Vorher stand hier der
+  # `packageManager`-Pin aus `frontend/package.json` (`pnpm@11.23.0`), der per
+  # `sed` extrahiert wurde — genau der Pin, den die Regel verbietet. Der
+  # Preis: das Image bekommt beim Build die aktuelle 11.x, nicht die zur
+  # Lockfile-Entstehung benutzte. Das ist dieselbe (dokumentierte) Abweichung,
+  # die der `composer:2`-Major-Tag im Dockerfile ohnehin schon hat — der
+  # Lockfile selbst ist die Quelle der Wahrheit für *Paket*-Versionen, nicht
+  # für die Version des Paket Managers.
+  PNPM_VERSION: "11"
 
 jobs:
   build:
@@ -69,13 +78,19 @@ jobs:
 
       - name: Extract build args from repository
         id: versions
+        env:
+          # Aus dem Workflow-`env:`, NICHT aus `frontend/package.json` — es gibt
+          # dort keinen `packageManager`-Pin mehr (Skill `node-deps`). Das `env:`
+          # ist hier redundant zum Job-`env:`, aber explizit: der Step darf nicht
+          # von einer impliziten Vererbung abhaengen, wenn jemand den Job-`env:`
+          # umstellt.
+          PNPM_VERSION: ${{ env.PNPM_VERSION }}
         run: |
           # Exakte aufgeloeste Version aus dem Lockfile (package.json kann
           # einen Caret-Range tragen, z.B. ^1.61.1 -> 1.62.1 im Lockfile).
           PLAYWRIGHT_VERSION="$(sed -n "s/.*'@playwright\/test@\([0-9][0-9.]*\)':.*/\1/p" frontend/pnpm-lock.yaml | head -n1)"
-          PNPM_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"pnpm@\([0-9][0-9.]*\)".*/\1/p' frontend/package.json | head -n1)"
           [ -n "$PLAYWRIGHT_VERSION" ] || { echo "::error::@playwright/test Version nicht in frontend/pnpm-lock.yaml gefunden"; exit 1; }
-          [ -n "$PNPM_VERSION" ] || { echo "::error::packageManager (pnpm) nicht in frontend/package.json gefunden"; exit 1; }
+          [ -n "$PNPM_VERSION" ] || { echo "::error::PNPM_VERSION (Major-Linie) ist nicht gesetzt"; exit 1; }
           echo "playwright_version=${PLAYWRIGHT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "pnpm_version=${PNPM_VERSION}" >> "$GITHUB_OUTPUT"
 

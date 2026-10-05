@@ -22,7 +22,7 @@ features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 ## Lokales Setup
 
 Voraussetzungen: PHP 8.5 (z. B. via Homebrew: `brew install php`),
-Composer, Docker, Node.js + pnpm (`packageManager`-Pin in `frontend/package.json`).
+Composer, Docker, Node.js + pnpm (Major-Linie 11; kein Pin).
 
 **Nach einem Neustart startet Docker nicht von allein.** Bei **Rancher Desktop** liegt der Socket
 unter `~/.rd/docker.sock`, **nicht** unter `/var/run/docker.sock` — `docker info` schlägt dann mit
