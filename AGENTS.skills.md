@@ -15,7 +15,7 @@ geprüft am: 2026-10-04
 | Skill | angewendet? | wo im Projekt | offene Position |
 |---|---|---|---|
 | `agent-config` | nein | | Maschinen-Konfiguration (opencode.jsonc, MCP, Skill-Registrierung); im Projekt kein opencode.jsonc, keine Modell-/MCP-Datei |
-| `build-verify` | ja | `AGENTS.md:151-155` | |
+| `build-verify` | ja | `AGENTS.md:147-155` | |
 | `codegraph-project-setup` | nein | | nur `.codegraph/.gitignore` (Stub, kein Index); keine Hook-Verdrahtung, kein Projekt-Bezug |
 | `docker-test-image` | ja | `.github/workflows/e2e-image.yml:1-51`, `ci.yml:534` (`container:`) | |
 | `ghcr-visibility` | ja | `ci.yml:522-524`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
@@ -26,9 +26,9 @@ geprüft am: 2026-10-04
 | `playwright-parallel` | offen | `ci.yml:782-786`, `:813/:815/:817` | Positionen 48, 49 in `AGENTS.todo.md` |
 | `skills-marker` | ja | `AGENTS.skills.md` | |
 | `tailscale-serve` | nein | | kein Tailscale-Bezug im Projekt (repo-weiter grep ohne Treffer) |
-| `ui-review` | ja | `AGENTS.md:365-437`, `:428-429` | |
+| `ui-review` | ja | `AGENTS.md:361-433`, `:424-425` | |
 | `update-opencode-models` | nein | | keine Modell-Registry im Projekt (wie `model-updater`) |
-| `vision-agents` | ja | `AGENTS.md:422-425` | |
+| `vision-agents` | ja | `AGENTS.md:418-421` | |
 
 ## Offen aus dem Bereich aad25d14..6629ad2 (2026-10-04)
 
