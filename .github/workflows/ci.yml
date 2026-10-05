@@ -819,7 +819,7 @@ jobs:
         #     MESSLAUF, gefahren, GRÜN (Position 48, Skill
         #     `playwright-parallel` Schritt 3, 2026-10-05, Lauf 37277096174):
         #     dieser Zweig fährt `--workers=4` statt `--workers=1`, bewusst OHNE
-        #     `lock:`. Ergebnis: 168 passed / 0 failed — kein einziges Fehlerbild,
+        #     `lock:`. Ergebnis: 168 passed / 64 skipped (von 232) / 0 failed — kein einziges Fehlerbild,
         #     also weder Rate-Cluster noch Mutex-Kollision. `--workers=4` BLEIBT
         #     deshalb hier (Skill-Schritt 6: grün bei `retries: 0`). Sollte dieser
         #     Zweig künftig rot werden, wird zuerst klassifiziert (Schritt 4):

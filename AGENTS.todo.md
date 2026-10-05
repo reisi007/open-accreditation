@@ -926,12 +926,7 @@ sondern eine umgegebene, die sich als Code-Fehler ausgab.**
 
 ### 48 — Serial-Pin (`--workers=1`) vs. Named Locks (Skill `playwright-parallel`)
 
-**Widerspruch, gemessen statt vermutet.** `ci.yml:782-786` begründet
-`--workers=1` in **beiden** Profilen mit „parallel workers teilen sich die CI-IP
-und erzeugen 429" (`:857`, `:859`, `:861` pinnen den Wert). Die eigene Messung in
-`AppServiceProvider.php:79-80` nennt **~17 Logins/min bei ~8 Workern** gegen ein
-Budget von **40/min** (`:83`) — rund die Hälfte. Beide Zahlen stehen im Repo;
-aufgelöst ist nichts.
+**Aufgelöst 2026-10-05 (statt Widerspruch):** `ci.yml:792-796` begründet `--workers=1` nur noch für die **verzeihenden** Zweige (`:868`, `:870` pinnen den Wert; strikt `:866` fährt `--workers=4`, gemessen grün). Die 429-Begründung gilt damit pro Profil getrennt, nicht mehr „in beiden Profilen". Historie unten bleibt lesbar, trägt aber einen überholten Zustand.
 
 **Warum die Begründung nicht trägt.** Der Limiter ist pro IP geschlüsselt
 (`:85-86`, `->by('login:'.$request->ip())`), der Zähler liegt im
@@ -958,14 +953,14 @@ der RateLimiter dort zustandslos ist; das Throttling-Verhalten deckt
 Helper-Indirektion und sind nur zur Laufzeit messbar. Keine Datei trägt eine
 auffällige direkte Zahl.
 
-**Inventar, gemessen 2026-10-04 (keine Shards, keine Locks):** `grep shard` über Configs + `ci.yml` = 0 (keine Shard-Matrix); CI pinnt `--workers=1` in allen drei Invocations (`ci.yml:813/815/817`); genau **ein** `mode: 'serial'`-Block im Repo (`ownership.spec.ts:90`, Probe-Treiber); **kein** Playwright-Named-Lock im Spec-Code (`lock:`-Treffer alle Prosa); Configs tragen bereits `fullyParallel: true` + beide Retry-Profile; `@playwright/test ^1.63.0` (Lock-Release verfügbar).
+**Inventar, gemessen 2026-10-04, Messlauf 2026-10-05:** `grep shard` über Configs + `ci.yml` = 0 (keine Shard-Matrix); CI pinnt `--workers=4` strikt (`ci.yml:866`, gemessen grün) und `--workers=1` in den zwei verzeihenden Invocations (`ci.yml:868/:870`); genau **ein** `mode: 'serial'`-Block im Repo (`ownership.spec.ts:90`, Probe-Treiber); **kein** Playwright-Named-Lock im Spec-Code (`lock:`-Treffer alle Prosa); Configs tragen bereits `fullyParallel: true` + beide Retry-Profile; `@playwright/test ^1.63.0` (Lock-Release verfügbar).
 
 **Umgesetzt 2026-10-04 (keine Locks, sondern Isolation — gemessen begründet):**
 - Mutex 1 (Venue-Rennen, 5 Aufrufer): Adoption statt Wurf (`admin-data.ts:432-486`) — non-201 → Re-Read → exakte Namensübereinstimmung adoptieren (inkl. Reaktivierung); fail-closed ohne Fund. Gemessen: 5×POST 1×201/4×422; mit Fix `portal.spec.ts` 4/4 bei 4 Workern, ohne Fix 1 failed / 3 passed.
 - Mutex 2 (Bootstrap-Team per Test gelöscht): `rememberOwnedRow('teams', …)` entfernt (`:1349`) — geteilte Master Data, serieller Teardown gibt zurück (Regel wie Venues `namespace-isolation.spec.ts:1059-1063`). Abgeleitet aus FK-Graph (`events.team_id`/`categories.team_id` = `cascade`) + adoptierenden Aufrufern, nicht per Reproduktion (Fenster zu klein für Teilmengen-Läufe).
 - Gate gegen Rückkehr: `namespace-isolation.spec.ts:769-848` verbietet `rememberOwnedRow('teams'|'venues')` (Mutation beidseitig rot).
 - **Kein `lock:` — bewusst:** Playwright-1.63-Locks sind dispatcher-lokal (kein File, kein prozessübergreifender Mechanismus); sie serialisierten 5 UI-Tests für ein Sub-Sekunden-Fenster, und ein 5. Aufrufer bliebe ungeschützt (Skill: Isolation schlägt Lock). Logo-Datei-Mutex bleibt (deckt zweiten Harness-Prozess). Ownership-Serial-Block unberührt (Treiber-Notwendigkeit, keine Mutex).
-- Rate-Funde → Position 49 (429-Cluster, kein Lock). **Messlauf GRÜN (2026-10-05, Lauf `37277096174`):** strikte Suite (`retries: 0`, `maxFailures: 1`) mit `--workers=4` → **168 passed (1,6 min), 0 failed** — keine Mutex-Kollision, kein Rate-Cluster. Backend im selben Lauf: SQLite **1983 passed** (12501), Postgres **1982 + 1 skipped** (12495, `1983 = 1982 + 1`); i18n **467**. **Worker-Entscheid:** `--workers=4` im strict-Zweig **bleibt** (Skill-Schritt 6: grün bei `retries: 0`); kein Lock nötig, kein Revert. Verzeihende Zweige bleiben bei `--workers=1` (Timing-Ruhe für 157-Spec-Satz mit Rauschen).
+- Rate-Funde → Position 49 (429-Cluster, kein Lock). **Messlauf GRÜN (2026-10-05, Lauf `37277096174`):** strikte Suite (`retries: 0`, `maxFailures: 1`) mit `--workers=4` → **168 passed / 64 skipped (von 232), 0 failed (1,6 min)** — keine Mutex-Kollision, kein Rate-Cluster. Backend im selben Lauf: SQLite **1983 passed** (12501), Postgres **1982 + 1 skipped** (12495, `1983 = 1982 + 1`); i18n **467**. **Worker-Entscheid:** `--workers=4` im strict-Zweig **bleibt** (Skill-Schritt 6: grün bei `retries: 0`); kein Lock nötig, kein Revert. Verzeihende Zweige bleiben bei `--workers=1` (Timing-Ruhe für 157-Spec-Satz mit Rauschen).
 
 **Position (a):** serielle Läufe durch Named Locks ersetzen
 (`test('…', { lock: '…' }, …)`), nach dem Migrationspfad des Skills: serielle

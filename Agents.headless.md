@@ -206,10 +206,9 @@ haben **gemessen verschiedene** Gründe:
 
 **Playwright läuft im strikten CI-Profil mit `--workers=4` (gemessen grün 2026-10-05, Position 48) — die Passage unten beschreibt den Vorzustand und bleibt als dessen Begründung lesbar.** Dass zwei Kommentare derselben Datei Unvereinbares über die Login-Drossel behaupteten, wurde durch Messung entschieden, nicht durch Auswahl: der strikte Lauf mit 4 Workern zeigte weder 429-Cluster noch Mutex-Kollision.
 
-- `ci.yml:611-624` (Schritt `Prepare backend environment` + `CACHE_STORE=array`-Kommentar): mit `array` ist der Limiter
+- `ci.yml:611` (Schritt `Prepare backend environment`) + `CACHE_STORE=array`-Kommentar `:617-624`: mit `array` ist der Limiter
   **zustandslos** → er kann keine 40 Logins akkumulieren → **kein 429**.
-- `ci.yml:780` (Run-Step `Run E2E-Suite`, Voll-Lauf `:817`): geteilte CI-IP + 40/min ⇒ parallele Worker
-  erzeugen **429** ⇒ darum `--workers=1`.
+- `ci.yml:790` (Run-Step `Run E2E-Suite`, Voll-Lauf `:866`): strikt `--workers=4` (gemessen grün), verzeihend `:868`/`:870` mit `--workers=1`.
 
 Beides konnte nicht gelten. Der gemessene Ausweg (statt Auswahl einer der beiden
 Begründungen): strikter Lauf mit `--workers=4` — grün, also weder 429-Cluster
