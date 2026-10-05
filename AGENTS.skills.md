@@ -19,11 +19,11 @@ geprüft am: 2026-10-04
 | `codegraph-project-setup` | nein | | nur `.codegraph/.gitignore` (Stub, kein Index); keine Hook-Verdrahtung, kein Projekt-Bezug |
 | `docker-test-image` | ja | `.github/workflows/e2e-image.yml:1-51`, `ci.yml:534` (`container:`) | |
 | `ghcr-visibility` | ja | `ci.yml:522-524`, `features/05-e2e-test-image.md:165-167` | keine — beide Packages public (geprüft 2026-10-04: anonymer Pull-Token für beide erteilt; `gh api` meldet `visibility=public` für `accriditation-e2e` und `accriditation-base`) |
-| `github-ci-filters` | offen | `ci.yml:61-67`, `.github/workflows/base-image.yml:67`, `.github/workflows/e2e-image.yml:44` | Position 51 in `AGENTS.todo.md` |
+| `github-ci-filters` | angewendet: ja | `ci.yml:61-67` | |
 | `model-updater` | nein | | keine Modell-Konfiguration im Projekt (Maschinen-Sache wie `agent-config`) |
-| `node-deps` | angewendet | Pin + Overrides entfernt (Runden 48/49; `ci.yml:481`/:`739` `version: 11`, `e2e-image.yml:64` env, `Dockerfile.e2e:117` ARG) | Position 50 umgesetzt, Board-Vermerk folgt |
+| `node-deps` | angewendet | Pin + Overrides entfernt (Runden 48/49; `ci.yml:481`/:`739` `version: 11`, `e2e-image.yml:64` env, `Dockerfile.e2e:117` ARG) | |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine); das Projekt definiert keine |
-| `playwright-parallel` | offen | `ci.yml:782-786`, `:813/:815/:817` | Positionen 48, 49 in `AGENTS.todo.md` |
+| `playwright-parallel` | angewendet: ja | `ci.yml:782-786` | |
 | `skills-marker` | ja | `AGENTS.skills.md` | |
 | `tailscale-serve` | nein | | kein Tailscale-Bezug im Projekt (repo-weiter grep ohne Treffer) |
 | `ui-review` | ja | `AGENTS.md:361-433`, `:424-425` | |
