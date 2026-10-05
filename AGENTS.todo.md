@@ -57,7 +57,7 @@
 > (der Docblock benennt beide gebrochenen Schreibweisen — `prepareCookiesForJsonRequest()` ohne
 > `withCredentials()`, und `withCookie()`+`withCredentials()` als Chiffre, weil die `api`-Gruppe kein
 > `EncryptCookies` bekommt — und den `JWT::$token`-Singleton als die stille 200-Quelle, die den Falsch-Positiv
-> trug) · der **STRICT-Schalter** und sein ausdrückliches **Nicht**-Default in `backend/AGENTS.md:91-122`
+> trug) · der **STRICT-Schalter** und sein ausdrückliches **Nicht**-Default in `backend/AGENTS.md:132-163`
 > (`JWT_AUTH_STATE_STRICT=1`, „der Normalfall misst das Produkt, und die Ausnahme-Liste soll nicht stillschweigend
 > wachsen können") · die **vier blinden Wächter** — vier verbotene **Aufrufe** *und* die vier
 > `protected`-**Transport-Properties** dahinter — in `backend/tests/Feature/ForbiddenJwtCookieChannelTest.php:14-80`,
