@@ -1,5 +1,6 @@
 export type { AccountDeletionResult, AccountSummary } from './types';
 
+import { activeUiLocale } from '../logic/uiLocale';
 import type {
     AccountDeletionResult,
     AccountSummary,
@@ -70,6 +71,12 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
  * read by `requestMessage`. Before this split both callers re-implemented the
  * transport, which is how a second copy of the 401 handler and the error mapping
  * would have drifted.
+ *
+ * `Accept-Language` is set HERE, on both transports (`send` and
+ * `fetchBinary`), because the server answers `{message}` bodies in the
+ * negotiated language — the resend/requeue surfaces show them verbatim, and they
+ * used to be hardcoded German. One header on one place per transport beats
+ * setting it at the three call sites, where the next endpoint would forget it.
  */
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -77,6 +84,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
         headers.set('Content-Type', 'application/json');
     }
     headers.set('Accept', 'application/json');
+    headers.set('Accept-Language', activeUiLocale());
 
     let response: Response;
     try {
@@ -728,9 +736,15 @@ export const deleteBadgeImage = (id: number): Promise<void> =>
  * the UI show a real message instead of silently downloading the error body.
  */
 async function fetchBinary(path: string, init: RequestInit = {}): Promise<Response> {
+    // Same negotiation as `send` — see its docblock. Set on both transports so
+    // a JSON `{message}` error body from a binary endpoint (the badge export's
+    // 422 "no default template") is localized too.
+    const headers = new Headers(init.headers);
+    headers.set('Accept-Language', activeUiLocale());
+
     let response: Response;
     try {
-        response = await fetch(path, { ...init, credentials: 'include' });
+        response = await fetch(path, { ...init, headers, credentials: 'include' });
     } catch {
         throw new ApiError(0, 'Netzwerkfehler: Keine Verbindung zum Server.', {});
     }

@@ -158,6 +158,11 @@ class AdminApplicationController extends Controller
      * was a claim the controller has no evidence for, and an operator reading
      * it could believe a broken relay was fine. Same wording as the DLQ requeue,
      * which has the identical contract.
+     *
+     * The wording is the localized `mails.queued` (see `lang/de/mails.php`): the
+     * UI shows this body verbatim, so a hardcoded German literal meant an `en`
+     * admin read a German line. The EN catalog keeps the same QUEUEING claim —
+     * translating the string must not reintroduce "sent" under another language.
      */
     public function resend(Request $request, Application $application): JsonResponse
     {
@@ -178,14 +183,14 @@ class AdminApplicationController extends Controller
                 new PassMail($application, VerifyLink::for($application)),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
+            return response()->json(['message' => __('mails.queued')]);
         }
 
         if ($application->status === 'denied') {
             $reason = $application->reason;
 
             if ($reason === null || trim($reason) === '') {
-                return response()->json(['message' => 'Application has no mailable reason.'], 422);
+                return response()->json(['message' => __('mails.no_mailable_reason')], 422);
             }
 
             $this->mandantMailer->send(
@@ -193,10 +198,10 @@ class AdminApplicationController extends Controller
                 new ApplicationDeniedMail($application, $reason),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
+            return response()->json(['message' => __('mails.queued')]);
         }
 
-        return response()->json(['message' => 'Application has no mailable status.'], 422);
+        return response()->json(['message' => __('mails.no_mailable_status')], 422);
     }
 
     /**

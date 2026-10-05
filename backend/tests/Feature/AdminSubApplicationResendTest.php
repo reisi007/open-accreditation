@@ -223,10 +223,15 @@ class AdminSubApplicationResendTest extends TestCase
 
         $this->assertSame('requested', $row->status, 'precondition: the row has no mailable status yet');
 
+        // The 422 body moved from an English literal to `mails.sub_no_mailable_status`
+        // (`lang/de/mails.php`, 2026-10-05). `TestCase::speakGermanByDefault()` makes
+        // the suite a German client, so this is the DE catalog; the EN wording is
+        // pinned per locale in `ServerMessageLocaleTest`, which is the class that
+        // owns the negotiation.
         $this->actingAsApi($this->superAdmin())
             ->postJson($this->endpoint($row))
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Sub-application has no mailable status.');
+            ->assertJsonPath('message', __('mails.sub_no_mailable_status'));
 
         Mail::assertNothingSent();
     }
@@ -244,10 +249,11 @@ class AdminSubApplicationResendTest extends TestCase
         // one, the bulk plan writes Quota/Blacklist).
         $this->assertNull($row->reason, 'precondition: the denied row carries no reason');
 
+        // Localized like its sibling above — see the note there.
         $this->actingAsApi($this->superAdmin())
             ->postJson($this->endpoint($row))
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Sub-application has no mailable reason.');
+            ->assertJsonPath('message', __('mails.sub_no_mailable_reason'));
 
         Mail::assertNothingSent();
     }

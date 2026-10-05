@@ -441,10 +441,14 @@ class MailTest extends TestCase
             'priority' => false,
         ]);
 
+        // The 422 bodies moved from English literals to `mails.*`
+        // (`lang/de/mails.php`, 2026-10-05). `TestCase::speakGermanByDefault()`
+        // makes the suite a German client, so this reads the DE catalog; the EN
+        // wording and the negotiation itself are pinned in `ServerMessageLocaleTest`.
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Application has no mailable reason.');
+            ->assertJsonPath('message', __('mails.no_mailable_reason'));
 
         Mail::assertNotSent(ApplicationDeniedMail::class);
     }
@@ -458,7 +462,7 @@ class MailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Application has no mailable status.');
+            ->assertJsonPath('message', __('mails.no_mailable_status'));
 
         Mail::assertNotSent(PassMail::class);
         Mail::assertNotSent(ApplicationDeniedMail::class);
@@ -473,7 +477,7 @@ class MailTest extends TestCase
         $this->actingAsApi($this->superAdmin())
             ->postJson('/api/admin/applications/'.$application->id.'/resend')
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Application has no mailable status.');
+            ->assertJsonPath('message', __('mails.no_mailable_status'));
     }
 
     public function test_resend_team_admin_foreign_team_is_403(): void

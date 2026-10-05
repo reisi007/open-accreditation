@@ -95,6 +95,36 @@ abstract class TestCase extends BaseTestCase
         self::isolateFakeDisksInThisProcess();
 
         $this->rootEveryDiskInTheTestTree();
+
+        $this->speakGermanByDefault();
+    }
+
+    /**
+     * The suite's baseline client is a GERMAN-speaking one.
+     *
+     * ## Why this is here and not left to chance
+     *
+     * `SymfonyRequest::create()` — which `MakesHttpRequests::call()` builds every
+     * test request with — INJECTS a default
+     * `HTTP_ACCEPT_LANGUAGE: en-us,en;q=0.5` (measured:
+     * `vendor/symfony/http-foundation/Request.php`, the `array_replace` default
+     * block). Since `SetRequestLocale` negotiates from that header, every test
+     * in this suite would otherwise be an **English** client — and every
+     * existing German `{message}` assertion (`MailTest`, `QueuedMailTest`,
+     * `AdminSubApplicationResendTest`) would go red on a tree where the German
+     * catalogs are perfectly correct.
+     *
+     * Those assertions are contracts, not decoration, so the baseline is fixed
+     * HERE, once, instead of being patched into three test classes: it makes the
+     * whole suite speak the product's source language, which is also what the
+     * SPA does at boot (`I18nProvider.tsx` activates `de`).
+     *
+     * `withHeader('Accept-Language', …)` still overrides this per test — that is
+     * how `ServerMessageLocaleTest` reaches the `en` catalog.
+     */
+    private function speakGermanByDefault(): void
+    {
+        $this->withServerVariables(['HTTP_ACCEPT_LANGUAGE' => 'de']);
     }
 
     protected function tearDown(): void

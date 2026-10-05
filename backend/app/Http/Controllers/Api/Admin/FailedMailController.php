@@ -40,6 +40,16 @@ use Illuminate\Support\Str;
  * `SendMandantMail` and `prepareForRequeue()`). The action is logged: a manual
  * requeue is a human decision and must be attributable (there is no automatic
  * path back out of `dead`).
+ *
+ * ## The `{message}` body is localized
+ *
+ * The UI shows this body verbatim (`frontend/src/logic/serverActionMessage.ts`),
+ * so it used to be a hardcoded German literal that an `en` admin read as
+ * German. It is now `mails.queued` — the SAME key the two resend endpoints use,
+ * because the contract is identical: a delivery job was written, and this
+ * process cannot know whether the relay ever answered.
+ *
+ * @see lang/de/mails.php
  */
 class FailedMailController extends Controller
 {
@@ -96,7 +106,7 @@ class FailedMailController extends Controller
             'actor_id' => $user->getKey(),
         ]);
 
-        return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
+        return response()->json(['message' => __('mails.queued')]);
     }
 
     private function currentMandantId(): int

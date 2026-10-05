@@ -1,3 +1,4 @@
+import { i18n } from '@lingui/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     ApiError,
@@ -16,6 +17,7 @@ import {
     uploadMyHeader,
     uploadMyLogo,
 } from './client';
+import { DEFAULT_UI_LOCALE } from '../logic/uiLocale';
 import type { FailedMail, Mandant } from './types';
 
 function stubFetch(responseBody: unknown, status = 200, headers?: Record<string, string>) {
@@ -32,9 +34,67 @@ function stubFetch(responseBody: unknown, status = 200, headers?: Record<string,
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    // `i18n` is the process-wide Lingui singleton: the language cases below
+    // activate `en`, and without this they would leak into every later test file
+    // in the same worker — silently, and order-dependently.
+    i18n.activate(DEFAULT_UI_LOCALE);
 });
 
 describe('api client', () => {
+    /**
+     * ## The header the server's language depends on
+     *
+     * `AdminApplicationController::resend`, `AdminSubApplicationController::resend`
+     * and `FailedMailController::requeue` answer `{message}` bodies that the UI
+     * shows VERBATIM (`logic/serverActionMessage.ts`). Those bodies are localized
+     * server-side from `Accept-Language`
+     * (`backend/app/Http/Middleware/SetRequestLocale.php`), so without this header
+     * the backend can only answer in its own default — and the in-app language
+     * switch would be invisible to it.
+     *
+     * The browser's own header cannot stand in: Chromium (Playwright included)
+     * sends `en-US` regardless of what the page displays. So this block is also
+     * the guard against "someone dropped the explicit header and the suite stayed
+     * green because the backend defaults to German".
+     */
+    describe('Accept-Language', () => {
+        it('asks for the boot locale before any locale was activated', async () => {
+            i18n.activate('');
+            const fetchMock = stubFetch({ message: 'ok' });
+
+            await resendApplicationMail(42);
+
+            const [, init] = fetchMock.mock.calls[0];
+            // Never empty: an empty header means "no preference" to the server,
+            // which then falls back to ITS default rather than to ours.
+            expect(new Headers(init?.headers).get('Accept-Language')).toBe('de');
+        });
+
+        it('follows the ACTIVE locale, so the language switch reaches the API', async () => {
+            const fetchMock = stubFetch({ message: 'ok' });
+
+            i18n.activate('de');
+            await resendApplicationMail(42);
+            expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept-Language')).toBe('de');
+
+            i18n.activate('en');
+            await requeueFailedMail(11);
+            expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('Accept-Language')).toBe('en');
+        });
+
+        it('carries the locale on the resource endpoints too, not only on the message ones', async () => {
+            // The negotiation is a property of the API, not of the three
+            // `{message}` endpoints: a header set only where it was first needed
+            // is one forgotten endpoint away from being wrong again.
+            const fetchMock = stubFetch({ data: [] });
+
+            i18n.activate('en');
+            await listMandants();
+
+            expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept-Language')).toBe('en');
+        });
+    });
+
     it('unwraps the {data} envelope on success', async () => {
         const mandants = [{ id: 1, slug: 'main', name: 'Hauptseite' } as Mandant];
         stubFetch({ data: mandants });

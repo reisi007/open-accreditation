@@ -343,11 +343,12 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   Oberfläche zuerst bricht.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
-- **Backend-Success-Messages sind deutsch, auch für Sub** (gemessen Runde 24:
-  Haupt-, Sub- und DLQ-Fläche zeigen den Server-String via `serverActionMessage`;
-  `frontend/src/logic/serverActionMessage.ts` dokumentiert alle drei Quellen).
-  Zweite und dritte Stelle derselben Lücke (erste: Haupt-Freigabe); i18n der Mail- und
-  Meldungstexte ist ein eigener Auftrag, kein Teil von Position 47.
+- **Backend-Success-Messages deutsch/englisch (umgesetzt 2026-10-05):** `SetRequestLocale`
+  (API-Middleware, `Accept-Language`, DE-Default, `Vary` angehängt), `lang/{de,en}/mails.php`
+  (5 Keys, `queued` nie „sent"), Frontend sendet UI-Locale auf beiden Transporten
+  (`uiLocale.ts`), Anzeige weiter Server-Wort. Tests: `ServerMessageLocaleTest` (18),
+  Vitest + E2E je Locale. 422-Bodies derselben Endpoints mit lokalisiert (sonst
+  spräche ein Endpoint je Zweig anders).
 
 ## 9. Der Scheduler beobachtet sich selbst (gemessen, nicht behauptet)
 

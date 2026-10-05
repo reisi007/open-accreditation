@@ -171,6 +171,15 @@ class AdminSubApplicationController extends Controller
      * (`SubAllocationService::dispatchApprovedMails()`) does not repair it
      * either, and a resend must duplicate the mail it repeats, not behave
      * differently from the original dispatch.
+     *
+     * ## The wording is localized, and the claim is not negotiable per language
+     *
+     * `mails.queued` is the same key the main resend and the DLQ requeue use,
+     * because the three have the identical contract (a job was written; nothing
+     * more). The 422 bodies get their own keys naming the SUB row, so an `en`
+     * client is not told about an "application" when he clicked a sub-row.
+     *
+     * @see lang/de/mails.php for what the wording may and may not claim.
      */
     public function resend(Request $request, SubApplication $subApplication): JsonResponse
     {
@@ -189,14 +198,14 @@ class AdminSubApplicationController extends Controller
                 new SubApplicationApprovedMail($subApplication),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
+            return response()->json(['message' => __('mails.queued')]);
         }
 
         if ($subApplication->status === 'denied') {
             $reason = $subApplication->reason;
 
             if ($reason === null || trim($reason) === '') {
-                return response()->json(['message' => 'Sub-application has no mailable reason.'], 422);
+                return response()->json(['message' => __('mails.sub_no_mailable_reason')], 422);
             }
 
             $this->mandantMailer->send(
@@ -204,10 +213,10 @@ class AdminSubApplicationController extends Controller
                 new SubApplicationDeniedMail($subApplication, $reason),
             );
 
-            return response()->json(['message' => 'E-Mail wurde erneut in die Warteschlange gestellt.']);
+            return response()->json(['message' => __('mails.queued')]);
         }
 
-        return response()->json(['message' => 'Sub-application has no mailable status.'], 422);
+        return response()->json(['message' => __('mails.sub_no_mailable_status')], 422);
     }
 
     /**

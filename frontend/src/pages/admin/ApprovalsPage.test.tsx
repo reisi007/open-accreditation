@@ -1,3 +1,4 @@
+import { i18n } from '@lingui/core';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -359,5 +360,56 @@ describe('ApprovalsPage sub-application resend', () => {
         expect(await within(row).findByRole('alert')).toHaveTextContent(
             'No query results for model [App\\Models\\SubApplication] 999.',
         );
+    });
+
+    /**
+     * ## The success line follows the ACTIVE locale
+     *
+     * Since 2026-10-05 the server answers this `{message}` body in the
+     * negotiated language (`backend/lang/{de,en}/mails.php` +
+     * `SetRequestLocale`), and the client asks for the locale the UI is showing
+     * (`api/client.ts` → `logic/uiLocale.ts`). So the row's status region has to
+     * render the server's ENGLISH for an English reader — and still nothing but
+     * the server's words.
+     *
+     * The control group is the German case right above: same mock, same click,
+     * same assertions apart from the language. Without it, "the English case
+     * shows English" could be satisfied by a page that hardcoded one language.
+     *
+     * The negative assertions are the load-bearing half: a UI that translated
+     * the German body itself would pass the first check and fail these, which is
+     * exactly the change `serverActionMessage.ts` was written to prevent.
+     */
+    it('shows the ENGLISH server message to an English reader, unchanged', async () => {
+        i18n.activate('en');
+        // What `AdminSubApplicationController::resend` answers for
+        // `Accept-Language: en` — MEASURED, see `backend/lang/en/mails.php`.
+        resendSubApplicationMailMock.mockResolvedValueOnce('E-mail was queued again.');
+
+        try {
+            const user = userEvent.setup();
+            serverSubApps.push(makeDecidedSubApplication(1, 'approved'));
+            renderPage();
+
+            // The CONTROLS are localized too — the tab reads "Sub-applications"
+            // and the button "Resend email" under `en`. Driving the page in the
+            // active locale is the point: an admin who switched the UI to English
+            // clicks English labels, and that is the run whose server answer is
+            // English.
+            await user.click(await screen.findByRole('tab', { name: 'Sub-applications' }));
+            const row = await screen.findByRole('row', { name: /p1@example\.test/ });
+
+            await user.click(within(row).getByRole('button', { name: 'Resend email' }));
+
+            const status = await within(row).findByRole('status');
+            expect(status).toHaveTextContent('E-mail was queued again.');
+            // Verbatim, not translated from the German source.
+            expect(status).not.toHaveTextContent('Warteschlange');
+            // And still no delivery claim in the other language.
+            expect(status).not.toHaveTextContent('erneut gesendet');
+            expect(status).not.toHaveTextContent('sent again');
+        } finally {
+            i18n.activate('de');
+        }
     });
 });

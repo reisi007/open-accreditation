@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureMandantMembership;
 use App\Http\Middleware\EnsureSameOrigin;
 use App\Http\Middleware\MandantContextMiddleware;
+use App\Http\Middleware\SetRequestLocale;
 use App\Support\MandantContext;
 use App\Support\TrustedProxyConfig;
 use Illuminate\Foundation\Application;
@@ -100,6 +101,12 @@ $app = Application::configure(basePath: dirname(__DIR__))
         // `Sec-Fetch-*`, which the generic branch rejects anyway. Skipped in
         // console/unit tests, like Laravel's own VerifyCsrfToken.
         $middleware->api(append: [EnsureSameOrigin::class]);
+        // Locale negotiation for the API's `{message}` bodies. Prepended, so it
+        // runs before anything that could RENDER one: without it the DE catalog
+        // in `lang/` is unreachable for `en` clients and every answer falls back
+        // to `config('app.locale')` (which is `en` — see the class docblock for
+        // why the default locale is decided here rather than in config).
+        $middleware->api(prepend: [SetRequestLocale::class]);
         // #6-1: mandant membership per request. The JWT carries no mandant
         // claim (`User::getJWTCustomClaims()` is empty) and the only mandant
         // check in the auth flow ran at LOGIN time, so a token minted on

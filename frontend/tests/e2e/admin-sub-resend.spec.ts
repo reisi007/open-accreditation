@@ -165,6 +165,87 @@ test.describe('Admin Sub-Antrag E-Mail erneut senden (Position 47)', () => {
         await expect(status).not.toContainText('erneut gesendet.');
     });
 
+    /**
+     * ## The same success line, in the reader's language
+     *
+     * This is the ONLY test in the suite that proves the whole chain at once:
+     * the SPA sends `Accept-Language` from its ACTIVE locale
+     * (`api/client.ts` → `logic/uiLocale.ts`), the backend negotiates it
+     * (`SetRequestLocale`) and answers from `lang/en/mails.php`, and the row
+     * renders that body verbatim (`serverActionMessage`).
+     *
+     * ### `locale: 'de-DE'` is load-bearing, and it was found by a mutation
+     *
+     * The first version of this test ran on the default browser locale and
+     * **stayed green with the `Accept-Language` header deleted** — because
+     * Chromium (Playwright's default `en-US`) then supplies `en-US` itself, the
+     * backend answers English anyway, and the assertion passes for the wrong
+     * reason. A test that cannot fail is not a gate.
+     *
+     * The fix is to make the two languages DISAGREE: the browser context speaks
+     * German, the app is switched to English, and only the explicit header can
+     * produce an English server answer. Re-measured after the fix — deleting
+     * `headers.set('Accept-Language', …)` from `send()` turns THIS test red.
+     *
+     * The German sibling test is the control — same endpoint, same fixture, one
+     * language apart, and on a browser locale that disagrees with the app too
+     * (Chromium `en-US` vs. the app's `de`). Without that pair, "the English
+     * case shows English" could be satisfied by a UI hardcoded to one language.
+     *
+     * `not.toContainText('sent again')` is the other half: the EN catalog says
+     * "queued" because `send()` only dispatches, and a translator improving the
+     * wording into a delivery claim would restore the exact lie
+     * `serverActionMessage.ts` exists to delete.
+     */
+    test.describe('with a German BROWSER and an English APP', () => {
+        // `locale` drives both `navigator.language` and the browser's own
+        // `Accept-Language`, so it is what makes the disagreement above real.
+        test.use({ locale: 'de-DE' });
+
+    test('answers in the ACTIVE locale: an English admin reads the English server message', { tag: ['@feature:admin:sub-resend'] }, async ({ page }) => {
+        const { subAccreditation, user } = await createRequestedSubApplication();
+
+        await page.goto('/');
+        await page.getByRole('banner').getByRole('link', { name: 'Anmelden', exact: true }).click();
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\/mandants$/);
+
+        // Switch the UI FIRST. The locale is app state on the shared Lingui
+        // singleton, so every later request — including the resend — carries
+        // `Accept-Language: en`. Doing it after the resend would prove nothing.
+        await page.getByRole('banner').getByRole('combobox', { name: 'Sprache' }).selectOption('en');
+        // Proof the switch took, in the header itself — the assertion below would
+        // otherwise pass on a page that merely happened to show English text.
+        await expect(page.getByRole('banner').getByRole('combobox', { name: 'Language' })).toHaveValue('en');
+
+        await page.getByRole('complementary').getByRole('link', { name: 'Approvals', exact: true }).click();
+        await expect(page).toHaveURL(/\/admin\/freigaben$/);
+
+        const main = page.getByRole('main');
+        await main.getByRole('tab', { name: 'Sub-applications' }).click();
+        await main.getByLabel('Sub-accreditation', { exact: true }).selectOption(String(subAccreditation.id));
+
+        const row = main.getByRole('row', { name: new RegExp(user.email) });
+        await expect(row).toBeVisible();
+        await row.getByRole('button', { name: 'Approve', exact: true }).click();
+        await expect(row.getByText('Approved')).toBeVisible();
+
+        await row.getByRole('button', { name: 'Resend email' }).click();
+
+        const status = row.getByRole('status');
+        await expect(status).toContainText('E-mail was queued again.');
+        // Verbatim from the server, not translated here — so no German leaks into
+        // an English reader.
+        await expect(status).not.toContainText('Warteschlange');
+        // And still no delivery claim, in the language nobody here reads by default.
+        await expect(status).not.toContainText('sent again');
+        await expect(status).not.toContainText('erneut gesendet');
+    });
+    });
+
     test('resends the denial mail of a denied sub-application', { tag: ['@feature:admin:sub-resend'] }, async ({ page }) => {
         const { subAccreditation, user } = await createRequestedSubApplication();
 
