@@ -645,7 +645,7 @@ export const listFailedMails = (): Promise<FailedMail[]> => request<FailedMail[]
  * Move one dead letter back onto the queue — a human, logged decision, and the
  * ONLY way out of the terminal `dead` state.
  *
- * Returns the server's message (bare `{message}`, `FailedMailController.php:99`).
+ * Returns the server's message (bare `{message}`, `FailedMailController.php:109`).
  * A foreign letter answers **404** and a role without `mails.dlq.manage` answers
  * **403**; both are `ApiError`s the caller must surface, never swallow.
  */

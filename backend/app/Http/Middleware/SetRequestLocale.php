@@ -93,7 +93,7 @@ class SetRequestLocale
      *
      * `Tests\Feature\ServerMessageLocaleTest::`
      * `test_every_supported_locale_has_a_catalog_on_disk`
-     * (backend/tests/Feature/ServerMessageLocaleTest.php:427) asserts the catalogs
+     * (backend/tests/Feature/ServerMessageLocaleTest.php:444) asserts the catalogs
      * on disk exist for exactly these locales, so a locale added here without its
      * `lang/<locale>/mails.php` fails there rather than in production.
      *
