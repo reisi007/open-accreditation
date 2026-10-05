@@ -153,12 +153,20 @@ use Tests\TestCase;
  *    and the drift is UNSEEN, not merely untested. Measured 2026-10-05:
  *    pointing the catch at the other EXISTING key
  *    (`messages.sub_accreditations.not_open_yet`) left **0 red**, both in the
- *    136-test scope named above and in a broad API run (491 passed, 3291
- *    assertions). The scan cannot see that mutation because it searches for
- *    the ENGLISH LITERALS, and a second catalog key is not a literal — so
- *    NOBODY notices when the two states drift onto different keys. Which is
- *    exactly why the controller docblock says ONE key there instead of leaving
- *    it to chance.
+ *    136-test scope named above and in the WHOLE backend suite — a scope that
+ *    needs no guessing, because it is named by its own command:
+ *    `cd backend && php artisan test` (SQLite `:memory:`) → **2017 passed**,
+ *    13353 assertions, none failed; `DB_HOST=dind bash scripts/test-pgsql.sh`
+ *    (PostgreSQL 17) → **2016 passed + 1 skipped**, 13347 — the same 2017
+ *    tests, the skip being `AllocationAtomicityTest`'s documented SQLite-only
+ *    FK staging. An earlier draft cited "a broad API run (491 passed, 3291
+ *    assertions)" instead: no filter and no file list reproduces that number,
+ *    so it read as measured and was checkable by nobody.
+ *
+ *    The scan cannot see that mutation because it searches for the ENGLISH
+ *    LITERALS, and a second catalog key is not a literal — so NOBODY notices
+ *    when the two states drift onto different keys. Which is exactly why the
+ *    controller docblock says ONE key there instead of leaving it to chance.
  *  - **The binding's 404 body is Laravel's and stays untranslated.** It reaches
  *    the same `err.message` a user reads, and it is still an English framework
  *    string on a German screen — the same shape of defect this class exists for,
