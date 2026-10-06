@@ -457,8 +457,10 @@ Pass-Zahl braucht, misst sie selbst und nennt die Kombi dazu.
   mandantweit, nicht team-skaliert** (2026-10-06 gemessen, Verifikationsrunde 71).
   Die **Liste** ist für einen `team_admin` auf sein Team verengt
   (`scopeVisibleAssignments`), der **`withCount` am Ende derselben Query nicht**
-  (`UserController::index`, `:185`): er zählt über die Correlation
-  `applications.mandant_id = users.mandant_id` ohne jede Team-Bedingung. Gemessen:
+  (`UserController::index`, `:185`): er zählt über die HasMany-Correlation
+  `applications.user_id = users.id` (`User::applications()`, kein `team_id`
+  auf `applications`, keine Team-Bedingung im Count) — pro gelistetem Konto
+  alle seine Anträge, egal auf wessen Team sie laufen. Gemessen:
   ein Team-A-Mitglied mit 4 Anträgen, davon **3 in Team B** →
   `applications_count: 4`. **Kein Leak** — die Zahl ist eine eigene aggregate
   Anzahl über Anträge, die alle im **sichtbaren Verband** liegen, und sie nennt
