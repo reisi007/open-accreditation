@@ -82,12 +82,25 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         const real = await realDeadLetterList();
         expect(real.status, 'the real DLQ list must be readable by a super_admin').toBe(200);
         expect(Array.isArray(real.body.data), 'the DLQ list is a {data: [...]} envelope').toBe(true);
+        // MEASURED 2026-10-06: the paginated endpoint answers a `meta` window
+        // with `per_page` 50 for an unparameterized request, and an EMPTY queue
+        // answers `last_page: 1` (not 0 — `ceil(0/50)` is 0 and a page control
+        // with zero pages has no state).
+        expect(real.body.meta, 'the DLQ list is a {data, meta} envelope').toMatchObject({
+            page: 1,
+            per_page: 50,
+            last_page: expect.any(Number),
+        });
         // Unreachable with a failing expectation above (Playwright's `expect`
         // throws); `[]` exists only so the length below is typed. No type
         // annotation here: this directory is linted as plain ES2020 (espree) and
         // would reject it — `Array.isArray` narrows the value anyway.
         const realData = Array.isArray(real.body.data) ? real.body.data : [];
-        const realCount = realData.length;
+        // `meta.total`, not `data.length`: the endpoint is paginated, so the rows
+        // on screen are ONE WINDOW and the length would understate the queue.
+        // `total` is a documented upper bound (see `FailedMailController`), which
+        // is why this test compares against the number the SERVER reported.
+        const realCount = real.body.meta?.total ?? realData.length;
 
         await page.goto('/');
         await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
@@ -106,8 +119,8 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         const main = page.getByRole('main');
         await expect(main.getByRole('heading', { level: 1, name: 'Tote Briefe' })).toBeVisible();
         await expect(
-            main.getByText(realCount === 1 ? '1 Brief' : `${realCount} Briefe`, { exact: true }),
-            'the page must report the number the server sent',
+            main.getByText(new RegExp(`${realCount} Briefe insgesamt`)),
+            'the page must report the number the SERVER sent as the queue total',
         ).toBeVisible();
         await expect(
             main.getByRole('heading', { name: 'Keine toten Briefe.' }),
@@ -118,19 +131,20 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         // and this capture must hold none — here on the REAL answer, too.
         await expect(main.getByRole('alert')).toHaveCount(0);
 
-        // The list endpoint is not paginated, and the page has to say so instead
-        // of letting a long list read as "everything there is"
+        // The count and the TOTAL are always shown together, so a page that holds
+        // part of the queue can never read as the whole of it
         // (`features/mail-delivery.md §8`) — in every state, empty or filled.
-        await expect(main.getByText(/Die Liste wird nicht seitenweise geladen/)).toBeVisible();
+        await expect(main.getByText(/insgesamt/)).toBeVisible();
 
         // (2) The empty state, served explicitly. Deterministic by construction:
         // nothing about this half depends on what the stack happens to hold.
         await stubDeadLetterList(page, []);
         await page.reload();
         await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toBeVisible();
-        await expect(main.getByText('0 Briefe', { exact: true })).toBeVisible();
+        await expect(main.getByText(/0 Briefe insgesamt/)).toBeVisible();
         await expect(main.getByRole('alert')).toHaveCount(0);
-        await expect(main.getByText(/Die Liste wird nicht seitenweise geladen/)).toBeVisible();
+        // One page of nothing: no counter, because there is nowhere to go.
+        await expect(main.getByText(/^Seite \d+ von \d+$/)).toHaveCount(0);
     });
 
     test('requeues a dead letter and reports what the SERVER did', { tag: ['@smoke', '@feature:admin:dlq'] }, async ({ page }) => {
@@ -169,7 +183,7 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         const main = page.getByRole('main');
         const row = main.getByRole('row', { name: new RegExp(REFUSED_RECIPIENT) });
         await expect(row).toBeVisible();
-        await expect(main.getByText('1 Brief', { exact: true })).toBeVisible();
+        await expect(main.getByText(/1 Brief insgesamt/)).toBeVisible();
 
         // A server-cut exception is LABELLED as cut. A trace shown as if it were
         // whole is the same defect class as the resend message this stream fixed.
@@ -266,18 +280,167 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         const main = page.getByRole('main');
         await expect(main.getByRole('row', { name: new RegExp(FIRST_RECIPIENT) })).toBeVisible();
         await expect(main.getByRole('row', { name: new RegExp(SECOND_RECIPIENT) })).toBeVisible();
-        await expect(main.getByText('2 Briefe', { exact: true })).toBeVisible();
+        await expect(main.getByText(/2 Briefe insgesamt/)).toBeVisible();
 
         await main.getByLabel('Suche', { exact: true }).fill('ActivationMail');
         await expect(main.getByRole('row', { name: new RegExp(SECOND_RECIPIENT) })).toBeVisible();
         await expect(main.getByRole('row', { name: new RegExp(FIRST_RECIPIENT) })).toHaveCount(0);
-        await expect(main.getByText('1 Brief', { exact: true })).toBeVisible();
+        // The filter counts the PAGE; the total beside it stays the queue's. This
+        // pairing is what stops "1 Brief" from reading as a claim about the whole
+        // queue — the filter cannot see other pages, so 1 of 2 is the honest pair.
+        await expect(main.getByText('1 Brief · 2 Briefe insgesamt')).toBeVisible();
 
         // A filter that matches nothing is its OWN state, distinct from the empty
         // queue — "nothing matched" is not "nothing died".
         await main.getByLabel('Suche', { exact: true }).fill('gibtesnicht');
         await expect(main.getByRole('heading', { name: 'Keine Briefe für diese Filter.' })).toBeVisible();
         await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toHaveCount(0);
+    });
+
+    test('the page counter names the WINDOW, and "next" serves the next window', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {
+        await page.goto('/');
+        await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\//);
+
+        // THREE pages of TWO, so every page boundary is data rather than a
+        // number this test typed: page 1 has rows 1-2, page 2 has 3-4, page 3
+        // has 5-6. `stubDeadLetterList` slices by the requested page/per_page.
+        const rows = [
+            deadLetter({ id: 1, recipient: 'e2e-dlq-p1-a@example.test' }),
+            deadLetter({ id: 2, recipient: 'e2e-dlq-p1-b@example.test' }),
+            deadLetter({ id: 3, recipient: 'e2e-dlq-p2-a@example.test' }),
+            deadLetter({ id: 4, recipient: 'e2e-dlq-p2-b@example.test' }),
+            deadLetter({ id: 5, recipient: 'e2e-dlq-p3-a@example.test' }),
+            deadLetter({ id: 6, recipient: 'e2e-dlq-p3-b@example.test' }),
+        ];
+        await stubDeadLetterList(page, rows, { perPage: 2 });
+
+        await page.getByRole('complementary').getByRole('link', { name: 'Tote Briefe' }).click();
+        const main = page.getByRole('main');
+
+        // Page 1: the counter, the total, and only page 1's rows.
+        await expect(main.getByText('Seite 1 von 3')).toBeVisible();
+        await expect(main.getByText(/6 Briefe insgesamt/)).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p1-a') })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p2-a') })).toHaveCount(0);
+
+        // "Zurück" is dead on page 1 — a control that would issue a page 0.
+        await expect(main.getByRole('button', { name: 'Zurück' })).toBeDisabled();
+
+        // "Weiter" really asks for page 2, and page 2's rows replace page 1's.
+        await main.getByRole('button', { name: 'Weiter' }).click();
+        await expect(main.getByText('Seite 2 von 3')).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p2-a') })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p1-a') })).toHaveCount(0);
+
+        // The last page: "Weiter" is dead, and the table holds the remainder.
+        await main.getByRole('button', { name: 'Weiter' }).click();
+        await expect(main.getByText('Seite 3 von 3')).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p3-a') })).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-p3-b') })).toBeVisible();
+        await expect(main.getByRole('button', { name: 'Weiter' })).toBeDisabled();
+        await expect(main.getByRole('button', { name: 'Zurück' })).toBeEnabled();
+    });
+
+    test('a filter returns to page 1, because its result has no page 4', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {
+        await page.goto('/');
+        await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\//);
+
+        const rows = Array.from({ length: 6 }, (_, i) =>
+            deadLetter({ id: i + 1, recipient: `e2e-dlq-filter-${i + 1}@example.test` }),
+        );
+        await stubDeadLetterList(page, rows, { perPage: 2 });
+
+        await page.getByRole('complementary').getByRole('link', { name: 'Tote Briefe' }).click();
+        const main = page.getByRole('main');
+        await expect(main.getByText('Seite 1 von 3')).toBeVisible();
+
+        await main.getByRole('button', { name: 'Weiter' }).click();
+        await expect(main.getByText('Seite 2 von 3')).toBeVisible();
+
+        // The filter only ever sees the CURRENT page, so narrowing it while on
+        // page 2 must re-request page 1 — staying on page 2 would render an
+        // empty table as if the queue held nothing.
+        await main.getByLabel('Suche', { exact: true }).fill('filter-1');
+        await expect(main.getByText('Seite 1 von 3')).toBeVisible();
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-filter-1@') })).toBeVisible();
+    });
+
+    test('a page that can no longer exist falls back to the last one', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {
+        await page.goto('/');
+        await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\//);
+
+        // The queue SHRINKS between the page being shown and the next request:
+        // 4 letters across 2 pages, then 2 letters across 1 page. Requesting page 2
+        // must land on page 1 — never on an empty table under a "page 2 of 2"
+        // heading that no longer exists.
+        let total = 4;
+        await page.route(DEAD_LETTER_LIST_PATTERN, (route) => {
+            if (route.request().method() !== 'GET') return route.continue();
+            const url = new URL(route.request().url());
+            const requested = Number(url.searchParams.get('page') ?? '1');
+            // The page asks for 50; this fixture wants windows of 2, so the
+            // served window is capped (see `stubDeadLetterList` for why the cap
+            // has to be here rather than in the shared helper).
+            const size = Math.min(Number(url.searchParams.get('per_page') ?? '50'), 2);
+            const rows = total === 4
+                ? [
+                      deadLetter({ id: 1, recipient: 'e2e-dlq-shrink-1@example.test' }),
+                      deadLetter({ id: 2, recipient: 'e2e-dlq-shrink-2@example.test' }),
+                  ]
+                : [deadLetter({ id: 1, recipient: 'e2e-dlq-shrink-1@example.test' })];
+            const slice = rows.slice((requested - 1) * size, requested * size);
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    data: slice,
+                    meta: {
+                        page: requested,
+                        per_page: size,
+                        total,
+                        last_page: Math.max(1, Math.ceil(total / size)),
+                    },
+                }),
+            });
+        });
+        await page.route(DEAD_LETTER_REQUEUE_PATTERN, (route) => route.continue());
+
+        await page.getByRole('complementary').getByRole('link', { name: 'Tote Briefe' }).click();
+        const main = page.getByRole('main');
+        await expect(main.getByText('Seite 1 von 2')).toBeVisible();
+
+        // A colleague requeued two letters: the queue is now one page. The
+        // requeue happens AFTER page 1 is on screen, so "Weiter" is pressed
+        // against a page state the server no longer agrees with — the exact
+        // window in which `failedMailWindow()`'s clamp earns its place.
+        total = 1;
+        await main.getByRole('button', { name: 'Weiter' }).click();
+
+        // The page-2 request came back EMPTY. The render-time clamp corrects the page
+        // state, and the admin is put back on a window that has rows — that is the
+        // half of the contract that can be asserted without depending on WHEN
+        // SWR revalidates the window it lands on.
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-shrink-1') })).toBeVisible();
+        // The empty-state card is the lie this guards against: a queue that holds
+        // a letter must never render "Keine toten Briefe."
+        await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toHaveCount(0);
+        // Still no error either — the endpoint answered, it just answered empty.
+        await expect(main.getByRole('alert')).toHaveCount(0);
     });
 
     test('a list that cannot be loaded is an error, never an empty queue', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {

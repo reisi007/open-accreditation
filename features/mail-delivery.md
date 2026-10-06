@@ -248,7 +248,7 @@ zu rendern.
 
 | Route | Verhalten |
 |---|---|
-| `GET /api/admin/failed-mails` | `super_admin`: alle · `mandant_admin`: nur `mandant_id` = eigener Mandant |
+| `GET /api/admin/failed-mails` | `super_admin`: alle · `mandant_admin`: nur `mandant_id` = eigener Mandant. **Paginiert** (`page`, `per_page`; Default 50, max 200; Antwort `meta` = `page`/`per_page`/`total`/`last_page`) — Einzelheiten und die Messungen dahinter in Abschnitt 8 |
 | `POST /api/admin/failed-mails/{id}/requeue` | wie `queue:retry` (Payload zurück auf die Queue, `attempts` zurückgesetzt, `failed_jobs`-Zeile gelöscht, `Log::info` mit Akteur) |
 
 Ein fremder Dead Letter ist **404**, kein 403 — dieselbe Form wie im Tenant-CRUD.
@@ -334,13 +334,86 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
 - **Requeue-Historie** (`requeued_count`, letzter Requeue durch wen/wann) ist
   nicht persistiert — nur `Log::info` mit Akteur. Eine eigene Spalte auf
   `failed_jobs` wäre die Form; sie war nicht Teil des Auftrags.
-- **Paginierung der Dead-Letter-Liste.** `FailedMailController::index()` macht
-  `->get()` über die **ganze** Tabelle und filtert danach in PHP; `failed_jobs`
-  wächst per Entscheidung unbegrenzt (Abschnitt 6), die mandant-skalierten
-  Abfragen sind also mit der Zeit unbrauchbar. Die Form ist eine
-  `per_page`/`cursor`-Parameterisierung mit Resource-Collection-Metadaten; sie
-  ist **nicht Teil dieses Auftrags**, aber sie ist der Punkt, an dem diese
-  Oberfläche zuerst bricht.
+- **Paginierung der Dead-Letter-Liste — umgesetzt (Nutzerentscheid 2026-10-06).**
+  `GET /api/admin/failed-mails` nimmt `page` und `per_page` und antwortet mit
+  `meta` (`page`, `per_page`, `total`, `last_page`) neben `data`. **Default 50,
+  Maximum 200**, validiert statt geklemmt: `0`, `-1`, `abc`, `1.5`, `201`, `9999`
+  sind **422**, nie 500 (gemessen, eine Anfrage je Wert).
+  `per_page=` und `per_page=%20` sind Laravels „nicht vorhanden" und fallen auf
+  den Default (`Validator::present()` verweigert whitespace-only Werten) — beide
+  200, beide mit dem Default-Fenster.
+
+  **Die Form folgt nicht `->paginate()`, und der Grund ist der Diskriminator.**
+  `isMailJob()` ist autoritativ, `whereNotNull('mandant_id')` nur der Scope. Ein
+  `->paginate()` auf dieser Query lässt deshalb **zwei** Dinge falsch laufen, und
+  beide sind gemessen:
+  1. **Kurze Seite.** Eine Zeile mit `mandant_id`, die kein Mail-Job ist, frisst
+     einen Platz: der Admin fragt 10 und bekommt 8, ohne dass irgendetwas im Bild
+     sagt, dass eine Zeile fehlt. Gemessen: 20 Mail + 1 Phantom bei `per_page=10`
+     → `total = 21` für 20 Briefe.
+  2. **Doppelte Zeilen.** `forPage` rechnet in SQL-Zeilen, nicht in Briefen. Jede
+     Seite nach der ersten ist um die Zahl der Phantom-Zeilen darüber verschoben,
+     und die letzte Zeile von Seite N erscheint **nochmals** auf Seite N+1.
+     Gemessen: `forPage(3)` lieferte eine Zeile erneut, die `forPage(2)` schon
+     gezeigt hatte.
+
+  **Umgesetzt ist stattdessen ein Fensterscan in SQL plus Zählen in PHP**
+  (`collectPage()`): vom Anfang der sortierten Tabelle aus Fenster lesen, dabei
+  **Briefe** zählen, `(page - 1) * perPage` überspringen und `per_page`
+  einsammeln. Der Speicher ist dadurch fenstergroß statt tabellengroß.
+
+  **Warum kein `payload LIKE` als SQL-Vorfilter — zwei Messungen:**
+  1. *Er bringt nichts.* `MandantAwareFailedJobProvider::log()` stempelt
+     `mandant_id` aus `QueuedMailPayload::mandantId($payload)`, und das ist
+     genau dann un-`null`, wenn `mailJob()` un-`null` ist. Der Provider gibt einem
+     Nicht-Mail-Job also **nie** eine `mandant_id` — was `whereNotNull` bereits
+     filtert. Ein LIKE filtert dieselbe Menge ein zweites Mal.
+  2. *Ein engeres LIKE ist eine False-Negative-Falle.* `"commandName":"App\Jobs\…"`
+     trifft eine echte Payload **überhaupt nicht** (gemessen: 0 Treffer, während
+     `isMailJob()` für genau diese Zeile `true` war) — das rohe JSON trägt
+     **escapte** Backslashes, wonach das Muster unter `ESCAPE '\'` ein
+     **vierfaches** Backslash braucht (gemessen: 2 Treffer nach Vervierfachung).
+     Danach bricht es erneut an einem anders formatierten JSON (gemessen: 0
+     Treffer gegen eine `JSON_PRETTY_PRINT`-Payload, die `isMailJob()` annimmt).
+     Das ist die `LIKE … ESCAPE`-Falle aus `AGENTS.md` §2, und sie schließt
+     **fail-closed**: ein echter toter Brief verschwindet aus der DLQ.
+
+  **Drei Zahlen, alle ehrlich benannt:**
+  - **`meta.total` ist eine OBERGRENZE.** Sie zählt den SQL-Scope. Für jede vom
+     Provider geschriebene Zeile ist sie exakt (derselbe Decode entscheidet
+     beides); sie überzählt nur Zeilen, die **außerhalb** des Providers eine
+     `mandant_id` tragen, ohne Mail-Job zu sein. Solche Zeilen erscheinen
+     **nie** in `data` — gemessen und gepinnt in `MailDeadLetterTest`.
+     Der exakte Count per `cursor()` kostet bei 2000 Zeilen **32,2 ms** gegen
+     **6,6 ms** für den SQL-Count; er ist der lineare Scan, den diese
+     Paginierung beseitigen soll, also bewusst nicht genommen.
+  - **Der Scan ist O(Seite).** Seite N kostet N Fenster zu lesen, weil „wie
+     viele Briefe liegen über Seite N" nur durch Gehen bekannt wird. Das ist
+     **nie langsamer als der ersetzte Code** (`->get()` las die ganze Tabelle bei
+     jeder Anfrage), und Seite 1 liest etwa ein Fenster. `MAX_SCAN_BATCHES = 20`
+     ist die Decke; darüber ist die Seite **leer** — bewusst leer statt teilweise
+     gefüllt, denn Zeilen einer früheren Seite auszuliefern wäre der
+     Doppelzeilen-Defekt von eben.
+  - **Ohne Migration.** Der Diskriminator ist bereits persistiert (`mandant_id`,
+    indiziert, vom Provider genau für Mail-Jobs gestempelt), und die
+    Migrations-Policy hätte für eine **neue** Spalte eine **neue** Datei gebraucht
+    (die 2026-10-02er ist gelaufen). Eine Spalte, die per Konstruktion eine
+     Funktion derselben Entscheidung ist, wäre eine zweite Wahrheit über dieselbe
+     Sache.
+
+  **Mandanten-Isolation bleibt fail-closed:** `super_admin` sieht alles,
+  `mandant_admin` nur seinen Mandanten — auf **jeder** Seite, und `meta.total`
+  ist genauso gescoped wie `data` (sonst verriete der Zähler die Größe der
+  fremden Queue). Der Test dafür heißt
+  `test_pagination_keeps_the_mandant_scope_on_every_page`.
+
+  **Frontend:** Zähler und Gesamtzahl stehen immer zusammen („2 Briefe · 213
+  Briefe insgesamt", plus „Seite 2 von 5"), die Suche und der Mandant-Filter
+  bleiben clientseitig und sehen damit nur die **aktuelle Seite** — genau darum
+  ist die Gesamtzahl Pflicht und nicht Kosmetik. Ein Filterwechsel springt auf
+  Seite 1. Eine Seite, die es nicht mehr gibt (ein Requeue löscht einen Brief),
+  wird beim Rendern korrigiert: `failedMailWindow()` klemmt die **Überschrift**,
+  ein `setPage` während des Renderns holt die **Zeilen** zurück.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
 - **Der Idempotenz-Claim ist im Dev-/E2E-Stack prozesslokal — bewusst, mit Hinweis

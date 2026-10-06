@@ -75,9 +75,13 @@ class AdminUserTest extends TestCase
             ->assertStatus(401);
     }
 
-    public function test_team_admin_user_and_verifier_are_forbidden(): void
+    public function test_user_and_verifier_are_forbidden(): void
     {
-        foreach ([UserRole::TEAM_ADMIN, UserRole::USER, UserRole::VERIFIER] as $role) {
+        // `team_admin` is NOT in this list since F4 (2026-10-06): he holds
+        // `users.manage` (team-scoped, see `test_team_admin_assigns_roles_only
+        // _within_his_own_teams`). The other two hold neither permission, so the
+        // gate refuses them — which is what this test is about.
+        foreach ([UserRole::USER, UserRole::VERIFIER] as $role) {
             $actor = $this->createUserWithRole($role->value, $this->mandantA->id);
 
             $this->actingAsApi($actor)->getJson('/api/admin/users')
@@ -94,6 +98,138 @@ class AdminUserTest extends TestCase
                 ->putJson('/api/admin/users/'.$target->id.'/roles', ['roles' => [['role' => 'user']]])
                 ->assertStatus(403, "expected 403 for {$role->value} on roles update");
         }
+    }
+
+    /**
+     * A team_admin without a team assignment is refused by the GATE, before the
+     * controller's narrowing ever runs — `hasPermission()` skips a team_admin
+     * assignment whose `team_id` is null (P2 semantics), and `teamIds()` aborts
+     * 403 for the same case.
+     */
+    public function test_team_admin_without_a_team_assignment_is_forbidden(): void
+    {
+        $actor = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id);
+
+        $this->actingAsApi($actor)->getJson('/api/admin/users')->assertStatus(403);
+    }
+
+    /**
+     * F4: `users.manage` for a `team_admin` means role assignment INSIDE his own
+     * team(s). Everything that would reach outside — a mandant-level role, a
+     * foreign team, a user outside his roster — is refused, and the target's
+     * mandant-level roles survive the write untouched.
+     */
+    public function test_team_admin_assigns_roles_only_within_his_own_teams(): void
+    {
+        $actor = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id);
+
+        // Inside his scope: a co-admin of Team A. The target additionally holds
+        // a mandant-level `user` role, which is what makes assertion 5 below
+        // meaningful.
+        $target = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id, 'ziel@example.com');
+        $this->createRoleAssignment($target, UserRole::USER->value, $this->mandantA->id);
+
+        // A sibling club's admin — same mandant, other team.
+        $sibling = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamB->id, 'sibling@example.com');
+
+        $put = fn (User $actor, User $target, array $roles) => $this->actingAsApi($actor)
+            ->putJson('/api/admin/users/'.$target->id.'/roles', ['roles' => $roles]);
+
+        // 1. team_admin for his OWN team → 200, and the row is written.
+        $put($actor, $target, [['role' => 'team_admin', 'team_id' => $this->teamA->id]])->assertOk();
+        $this->assertDatabaseHas('role_user', [
+            'user_id' => $target->id,
+            'mandant_id' => $this->mandantA->id,
+            'team_id' => $this->teamA->id,
+        ]);
+
+        // 2. A FOREIGN team of the same mandant → 403 (an ownership violation,
+        //    not a malformed payload). Checked against a target he DOES reach,
+        //    so the refusal can only come from the payload check.
+        $put($actor, $target, [['role' => 'team_admin', 'team_id' => $this->teamB->id]])->assertStatus(403);
+
+        // 3. A mandant-level role → 403. `mandant_admin` is the interesting one:
+        //    a team_admin must not be able to mint a Verband-wide admin — least
+        //    of all himself.
+        foreach (['mandant_admin', 'user', 'verifier'] as $role) {
+            $put($actor, $target, [['role' => $role]])->assertStatus(403);
+        }
+        $this->assertDatabaseMissing('role_user', [
+            'user_id' => $target->id,
+            'role_id' => Role::query()->where('slug', UserRole::MANDANT_ADMIN->value)->value('id'),
+            'mandant_id' => $this->mandantA->id,
+        ]);
+
+        // 4. A target OUTSIDE his roster → 404, the same "not in your scope"
+        //    answer a foreign mandant id gets. A plain mandant user is not on
+        //    Team A's roster: he holds no team-scoped assignment.
+        $plainUser = $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'plain@example.com');
+        $put($actor, $plainUser, [['role' => 'team_admin', 'team_id' => $this->teamA->id]])->assertStatus(404);
+        $put($actor, $sibling, [['role' => 'team_admin', 'team_id' => $this->teamA->id]])->assertStatus(404);
+
+        // 5. THE point of the scoped replace: the target's mandant-level roles
+        //    survive a write from a team_admin. An unscoped delete here would
+        //    have stripped them — a privilege REMOVAL handed to the very role
+        //    the F4 grant was about to create.
+        $this->assertDatabaseHas('role_user', [
+            'user_id' => $target->id,
+            'role_id' => Role::query()->where('slug', UserRole::USER->value)->value('id'),
+            'mandant_id' => $this->mandantA->id,
+        ]);
+
+        // The sibling club's row on a target he DOES reach is likewise left
+        // alone: the delete is scoped to his own teams, not to the mandant.
+        $this->createRoleAssignment($target, UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamB->id);
+
+        $put($actor, $target, [['role' => 'team_admin', 'team_id' => $this->teamA->id]])->assertOk();
+
+        $this->assertDatabaseHas('role_user', [
+            'user_id' => $target->id,
+            'mandant_id' => $this->mandantA->id,
+            'team_id' => $this->teamB->id,
+        ]);
+    }
+
+    /**
+     * F4: the list a `team_admin` sees is his own team's roster — no mandant-wide
+     * directory, no sibling club. And the roles in each row are the ones he may
+     * also write, so the list can never advertise a role the save would 403.
+     */
+    public function test_team_admin_lists_only_his_own_team(): void
+    {
+        $actor = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id, 'akteur@example.com');
+
+        $ownTeam = $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamA->id, 'eigen@example.com');
+        $this->createRoleAssignment($ownTeam, UserRole::MANDANT_ADMIN->value, $this->mandantA->id);
+
+        $this->createUserWithRole(UserRole::TEAM_ADMIN->value, $this->mandantA->id, $this->teamB->id, 'sibling@example.com');
+        $this->createUserWithRole(UserRole::USER->value, $this->mandantA->id, null, 'plain@example.com');
+
+        $response = $this->actingAsApi($actor)->getJson('/api/admin/users')->assertOk();
+
+        // His own roster: himself plus the other Team A admin. NOT the sibling
+        // club, NOT a plain mandant user — a team_admin does not get the
+        // Verband-wide directory.
+        $response->assertJsonCount(2, 'data');
+        $emails = array_column($response->json('data'), 'email');
+        $this->assertEqualsCanonicalizing(['akteur@example.com', 'eigen@example.com'], $emails);
+
+        // The row of his co-admin carries ONLY the team_admin assignment: the
+        // `mandant_admin` role of the same person is real, but outside what this
+        // actor may see or write, so it is not in the payload. That is the read
+        // slice and the write slice being ONE predicate.
+        $response->assertJsonCount(1, 'data.1.roles');
+        $response->assertJsonPath('data.1.roles.0.role.slug', UserRole::TEAM_ADMIN->value);
+        $response->assertJsonPath('data.1.roles.0.team_id', $this->teamA->id);
+
+        // The `?team_id` filter outside his scope is 403, not an empty list.
+        $this->actingAsApi($actor)
+            ->getJson('/api/admin/users?team_id='.$this->teamB->id)
+            ->assertStatus(403);
+        $this->actingAsApi($actor)
+            ->getJson('/api/admin/users?team_id='.$this->teamA->id)
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
     }
 
     public function test_mandant_admin_and_super_admin_can_access_users_api(): void
@@ -663,15 +799,25 @@ class AdminUserTest extends TestCase
     private function createUserWithRole(string $roleSlug, ?int $mandantId, ?int $teamId = null, ?string $email = null): User
     {
         $user = User::factory()->create($email === null ? [] : ['email' => $email]);
-        $role = Role::query()->where('slug', $roleSlug)->firstOrFail();
 
-        RoleUser::create([
+        $this->createRoleAssignment($user, $roleSlug, $mandantId, $teamId);
+
+        return $user;
+    }
+
+    /**
+     * ONE more assignment for an existing user. Several roles per (user,
+     * mandant) are legal (union semantics, P1d-F2), so the fixtures need a way
+     * to build a user who holds a team-scoped AND a mandant-level role — which
+     * is exactly the shape the F4 narrowing has to survive.
+     */
+    private function createRoleAssignment(User $user, string $roleSlug, ?int $mandantId, ?int $teamId = null): RoleUser
+    {
+        return RoleUser::create([
             'user_id' => $user->id,
-            'role_id' => $role->id,
+            'role_id' => Role::query()->where('slug', $roleSlug)->firstOrFail()->id,
             'mandant_id' => $mandantId,
             'team_id' => $teamId,
         ]);
-
-        return $user;
     }
 }

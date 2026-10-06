@@ -48,6 +48,39 @@ export interface DeadLetterFixture {
 }
 
 /**
+ * The page window the real endpoint reports — `AnonymousResourceCollection`'s
+ * `meta`, which `FailedMailController::index()` fills with
+ * `page` / `per_page` / `total` / `last_page`.
+ *
+ * MEASURED default: `per_page` 50 for a request that names none
+ * (`FailedMailController::PER_PAGE_DEFAULT`), and `last_page` is
+ * `max(1, ceil(total / per_page))` — so an EMPTY queue answers `last_page: 1`,
+ * not 0.
+ */
+export interface DeadLetterMeta {
+    page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+}
+
+/** A window for `count` letters on `perPage` rows, served on `page`. */
+export function deadLetterMeta(
+    count: number,
+    overrides: Partial<DeadLetterMeta> & { per_page?: number } = {},
+): DeadLetterMeta {
+    const perPage = overrides.per_page ?? count;
+    const total = overrides.total ?? count;
+
+    return {
+        page: overrides.page ?? 1,
+        per_page: perPage,
+        total,
+        last_page: overrides.last_page ?? Math.max(1, Math.ceil(total / perPage)),
+    };
+}
+
+/**
  * The recipient addresses the specs address rows by.
  *
  * Module constants rather than literals inside the specs, because the specs match
@@ -105,17 +138,63 @@ export const DEAD_LETTER_LIST_PATTERN = '**/api/admin/failed-mails*';
 export const DEAD_LETTER_REQUEUE_PATTERN = '**/api/admin/failed-mails/*/requeue';
 
 /**
- * Serves `GET /api/admin/failed-mails` with `rows` and lets the requeue through
- * to the REAL backend — so a 404 the page shows is the backend's own answer, not
- * a number a stub produced.
+ * Serves `GET /api/admin/failed-mails` with `rows` — SERVED PAGE BY PAGE, the
+ * way the real endpoint answers since 2026-10-06 — and lets the requeue through
+ * to the REAL backend, so a 404 the page shows is the backend's own answer and
+ * not a number a stub produced.
+ *
+ * ## Why the stub paginates instead of returning one big array
+ *
+ * Returning all rows on every request would make the page look right while
+ * measuring none of what the change is about: the counter, the window and the
+ * "next" button all read `meta`, and a stub without `meta` cannot fail when the
+ * page renders the wrong one. Slicing `rows` by the requested page also means a
+ * test can state "three pages of two" as DATA instead of asserting a count it
+ * typed itself.
+ *
+ * `meta` is derived from the whole set, never from the slice — that is what lets
+ * the last page know it is the last page.
+ *
+ * ## `perPage` CAPS the window, it does not replace it — and that is load-bearing
+ *
+ * MEASURED 2026-10-06, the first version of the paging spec failed on exactly
+ * this: the page always requests `per_page=50` (`FAILED_MAILS_PER_PAGE`, the UI's
+ * own constant), so a stub that only USES `perPage` as a fallback for a missing
+ * query parameter silently served all six rows as one page and the counter
+ * never appeared. So the served window is `min(requested, perPage)` and the
+ * `meta.per_page` that comes back is the size actually served — a test that caps
+ * the window gets a consistent `last_page` with it.
+ *
+ * A test that wants the REAL window instead of a capped one omits `perPage` and
+ * supplies more than `FAILED_MAILS_PER_PAGE` rows.
  */
-export async function stubDeadLetterList(page: Page, rows: DeadLetterFixture[]): Promise<void> {
+export async function stubDeadLetterList(
+    page: Page,
+    rows: DeadLetterFixture[],
+    options: { perPage?: number } = {},
+): Promise<void> {
     await page.route(DEAD_LETTER_LIST_PATTERN, async (route) => {
         if (route.request().method() === 'GET') {
+            const url = new URL(route.request().url());
+            const requested = Number(url.searchParams.get('page') ?? '1');
+            const asked = Number(url.searchParams.get('per_page') ?? '50');
+            const size = options.perPage === undefined ? asked : Math.min(asked, options.perPage);
+            const window = Number.isFinite(requested) && requested > 0 ? requested : 1;
+            const slice = rows.slice((window - 1) * size, window * size);
+
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ data: rows }),
+                body: JSON.stringify({
+                    data: slice,
+                    // `page` ECHOES the request, exactly as the real endpoint does
+                    // (`FailedMailController::index()` answers with the `page` it
+                    // resolved). MEASURED 2026-10-06: leaving it at the `deadLetterMeta`
+                    // default of 1 made the counter sit on "Seite 1 von 3" after
+                    // "Weiter" had demonstrably fetched page 2 — the rows updated and
+                    // the heading did not.
+                    meta: deadLetterMeta(rows.length, { page: window, per_page: size }),
+                }),
             });
             return;
         }
@@ -162,7 +241,7 @@ export async function realRequeueStatusForUnknownLetter(): Promise<number> {
 
 export interface RealDeadLetterList {
     status: number;
-    body: { data?: unknown[] } & Record<string, unknown>;
+    body: { data?: unknown[]; meta?: DeadLetterMeta } & Record<string, unknown>;
 }
 
 /**
@@ -178,10 +257,16 @@ export interface RealDeadLetterList {
  * their expectations from what came back; the empty state itself is served on
  * purpose via `stubDeadLetterList(page, [])`.
  */
-export async function realDeadLetterList(): Promise<RealDeadLetterList> {
+export async function realDeadLetterList(
+    params: { page?: number; perPage?: number } = {},
+): Promise<RealDeadLetterList> {
     const api = await loginAdminApi();
     try {
-        const response = await api.get('/api/admin/failed-mails');
+        const query = new URLSearchParams();
+        if (params.page !== undefined) query.set('page', String(params.page));
+        if (params.perPage !== undefined) query.set('per_page', String(params.perPage));
+        const suffix = query.toString() === '' ? '' : `?${query.toString()}`;
+        const response = await api.get(`/api/admin/failed-mails${suffix}`);
         return { status: response.status(), body: (await response.json()) as RealDeadLetterList['body'] };
     } finally {
         await api.dispose();

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { MandantSwitcher } from '../../components/MandantSwitcher';
-import { isMandantAdminUser, isSuperAdminUser } from '../../logic/adminRoles';
+import { isMandantAdminUser, isSuperAdminUser, isTeamAdminUser } from '../../logic/adminRoles';
 import { useAuth } from '../../logic/useAuth';
 
 interface AdminNavProps {
@@ -145,7 +145,13 @@ export function AdminLayout() {
     const wasOpen = useRef(false);
 
     const isSuperAdmin = isSuperAdminUser(user);
-    const showUsers = isSuperAdmin || isMandantAdminUser(user);
+    // `users` is reachable by every role that holds `users.manage` — since F4
+    // that includes `team_admin`, who assigns roles inside his own team. The
+    // three groups below are Verband-level surfaces (`mandant.media.manage`,
+    // `mails.dlq.manage`) and stay mandant-wide on purpose: a team_admin must
+    // not see the Verband-wide media pool or a delivery-error list full of
+    // recipient addresses.
+    const showUsers = isSuperAdmin || isMandantAdminUser(user) || isTeamAdminUser(user);
     const showTemplates = isSuperAdmin || isMandantAdminUser(user);
     const showMedia = isSuperAdmin || isMandantAdminUser(user);
     // Same set: `mails.dlq.manage` is held by `mandant_admin`, `super_admin`

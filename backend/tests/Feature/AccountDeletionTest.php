@@ -278,8 +278,11 @@ class AccountDeletionTest extends TestCase
     }
 
     /**
-     * `users.delete` is mandant_admin-only. `team_admin`, `user` and `verifier`
-     * hold no delete permission at all.
+     * `users.delete` is mandant_admin-only. `user` and `verifier` hold no delete
+     * permission at all, and `team_admin` does not either — F4 (2026-10-06) gave
+     * him `users.manage` (role assignment inside his own team) and left this one
+     * with `mandant_admin`, so the two permissions finally have different holders
+     * and this gate is load-bearing rather than decorative.
      *
      * The target is a resolvable member of the current mandant on purpose: the
      * mandant-scoped route binding runs FIRST, so with a resolvable target a
@@ -289,6 +292,9 @@ class AccountDeletionTest extends TestCase
     public function test_team_admin_user_and_verifier_are_forbidden_on_the_admin_delete_route(): void
     {
         foreach ([UserRole::TEAM_ADMIN, UserRole::USER, UserRole::VERIFIER] as $role) {
+            // `createUserWithRole()` builds a team for a team_admin assignment —
+            // the FK on `role_user.team_id` demands one, so the gate is reached
+            // with a fully valid team_admin.
             $actor = $this->createUserWithRole($role, $this->mandantA);
             // Emails are unique per mandant (BE-R1), so the target's address is
             // derived from the role rather than reused across the loop.

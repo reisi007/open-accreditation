@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../../test-setup';
 import { AdminLayout } from './AdminLayout';
 
-const { logoutMock } = vi.hoisted(() => ({ logoutMock: vi.fn(async () => undefined) }));
+const { logoutMock, sessionRoles } = vi.hoisted(() => ({
+    logoutMock: vi.fn(async () => undefined),
+    // Mutable so a test can state WHICH role is signed in; the drawer tests
+    // below never touch it and keep the `super_admin` default.
+    sessionRoles: { current: ['super_admin'] as string[] },
+}));
 
 vi.mock('../../logic/useAuth', () => ({
     useAuth: () => ({
@@ -14,7 +19,7 @@ vi.mock('../../logic/useAuth', () => ({
             name: 'Admin',
             email: 'admin@example.com',
             current_mandant_id: 1,
-            roles: [{ slug: 'super_admin', name: 'Super Admin', mandant_id: null, team_id: null }],
+            roles: sessionRoles.current.map((slug) => ({ slug, name: slug, mandant_id: 1, team_id: null })),
         },
         isAuthenticated: true,
         isLoading: false,
@@ -38,6 +43,44 @@ function renderLayout() {
 
 afterEach(() => {
     vi.clearAllMocks();
+    sessionRoles.current = ['super_admin'];
+});
+
+/**
+ * F4 (Nutzerentscheid 2026-10-06): `team_admin` holds `users.manage`, so the
+ * Benutzer page is his. The three Verband-level surfaces next to it
+ * (`mandant.media.manage`, `mails.dlq.manage`) are NOT — showing him those
+ * links would offer pages the API answers 403 on.
+ */
+describe('AdminLayout navigation per role', () => {
+    function navLinkNames(): string[] {
+        const nav = document.getElementById('admin-drawer-nav');
+        if (nav === null) return [];
+        return within(nav)
+            .queryAllByRole('link')
+            .map((link) => link.textContent ?? '');
+    }
+
+    it('shows Benutzer to a team_admin and keeps the Verband surfaces away', () => {
+        sessionRoles.current = ['team_admin'];
+        renderLayout();
+
+        const names = navLinkNames();
+        expect(names).toContain('Benutzer');
+        expect(names).not.toContain('Logo & Header');
+        expect(names).not.toContain('Tote Briefe');
+        expect(names).not.toContain('Mandanten');
+    });
+
+    it('shows every surface to a mandant_admin', () => {
+        sessionRoles.current = ['mandant_admin'];
+        renderLayout();
+
+        const names = navLinkNames();
+        expect(names).toContain('Benutzer');
+        expect(names).toContain('Logo & Header');
+        expect(names).toContain('Tote Briefe');
+    });
 });
 
 describe('AdminLayout mobile drawer', () => {

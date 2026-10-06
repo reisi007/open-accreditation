@@ -82,6 +82,10 @@ msgstr "{name} reaktivieren"
 msgid "{teamsCount, plural, one {# Team} other {# Teams}}"
 msgstr "{teamsCount, plural, one {# Team} other {# Teams}}"
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "{total, plural, one {# Brief} other {# Briefe}} insgesamt"
+msgstr "{total, plural, one {# Brief} other {# Briefe}} insgesamt"
+
 #: src/pages/AccreditationsPage.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 msgid "{totalCount, plural, one {# Akkreditierung} other {# Akkreditierungen}}"
@@ -271,6 +275,10 @@ msgstr "Alle Teams"
 #: src/pages/portal/PortalHomePage.tsx
 msgid "Alle Wettbewerbe"
 msgstr "Alle Wettbewerbe"
+
+#: src/pages/admin/RoleForm.tsx
+msgid "Als Team-Admin vergibst du Rollen nur innerhalb deines Teams. Konten beenden darfst du nicht."
+msgstr "Als Team-Admin vergibst du Rollen nur innerhalb deines Teams. Konten beenden darfst du nicht."
 
 #: src/pages/admin/ApprovalsPage.tsx
 msgid "Anhang"
@@ -593,8 +601,8 @@ msgid "Die angeforderte Seite existiert nicht."
 msgstr "Die angeforderte Seite existiert nicht."
 
 #: src/pages/admin/FailedMailsPage.tsx
-msgid "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
-msgstr "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
+#~ msgid "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
+#~ msgstr "Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal."
 
 #: src/components/AccountDeleteDialog.tsx
 msgid "Die Löschung ist endgültig und kann nicht rückgängig gemacht werden."
@@ -1619,6 +1627,10 @@ msgstr "Schriftgröße muss eine Zahl sein."
 msgid "Schriftgröße muss mindestens 1 sein."
 msgstr "Schriftgröße muss mindestens 1 sein."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Seite {currentPage} von {lastPage}"
+msgstr "Seite {currentPage} von {lastPage}"
+
 #: src/pages/AccreditationsPage.tsx
 #: src/pages/admin/AccreditationsPage.tsx
 #: src/pages/admin/BadgeTemplatesPage.tsx
@@ -2119,6 +2131,7 @@ msgstr "Warteliste"
 #: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/FailedMailsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 #: src/pages/admin/VenuesPage.tsx
@@ -2205,6 +2218,7 @@ msgstr "Zur Startseite"
 #: src/pages/admin/BadgeTemplatesPage.tsx
 #: src/pages/admin/CategoriesPage.tsx
 #: src/pages/admin/EventsPage.tsx
+#: src/pages/admin/FailedMailsPage.tsx
 #: src/pages/admin/MandantListPage.tsx
 #: src/pages/admin/UsersPage.tsx
 #: src/pages/admin/VenuesPage.tsx

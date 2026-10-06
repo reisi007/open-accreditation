@@ -310,7 +310,7 @@ die Scope-Logik lebt in `User::hasPermission()` (Matrix + Mandant-/Team-Scope).
 |---|---|---|
 | `super_admin` | `*` (global, `Gate::before` → `true`) | beliebiger/kein Mandant |
 | `mandant_admin` | `categories.manage`, `events.manage`, `users.manage`, `users.delete`, `accreditations.view`, `accreditations.manage` | aktueller Mandant (`MandantContext`) |
-| `team_admin` | `teams.manage`, `events.manage`, `accreditations.manage`, `accreditations.view` (read-only, D7) | eigenes Team (`role_user.team_id`) |
+| `team_admin` | `teams.manage`, `events.manage`, `accreditations.manage`, `accreditations.view` (read-only, D7), `users.manage` (**F4**) | eigenes Team (`role_user.team_id`) |
 | `user` | `accreditations.self` | aktueller Mandant |
 | `verifier` | `verification.verify` | aktueller Mandant |
 
@@ -344,18 +344,94 @@ Semantik:
   halten sie nicht (403 am Route-Gate). Die **Selbstbedienung**
   (`DELETE /api/user/account`) ist keine Rollenfrage und trägt deshalb
   **kein** Gate: ihr Ziel ist `$request->user()`.
-  **Offen (F4, 2026-09-29):** In der ausgelieferten Matrix haben `users.manage`
-  und `users.delete` **identische** Halter (`mandant_admin`, plus `super_admin`
-  über `'*'`), die Trennung ist also eine **Deklaration ohne Wirkungsträger**.
-  Gemessen: ein Tausch des Route-Gates auf `can:users.manage` ließ 30/30 und
-  64/64 grün. `AdminUsersPermissionSeparationTest` nagelt die Trennung fest,
-  indem es eine Matrix benutzt, die sie tatsächlich trennt (beide Richtungen,
-  403 vs. 200) **und** die Deklaration selbst prüft — die zweite Assertion ist
-  die einzige, die heute rot wird. *Produktfrage, nicht im Test entschieden:*
-  eine Rolle, die Rollen vergibt, aber keine Konten beendet (z. B.
-  „Mandant-Manager" neben `mandant_admin`), wäre der natürliche Wirtschaft,
-  die die Begründung trägt. Sie wird **nicht** eingeführt, nur weil ein Test sie
-  bräuchte.
+
+### F4 — die Trennung bekommt einen Wirkungsträger (Nutzerentscheid 2026-10-06)
+
+**Vorher (Stand 2026-09-29, gemessen):** In der ausgelieferten Matrix hatten
+`users.manage` und `users.delete` **identische** Halter (`mandant_admin`, plus
+`super_admin` über `'*'`) — die Trennung war eine **Deklaration ohne
+Wirkungsträger**. Ein Tausch des Route-Gates auf `can:users.manage` ließ 30/30
+und 64/64 grün. `AdminUsersPermissionSeparationTest` konnte das nur mit einer
+**künstlich getrennten** Matrix zeigen; die einzige Assertion, die am
+ausgelieferten Stand rot wurde, war die Deklarationsprüfung.
+
+**Entscheidung:** `team_admin` vergibt Rollen **innerhalb seines Teams**, aber
+beendet **keine** Konten. Verworfen wurde die Alternative „neue Rolle
+Mandant-Manager" — eine Rolle, die niemand hält, wäre derselbe fehlende
+Träger eine Ebene tiefer.
+
+**Damit ist die Scope-Frage beantwortet, und sie war eine neue Einschränkung:**
+`users.manage` war bisher mandantweit, weil `User::hasPermission()` für jede
+Rolle außer `team_admin` früh zurückkehrt und das `team_id`-Argument des Gates
+ignoriert. Das Gate kann die Verengung **nicht** ausdrücken — die Route übergibt
+kein `team_id`, und ein fehlendes Argument bedeutet für einen `team_admin`
+„mein eigenes Team". Der Scope liegt deshalb im Controller, wie bei
+`categories.manage` und `events.manage`:
+
+| Rolle | `users.manage` (Rollenvergabe) | `users.delete` (Konto beenden) |
+|---|---|---|
+| `super_admin` | `'*'` (Bypass) | `'*'` (Bypass) |
+| `mandant_admin` | ganzer Mandant | ganzer Mandant |
+| `team_admin` | **eigene(s) Team(s)** | **nein** (403 am Route-Gate) |
+| `user` / `verifier` | nein | nein |
+
+Fail-closed, und jede Zeile ist getestet
+(`AdminUserTest::test_team_admin_assigns_roles_only_within_his_own_teams`,
+`::test_team_admin_lists_only_his_own_team`):
+
+- **Liste** (`GET /api/admin/users`): nur die Benutzer mit einer
+  team-skalierten `role_user`-Zeile in einem seiner Teams. Das ist die einzige
+  Stelle, an der das Schema überhaupt festhält, zu welchem Team ein Benutzer
+  gehört — `role_user.team_id` ist per `validatedRoleEntries()` der
+  `team_admin`-Rolle vorbehalten. **Ein `team_admin` bekommt damit nicht das
+  Verbands-Adressbuch**: die Mitglieder des Nachbarvereins und alle
+  mandantsweiten Benutzer sind nicht in seiner Liste.
+- **Schreiben** (`PUT /api/admin/users/{user}/roles`): nur `team_admin`-Einträge
+  für eines seiner Teams. Eine fremde `team_id` **und** jede mandantsweite Rolle
+  (`mandant_admin`, `user`, `verifier`) sind **403, nicht 422** — das ist eine
+  Befugnisfrage, keine kaputte Payload, und `assertOwnership()` beantwortet sie
+  genauso. Der entscheidende Punkt: `team_admin` kann sich **keinen**
+  Verbands-Admin selbst vergeben.
+- **Ersetzen:** der Delete ist auf seine Teams verengt. Ohne das wäre der
+  Endpunkt ein mandantsweiter Rewrite mit engem Hut — er könnte einem
+  `mandant_admin` die Rolle entziehen, also eine **Privilege-ENTZIEHUNG** an
+  genau die Rolle, die F4 gerade geschaffen hat. Dasselbe gilt für die
+  `team_admin`-Zeile eines Nachbarvereins bei einem Ziel, das er sehr wohl
+  erreicht.
+- **Ziel außerhalb des Rosters → 404**, dieselbe Antwort wie eine fremde
+  Mandant-Id: „nicht in deinem Scope" und „existiert nicht" sind für den
+  Aufrufer dieselbe Antwort.
+- `destroy()` ist bewusst **nicht** verengt: die einzigen Halter von
+  `users.delete` sind `mandant_admin` und `super_admin`, es gibt also keinen
+  verengten Aufrufer, für den zu verengen. Ein `team_admin` wird vom **Gate**
+  abgewiesen — dafür ist die Matrix zuständig, und dafür ist der Test da.
+
+**UI:** `/admin/users` bekam eine eigene `RequireRoles`-Gruppe
+(`ROLE_ASSIGNER_ROLE_SLUGS`), damit `team_admin` die Seite erreicht, **ohne**
+die drei Verbandsseiten (`mandant.media.manage`, `mails.dlq.manage`) mitzuerben.
+Der Rollen-Editor bietet ihm nur die Team-Admin-Checkbox und einen Hinweis, der
+den Unterschied benennt; der Payload filtert auf dieselbe Menge, weil
+`updateRoles` **ersetzt** — ein ungefilterter Payload wäre ein 403 bei jedem
+Speichern. „Konto löschen" hat er nirgends.
+
+**Der Beweis, dass die Deklaration jetzt einen Träger hat** — derselbe Tausch,
+der vorher 30/30 und 64/64 grün ließ, ist rot (2026-10-06 gemessen, SQLite):
+
+```text
+AdminUsersPermissionSeparationTest > a team admin may assign roles but may not delete accounts   FAILED
+AdminUsersPermissionSeparationTest > the two routes are gated by two different permissions          FAILED
+AccountDeletionTest              > team admin user and verifier are forbidden …                      FAILED
+Tests: 3 failed, 91 passed (474 assertions)
+```
+
+`AdminUsersPermissionSeparationTest` benutzt dafür keine erfundene Matrix mehr,
+sondern die ausgelieferte — die künstliche Trennung ist überflüssig, seit eine
+Rolle in genau einer der beiden Mengen liegt. Eine zweite Assertion liest die
+Haltermengen direkt aus `config('permissions')` und verlangt
+`array_diff(manage, delete) === ['team_admin']`: ohne sie würde der erste Test
+auch für eine Matrix grün sein, in der die Mengen für `team_admin` zufällig
+übereinstimmen.
+
 - Nutzung in Controllern/Policies (P2+): `Gate::allows()`/`Gate::authorize()`
   oder direkt `$user->hasPermission($permission, $mandantId, $teamId)`.
 

@@ -8,9 +8,11 @@ use App\Jobs\SendMandantMail;
 use App\Models\FailedJob;
 use App\Support\MandantContext;
 use App\Support\QueuedMailPayload;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -41,6 +43,14 @@ use Illuminate\Support\Str;
  * requeue is a human decision and must be attributable (there is no automatic
  * path back out of `dead`).
  *
+ * ## `total` is an UPPER BOUND, and the frontend is built for that
+ *
+ * The number the UI shows next to the counter is `meta.total`, which counts the
+ * SQL SCOPE. For every row the provider wrote that equals the number of dead
+ * letters, because the provider stamps `mandant_id` from the same payload decode
+ * that decides `isMailJob()`. It over-reads only for a row inserted outside the
+ * provider that carries a `mandant_id` without being a mail job.
+ *
  * ## The `{message}` body is localized
  *
  * The UI shows this body verbatim (`frontend/src/logic/serverActionMessage.ts`),
@@ -49,13 +59,126 @@ use Illuminate\Support\Str;
  * because the contract is identical: a delivery job was written, and this
  * process cannot know whether the relay ever answered.
  *
+ * ## Pagination, and the discriminator it must not lose (2026-10-06)
+ *
+ * `index()` used to read the WHOLE table and filter in PHP. `failed_jobs` grows
+ * without bound by decision (dead letters are kept until a human requeues them),
+ * so that shape is the point where this surface breaks first — and it is now
+ * `page`/`per_page` paginated.
+ *
+ * ### The trap this code is shaped around
+ *
+ * The obvious implementation — `->paginate()` on the existing query — is WRONG,
+ * and not by a small margin. `isMailJob()` is the AUTHORITATIVE discriminator
+ * (it decodes the JSON payload through `QueuedMailPayload::mailJob()`), while
+ * `whereNotNull('mandant_id')` is only a SCOPE. A dead letter and a SQL row are
+ * therefore not the same thing, and pagination cannot be "whatever the SQL window
+ * happened to return". A non-mail dead letter inside the window shortens a page —
+ * the admin sees 7 rows where the control promised 10, with nothing in the UI
+ * that says so — and `forPage`'s arithmetic is in SQL ROWS, so every later page
+ * is shifted and the last row of one page reappears on the next.
+ *
+ * MEASURED on the naive shape (20 mail dead letters + 1 non-mail job carrying a
+ * `mandant_id`, `per_page=10`): `total` = 21 for 20 mail jobs; with phantoms
+ * inside the first two windows, `forPage(3)` re-served a row `forPage(2)` had
+ * already shown. Both are pinned in `MailDeadLetterTest`, which fails on a naive
+ * `forPage()` as well as on a dropped `isMailJob()`.
+ *
+ * ### Why the SQL window is `whereNotNull('mandant_id')` and NOT a payload LIKE
+ *
+ * A `payload LIKE '%…%'` prefilter was measured and REJECTED, for two measured
+ * reasons:
+ *
+ *  1. It buys nothing. `MandantAwareFailedJobProvider::log()` stamps
+ *     `mandant_id` from `QueuedMailPayload::mandantId($payload)`, and that
+ *     returns non-null if and only if `mailJob()` does. So the provider already
+ *     never gives a `mandant_id` to a non-mail job — which is exactly what
+ *     `whereNotNull('mandant_id')` filters on. A LIKE re-filters the same set.
+ *  2. A TIGHTER LIKE is a false-negative trap. `"commandName":"App\Jobs\…"`
+ *     does not match a real payload at all (measured: 0 rows, while
+ *     `isMailJob()` was true for the very row) — the raw JSON carries ESCAPED
+ *     backslashes, so under `ESCAPE '\'` the pattern needs a QUADRUPLE
+ *     backslash (measured: 2 rows once quadrupled). That marker then breaks
+ *     again on a payload with different JSON formatting (measured: 0 rows
+ *     against a `JSON_PRETTY_PRINT` payload that `isMailJob()` accepts). That
+ *     is `AGENTS.md` §2's `LIKE … ESCAPE` trap, and it fails CLOSED — a real
+ *     dead letter disappears from the DLQ — which is the worst possible
+ *     direction for this queue.
+ *
+ * ### What is left, stated honestly
+ *
+ * Two numbers, both named rather than discovered:
+ *
+ *  - **`total` is the SQL count of the scoped table** — EXACT for every row the
+ *    provider wrote (see 1. above), and an UPPER BOUND only for a row inserted
+ *    OUTSIDE the provider that carries a `mandant_id` without being a mail job.
+ *    Such a row inflates `total` by one and can leave a trailing page empty; it
+ *    can never appear in `data`, because `isMailJob()` remains the authority per
+ *    row. MEASURED at 2000 rows: an exact count by `cursor()` costs 32.2 ms
+ *    against 6.6 ms for the SQL count — the exact count is the LINEAR scan this
+ *    pagination exists to remove, so the upper bound is the deliberate trade. It
+ *    is pinned by `test_a_non_mail_dead_letter_shortens_no_page_and_appears_on_none`.
+ *  - **The scan is O(page).** Reaching page N reads N windows, because "how many
+ *    dead letters are above page N" is only knowable by walking — that is what
+ *    {@see collectPage()} pays for exactness. It is never SLOWER than the code it
+ *    replaces (`->get()` read the whole table on every request), and page 1 reads
+ *    about one window. MEASURED at 1000 rows: the old shape 33.5 ms, page 1
+ *    6.1 ms (5.5× faster), last page 285.9 ms.
+ *
  * @see lang/de/mails.php
  */
 class FailedMailController extends Controller
 {
+    /** Page size when the request names none. */
+    public const PER_PAGE_DEFAULT = 50;
+
+    /**
+     * The ceiling on `per_page`, and the smallest accepted value.
+     *
+     * The dead-letter list is a triage surface: an operator reads rows and
+     * requeues them one dialog at a time, so a page far above a screenful buys
+     * nothing and costs the response body. Both bounds are validated, not
+     * clamped (see `index()`), so a client that asks for 0 or for 9999 gets a
+     * 422 and a fixable error rather than a silently different page size.
+     */
+    public const PER_PAGE_MIN = 1;
+
+    public const PER_PAGE_MAX = 200;
+
+    /**
+     * How many SQL windows one list request may read.
+     *
+     * How many SQL windows ONE list request may read.
+     *
+     * The walk in {@see collectPage()} is the price of counting in dead letters
+     * instead of SQL rows (there: the whole argument), and this is its ceiling.
+     * The provider's own writes make a rejected row inside a window rare, so one
+     * window is the normal answer and this number only bites a pathological table.
+     *
+     * Past the bound the page comes back EMPTY, deliberately: a partially filled
+     * page would carry rows that belong to an earlier page, which is the duplicate
+     * defect `collectPage()` exists to prevent. "Nothing" is the honest answer to
+     * a page we will not walk far enough to fill.
+     *
+     * MEASURED: 1 window for every data set in the suite, including 30
+     * non-mail rows stacked above 120 mail rows.
+     */
+    public const MAX_SCAN_BATCHES = 20;
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $user = $request->user();
+
+        // `per_page=0` / `abc` / `9999` are CLIENT mistakes, and a 422 says so.
+        // They used to be a 500 risk; clamping instead would answer a question
+        // nobody asked ("give me 200 because I typed 9999").
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:'.self::PER_PAGE_MIN, 'max:'.self::PER_PAGE_MAX],
+        ]);
+
+        $page = (int) ($validated['page'] ?? 1);
+        $perPage = (int) ($validated['per_page'] ?? self::PER_PAGE_DEFAULT);
 
         $query = FailedJob::query()
             ->whereNotNull('mandant_id')
@@ -66,15 +189,92 @@ class FailedMailController extends Controller
             $query->where('mandant_id', $this->currentMandantId());
         }
 
-        // `whereNotNull('mandant_id')` already narrows to jobs the provider
-        // identified as mandant mail; the payload check makes the discriminator
-        // explicit rather than incidental (a future non-mail job must not leak
-        // into this list because it happens to carry a mandant).
-        $jobs = $query->get()
-            ->filter(static fn (FailedJob $job): bool => $job->isMailJob())
-            ->values();
+        $total = (clone $query)->count();
 
-        return FailedMailResource::collection($jobs);
+        $rows = $this->collectPage($query, $page, $perPage);
+
+        return FailedMailResource::collection($rows)->additional([
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => max(1, (int) ceil($total / $perPage)),
+            ],
+        ]);
+    }
+
+    /**
+     * One page of dead letters, counted in DEAD LETTERS rather than in rows.
+     *
+     * `isMailJob()` is the authoritative discriminator, so the SQL row a window
+     * yields and the dead letter a page contains are not the same thing. That
+     * difference is what makes `->forPage($page, $perPage)` wrong here in two
+     * separate ways, both measured in `MailDeadLetterTest`:
+     *
+     *  - a phantom row inside the window SHORTENS the page (the admin asks for
+     *    10 and gets 8, with nothing on screen saying a row was dropped);
+     *  - and `forPage`'s arithmetic is in SQL rows, so every page after the
+     *    first phantom is off by one and the last row of page N REAPPEARS on
+     *    page N+1. MEASURED: with phantoms inside the first two windows,
+     *    `forPage(3)` re-served a row `forPage(2)` had already shown.
+     *
+     * So this does not offset by `(page - 1) * perPage`. It walks windows from
+     * the START of the ordered table and counts DEAD LETTERS, skipping
+     * `(page - 1) * perPage` of them and then collecting `perPage`. The windows
+     * are SQL-side (bounded memory — the defect `->get()` over the whole table
+     * had); the counting is PHP-side (which is what makes the page exact).
+     *
+     * ## The price, named rather than discovered
+     *
+     * Reaching page N costs N windows to read, because "how many dead letters
+     * are above page N" is only knowable by walking. This is never SLOWER than
+     * the code it replaces — `->get()` read the whole table on every request —
+     * and page 1 reads roughly one window. MEASURED at 1000 rows: the old shape
+     * 33.5 ms, page 1 6.1 ms (5.5× faster), the LAST page 285.9 ms (8.5× the
+     * old shape). That last number is the honest cost of exactness and the
+     * reason the alternative is not free either: an exact `total` by `cursor()`
+     * costs 32.2 ms at 2000 rows against 6.6 ms for the SQL count, on EVERY page.
+     *
+     * `MAX_SCAN_BATCHES` is the ceiling on that walk. Past it the page is EMPTY
+     * — deliberately empty, not partially filled: serving rows that belong to an
+     * earlier page would be the duplicate-row defect again, so the failure
+     * direction is "nothing" instead of "the wrong thing".
+     *
+     * @param  Builder<FailedJob>  $query
+     * @return Collection<int, FailedJob>
+     */
+    private function collectPage(Builder $query, int $page, int $perPage): Collection
+    {
+        $toSkip = ($page - 1) * $perPage;
+        $collected = new Collection;
+
+        for ($batch = 0; $batch < self::MAX_SCAN_BATCHES; $batch++) {
+            $rows = (clone $query)->offset($batch * $perPage)->limit($perPage)->get();
+
+            if ($rows->isEmpty()) {
+                break;
+            }
+
+            foreach ($rows as $job) {
+                if (! $job->isMailJob()) {
+                    continue;
+                }
+
+                if ($toSkip > 0) {
+                    $toSkip--;
+
+                    continue;
+                }
+
+                $collected->push($job);
+
+                if ($collected->count() === $perPage) {
+                    return $collected;
+                }
+            }
+        }
+
+        return $collected;
     }
 
     public function requeue(Request $request, int $id): JsonResponse

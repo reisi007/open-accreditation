@@ -295,33 +295,83 @@ describe('api client', () => {
  * delivery" endpoints, which answer a BARE `{message}`.
  */
 describe('api client — dead letters', () => {
-    it('unwraps the DLQ list from its {data} envelope', async () => {
-        const rows: FailedMail[] = [
-            {
-                id: 11,
-                mandant_id: 1,
-                mailable: 'App\\Mail\\PassMail',
-                recipient: 'anna@example.test',
-                queue: 'default',
-                exception: 'Connection could not be established',
-                failed_at: '2026-10-02T09:30:00+00:00',
-            },
-        ];
-        const fetchMock = stubFetch({ data: rows });
+    const meta = { page: 1, per_page: 50, total: 1, last_page: 1 };
 
-        await expect(listFailedMails()).resolves.toEqual(rows);
-        // No query string: the endpoint takes no parameters, so a filter here
-        // would be silently ignored by the server.
+    const rows: FailedMail[] = [
+        {
+            id: 11,
+            mandant_id: 1,
+            mailable: 'App\\Mail\\PassMail',
+            recipient: 'anna@example.test',
+            queue: 'default',
+            exception: 'Connection could not be established',
+            failed_at: '2026-10-02T09:30:00+00:00',
+        },
+    ];
+
+    it('keeps BOTH halves of the DLQ envelope — the rows AND the window', async () => {
+        const fetchMock = stubFetch({ data: rows, meta });
+
+        // `request()` returns `body.data` and would throw `meta` away, so this
+        // endpoint could only ever tell "the list ended" from "the list ended" —
+        // which is the one distinction the page counter exists to make.
+        await expect(listFailedMails()).resolves.toEqual({ data: rows, meta });
         expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/failed-mails');
+    });
+
+    it('sends the page window it was given, as `page` and `per_page`', async () => {
+        const fetchMock = stubFetch({ data: [], meta: { page: 3, per_page: 2, total: 5, last_page: 3 } });
+
+        await listFailedMails({ page: 3, perPage: 2 });
+
+        // `per_page`, not `perPage`: the server's name for it is `per_page`
+        // (`FailedMailController::index()`), and a camelCase query parameter
+        // would be silently ignored into the default of 50.
+        expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/failed-mails?page=3&per_page=2');
+    });
+
+    it('omits an absent window instead of sending `undefined`', async () => {
+        const fetchMock = stubFetch({ data: [], meta });
+
+        await listFailedMails();
+
+        // No `?page=undefined`: the bare URL is the documented request, and a
+        // literal "undefined" would be a 422.
+        expect(fetchMock.mock.calls[0][0]).not.toContain('undefined');
+        expect(String(fetchMock.mock.calls[0][0])).toBe('/api/admin/failed-mails');
     });
 
     it('accepts an empty DLQ list as an empty array, not as undefined', async () => {
         // `{data: []}` must survive the unwrap. A `?? []` at the call site would
         // hide the difference between "no dead letters" and "the field was
         // missing", and the page renders those as two different states.
-        stubFetch({ data: [] });
+        stubFetch({ data: [], meta: { page: 1, per_page: 50, total: 0, last_page: 1 } });
 
-        await expect(listFailedMails()).resolves.toEqual([]);
+        await expect(listFailedMails()).resolves.toEqual({
+            data: [],
+            meta: { page: 1, per_page: 50, total: 0, last_page: 1 },
+        });
+    });
+
+    it('keeps the rows and reconstructs the window when the response carries no meta', async () => {
+        // Dropping the rows because the envelope was malformed was the
+        // alternative, and it is the WORSE failure here: on the dead-letter queue
+        // a hidden row is an undelivered mail nobody can see. Reconstructing
+        // "one page, sized to what arrived" is honest for an unpaginated answer.
+        stubFetch({ data: rows });
+
+        await expect(listFailedMails()).resolves.toEqual({
+            data: rows,
+            meta: { page: 1, per_page: 1, total: 1, last_page: 1 },
+        });
+    });
+
+    it('raises the 422 of an out-of-range page size instead of unwrapping it', async () => {
+        // The server VALIDATES `per_page` rather than clamping it, so a bad value
+        // is an answer that must reach the caller as an error.
+        stubFetch({ message: 'The per page field must be at most 200.', errors: { per_page: ['too big'] } }, 422);
+
+        await expect(listFailedMails({ perPage: 9999 })).rejects.toBeInstanceOf(ApiError);
     });
 
     it('returns the SERVER message of a requeue, not void', async () => {

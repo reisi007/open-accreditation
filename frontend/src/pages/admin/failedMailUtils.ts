@@ -1,7 +1,7 @@
 import type { I18n } from '@lingui/core';
 import { t } from '@lingui/core/macro';
 import { ApiError } from '../../api/client';
-import type { FailedMail } from '../../api/types';
+import type { FailedMail, PageMeta } from '../../api/types';
 
 /**
  * The width `FailedMailResource` cuts the exception at:
@@ -50,6 +50,52 @@ export function isTruncatedException(exception = ''): boolean {
     return exception.endsWith(LIMIT_END_MARKER);
 }
 
+/**
+ * The window a page control needs, derived from what the server reported.
+ *
+ * ## Every field here is `min`/`max`-clamped on purpose
+ *
+ * The server's `total` is a documented UPPER BOUND (see `PageMeta`), and the
+ * page after the last one is genuinely empty. Both mean the raw numbers can ask
+ * for something no UI should render:
+ *
+ *  - `page` above `last_page` (a stale button, or a colleague's requeue that
+ *    shortened the queue) — clamped down, so "next" from the last page is a
+ *    no-op instead of an off-range request;
+ *  - `last_page` below 1 — the server already guarantees ≥ 1, and the clamp
+ *    keeps that guarantee local to the arithmetic that depends on it;
+ *  - `total` below the rows actually on screen — `total` counts the SQL scope
+ *    and can under-read nothing, but the floor stops a malformed response from
+ *    rendering "0 Briefe" above a table with rows in it.
+ */
+export interface FailedMailWindow {
+    /** The 1-based page to show, never above `lastPage`. */
+    page: number;
+    lastPage: number;
+    /** The server's count for the whole queue — an upper bound, see `PageMeta`. */
+    total: number;
+}
+
+export function failedMailWindow(meta: PageMeta, rowsOnPage: number): FailedMailWindow {
+    const lastPage = Math.max(1, meta.last_page);
+
+    return {
+        page: Math.min(Math.max(1, meta.page), lastPage),
+        lastPage,
+        total: Math.max(meta.total, rowsOnPage),
+    };
+}
+
+/**
+ * Should the page control be rendered at all?
+ *
+ * False for a single page, because a lone "Seite 1 von 1" with two dead buttons
+ * is furniture that says nothing.
+ */
+export function hasMultiplePages(lastPage: number): boolean {
+    return lastPage > 1;
+}
+
 export interface FailedMailFilter {
     /** Free text over recipient, mailable, queue and exception. */
     search: string;
@@ -60,10 +106,15 @@ export interface FailedMailFilter {
 /**
  * The client-side filter of the dead-letter list.
  *
- * Client-side because the endpoint cannot filter: `FailedMailController::index()`
- * takes no parameters at all. That is also why the page says out loud that the
- * list is not paginated — a filter that runs on everything the server sent is
- * only as complete as the server's answer (`features/mail-delivery.md §8`).
+ * ## It filters a PAGE, and the UI must say so
+ *
+ * Client-side because the endpoint takes no filter parameter. Since the list is
+ * paginated (`features/mail-delivery.md §8`) that means a filter can only ever
+ * see the rows of the CURRENT page — so a search that matches a letter three
+ * pages back reports "nothing found" on this page. That is a limitation, not a
+ * bug to be smoothed over, and the reason the page renders the SERVER's total
+ * next to the filtered count: "2 Briefe von 213" is honest, "2 Briefe" reads as
+ * a claim about the whole queue.
  */
 export function filterFailedMails(failedMails: FailedMail[], filter: FailedMailFilter): FailedMail[] {
     const needle = filter.search.trim().toLowerCase();

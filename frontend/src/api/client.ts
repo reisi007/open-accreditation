@@ -21,6 +21,8 @@ import type {
     FailedMail,
     Mandant,
     MandantDomain,
+    PageMeta,
+    Paginated,
     PortalEvent,
     PortalEventDetail,
     PortalOverview,
@@ -113,6 +115,50 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
     }
 
     return response;
+}
+
+/**
+ * `request()` for a paginated resource: keeps `{data, meta}` INTACT.
+ *
+ * `request` returns `body.data` and would drop `meta` on the floor, so a
+ * paginated endpoint called through it could only ever tell "the list ended" from
+ * "the list ended" — which is the one distinction the page counter exists to
+ * make. One line of unwrapping is the whole difference, so this is a wrapper
+ * rather than a second transport: it calls `send()`, exactly like `request` and
+ * `requestMessage` do, and inherits the cookie, the 401 handler and the
+ * `ApiError` mapping from it.
+ *
+ * ## What happens to a response with no `meta`
+ *
+ * The rows are KEPT and the window is reconstructed from them — one page, sized
+ * to what arrived. Discarding real rows because the envelope was malformed was
+ * the alternative, and it is the worse failure here: on the dead-letter queue a
+ * dropped row is an undelivered mail nobody can see, which is the exact defect
+ * this page exists to prevent. Reconstructing instead means a server that
+ * stopped paginating shows its letters under an honest "page 1 of 1" instead of
+ * either vanishing or pretending to know a total it cannot know.
+ */
+async function requestPage<T>(path: string, init: RequestInit = {}): Promise<Paginated<T>> {
+    const response = await send(path, init);
+
+    const fromRows = (data: T[]): Paginated<T> => ({
+        data,
+        meta: { page: 1, per_page: data.length, total: data.length, last_page: 1 },
+    });
+
+    if (response.status === 204) {
+        return fromRows([]);
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType?.includes('application/json')) {
+        const body = (await response.json()) as { data?: T[]; meta?: PageMeta };
+        const data = body.data ?? [];
+
+        return body.meta === undefined ? fromRows(data) : { data, meta: body.meta };
+    }
+
+    return fromRows([]);
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -630,16 +676,27 @@ export const deleteBlacklist = (id: number): Promise<void> =>
 /**
  * The dead-letter queue of undelivered mandant mails (Position 45).
  *
- * `GET /api/admin/failed-mails` is NOT paginated and takes no filter: the
- * controller reads the whole `failed_jobs` table and filters in PHP
- * (`features/mail-delivery.md §8`). The page therefore filters client-side and
- * has to SAY that it does, so an admin does not read a long list as a complete
- * one.
+ * PAGINATED since 2026-10-06, with the window in `meta` rather than implied by
+ * "the list ends". The endpoint still takes no FILTER — the search box and the
+ * mandant selector stay client-side and only see the rows of the CURRENT page,
+ * which is the one thing this surface must not pretend otherwise about: the page
+ * says how many letters the server reported in total, so a filtered view can be
+ * read as "3 of 213" instead of as the whole queue.
+ *
+ * `per_page` is validated server-side (`FailedMailController::PER_PAGE_MIN` /
+ * `PER_PAGE_MAX`, 1…200) and an out-of-range value is a 422 rather than a
+ * silent clamp, so the default lives here — in ONE place, named once.
  *
  * Scope is the backend's, not the UI's: `super_admin` sees every mandant,
  * `mandant_admin` only his own (a foreign letter is a 404, never a 403).
  */
-export const listFailedMails = (): Promise<FailedMail[]> => request<FailedMail[]>('/api/admin/failed-mails');
+export const listFailedMails = (params?: { page?: number; perPage?: number }): Promise<Paginated<FailedMail>> =>
+    requestPage<FailedMail>(
+        `/api/admin/failed-mails${buildQuery({
+            page: params?.page,
+            per_page: params?.perPage,
+        })}`,
+    );
 
 /**
  * Move one dead letter back onto the queue — a human, logged decision, and the

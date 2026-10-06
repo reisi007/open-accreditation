@@ -8,10 +8,17 @@ import type { FailedMail } from '../../api/types';
 import {
     FAILED_MAIL_EXCEPTION_LIMIT,
     failedMailListErrorMessage,
+    failedMailWindow,
     filterFailedMails,
+    hasMultiplePages,
     isTruncatedException,
     requeueFailedMailErrorMessage,
 } from './failedMailUtils';
+import type { PageMeta } from '../../api/types';
+
+function meta(overrides: Partial<PageMeta> = {}): PageMeta {
+    return { page: 1, per_page: 50, total: 213, last_page: 5, ...overrides };
+}
 
 /**
  * A real `Str::limit(..., 500)` result: 497 characters plus the end marker.
@@ -147,5 +154,56 @@ describe('failedMailListErrorMessage', () => {
         // is "we do not know what is dead".
         expect(failedMailListErrorMessage(new ApiError(500, 'Server Error', {}), t)).toBe('Server Error');
         expect(failedMailListErrorMessage(new Error('offline'), t)).toBe('Tote Briefe konnten nicht geladen werden.');
+    });
+});
+
+describe('failedMailWindow', () => {
+    it('passes a sane window through unchanged', () => {
+        expect(failedMailWindow(meta({ page: 2, per_page: 50, total: 213, last_page: 5 }), 50)).toEqual({
+            page: 2,
+            lastPage: 5,
+            total: 213,
+        });
+    });
+
+    it('clamps a page that no longer exists back to the last one', () => {
+        // The requeue case: page 5 held the last letter, it was requeued, and the
+        // server now reports `last_page: 4`. Rendering "Seite 5 von 4" — or an
+        // empty page under a stale heading — is the defect this clamp exists for.
+        expect(failedMailWindow(meta({ page: 5, last_page: 4 }), 12).page).toBe(4);
+    });
+
+    it('never renders a page below 1', () => {
+        expect(failedMailWindow(meta({ page: 0, last_page: 5 }), 50).page).toBe(1);
+        expect(failedMailWindow(meta({ page: -3, last_page: 5 }), 50).page).toBe(1);
+    });
+
+    it('treats an empty queue as exactly one page, never zero', () => {
+        // `ceil(0 / 50)` is 0, and a page control with zero pages has no state
+        // and no button. The server guarantees >= 1; the clamp keeps that
+        // guarantee local to the arithmetic that reads it.
+        expect(failedMailWindow(meta({ page: 1, total: 0, last_page: 0 }), 0)).toEqual({
+            page: 1,
+            lastPage: 1,
+            total: 0,
+        });
+    });
+
+    it('never reports fewer letters than the page actually shows', () => {
+        // `total` is a documented UPPER BOUND server-side, so this floor is not
+        // about that — it stops a malformed response from rendering "0 Briefe"
+        // above a table that has rows in it.
+        expect(failedMailWindow(meta({ total: 3, last_page: 1 }), 50).total).toBe(50);
+    });
+});
+
+describe('hasMultiplePages', () => {
+    it('is false for a single page — a lone counter is furniture', () => {
+        expect(hasMultiplePages(1)).toBe(false);
+        expect(hasMultiplePages(0)).toBe(false);
+    });
+
+    it('is true only when there is somewhere to go', () => {
+        expect(hasMultiplePages(2)).toBe(true);
     });
 });

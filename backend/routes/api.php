@@ -176,7 +176,8 @@ Route::middleware('auth:api')->group(function (): void {
 |   - categories                          → `can:categories.manage`
 |   - venues                              → `can:venues.manage` (W12)
 |   - events                              → `can:events.manage`
-|   - users / roles                       → `can:users.manage` (P2c)
+|   - users / roles                       → `can:users.manage` (P2c; since F4
+|     also `team_admin`, TEAM-SCOPED in the controller)
 |   - user account deletion               → `can:users.delete` (DSGVO). NOT
 |     `users.manage`: that one is role assignment, and whoever may hand out
 |     roles may not thereby end accounts. Same mandant-scoped `{user}` binding.
@@ -387,6 +388,14 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
         Route::post('/accreditations/{accreditation}/badges/export', [BadgeExportController::class, 'export'])->middleware('throttle:admin')->name('accreditations.badges.export');
     });
 
+    // Role assignment. `mandant_admin` gets the whole mandant, `team_admin`
+    // (F4, Nutzerentscheid 2026-10-06) only his own teams — the gate cannot
+    // express that, because it passes no `team_id` and `hasPermission()` reads
+    // a missing argument as "my own team" for a team_admin, so the narrowing
+    // is re-enforced in `UserController` (class docblock, and the `F4` block in
+    // `config/permissions.php`). The holder set is what separates the two
+    // routes below: measured on the shipped matrix, a `team_admin` passes this
+    // gate and is 403 at the delete gate.
     Route::middleware('can:users.manage')->group(function (): void {
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::put('/users/{user}/roles', [UserController::class, 'updateRoles'])->middleware('throttle:admin')->name('users.roles.update');
@@ -396,7 +405,9 @@ Route::middleware(['auth:api'])->prefix('admin')->name('api.admin.')->group(func
     // inside the `users.manage` group above: that one is ROLE ASSIGNMENT, and
     // hanging account termination off it would give whoever may hand out roles
     // the power to end an account. Same mandant-scoped `{user}` binding, so a
-    // foreign target is a 404.
+    // foreign target is a 404. `mandant_admin` + `super_admin` only — this is
+    // the gate that stays un-swappable now that `team_admin` holds
+    // `users.manage` (F4).
     Route::middleware('can:users.delete')->group(function (): void {
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->middleware('throttle:admin')->name('users.destroy');
     });

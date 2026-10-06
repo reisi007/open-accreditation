@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Http\Controllers\Api\Admin\FailedMailController;
 use App\Jobs\SendMandantMail;
 use App\Models\Mandant;
 use App\Models\Role;
@@ -369,8 +370,354 @@ class MailDeadLetterTest extends TestCase
     }
 
     /* ---------------------------------------------------------------------
+     | Pagination (2026-10-06)
+     | ------------------------------------------------------------------- */
+
+    /**
+     * The window the response reports for itself, and the default/ceiling
+     * behind it.
+     *
+     * The two numbers are PINS, not documentation: `PER_PAGE_DEFAULT` is what an
+     * unparameterized request gets and `PER_PAGE_MAX` is the last accepted
+     * `per_page`. Both are quoted in the UI and in `features/mail-delivery.md`,
+     * and a test is the only place a quoted number cannot rot quietly.
+     */
+    public function test_the_list_reports_its_own_window_and_the_default_page_size_is_fifty(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('a%02d@example.test', $i));
+        }
+
+        $this->assertSame(50, FailedMailController::PER_PAGE_DEFAULT);
+        $this->assertSame(200, FailedMailController::PER_PAGE_MAX);
+
+        $response = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson('/api/admin/failed-mails')
+            ->assertOk();
+
+        $response->assertJsonPath('meta.page', 1);
+        $response->assertJsonPath('meta.per_page', 50);
+        $response->assertJsonPath('meta.total', 3);
+        $response->assertJsonPath('meta.last_page', 1);
+        $this->assertCount(3, $response->json('data'));
+    }
+
+    public function test_pages_are_disjoint_and_cover_the_queue_without_gaps_or_repeats(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('a%02d@example.test', $i));
+        }
+
+        $ids = [];
+        for ($page = 1; $page <= 3; $page++) {
+            $response = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+                ->getJson('/api/admin/failed-mails?per_page=2&page='.$page)
+                ->assertOk();
+
+            $response->assertJsonPath('meta.total', 5);
+            $response->assertJsonPath('meta.last_page', 3);
+
+            $ids = array_merge($ids, array_column($response->json('data'), 'id'));
+        }
+
+        $this->assertCount(5, $ids, 'every dead letter appears on exactly one page');
+        $this->assertSame($ids, array_values(array_unique($ids)), 'no dead letter appears on two pages');
+
+        // Newest first: `failed_at DESC, id DESC`, so the LAST insert leads.
+        $expected = $this->failedMailIds($this->mandantA);
+        $expected = array_reverse($expected);
+        $this->assertSame($expected, $ids);
+    }
+
+    /**
+     * THE test this whole change exists for: a page is short only at the END.
+     *
+     * The trap is a `failed_jobs` row that carries a `mandant_id` but is NOT a
+     * mandant mail — a non-mail job that happens to know a mandant, or a row
+     * written by hand. `whereNotNull('mandant_id')` cannot tell it apart from a
+     * dead letter; `isMailJob()` can. A naive `->paginate()` therefore lets the
+     * phantom eat a slot: the admin asks for 10 and gets 8, with nothing
+     * anywhere saying a row was dropped.
+     *
+     * MEASURED against that naive shape on the same fixture class (20 mail
+     * dead letters + 1 phantom, `per_page=10`): `total` = 21 for 20 mail jobs,
+     * and every page boundary behind the phantom is shifted by one.
+     *
+     * MUTATION: replace `collectPage()` with `->forPage($page, $perPage)->get()`
+     * — the phantoms sit inside the windows and the "must be FULL" assertions
+     * below fail.
+     */
+    public function test_a_non_mail_dead_letter_shortens_no_page_and_appears_on_none(): void
+    {
+        for ($i = 1; $i <= 4; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('a%02d@example.test', $i));
+        }
+
+        // Two phantoms, one inside page 1's window and one inside page 2's.
+        $this->insertPhantomDeadLetter($this->mandantA);
+        $this->insertFailedMail($this->mandantA, 'a05@example.test');
+        $this->insertFailedMail($this->mandantA, 'a06@example.test');
+        $this->insertPhantomDeadLetter($this->mandantA);
+        $this->insertFailedMail($this->mandantA, 'a07@example.test');
+        $this->insertFailedMail($this->mandantA, 'a08@example.test');
+
+        $recipients = [];
+
+        foreach ([1, 2, 3, 4] as $page) {
+            $response = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+                ->getJson('/api/admin/failed-mails?per_page=2&page='.$page)
+                ->assertOk();
+
+            $recipients = array_merge($recipients, array_column($response->json('data'), 'recipient'));
+
+            if ($page < 3) {
+                $this->assertCount(
+                    2,
+                    $response->json('data'),
+                    "page {$page} must be FULL: a phantom row must not eat a slot",
+                );
+            }
+        }
+
+        $this->assertSame([
+            'a08@example.test', 'a07@example.test', 'a06@example.test', 'a05@example.test',
+            'a04@example.test', 'a03@example.test', 'a02@example.test', 'a01@example.test',
+        ], $recipients, 'the eight real dead letters, newest first, exactly once each');
+
+        // The phantoms ARE counted by `total` — the documented upper bound of the
+        // SQL scope — and that is acceptable only because they never widen `data`.
+        $meta = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson('/api/admin/failed-mails?per_page=2&page=1')
+            ->assertOk()
+            ->json('meta');
+
+        $this->assertSame(10, $meta['total'], 'the SQL scope count includes the phantoms');
+        $this->assertSame(5, $meta['last_page']);
+    }
+
+    /**
+     * The upper bound above is only acceptable because `data` never widens with
+     * it. This pins that from the OTHER side: the phantom is counted, and not one
+     * phantom recipient is ever served.
+     *
+     * MUTATION: drop the `isMailJob()` check in `collectPage()` — the phantom's
+     * `recipient` appears and this fails.
+     */
+    public function test_the_php_filter_is_the_authority_and_not_the_sql_scope(): void
+    {
+        $this->insertFailedMail($this->mandantA, 'real@example.test');
+        $this->insertPhantomDeadLetter($this->mandantA, 'phantom@example.test');
+        $this->insertFailedMail($this->mandantA, 'also-real@example.test');
+
+        $recipients = [];
+        for ($page = 1; $page <= 2; $page++) {
+            $response = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+                ->getJson('/api/admin/failed-mails?per_page=2&page='.$page)
+                ->assertOk();
+            $recipients = array_merge($recipients, array_column($response->json('data'), 'recipient'));
+        }
+
+        $this->assertNotContains('phantom@example.test', $recipients);
+        $this->assertSame(['also-real@example.test', 'real@example.test'], $recipients);
+    }
+
+    /**
+     * Pagination must not open the tenant boundary.
+     *
+     * A `mandant_admin` sees his mandant's dead letters and nothing else — on
+     * EVERY page, not only the first. `total` is scoped the same way, or the
+     * page counter would leak the SIZE of the other tenant's queue, which is a
+     * cross-tenant read even though no row is shown.
+     *
+     * MUTATION: drop the `where('mandant_id', …)` from `index()` — the foreign
+     * recipients appear and `meta.total` doubles.
+     */
+    public function test_pagination_keeps_the_mandant_scope_on_every_page(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('own%02d@example.test', $i));
+        }
+        for ($i = 1; $i <= 3; $i++) {
+            $this->insertFailedMail($this->mandantB, sprintf('foreign%02d@example.test', $i));
+        }
+
+        $admin = $this->mandantAdmin($this->mandantA);
+
+        $seen = [];
+        for ($page = 1; $page <= 2; $page++) {
+            $response = $this->actingAsApi($admin)
+                ->getJson('/api/admin/failed-mails?per_page=2&page='.$page)
+                ->assertOk();
+
+            $response->assertJsonPath('meta.total', 3);
+            $response->assertJsonPath('meta.last_page', 2);
+
+            foreach ($response->json('data') as $row) {
+                $this->assertSame($this->mandantA->id, $row['mandant_id']);
+                $seen[] = $row['recipient'];
+            }
+        }
+
+        sort($seen);
+        $this->assertSame(['own01@example.test', 'own02@example.test', 'own03@example.test'], $seen);
+
+        // The super_admin still sees both, and the same numbers still add up.
+        $superMeta = $this->actingAsApi($this->superAdmin())
+            ->getJson('/api/admin/failed-mails?per_page=2&page=1')
+            ->assertOk()
+            ->json('meta');
+
+        $this->assertSame(6, $superMeta['total']);
+        $this->assertSame(3, $superMeta['last_page']);
+    }
+
+    /**
+     * `per_page=0`, `abc`, `9999` — a client mistake is a 422, never a 500.
+     *
+     * The DLQ is the surface an operator opens WHILE mail is already failing, so
+     * an endpoint answering 500 on a mistyped page size turns a typing slip into
+     * "the dead-letter queue is broken".
+     *
+     * MEASURED statuses, one request each: `0` → 422, `-1` → 422, `abc` → 422,
+     * `1.5` → 422, `9999` → 422, `201` → 422 (one above the ceiling), `5` → 200,
+     * `200` → 200. Nothing in that list is a 500.
+     *
+     * ## Why the two "empty" values are 200 and not 422
+     *
+     * `per_page=` and `per_page=%20` are Laravel's own notion of ABSENT, not of
+     * a bad value, and both fall back to the default: `ConvertEmptyStringsToNull`
+     * turns `''` into `null` (which `nullable` admits), and
+     * `Illuminate\Validation\Validator::present()` — the gate every rule passes
+     * through — returns false for a whitespace-only string, so the `integer` rule
+     * is never even consulted. Both are the framework's convention across this
+     * whole API, so the page says so rather than diverging from it here; the
+     * assertion below pins that it stays a 200 with the DEFAULT window and never
+     * becomes a silent 0-row page.
+     *
+     * MUTATION: `['nullable', 'integer']` without the bounds — `0` and `9999`
+     * stop being 422.
+     */
+    public function test_an_unusable_page_size_is_a_422_and_never_a_500(): void
+    {
+        $this->insertFailedMail($this->mandantA, 'own@example.test');
+
+        $admin = $this->mandantAdmin($this->mandantA);
+
+        foreach (['0', '-1', 'abc', '1.5', '9999', '201', 'null'] as $bad) {
+            $this->actingAsApi($admin)
+                ->getJson('/api/admin/failed-mails?per_page='.urlencode($bad))
+                ->assertStatus(422);
+        }
+
+        foreach (['0', 'abc'] as $bad) {
+            $this->actingAsApi($admin)
+                ->getJson('/api/admin/failed-mails?page='.urlencode($bad))
+                ->assertStatus(422);
+        }
+
+        // Both ends of the accepted range really are accepted.
+        $this->actingAsApi($admin)
+            ->getJson('/api/admin/failed-mails?per_page=1')
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 1);
+
+        $this->actingAsApi($admin)
+            ->getJson('/api/admin/failed-mails?per_page=200')
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 200);
+
+        // An "absent" spelling of the parameter falls back to the default
+        // window — never to a 0-row page, which is the failure that would read
+        // as "the queue is empty".
+        foreach (['', '%20'] as $blank) {
+            $this->actingAsApi($admin)
+                ->getJson('/api/admin/failed-mails?per_page='.$blank)
+                ->assertOk()
+                ->assertJsonPath('meta.per_page', 50)
+                ->assertJsonCount(1, 'data');
+        }
+    }
+
+    /**
+     * A page BEYOND the end is an empty page — not a 404, not a silent rewind.
+     *
+     * An admin who kept "next" pressed while a colleague requeued the tail must
+     * land on the empty state of a page that exists: the queue is reachable, it
+     * simply has nothing left on that window.
+     */
+    public function test_a_page_past_the_end_is_empty_and_still_reports_the_real_total(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('a%02d@example.test', $i));
+        }
+
+        $response = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson('/api/admin/failed-mails?per_page=2&page=99')
+            ->assertOk();
+
+        $this->assertSame([], $response->json('data'));
+        $response->assertJsonPath('meta.total', 3);
+        $response->assertJsonPath('meta.last_page', 2);
+    }
+
+    /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */
+
+    /**
+     * The phantom this pagination has to survive: a `failed_jobs` row that
+     * carries a `mandant_id` but is NOT a mail job, so `whereNotNull` cannot
+     * exclude it and only `isMailJob()` can.
+     *
+     * Deliberately built the way the provider never builds one — a hand-written
+     * row, or a future non-mail job that happens to know a mandant. That is the
+     * whole point: the provider itself stamps `mandant_id` only for mail jobs, so
+     * this state is reachable only from OUTSIDE it, and a SQL-only discriminator
+     * would still be wrong the day it is.
+     */
+    private function insertPhantomDeadLetter(Mandant $mandant, string $recipient = 'phantom@example.test'): int
+    {
+        $uuid = (string) Str::uuid();
+        $other = new UncappedThrowingJob;
+
+        return (int) DB::table('failed_jobs')->insertGetId([
+            'uuid' => $uuid,
+            'connection' => 'database',
+            'queue' => 'default',
+            'mandant_id' => $mandant->id,
+            'payload' => json_encode([
+                'uuid' => $uuid,
+                'displayName' => UncappedThrowingJob::class,
+                'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+                'maxTries' => 1,
+                'data' => [
+                    'commandName' => UncappedThrowingJob::class,
+                    'command' => serialize($other),
+                ],
+            ]),
+            'exception' => 'RuntimeException: not a mail — but it carries a mandant',
+            'failed_at' => now(),
+        ]);
+    }
+
+    /**
+     * The ids of `mandant`'s REAL dead letters, oldest first.
+     *
+     * Read back from the table rather than collected while inserting, so the
+     * expected order cannot inherit a bug from the fixture itself.
+     *
+     * @return array<int, int>
+     */
+    private function failedMailIds(Mandant $mandant): array
+    {
+        return DB::table('failed_jobs')
+            ->where('mandant_id', $mandant->id)
+            ->where('payload', 'like', '%SendMandantMail%')
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+    }
 
     /**
      * A real dead letter: a `SendMandantMail` payload stored in `failed_jobs`,

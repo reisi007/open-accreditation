@@ -146,6 +146,87 @@ describe('UsersPage', () => {
  * `can:users.delete` gate stays the authorisation; the button must not be
  * offered to a role the API would refuse.
  */
+/**
+ * F4 (Nutzerentscheid 2026-10-06): role assignment and account termination are
+ * two permissions, and a `team_admin` holds the first but not the second.
+ *
+ * The page is the place where that difference becomes visible: he reaches it,
+ * sees the roles and edits them — and gets no delete action and no role
+ * checkbox the backend would answer 403 to.
+ */
+describe('UsersPage role assignment', () => {
+    function teamAdminOf(overrides: Partial<AdminUser> = {}): AdminUser {
+        return {
+            ...makeUser(1),
+            roles: [{ role: { slug: 'team_admin', name: 'Team Admin' }, mandant_id: 1, team_id: 1, team: { id: 1, name: 'Team A' } }],
+            ...overrides,
+        };
+    }
+
+    it('offers a mandant_admin every role checkbox', async () => {
+        currentUser.current = sessionWith('mandant_admin');
+        setUsers([makeUser(1)]);
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('1 Benutzer', { exact: true });
+        await user.click(screen.getByRole('button', { name: 'Rollen bearbeiten' }));
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByLabelText('Mandant-Admin')).toBeInTheDocument();
+        expect(within(dialog).getByLabelText('Team-Admin')).toBeInTheDocument();
+        expect(within(dialog).getByLabelText('Verifizierer')).toBeInTheDocument();
+        expect(within(dialog).queryByText(/nur innerhalb deines Teams/)).not.toBeInTheDocument();
+    });
+
+    it('offers a team_admin ONLY the team_admin checkbox, and says why', async () => {
+        currentUser.current = sessionWith('team_admin');
+        setUsers([teamAdminOf()]);
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('1 Benutzer', { exact: true });
+        await user.click(screen.getByRole('button', { name: 'Rollen bearbeiten' }));
+
+        const dialog = await screen.findByRole('dialog');
+        expect(within(dialog).getByLabelText('Team-Admin')).toBeInTheDocument();
+        // The three roles a team_admin may NOT write are not offered at all —
+        // the backend answers 403 for each of them.
+        expect(within(dialog).queryByLabelText('Mandant-Admin')).not.toBeInTheDocument();
+        expect(within(dialog).queryByLabelText('Verifizierer')).not.toBeInTheDocument();
+        expect(within(dialog).queryByLabelText('Benutzer', { exact: true })).not.toBeInTheDocument();
+        expect(within(dialog).getByText(/nur innerhalb deines Teams/)).toBeInTheDocument();
+        expect(within(dialog).getByText(/Konten beenden darfst du nicht/)).toBeInTheDocument();
+    });
+
+    /**
+     * A mandant-level role the target already holds must NOT leak into the
+     * payload: `UserController::updateRoles()` REPLACES the role set, so an
+     * unfiltered payload from a `team_admin` would be a 403 on every save (and,
+     * before F4, a mandant-wide rewrite).
+     */
+    it('sends only the assignable roles, even when the target holds more', async () => {
+        currentUser.current = sessionWith('team_admin');
+        setUsers([
+            teamAdminOf({
+                roles: [
+                    { role: { slug: 'team_admin', name: 'Team Admin' }, mandant_id: 1, team_id: 1, team: { id: 1, name: 'Team A' } },
+                    { role: { slug: 'user', name: 'User' }, mandant_id: 1, team_id: null, team: null },
+                ],
+            }),
+        ]);
+        const user = userEvent.setup();
+        renderPage();
+
+        await screen.findByText('1 Benutzer', { exact: true });
+        await user.click(screen.getByRole('button', { name: 'Rollen bearbeiten' }));
+        await user.click(await screen.findByRole('button', { name: 'Speichern' }));
+
+        await waitFor(() => expect(updateUserRolesMock).toHaveBeenCalledTimes(1));
+        expect(updateUserRolesMock).toHaveBeenCalledWith(1, [{ role: 'team_admin', team_id: 1 }]);
+    });
+});
+
 describe('UsersPage account deletion', () => {
     it('offers the destructive action to a role that holds users.delete', async () => {
         currentUser.current = sessionWith('mandant_admin');
@@ -157,8 +238,8 @@ describe('UsersPage account deletion', () => {
     });
 
     it('hides the destructive action from a role without users.delete', async () => {
-        // `team_admin` reaches plenty of admin pages but holds neither
-        // `users.delete` nor `users.manage` (backend/config/permissions.php).
+        // `team_admin` holds `users.manage` since F4 (2026-10-06) but NOT
+        // `users.delete` — backend/config/permissions.php.
         currentUser.current = sessionWith('team_admin');
         setUsers([makeUser(1)]);
         renderPage();

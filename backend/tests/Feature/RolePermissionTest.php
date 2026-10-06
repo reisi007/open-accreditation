@@ -37,6 +37,13 @@ class RolePermissionTest extends TestCase
 
     public static function accessMatrixProvider(): array
     {
+        // `users.delete` is in the list since F4 (2026-10-06). It was absent
+        // before, so the gate was never exercised here at all — which is part
+        // of why the swap `users.delete` → `users.manage` stayed invisible: the
+        // matrix row that would have shown the difference did not mention it.
+        // With it present, the team_admin row below pins the separation at the
+        // GATE level, next to the route-level assertion in
+        // `AdminUsersPermissionSeparationTest`.
         $allPermissions = [
             'mandants.manage',
             'teams.view',
@@ -47,6 +54,7 @@ class RolePermissionTest extends TestCase
             'accreditations.manage',
             'accreditations.self',
             'users.manage',
+            'users.delete',
             'verification.verify',
             'mandant.media.manage',
             'venues.manage',
@@ -57,6 +65,7 @@ class RolePermissionTest extends TestCase
             'categories.manage',
             'events.manage',
             'users.manage',
+            'users.delete',
             'accreditations.view',
             'accreditations.manage',
             'mandant.media.manage',
@@ -95,12 +104,18 @@ class RolePermissionTest extends TestCase
             'team_admin within own mandant and team' => [
                 UserRole::TEAM_ADMIN->value,
                 7,
-                ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view', 'venues.manage'],
+                // F4: `users.manage` (role assignment) joined `categories.manage`
+                // and `events.manage` — the grants this role holds over HIS OWN
+                // team. `users.delete` stays out: appointing the admins of his
+                // club is not the authority to end an account. That difference
+                // is the carrier of the F4 separation; the narrowing itself lives
+                // in `UserController` and is tested in `AdminUserTest`.
+                ['teams.view', 'teams.manage', 'categories.manage', 'events.manage', 'accreditations.manage', 'accreditations.view', 'venues.manage', 'users.manage'],
                 // W12: `venues.manage` sits next to `categories.manage` — a venue
                 // is mandant-wide reference data (no team level to scope to), but
                 // the team form and the event form, both editable by this role,
                 // need the venue picker + inline create it feeds.
-                ['mandants.manage', 'users.manage', 'accreditations.self', 'verification.verify', 'mandant.media.manage'],
+                ['mandants.manage', 'users.delete', 'accreditations.self', 'verification.verify', 'mandant.media.manage'],
                 'own',
             ],
             'team_admin on a foreign mandant' => [

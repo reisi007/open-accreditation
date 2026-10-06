@@ -14,7 +14,9 @@ import { useMandants } from '../../logic/useMandants';
 import {
     FAILED_MAIL_EXCEPTION_LIMIT,
     failedMailListErrorMessage,
+    failedMailWindow,
     filterFailedMails,
+    hasMultiplePages,
     isTruncatedException,
     requeueFailedMailErrorMessage,
 } from './failedMailUtils';
@@ -31,17 +33,51 @@ import {
  * everybody else does not. So this is the second half of the feature, not a
  * nicety on it.
  *
- * ## The two things this page is careful about
+ * ## The three things this page is careful about
  *
- * 1. **It never claims more than the API delivered.** The list endpoint is not
- *    paginated (`FailedMailController::index()` reads the whole table), so the
- *    page says so instead of letting a long list read as "everything there is".
- *    The exception text is cut server-side at 500 characters, and a cut trace is
- *    LABELLED as cut — half a stack trace presented as the whole thing is the
- *    same defect class as the resend message this stream also fixed.
- * 2. **A refusal is an answer.** A foreign letter is a 404, a missing one is a
+ * 1. **It never claims more than the API delivered.** The list is PAGINATED
+ *    (2026-10-06): the endpoint serves one window and reports that window in
+ *    `meta`. So the page shows the server's `total` and the page counter
+ *    together — "Seite 2 von 5 · 213 Briefe" — and the search result count
+ *    always names the total it is a subset of ("2 Briefe von 213"). The old
+ *    text ("the list is not paginated, the endpoint delivers all of them at
+ *    once") was true of the endpoint as it was and would have become the exact
+ *    opposite of what the page does now.
+ * 2. **A cut exception is LABELLED as cut.** The server cuts it at 500
+ *    characters; half a stack trace presented as the whole thing is the same
+ *    defect class as the resend message this stream also fixed.
+ * 3. **A refusal is an answer.** A foreign letter is a 404, a missing one is a
  *    404, and neither may render as an empty list or a silent nothing. Both
  *    surface next to the row they happened on.
+ *
+ * ## A page that stops existing
+ *
+ * The queue SHRINKS under the admin's feet: a requeue DELETES a letter, and a
+ * colleague can requeue the tail between the moment page N is shown and the
+ * moment "Weiter" is pressed. Requesting that page anyway answers an EMPTY
+ * window — the queue would read as empty while it holds rows.
+ *
+ * Two derivations, and they answer different halves of it:
+ *
+ *  - `failedMailWindow()` clamps the HEADING immediately (page 5 of 4 becomes
+ *    page 4 of 4), and the "next"/"back" bounds are built from it.
+ *  - the render-time `setPage` below corrects the page STATE and re-requests, so
+ *    the ROWS come back too.
+ *
+ * The split is not tidiness — clamping the heading alone would leave an empty
+ * table under a correct one, and re-requesting alone would leave a wrong heading
+ * for the frame in between. Neither half is enough on its own.
+ *
+ * ## What stays stale, named rather than glossed over
+ *
+ * Correcting the page lands the admin on a window SWR already has cached, and
+ * that cached entry carries the `total` and `last_page` from BEFORE the shrink.
+ * So the counter can read one shrink high until the next revalidation — an
+ * OVER-count, never an under-count: the rows on screen are always real, and the
+ * empty state is only reachable when a page genuinely has no rows. That is the
+ * tolerable direction; the untolerable one ("213 Briefe" over a table with three
+ * rows) cannot happen, because the count rendered is the server's, not
+ * `rows.length`.
  */
 export function FailedMailsPage() {
     const { i18n } = useLingui();
@@ -54,7 +90,35 @@ export function FailedMailsPage() {
     // itself super-admin-only, and the header switcher already reads it, so
     // this costs no extra request.
     const { mandants } = useMandants(isSuperAdmin);
-    const { failedMails, error, isLoading, revalidate } = useFailedMails();
+
+    // The page lives here, and it is part of the SWR key — see `useFailedMails`.
+    // A change of search or mandant filter goes back to page 1, because a filter
+    // result on page 4 of an unfiltered list is a claim about a window the admin
+    // cannot see.
+    const [page, setPage] = useState(1);
+
+    const { failedMails, meta, error, isLoading, revalidate } = useFailedMails(page);
+
+    /**
+     * Correct a page the server no longer has, DURING render.
+     *
+     * `setPage(effectivePage)` while rendering is React's documented
+     * "adjusting state during render" pattern, and it is what makes this correct
+     * rather than merely tidy: React discards the frame it is rendering and
+     * immediately re-renders with the new value, so the empty window is never
+     * painted. The two alternatives are both worse — an effect fires a frame
+     * LATER (the empty table flashes), and clamping only the heading leaves a
+     * correct "page 1 of 1" over an empty table, which is the same
+     * "the queue is empty" lie one level down.
+     *
+     * The guards are what keep it finite: only when the server HAS answered, and
+     * only when the two disagree. A server that keeps calling the page out of
+     * range leaves `page` already at its clamp, so the condition goes false and
+     * this is a no-op rather than a loop.
+     */
+    if (meta !== undefined && page > meta.last_page) {
+        setPage(Math.max(1, meta.last_page));
+    }
 
     const [search, setSearch] = useState('');
     const [mandantFilter, setMandantFilter] = useState('');
@@ -83,6 +147,18 @@ export function FailedMailsPage() {
         mandantId: isSuperAdmin && mandantFilter !== '' ? Number(mandantFilter) : null,
     });
     const filtersActive = search.trim() !== '' || (isSuperAdmin && mandantFilter !== '');
+
+    // The window the SERVER says this is, clamped so a requeue that shortened the
+    // queue cannot leave a "page 5 of 5" heading over an empty table.
+    const window = failedMailWindow(
+        meta ?? { page: 1, per_page: all.length, total: all.length, last_page: 1 },
+        all.length,
+    );
+    // Plain names because Lingui can only interpolate a simple variable, not
+    // `window.page` (lingui/no-expression-in-message). Both are already clamped
+    // by `failedMailWindow`.
+    const currentPage = window.page;
+    const lastPage = window.lastPage;
 
     const openConfirm = (entry: FailedMail) => {
         setConfirmTarget(entry);
@@ -118,6 +194,16 @@ export function FailedMailsPage() {
         }
     };
 
+    /**
+     * A requeue removes a row, so on the LAST page the page after it may no
+     * longer exist. `failedMailWindow()` already clamps what is DISPLAYED; this
+     * only brings the request back to a page the server still has, so the reload
+     * answers rows instead of an empty window.
+     */
+    const goToPage = (next: number) => {
+        setPage(Math.min(Math.max(1, next), Math.max(1, window.lastPage)));
+    };
+
     return (
         <section className="flex flex-col gap-6">
             <h1 className="text-3xl font-bold">{i18n._(t`Tote Briefe`)}</h1>
@@ -138,7 +224,12 @@ export function FailedMailsPage() {
                         className="input input-sm"
                         placeholder={i18n._(t`Empfänger, Mailable oder Fehlermeldung`)}
                         value={search}
-                        onChange={(event) => setSearch(event.target.value)}
+                        onChange={(event) => {
+                            setSearch(event.target.value);
+                            // Back to page 1: the new result set has no page 4, and
+                            // staying on page 4 would render it as an empty queue.
+                            setPage(1);
+                        }}
                     />
                 </div>
                 {isSuperAdmin ? (
@@ -150,7 +241,10 @@ export function FailedMailsPage() {
                             id="failed-mail-mandant"
                             className="select select-sm"
                             value={mandantFilter}
-                            onChange={(event) => setMandantFilter(event.target.value)}
+                            onChange={(event) => {
+                                setMandantFilter(event.target.value);
+                                setPage(1);
+                            }}
                         >
                             <option value="">{i18n._(t`Alle Mandanten`)}</option>
                             {(mandants ?? []).map((mandant) => (
@@ -179,26 +273,58 @@ export function FailedMailsPage() {
 
             {failedMails !== undefined && !isLoading && error === undefined ? (
                 <div className="flex flex-col gap-2">
+                    {/* TWO numbers, always together. The filtered count alone would
+                        read as a claim about the whole queue, and the search box only
+                        ever sees the current page (see `filterFailedMails`) — so "2 von
+                        213" is the honest sentence and "2 Briefe" is not. */}
                     <p aria-live="polite">
                         {i18n._({
                             ...msg`{count, plural, one {# Brief} other {# Briefe}}`,
                             values: { count: visible.length },
                         })}
-                    </p>
-                    {/*
-                      The list endpoint is not paginated (`FailedMailController::index()`
-                      does `->get()` over the whole table and filters in PHP). Saying so
-                      here is what keeps a long list from reading as "everything there is";
-                      it is a statement about the current state of the API, not a promise
-                      that pagination will never come — `features/mail-delivery.md §8`
-                      carries it as an open point.
-                    */}
-                    <p className="text-sm text-base-content/60">
+                        {' · '}
                         {i18n._({
-                            ...msg`Die Liste wird nicht seitenweise geladen: der Endpunkt liefert alle {count, plural, one {# Brief} other {# Briefe}} auf einmal.`,
-                            values: { count: all.length },
+                            ...msg`{total, plural, one {# Brief} other {# Briefe}} insgesamt`,
+                            values: { total: window.total },
                         })}
                     </p>
+                    {/*
+                      The page counter names the WINDOW this view is, so a page that
+                      holds 50 of 213 letters is never read as the whole queue. It is
+                      the counterpart to the count above and is deliberately shown even
+                      on a single page — `total` is the claim that matters there.
+                    */}
+                    {hasMultiplePages(window.lastPage) ? (
+                        <div className="join">
+                            <button
+                                type="button"
+                                className="btn btn-sm join-item"
+                                disabled={window.page <= 1 || isLoading}
+                                onClick={() => goToPage(window.page - 1)}
+                            >
+                                {i18n._(t`Zurück`)}
+                            </button>
+                            {/* The page numbers go in as VALUES, not as a member expression: Lingui
+                        can only place a simple variable in the message, and
+                        `window.page` is not one (lingui/no-expression-in-message). */}
+                            <span
+                                className="btn btn-sm join-item btn-ghost pointer-events-none"
+                                aria-live="polite"
+                            >
+                                {i18n._(
+                                    t`Seite ${currentPage} von ${lastPage}`,
+                                )}
+                            </span>
+                            <button
+                                type="button"
+                                className="btn btn-sm join-item"
+                                disabled={window.page >= window.lastPage || isLoading}
+                                onClick={() => goToPage(window.page + 1)}
+                            >
+                                {i18n._(t`Weiter`)}
+                            </button>
+                        </div>
+                    ) : null}
 
                     {visible.length === 0 ? (
                         <div className="card border border-base-300 bg-base-100">

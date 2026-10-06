@@ -494,3 +494,46 @@ export interface FailedMail {
     exception: string;
     failed_at: string | null;
 }
+
+/**
+ * The page window a paginated list endpoint reports about itself
+ * (`AnonymousResourceCollection::additional(['meta' => …])`).
+ *
+ * ## `total` is an UPPER BOUND, and that is not a rounding detail
+ *
+ * `FailedMailController::index()` counts the SQL scope (`failed_jobs` rows with
+ * a `mandant_id`) while it serves rows the authoritative `isMailJob()` check
+ * accepted. For every row the failed-job provider wrote the two agree, because
+ * the provider stamps `mandant_id` from the very same payload decode
+ * (`MandantAwareFailedJobProvider::log()`). They part ways only for a row
+ * inserted OUTSIDE the provider that carries a `mandant_id` without being a mail
+ * job — measured: `total` 10 for 8 real dead letters. Such a row inflates the
+ * count by one and can leave a trailing page empty; it can never appear in
+ * `data`. So the UI must treat `total` as "at most this many" and must NOT treat
+ * a short page as "the queue ended early" without also having reached
+ * `last_page`.
+ *
+ * ## `last_page` is never below 1
+ *
+ * An empty queue answers `last_page: 1`, not `0` — `ceil(0 / 50)` is 0, and a
+ * page control with zero pages has no state to render and no button to press.
+ */
+export interface PageMeta {
+    /** 1-based. */
+    page: number;
+    per_page: number;
+    total: number;
+    /** At least 1, even for an empty result. */
+    last_page: number;
+}
+
+/**
+ * One page of a list endpoint: the rows plus the window they came from.
+ *
+ * `request()` unwraps `{data: …}`, so `meta` would be thrown away by it — the
+ * envelope-preserving transport in `client.ts` exists for exactly this shape.
+ */
+export interface Paginated<T> {
+    data: T[];
+    meta: PageMeta;
+}

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AdminUser } from '../../api/types';
-import { buildRolePayload, createRoleSchema, roleFormDefaults, type RoleFormValues } from './userRoleFormUtils';
+import {
+    ALL_ROLE_SLUGS,
+    buildRolePayload,
+    createRoleSchema,
+    roleFormDefaults,
+    TEAM_SCOPED_ROLE_SLUGS,
+    type RoleFormValues,
+} from './userRoleFormUtils';
 
 const baseValues: RoleFormValues = {
     mandant_admin: false,
@@ -115,5 +122,66 @@ describe('createRoleSchema', () => {
             const issue = result.error.issues.find((entry) => entry.path[0] === 'team_id');
             expect(issue).toBeDefined();
         }
+    });
+});
+
+/**
+ * F4 (Nutzerentscheid 2026-10-06): a `team_admin` reaches the editor and may
+ * write ONLY `team_admin` for his own team. `UserController::updateRoles()`
+ * REPLACES the target's role set, so a role outside the assignable set is not a
+ * harmless extra entry — it is either a 403 on every save or, worse, a write
+ * the actor has no authority for.
+ */
+describe('the assignable-role narrowing', () => {
+    const coAdminWithMandantRole = userWith([
+        { slug: 'team_admin', team_id: 5 },
+        { slug: 'mandant_admin' },
+        { slug: 'user' },
+    ]);
+
+    it('names the unrestricted set as the default and the team-scoped one apart', () => {
+        expect(ALL_ROLE_SLUGS).toEqual(['mandant_admin', 'team_admin', 'user', 'verifier']);
+        expect(TEAM_SCOPED_ROLE_SLUGS).toEqual(['team_admin']);
+    });
+
+    it('drops the roles outside the assignable set from the payload', () => {
+        const payload = buildRolePayload(
+            valuesWith({ mandant_admin: true, team_admin: true, user: true, verifier: true, team_id: '5' }),
+            TEAM_SCOPED_ROLE_SLUGS,
+        );
+
+        expect(payload).toEqual([{ role: 'team_admin', team_id: 5 }]);
+    });
+
+    /**
+     * The defaults matter as much as the payload: a mandant-level role the
+     * TARGET holds is still a registered form input, so it would be carried
+     * over from the target's assignments and shipped. `UsersPage` saves through
+     * `buildRolePayload`, so this is the load-bearing half of the filter.
+     */
+    it('never pre-checks a role the session may not assign', () => {
+        const defaults = roleFormDefaults(coAdminWithMandantRole, TEAM_SCOPED_ROLE_SLUGS);
+
+        expect(defaults).toEqual({
+            mandant_admin: false,
+            team_admin: true,
+            user: false,
+            verifier: false,
+            team_id: '5',
+        });
+    });
+
+    it('leaves the unrestricted session untouched', () => {
+        expect(buildRolePayload(valuesWith({ mandant_admin: true, user: true }))).toEqual([
+            { role: 'mandant_admin', team_id: null },
+            { role: 'user', team_id: null },
+        ]);
+        expect(roleFormDefaults(coAdminWithMandantRole)).toEqual({
+            mandant_admin: true,
+            team_admin: true,
+            user: true,
+            verifier: false,
+            team_id: '5',
+        });
     });
 });

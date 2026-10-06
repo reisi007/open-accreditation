@@ -3,7 +3,13 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './useAuth';
 
 interface RequireRolesProps {
-    roles: string[];
+    /**
+     * `readonly` because the role sets live in `logic/adminRoles.ts` as
+     * `readonly string[]` constants — they are read straight off the backend
+     * permission matrix, and copying them into a mutable array literal at each
+     * call site is how the two drift apart.
+     */
+    roles: readonly string[];
     children: ReactNode;
 }
 

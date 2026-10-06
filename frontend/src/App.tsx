@@ -18,6 +18,7 @@ import { RequireAdmin } from './logic/RequireAdmin';
 import { RequireAuth } from './logic/RequireAuth';
 import { RequireRole } from './logic/RequireRole';
 import { RequireRoles } from './logic/RequireRoles';
+import { ROLE_ASSIGNER_ROLE_SLUGS } from './logic/adminRoles';
 import { useAuth } from './logic/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { EventDetailPage } from './pages/portal/EventDetailPage';
@@ -309,6 +310,20 @@ const router = createBrowserRouter([
                     { path: 'events', element: <EventsPage /> },
                     { path: 'accreditations', element: <AdminAccreditationsPage /> },
                     { path: 'freigaben', element: <ApprovalsPage /> },
+                    // F4 (Nutzerentscheid 2026-10-06): `users` leaves the group
+                    // below and gets its OWN guard, because `team_admin` holds
+                    // `users.manage` since F4 — he assigns the roles inside his
+                    // own team — while holding neither `mandant.media.manage`
+                    // nor `mails.dlq.manage`. Adding him to the shared group
+                    // would have handed him three pages the API answers 403 on.
+                    {
+                        element: (
+                            <RequireRoles roles={ROLE_ASSIGNER_ROLE_SLUGS}>
+                                <Outlet />
+                            </RequireRoles>
+                        ),
+                        children: [{ path: 'users', element: <UsersPage /> }],
+                    },
                     {
                         element: (
                             <RequireRoles roles={['super_admin', 'mandant_admin']}>
@@ -316,7 +331,6 @@ const router = createBrowserRouter([
                             </RequireRoles>
                         ),
                         children: [
-                            { path: 'users', element: <UsersPage /> },
                             { path: 'badge-templates', element: <BadgeTemplatesPage /> },
                             { path: 'media', element: <MandantMediaPage /> },
                             // Dead-letter queue (Position 45). Same two roles as the

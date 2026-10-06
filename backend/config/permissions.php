@@ -46,17 +46,47 @@ use App\Enums\UserRole;
 | team → 403). super_admin manages every team globally; user and verifier hold
 | no team media permission and are denied at the route gate.
 |
-| `users.delete` is a permission of its OWN and deliberately NOT part of
-| `users.manage`. `users.manage` means ROLE ASSIGNMENT (which roles a person
-| holds inside the mandant); hanging account termination off it would hand the
-| power to end an account to whoever may hand out roles — two different kinds of
-| authority. Only `mandant_admin` holds it; `super_admin` holds `'*'`, which
-| `Gate::before` grants mandant-independently, so cross-mandant deletion is a
-| consequence of the existing bypass rather than a second, deletion-only rule.
-| `team_admin`, `user` and `verifier` hold no `users.delete` and are denied at
-| the route gate. Self-service deletion (`DELETE /api/user/account`) is NOT a
-| role question at all and deliberately carries no gate: its target is
-| `$request->user()`.
+| `users.manage` is ROLE ASSIGNMENT, `users.delete` is ACCOUNT TERMINATION —
+| two different kinds of authority, and therefore two permissions.
+| `users.manage` is held by `mandant_admin` (whole mandant) AND by
+| `team_admin` (**his own team(s) only** — see below); `users.delete` is held by
+| `mandant_admin` alone. `super_admin` holds `'*'`, which `Gate::before` grants
+| mandant-independently, so cross-mandant deletion is a consequence of the
+| existing bypass rather than a second, deletion-only rule. `user` and
+| `verifier` hold neither and are denied at the route gate. Self-service
+| deletion (`DELETE /api/user/account`) is NOT a role question at all and
+| deliberately carries no gate: its target is `$request->user()`.
+|
+| **Why `team_admin` gets `users.manage` (Nutzerentscheid 2026-10-06).** Until
+| then the separation above was a DECLARATION WITHOUT A CARRIER: `users.manage`
+| and `users.delete` had identical holders, so swapping the delete route's gate
+| back to `can:users.manage` was invisible (measured: 30/30 and 64/64 green).
+| A `team_admin` is the smallest holder that makes the two sets differ: he
+| appoints and dismisses the admins of HIS club, and cannot end anyone's
+| account. The rejected alternative was a new "Mandant-Manager" role — a role
+| nobody holds would have been the same missing carrier one level down.
+|
+| **The scope is a NEW restriction, because `users.manage` used to be
+| mandant-wide.** `User::hasPermission()` returns early for every role that is
+| not `team_admin` (`User.php:436-438`), so a `mandant_admin` assignment grants
+| it over the whole mandant and ignores the gate's `team_id` argument. Handing
+| the permission to `team_admin` therefore REQUIRES narrowing it, and that
+| happens in `UserController` exactly like every other team_admin grant
+| (`categories.manage`, `events.manage`): the gate passes, the controller
+| re-enforces. Concretely, and **fail-closed**:
+|
+| - the LIST shows only the users holding a team-scoped `role_user` row in one
+|   of his own teams — the only place the schema records that a user belongs to
+|   a team at all (`role_user.team_id`, which `validatedRoleEntries()` reserves
+|   for `team_admin` assignments and no other role);
+| - the WRITE may only carry `team_admin` entries for one of his own teams; a
+|   foreign `team_id` or any mandant-level role (`mandant_admin`, `user`,
+|   `verifier`) is 403, not 422 — it is an authority question, not a malformed
+|   payload, and `assertOwnership()` already answers it that way;
+| - the REPLACE is scoped to his own teams as well, so it can neither strip the
+|   target's mandant-level roles nor a sibling club's `team_admin` row;
+| - a target outside that roster is 404, the same "not in your scope" answer
+|   `assertMandantScopedTarget()` gives.
 
 | `mails.dlq.manage` (Position 45, 2026-10-02) opens the dead-letter queue
 | (`failed_jobs`) of undelivered MANDANT mails: list + manual requeue. It is
@@ -122,6 +152,14 @@ return [
         // already edit — mandant-scoped like `categories.manage`, granted so
         // the inline create never 403s. See the header note.
         'venues.manage',
+        // F4 (Nutzerentscheid 2026-10-06): role assignment for HIS OWN
+        // team(s). The bearer that makes `users.manage` and `users.delete`
+        // differ — without it the separation was a declaration without a
+        // carrier. `users.delete` is deliberately NOT here: appointing the
+        // admins of his club does not let him end an account. The gate passes;
+        // `UserController` narrows to his teams (header note, and the route
+        // block in `routes/api.php`).
+        'users.manage',
     ],
 
     UserRole::USER->value => [

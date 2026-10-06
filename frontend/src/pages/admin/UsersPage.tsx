@@ -13,10 +13,10 @@ import type { AdminUser, UserRoleAssignment } from '../../api/types';
 import { AccountDeleteDialog } from '../../components/AccountDeleteDialog';
 import { Modal } from '../../components/Modal';
 import { deletionSuccessMessage, mediaResidueWarning } from '../../logic/accountDeletion';
-import { canDeleteUserAccounts } from '../../logic/adminRoles';
+import { canDeleteUserAccounts, isTeamAdminUser } from '../../logic/adminRoles';
 import { useAuth } from '../../logic/useAuth';
 import { RoleForm } from './RoleForm';
-import { buildRolePayload, type RoleFormValues } from './userRoleFormUtils';
+import { buildRolePayload, TEAM_SCOPED_ROLE_SLUGS, type RoleFormValues } from './userRoleFormUtils';
 
 const PAGE_SIZE = 20;
 
@@ -64,12 +64,34 @@ export function UsersPage() {
      * `App.tsx`. The backend gate stays the authorisation — this is an
      * affordance, so a role that gains the permission in the matrix must also
      * be added to `ACCOUNT_DELETER_ROLE_SLUGS`.
+     *
+     * F4 (Nutzerentscheid 2026-10-06): since `team_admin` also holds
+     * `users.manage` (role assignment inside his own team), the page is now
+     * reachable for him — and he gets NO delete action. The two sets differ
+     * here for the first time; before F4 they were identical, which is what made
+     * the separation a declaration without a carrier.
      */
     const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [deleteResult, setDeleteResult] = useState<AccountDeletionResult | null>(null);
     const mayDeleteAccounts = canDeleteUserAccounts(user);
+
+    /**
+     * What the role editor may WRITE, which is narrower than "may open the
+     * page": `isTeamAdminUser()` decides the scope, because a `team_admin` who
+     * is also a `mandant_admin` must keep the unrestricted set — the backend
+     * narrows by the same "any team_admin assignment" rule (`UserController`,
+     * `ResolvesAdminTeamScope::teamIds()`), and a narrower UI than the API
+     * would be its own kind of lie.
+     *
+     * Who may OPEN the page is one gate, in one place: `RequireRoles` in
+     * `App.tsx`, fed by `ROLE_ASSIGNER_ROLE_SLUGS`. A second per-row gate for
+     * the same permission would be a second source of truth, and the delete
+     * button below is the only per-row gate that earns its place — it belongs
+     * to a DIFFERENT permission, which is the whole subject of F4.
+     */
+    const assignableRoles = isTeamAdminUser(user) ? TEAM_SCOPED_ROLE_SLUGS : undefined;
 
     const mediaResidue = deleteResult ? mediaResidueWarning(deleteResult.media_files_left_over, i18n) : null;
 
@@ -120,7 +142,7 @@ export function UsersPage() {
         if (!editUser) return;
         setFormError(null);
         try {
-            await updateUserRoles(editUser.id, buildRolePayload(values));
+            await updateUserRoles(editUser.id, buildRolePayload(values, assignableRoles));
             await mutate();
             closeForm();
         } catch (err) {
@@ -271,6 +293,15 @@ export function UsersPage() {
                                                     </td>
                                                     <td className="whitespace-nowrap">
                                                         <div className="flex flex-wrap gap-2">
+                                                            {/*
+                                                              The role editor is the PAGE's purpose, so it is not
+                                                              gated per row: `RequireRoles` in `App.tsx`
+                                                              already admits only the roles holding
+                                                              `users.manage`. The destructive action below is
+                                                              different — it is a SECOND permission on the same
+                                                              page, which is exactly what F4 separated, so it
+                                                              IS gated here.
+                                                            */}
                                                             <button
                                                                 type="button"
                                                                 className="btn btn-sm btn-outline"
@@ -335,6 +366,7 @@ export function UsersPage() {
                             user={editUser}
                             submitLabel={i18n._(t`Speichern`)}
                             submitError={formError}
+                            assignableRoles={assignableRoles}
                             onSubmit={handleSave}
                             onCancel={closeForm}
                         />
