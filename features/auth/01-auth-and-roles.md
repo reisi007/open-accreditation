@@ -466,7 +466,8 @@ Pass-Zahl braucht, misst sie selbst und nennt die Kombi dazu.
   Anzahl über Anträge, die alle im **sichtbaren Verband** liegen, und sie nennt
   weder Person noch Antrag noch Team. **Aber breiter als die Liste**, auf der sie
   steht, und das ist hier eine bewusste, benannte Grenze: eine Verengung müsste
-  `applications.team_id` mitbedingungen, und ein mandantsweiter Antrag ohne
+  über `accreditations.team_id` laufen (Join/`whereHas` —
+  auf `applications` selbst gibt es kein `team_id`), und ein mandantsweiter Antrag ohne
   Team-Zuordnung gehörte dann zu **keinem** Team eines `team_admin` — die Zahl
   wäre dort **0**, also ein **stiller Unter-Report** statt Breite. Nach
   `AGENTS.md` §10 ist das die Richtung, die man nicht wählt. **Nicht „repariert",
