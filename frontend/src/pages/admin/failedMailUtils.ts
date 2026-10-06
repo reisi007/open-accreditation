@@ -96,6 +96,63 @@ export function hasMultiplePages(lastPage: number): boolean {
     return lastPage > 1;
 }
 
+/**
+ * The four states the list area can be in — the empty ones are three DIFFERENT
+ * claims, not one.
+ *
+ * ## Why "unreachable" is its own state and not an empty queue
+ *
+ * MEASURED 2026-10-06 (verification round 71): 1050 letters, `per_page=50` →
+ * `meta.last_page: 21`, but `page=21` answered with **0 rows**, because the
+ * server's scan reads at most 20 windows. The page then rendered
+ * `<h2>Keine toten Briefe.</h2>` with the sentence "Alle Briefe wurden
+ * zugestellt." — over a queue holding 1050 letters. That is the worst lie this
+ * surface can tell: an operator reads a full dead-letter queue as a healthy one.
+ *
+ * The server now caps `meta.last_page` at what it can serve
+ * (`FailedMailController::reachableLastPage()`), so that exact case cannot arise
+ * any more. The state is kept anyway, because `rows === 0 && total > 0` also
+ * happens when a page's window is filled with non-mail rows (`total` is a
+ * documented upper bound), and a client that trusts its own emptiness here has
+ * nothing left to catch it.
+ *
+ * The order is the argument, so it is stated rather than left to be re-derived:
+ *
+ *  1. rows on screen → `filled`, whatever the server says about the rest;
+ *  2. rows arrived and the filter removed them → `filtered-empty`, because a
+ *     filter CAN empty a window — it just cannot make one unreachable;
+ *  3. no rows at all although `total > 0` → `unreachable`;
+ *  4. no rows and nothing in the queue → `empty-queue`, the good news.
+ */
+export type FailedMailListState = 'filled' | 'unreachable' | 'filtered-empty' | 'empty-queue';
+
+export interface FailedMailListStateInput {
+    /** Rows the server sent for THIS page, before the client filter. */
+    serverRows: number;
+    /** Rows left after the client filter. */
+    visibleRows: number;
+    /** The server's queue count (an upper bound, see `PageMeta`). */
+    total: number;
+    /** Whether search or the mandant filter is set. */
+    filtersActive: boolean;
+}
+
+export function failedMailListState(input: FailedMailListStateInput): FailedMailListState {
+    if (input.visibleRows > 0) {
+        return 'filled';
+    }
+    if (input.serverRows > 0) {
+        return 'filtered-empty';
+    }
+    if (input.total > 0) {
+        return 'unreachable';
+    }
+    if (input.filtersActive) {
+        return 'filtered-empty';
+    }
+    return 'empty-queue';
+}
+
 export interface FailedMailFilter {
     /** Free text over recipient, mailable, queue and exception. */
     search: string;

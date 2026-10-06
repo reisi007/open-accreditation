@@ -443,6 +443,146 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         await expect(main.getByRole('alert')).toHaveCount(0);
     });
 
+    test('an unreachable page never says every letter was delivered', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {
+        await page.goto('/');
+        await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();
+        const loginMain = page.getByRole('main');
+        await loginMain.getByLabel('E-Mail', { exact: true }).fill('admin@example.com');
+        await loginMain.getByLabel('Passwort', { exact: true }).fill('admin');
+        await loginMain.getByRole('button', { name: 'Anmelden' }).click();
+        await expect(page).toHaveURL(/\/admin\//);
+
+        // MEASURED 2026-10-06 (verification round 71, real controller): 1050
+        // letters, `per_page=50` → `meta.last_page: 21`, and `page=21` answered
+        // with **0 rows** — the walk reads at most 20 windows. The page rendered
+        // "Alle Briefe wurden zugestellt." over a queue holding 1050 letters.
+        //
+        // Why the envelope is served here rather than measured from the running
+        // backend: producing 1050 real dead letters needs a worker (only a worker
+        // writes `failed_jobs` — `QUEUE_CONNECTION=sync` in this stack cannot),
+        // and the DLQ spec's own rule forbids asserting about the data set instead.
+        // So this is the ANSWER that was measured, not the answer this stack
+        // happens to hold — and it is served with the same shape the real
+        // endpoint produces.
+        //
+        // `last_page: 21` is therefore served DELIBERATELY although the fixed
+        // server would now report 20: the client state under test — no rows while
+        // `total > 0` — is still reachable after the server fix, because a window
+        // filled with non-mail rows counts into `total` without yielding a letter
+        // (`total` is a documented upper bound). The client cannot tell that apart
+        // from the ceiling, so it must not say "everything was delivered" in
+        // either case. A fixture that only served the fixed answer would delete the
+        // state instead of testing it.
+        await page.route(DEAD_LETTER_LIST_PATTERN, (route) => {
+            if (route.request().method() !== 'GET') return route.continue();
+            const url = new URL(route.request().url());
+            const requested = Number(url.searchParams.get('page') ?? '1');
+            // The walk reaches pages 1–20; page 21 is the one `last_page` named and
+            // the walk cannot fill. That split is the measured shape, not a guess.
+            const servable = requested <= 20;
+            // Inlined rather than a helper with a typed parameter: this directory is
+            // linted as plain ES2020 (espree), where an annotation is a PARSE error,
+            // and JSDoc does not type a parameter in a `.ts` file (see the two
+            // exceptions listed in `eslint.config.js`).
+            const rows = Array.from({ length: 50 }, (_, i) =>
+                deadLetter({ id: (requested - 1) * 50 + i + 1, recipient: `e2e-dlq-ceil-p${requested}-${i}@example.test` }),
+            );
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    data: servable ? rows : [],
+                    meta: { page: requested, per_page: 50, total: 1050, last_page: 21 },
+                }),
+            });
+        });
+
+        await page.getByRole('complementary').getByRole('link', { name: 'Tote Briefe' }).click();
+        const main = page.getByRole('main');
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-ceil-p1-0@') })).toBeVisible();
+
+        // Walk to the page the counter offers last. Twenty clicks, because that is
+        // how an admin gets there — a jump would test a shortcut this page does
+        // not have.
+        for (let pageNumber = 2; pageNumber <= 21; pageNumber++) {
+            await main.getByRole('button', { name: 'Weiter' }).click();
+            // Each step waits for ITS counter, so the twenty clicks are twenty
+            // served pages and not one fast scroll past twenty pending requests.
+            await expect(main.getByText(`Seite ${pageNumber} von 21`)).toBeVisible();
+        }
+        await expect(main.getByText('Seite 21 von 21')).toBeVisible();
+
+        // The queue is not empty, so the sentence that says it is must not be here.
+        await expect(main.getByRole('heading', { name: 'Keine toten Briefe.' })).toHaveCount(0);
+        await expect(
+            main.getByText('Alle Briefe wurden zugestellt.'),
+            'an operator must never read a full dead-letter queue as a healthy one',
+        ).toHaveCount(0);
+        await expect(main.getByRole('heading', { name: 'Diese Seite ist nicht erreichbar.' })).toBeVisible();
+        // The queue's size still comes from the server, so the admin sees that
+        // there is something to reach… (`formatDate`/`Intl` renders it as
+        // "1.050" in `de`, so the thousands separator is optional in the pattern —
+        // measured, not guessed: a bare `/1050 Briefe/` does not match.)
+        await expect(main.getByText(/1\.?050 Briefe insgesamt/)).toBeVisible();
+        // …and there is a way out of it, not just a sentence.
+        const back = main.getByRole('button', { name: 'Zurück auf Seite 1' });
+        await expect(back).toBeVisible();
+
+        // The way out really requests page 1 again — "the button exists" is not
+        // "the button goes somewhere". A plain `let` and no typed array, because
+        // this directory is linted as plain ES2020 (see `eslint.config.js`).
+        let requestedPageOne = false;
+        page.on('request', (req) => {
+            const url = new URL(req.url());
+            if (url.pathname.endsWith('/api/admin/failed-mails') && url.searchParams.get('page') === '1') {
+                requestedPageOne = true;
+            }
+        });
+        await back.click();
+        await expect.poll(() => requestedPageOne).toBe(true);
+        await expect(main.getByRole('row', { name: new RegExp('e2e-dlq-ceil-p1-0@') })).toBeVisible();
+    });
+
+    test('the reported last page is one the real endpoint can serve', { tag: ['@feature:admin:dlq'] }, async () => {
+        // The REAL endpoint, unstubbed, no fixture — the only assertion is about
+        // the number it reports, and it is derived from that same answer.
+        //
+        // What it pins: `meta.last_page` is capped at the scan ceiling (20), which
+        // is what removes the empty-last-page control. The cap bites only above
+        // `20 × per_page` letters, so on a small stack this passes VACUOUSLY —
+        // `last_page` is 1 there whatever the cap does. Stated rather than implied:
+        // `test_the_reported_last_page_is_one_the_endpoint_can_serve` (PHPUnit) is
+        // the test that carries the claim; this one measures the contract on the
+        // endpoint a browser actually talks to.
+        const real = await realDeadLetterList();
+        expect(real.status, 'the real DLQ list must be readable by a super_admin').toBe(200);
+        expect(
+            real.body.meta?.last_page ?? 0,
+            'last_page must never name a page beyond the scan ceiling',
+        ).toBeLessThanOrEqual(20);
+
+        // The page it names really is asked for and really answers — with the SAME queue
+        // count it reported a moment ago, which is what "served" means here.
+        //
+        // Deliberately NOT asserted: that this page holds a letter. `total` is an
+        // UPPER BOUND (a `failed_jobs` row with a `mandant_id` that is not a mail
+        // job counts without ever yielding a letter), so "the named last page is
+        // empty while the queue is not" is a documented state, not a defect —
+        // asserting against it would be an assertion about the DATA SET, which this
+        // file does not do. What the UI does in that state is the test above.
+        const total = real.body.meta?.total ?? 0;
+        const lastPageNumber = real.body.meta?.last_page ?? 1;
+        const lastPage = await realDeadLetterList({ page: lastPageNumber, perPage: 1 });
+
+        expect(lastPage.status, 'the page the server named must be a served page').toBe(200);
+        expect(lastPage.body.meta?.page).toBe(lastPageNumber);
+        expect(lastPage.body.meta?.total, 'a served page reports the queue, not a slice').toBe(total);
+        expect(
+            Array.isArray(lastPage.body.data) ? lastPage.body.data.length : -1,
+            'a `per_page=1` page holds at most one letter',
+        ).toBeLessThanOrEqual(1);
+    });
+
     test('a list that cannot be loaded is an error, never an empty queue', { tag: ['@feature:admin:dlq'] }, async ({ page }) => {
         await page.goto('/');
         await page.getByRole('banner').getByRole('link', { name: 'Anmelden' }).click();

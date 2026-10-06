@@ -14,6 +14,7 @@ import { useMandants } from '../../logic/useMandants';
 import {
     FAILED_MAIL_EXCEPTION_LIMIT,
     failedMailListErrorMessage,
+    failedMailListState,
     failedMailWindow,
     filterFailedMails,
     hasMultiplePages,
@@ -67,6 +68,17 @@ import {
  * The split is not tidiness — clamping the heading alone would leave an empty
  * table under a correct one, and re-requesting alone would leave a wrong heading
  * for the frame in between. Neither half is enough on its own.
+ *
+ * ## A window the server cannot fill is not an empty queue
+ *
+ * The list area makes one of four claims (see `failedMailListState`), and the
+ * three empty ones are three DIFFERENT claims. MEASURED 2026-10-06: 1050 letters,
+ * `per_page=50` → `last_page: 21`, but `page=21` came back with **0 rows** (the
+ * server's scan reads at most 20 windows). This page then said
+ * "Alle Briefe wurden zugestellt." over a queue holding 1050 letters — the worst
+ * lie this surface can tell, because an operator reads a full dead-letter queue
+ * as a healthy one. The server now caps `last_page` at what it can serve, and the
+ * `unreachable` state keeps the client honest about what it can see.
  *
  * ## What stays stale, named rather than glossed over
  *
@@ -159,6 +171,16 @@ export function FailedMailsPage() {
     // by `failedMailWindow`.
     const currentPage = window.page;
     const lastPage = window.lastPage;
+
+    // Which of the four claims this area makes — see `failedMailListState` for why
+    // "no rows although the queue is not empty" is its own state and never reads
+    // as "everything was delivered".
+    const listState = failedMailListState({
+        serverRows: all.length,
+        visibleRows: visible.length,
+        total: window.total,
+        filtersActive,
+    });
 
     const openConfirm = (entry: FailedMail) => {
         setConfirmTarget(entry);
@@ -326,11 +348,35 @@ export function FailedMailsPage() {
                         </div>
                     ) : null}
 
-                    {visible.length === 0 ? (
+                    {listState !== 'filled' ? (
                         <div className="card border border-base-300 bg-base-100">
                             <div className="card-body items-center justify-center py-16 text-center">
                                 <span className="iconify mdi--email-off-outline text-6xl text-base-content/40"></span>
-                                {filtersActive ? (
+                                {/* Three different claims, three different sentences. The
+                                    unreachable one is the load-bearing one: it used to fall
+                                    into the "everything was delivered" branch and describe a
+                                    queue that holds a thousand letters as a healthy one. */}
+                                {listState === 'unreachable' ? (
+                                    <>
+                                        <h2 className="card-title">
+                                            {i18n._(t`Diese Seite ist nicht erreichbar.`)}
+                                        </h2>
+                                        <p className="text-base-content/70">
+                                            {i18n._(
+                                                t`Der Server liefert für diese Seite keine Briefe, obwohl die Warteschlange nicht leer ist. Gehe zurück auf Seite 1.`,
+                                            )}
+                                        </p>
+                                        <div className="mt-2">
+                                            <button
+                                                type="button"
+                                                className="btn btn-sm btn-primary"
+                                                onClick={() => setPage(1)}
+                                            >
+                                                {i18n._(t`Zurück auf Seite 1`)}
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : listState === 'filtered-empty' ? (
                                     <>
                                         <h2 className="card-title">{i18n._(t`Keine Briefe für diese Filter.`)}</h2>
                                         <p className="text-base-content/70">

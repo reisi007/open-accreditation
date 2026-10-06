@@ -125,6 +125,18 @@ use Illuminate\Support\Str;
  *    about one window. MEASURED at 1000 rows: the old shape 33.5 ms, page 1
  *    6.1 ms (5.5× faster), last page 285.9 ms.
  *
+ * ### `last_page` is capped at the ceiling, and that is the fix for an empty last page
+ *
+ * The arithmetic last page (`ceil(total / perPage)`) can name a page the walk is
+ * not allowed to reach, which produced a control that led nowhere: MEASURED at
+ * 1050 letters with `per_page=50` (verification round 71, 2026-10-06),
+ * `ceil(1050/50) = 21`, while the walk reads at most `20 × 50 = 1000` rows — so
+ * page 21 answered with **0 rows** under a `last_page: 21`, and the UI rendered
+ * that as "all letters were delivered" over a full queue.
+ * `reachableLastPage()` caps the number at {@see MAX_SCAN_BATCHES},
+ * the letters beyond it stay counted by `total`, and they are reachable by asking
+ * for a wider `per_page`.
+ *
  * @see lang/de/mails.php
  */
 class FailedMailController extends Controller
@@ -146,8 +158,6 @@ class FailedMailController extends Controller
     public const PER_PAGE_MAX = 200;
 
     /**
-     * How many SQL windows one list request may read.
-     *
      * How many SQL windows ONE list request may read.
      *
      * The walk in {@see collectPage()} is the price of counting in dead letters
@@ -155,10 +165,9 @@ class FailedMailController extends Controller
      * The provider's own writes make a rejected row inside a window rare, so one
      * window is the normal answer and this number only bites a pathological table.
      *
-     * Past the bound the page comes back EMPTY, deliberately: a partially filled
-     * page would carry rows that belong to an earlier page, which is the duplicate
-     * defect `collectPage()` exists to prevent. "Nothing" is the honest answer to
-     * a page we will not walk far enough to fill.
+     * Past the bound the page comes back EMPTY, deliberately (see
+     * `collectPage()` for what "deliberately" means and why the failure direction
+     * is "nothing" rather than "the wrong thing").
      *
      * MEASURED: 1 window for every data set in the suite, including 30
      * non-mail rows stacked above 120 mail rows.
@@ -198,9 +207,40 @@ class FailedMailController extends Controller
                 'page' => $page,
                 'per_page' => $perPage,
                 'total' => $total,
-                'last_page' => max(1, (int) ceil($total / $perPage)),
+                // `last_page` is the last page this endpoint can actually SERVE,
+                // not the arithmetic last page of `total` — see
+                // {@see reachableLastPage()}.
+                'last_page' => $this->reachableLastPage($total, $perPage),
             ],
         ]);
+    }
+
+    /**
+     * The last page this endpoint can SERVE, which is not `ceil(total / perPage)`.
+     *
+     * `collectPage()` reaches page N by reading N windows, and
+     * {@see MAX_SCAN_BATCHES} caps that at 20 — so the arithmetic last page is a
+     * page the walk is not allowed to fill. Reporting it made the UI offer a
+     * control that leads nowhere: MEASURED at 1050 letters with `per_page=50`
+     * (verification round 71, 2026-10-06), `ceil(1050/50) = 21` while the walk
+     * reads at most `20 × 50 = 1000` rows, so page 21 came back EMPTY while
+     * `last_page: 21` claimed otherwise.
+     *
+     * Clamping here (rather than in the UI) is the honest direction: `last_page`
+     * becomes a statement about what the endpoint delivers, and the queue beyond it
+     * stays reachable by asking for a WIDER `per_page` — the same 1050 letters at
+     * `per_page=200` are 6 pages, all of them servable. The letters the clamp hides
+     * are still counted by `total`, which the UI shows next to the counter.
+     *
+     * It stays an UPPER BOUND in the other direction too, for the same reason
+     * `total` does: a page whose window is filled by non-mail rows is counted but
+     * not servable. That residue is not this method's problem to solve — the UI
+     * treats "no rows although `total > 0`" as its own state (see
+     * `FailedMailsPage`), which is the state a clamped page would otherwise hide.
+     */
+    private function reachableLastPage(int $total, int $perPage): int
+    {
+        return min(max(1, (int) ceil($total / $perPage)), self::MAX_SCAN_BATCHES);
     }
 
     /**
@@ -236,9 +276,17 @@ class FailedMailController extends Controller
      * costs 32.2 ms at 2000 rows against 6.6 ms for the SQL count, on EVERY page.
      *
      * `MAX_SCAN_BATCHES` is the ceiling on that walk. Past it the page is EMPTY
-     * — deliberately empty, not partially filled: serving rows that belong to an
-     * earlier page would be the duplicate-row defect again, so the failure
-     * direction is "nothing" instead of "the wrong thing".
+     * — deliberately empty, not partially filled, and the reason is NOT the
+     * duplicate-row defect (the skip counts DEAD LETTERS, so a collected row
+     * never belongs to an earlier page). The reason is that a partly filled page
+     * is indistinguishable from a page the walk simply ran out of before the end
+     * of the table: both look like "the queue ends here", and the second reading
+     * is false. MEASURED at 39 letters + 1 phantom, `per_page=2`, `page=20`
+     * (verification round 71, 2026-10-06): the ceiling is reached with 1 row
+     * collected, and the old shape returned it — 1 row presented as the last page
+     * of a queue that holds more. A short page
+     * is a claim about the END of the queue, which a truncated walk cannot make,
+     * so the failure direction is "nothing" instead of "the wrong thing".
      *
      * @param  Builder<FailedJob>  $query
      * @return Collection<int, FailedJob>
@@ -247,11 +295,18 @@ class FailedMailController extends Controller
     {
         $toSkip = ($page - 1) * $perPage;
         $collected = new Collection;
+        // Whether the walk stopped because the TABLE ended or because the ceiling
+        // bit — the two answers look identical from here ($collected may be
+        // partly filled either way) and must not be confused: a table that really
+        // ends gives a short page, a truncated walk must not (the docblock says
+        // why). Only a break sets this.
+        $reachedEndOfTable = false;
 
         for ($batch = 0; $batch < self::MAX_SCAN_BATCHES; $batch++) {
             $rows = (clone $query)->offset($batch * $perPage)->limit($perPage)->get();
 
             if ($rows->isEmpty()) {
+                $reachedEndOfTable = true;
                 break;
             }
 
@@ -274,7 +329,10 @@ class FailedMailController extends Controller
             }
         }
 
-        return $collected;
+        // The ceiling bit before the table did. Whatever was collected belongs to
+        // a page we cannot vouch for, so the answer is "nothing" — see the
+        // `MAX_SCAN_BATCHES` docblock for the direction this chooses.
+        return $reachedEndOfTable ? $collected : new Collection;
     }
 
     public function requeue(Request $request, int $id): JsonResponse

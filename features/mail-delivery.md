@@ -391,9 +391,19 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
      viele Briefe liegen über Seite N" nur durch Gehen bekannt wird. Das ist
      **nie langsamer als der ersetzte Code** (`->get()` las die ganze Tabelle bei
      jeder Anfrage), und Seite 1 liest etwa ein Fenster. `MAX_SCAN_BATCHES = 20`
-     ist die Decke; darüber ist die Seite **leer** — bewusst leer statt teilweise
-     gefüllt, denn Zeilen einer früheren Seite auszuliefern wäre der
-     Doppelzeilen-Defekt von eben.
+     ist die Decke; hat sie gegriffen, ist die Seite **leer**. **Der Grund ist
+     nicht** der Doppelzeilen-Defekt von eben — der Skip zählt **Briefe**, eine
+     eingesammelte Zeile kann also gar nicht zu einer früheren Seite gehören.
+     Der Grund ist der andere: eine **teilweise gefüllte** Seite ist von einer
+     Seite, bei der die Queue wirklich endet, nicht unterscheidbar — beide lesen
+     sich als „hier ist Schluss", und die zweite Deutung ist falsch. Gemessen bei
+     39 Briefen + 1 Phantom, `per_page=2`, `page=20`: die Decke griff mit **1**
+     eingesammelten Zeile, und die alte Form lieferte genau diese 1 Zeile aus —
+     präsentiert als letzte Seite einer Queue, die mehr enthält. Eine kurze Seite
+     ist eine **Aussage über das Ende** der Queue, die ein abgeschnittener Scan
+     nicht machen darf; die Fehlerrichtung ist deshalb „nichts" statt „das
+     Falsche". Gepinnt von
+     `test_a_page_past_the_scan_ceiling_is_empty_and_a_short_page_is_not`.
   - **Ohne Migration.** Der Diskriminator ist bereits persistiert (`mandant_id`,
     indiziert, vom Provider genau für Mail-Jobs gestempelt), und die
     Migrations-Policy hätte für eine **neue** Spalte eine **neue** Datei gebraucht
@@ -407,6 +417,21 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   fremden Queue). Der Test dafür heißt
   `test_pagination_keeps_the_mandant_scope_on_every_page`.
 
+  **`meta.last_page` ist geklemmt — und das ist der Fix gegen eine leere letzte
+  Seite** (2026-10-06, Verifikationsrunde 71). Die rechnerische letzte Seite
+  (`ceil(total / perPage)`) kann eine Seite benennen, die der Scan nicht
+  erreichen darf. Gemessen bei 1050 Briefen mit `per_page=50`:
+  `ceil(1050/50) = 21`, während der Walk höchstens `20 × 50 = 1000` Zeilen liest —
+  `page=21` antwortete mit **0 Zeilen** unter `last_page: 21`, und die UI malte
+  darüber „Alle Briefe wurden zugestellt.". **`reachableLastPage()` klemmt auf
+  `MAX_SCAN_BATCHES`**: `last_page` ist damit eine Aussage über das, was der
+  Endpunkt **liefert**; die Briefe dahinter bleiben in `total` gezählt (die UI zeigt
+  die Zahl neben dem Zähler) und sind mit einem **breiteren** `per_page` erreichbar
+  — dieselben 1050 Briefe sind bei `per_page=200` **eine** Seite, vollständig
+  (gepinnt in `test_the_reported_last_page_is_one_the_endpoint_can_serve`).
+  Geklemmt wird **serverseitig**, weil die Clamp des Clients die Zahl nur
+  interpretieren, nicht korrigieren kann.
+
   **Frontend:** Zähler und Gesamtzahl stehen immer zusammen („2 Briefe · 213
   Briefe insgesamt", plus „Seite 2 von 5"), die Suche und der Mandant-Filter
   bleiben clientseitig und sehen damit nur die **aktuelle Seite** — genau darum
@@ -414,6 +439,17 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   Seite 1. Eine Seite, die es nicht mehr gibt (ein Requeue löscht einen Brief),
   wird beim Rendern korrigiert: `failedMailWindow()` klemmt die **Überschrift**,
   ein `setPage` während des Renderns holt die **Zeilen** zurück.
+
+  **Vier Zustände der Listenfläche, nicht einer** (`failedMailListState`): `filled`,
+  `filtered-empty` („nichts gefunden"), `unreachable` und `empty-queue`. Der
+  `unreachable`-Zustand ist der getragene: „keine Zeile, obwohl `total > 0`" darf
+  **nie** „Alle Briefe wurden zugestellt" heißen — das ist die Lüge, die eine volle
+  Queue als gesund beschreibt. Die Serverseite verhindert den gemessenen Fall
+  jetzt (letzte Seite geklemmt), der Zustand bleibt, weil dieselbe Form auch
+  entsteht, wenn eine Seite von Phantom-Zeilen gefüllt ist, die in `total` zählen,
+  ohne einen Brief zu liefern (`total` ist eine Obergrenze). Er wird **nur** über
+  die **Server**-Zeilen entschieden, nie über die gefilterten: ein Filter kann ein
+  Fenster leeren, aber keines unerreichbar machen.
 - **Betrieb** (`queue:work`, `schedule:run`, Healthcheck): siehe
   `deployment/backend-supervisor.sh` (Strom C, `8c3301a`).
 - **Der Idempotenz-Claim ist im Dev-/E2E-Stack prozesslokal — bewusst, mit Hinweis

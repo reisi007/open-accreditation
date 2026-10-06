@@ -109,10 +109,19 @@ describe('useFailedMails', () => {
         );
     });
 
+    // Two pages of a 120-letter queue. Page 2 must not be answered from a cache
+    // entry that belongs to page 1 — that is the whole reason the page number is
+    // in the key.
+    //
+    // What this file does NOT cover, named because it was once a gap: the key is
+    // asserted as a STRING here, so a shared key would still be one request per
+    // page in a unit test. The behavioural half — "next" really moves the rows on
+    // screen — is covered at E2E level (`admin-dlq.spec.ts`, "the page counter
+    // names the WINDOW, and 'next' serves the next window"), where a shared key
+    // re-renders page 1 and fails. A Vitest reproduction would need two mounted
+    // pages against one SWR cache in the same provider, which is the same
+    // assertion one layer up.
     it('requests the page it is given, and a DIFFERENT cache key per page', async () => {
-        // Two pages of a 120-letter queue. Page 2 must not be answered from a
-        // cache entry that belongs to page 1 — that is the whole reason the page
-        // number is in the key.
         const fetchMock = stubFetch(
             pages([60, 60], Array.from({ length: 120 }, (_, i) => `m${i + 1}@example.test`)),
         );

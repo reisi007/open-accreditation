@@ -596,6 +596,10 @@ msgstr "Der Brief konnte nicht erneut eingereiht werden."
 msgid "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
 msgstr "Der Code steht als QR-Code auf dem Ausweis. Alternativ kannst du den Code aus der Adresse des Ausweis-Links übernehmen."
 
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Der Server liefert für diese Seite keine Briefe, obwohl die Warteschlange nicht leer ist. Gehe zurück auf Seite 1."
+msgstr "Der Server liefert für diese Seite keine Briefe, obwohl die Warteschlange nicht leer ist. Gehe zurück auf Seite 1."
+
 #: src/App.tsx
 msgid "Die angeforderte Seite existiert nicht."
 msgstr "Die angeforderte Seite existiert nicht."
@@ -635,6 +639,10 @@ msgstr "Die Seite konnte nicht geladen werden."
 #: src/pages/admin/CategoryForm.tsx
 msgid "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
 msgstr "Diese Kategorie gilt nur für das gewählte Team und überschreibt die Verbandsebene."
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Diese Seite ist nicht erreichbar."
+msgstr "Diese Seite ist nicht erreichbar."
 
 #: src/pages/admin/failedMailUtils.ts
 msgid "Dieser Brief existiert nicht (mehr) oder gehört zu einem anderen Verband. Für einen fremden Brief antwortet die API mit 404."
@@ -2224,6 +2232,10 @@ msgstr "Zur Startseite"
 #: src/pages/admin/VenuesPage.tsx
 msgid "Zurück"
 msgstr "Zurück"
+
+#: src/pages/admin/FailedMailsPage.tsx
+msgid "Zurück auf Seite 1"
+msgstr "Zurück auf Seite 1"
 
 #: src/pages/ApplyPage.tsx
 msgid "Zurück zu Akkreditierungen"

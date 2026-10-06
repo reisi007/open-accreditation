@@ -660,6 +660,138 @@ class MailDeadLetterTest extends TestCase
         $response->assertJsonPath('meta.last_page', 2);
     }
 
+    /**
+     * `meta.last_page` names a page the endpoint can actually SERVE.
+     *
+     * The UI's whole pagination contract rests on it: "Weiter" is enabled while
+     * `page < last_page`, and a `last_page` past the scan ceiling hands the admin
+     * a control whose target is empty. MEASURED on the old shape (1050 letters,
+     * `per_page=50`): `last_page: 21`, and `page=21` answered with **0 rows** —
+     * the walk reaches at most `MAX_SCAN_BATCHES × per_page` = 1000 rows. The page
+     * rendered that as "Alle Briefe wurden zugestellt" over a full queue.
+     *
+     * The cap is at the CEILING and not derived per request, so the second half is
+     * the part that matters: what the clamp hides is not lost. A narrower
+     * `per_page`… no — a WIDER one, and the assertion below measures that the very
+     * letters `per_page=50` cannot reach are served at `per_page=200`.
+     *
+     * MUTATION: `min(…, self::MAX_SCAN_BATCHES)` → `max(1, ceil(…))` (the old
+     * shape) — `last_page` is 21 again and the first assertion fails.
+     */
+    public function test_the_reported_last_page_is_one_the_endpoint_can_serve(): void
+    {
+        $perPage = 1;
+        // One more letter than the ceiling can reach in windows of one: the last
+        // page of the arithmetic is page 22, the last servable one is page 20.
+        $letters = (FailedMailController::MAX_SCAN_BATCHES * $perPage) + 2;
+
+        for ($i = 1; $i <= $letters; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('last%03d@example.test', $i));
+        }
+
+        $admin = $this->mandantAdmin($this->mandantA);
+
+        $meta = $this->actingAsApi($admin)
+            ->getJson(sprintf('/api/admin/failed-mails?per_page=%d&page=1', $perPage))
+            ->assertOk()
+            ->json('meta');
+
+        $this->assertSame($letters, $meta['total'], 'the queue count is the whole queue');
+        $this->assertSame(FailedMailController::MAX_SCAN_BATCHES, $meta['last_page']);
+
+        // …and the page the cap points at really is servable, or the cap would have
+        // only moved the empty page.
+        $last = $this->actingAsApi($admin)
+            ->getJson(sprintf('/api/admin/failed-mails?per_page=%d&page=%d', $perPage, $meta['last_page']))
+            ->assertOk();
+
+        $this->assertCount(1, $last->json('data'), 'the reported last page holds its letter');
+
+        // What the narrow window cannot reach, a wider one serves: 22 letters at
+        // `per_page=200` are ONE page, and it is full.
+        $wide = $this->actingAsApi($admin)
+            ->getJson('/api/admin/failed-mails?per_page=200&page=1')
+            ->assertOk();
+
+        $wide->assertJsonPath('meta.last_page', 1);
+        $this->assertCount($letters, $wide->json('data'), 'a wider window reaches every letter the cap hid');
+    }
+
+    /**
+     * The scan ceiling answers "nothing", and a page that really ends does not.
+     *
+     * Both halves matter, and only the second one used to be true. `MAX_SCAN_BATCHES`
+     * is documented as returning an EMPTY page past the bound
+     * (`FailedMailController::MAX_SCAN_BATCHES`), but the walk ended by falling out
+     * of the `for` and returned whatever it had collected — so a page reached at the
+     * ceiling came back with a PARTLY filled page.
+     *
+     * MEASURED on the old shape (this fixture, real controller): 39 letters + 1
+     * phantom, `per_page=2`, `page=20` → **1** row, while `meta.total` = 40. One row
+     * presented as the last page of a queue that holds 39 is worse than an empty
+     * page: the UI has no way to tell a truncated window from the end of the queue.
+     *
+     * The fixture is derived from the constant, not typed in: the walk reads
+     * `MAX_SCAN_BATCHES × per_page` SQL rows, and the letters are one more than the
+     * page's skip, so the ceiling is reached with a non-empty, non-full page in hand.
+     *
+     * MUTATION: replace `return $reachedEndOfTable ? $collected : new Collection;`
+     * with `return $collected;` — the first assertion goes red with the 1 row it
+     * used to serve.
+     */
+    public function test_a_page_past_the_scan_ceiling_is_empty_and_a_short_page_is_not(): void
+    {
+        $perPage = 2;
+        $page = FailedMailController::MAX_SCAN_BATCHES;
+        $rowsScannable = $perPage * FailedMailController::MAX_SCAN_BATCHES;
+        // One letter more than this page skips, so the walk is cut with a partly
+        // filled page in hand rather than with an empty or a full one.
+        $letters = (($page - 1) * $perPage) + 1;
+
+        for ($i = 1; $i <= $letters; $i++) {
+            $this->insertFailedMail($this->mandantA, sprintf('ceil%03d@example.test', $i));
+        }
+        // Padding to the number of rows the ceiling can reach: without it the table
+        // would END inside the walk and the break would (correctly) deliver the
+        // short page, which is the other half of this test.
+        for ($i = $letters + 1; $i <= $rowsScannable; $i++) {
+            $this->insertPhantomDeadLetter($this->mandantA, sprintf('ceil-phantom-%03d@example.test', $i));
+        }
+
+        $cutOff = $this->actingAsApi($this->mandantAdmin($this->mandantA))
+            ->getJson(sprintf('/api/admin/failed-mails?per_page=%d&page=%d', $perPage, $page))
+            ->assertOk();
+
+        $this->assertSame([], $cutOff->json('data'), 'a page past the scan ceiling is EMPTY, not partly filled');
+        // The ceiling changes what the page SERVES, never what it REPORTS: the count
+        // and the page count stay the real ones, so the UI can still say how much is
+        // in the queue.
+        $cutOff->assertJsonPath('meta.total', $rowsScannable);
+        $cutOff->assertJsonPath('meta.last_page', (int) ceil($rowsScannable / $perPage));
+
+        // The counterpart: a page where the table really runs out keeps its short
+        // page. This is what makes the first half a deliberate direction rather than
+        // "everything past page N is empty". It needs its OWN mandant (and its own
+        // `MandantContext`, which is what the mandant_admin of another mandant is
+        // refused against) so the short page cannot be a leftover of the fixture
+        // above — MEASURED: reusing `mandantB` under A's context answers 403.
+        $mandantC = Mandant::factory()->create(['slug' => 'verband-c', 'name' => 'Verband C']);
+        $mandantC->domains()->create(['hostname' => 'verband-c.test']);
+        MandantContext::set($mandantC);
+
+        for ($i = 1; $i <= 5; $i++) {
+            $this->insertFailedMail($mandantC, sprintf('ende%02d@example.test', $i));
+        }
+
+        $shortened = $this->actingAsApi($this->mandantAdmin($mandantC))
+            ->getJson('/api/admin/failed-mails?per_page=2&page=3')
+            ->assertOk();
+
+        $this->assertCount(1, $shortened->json('data'), 'the last page of a queue that really ends is short, not empty');
+        $shortened->assertJsonPath('meta.total', 5);
+        $shortened->assertJsonPath('meta.last_page', 3);
+    }
+
     /* ---------------------------------------------------------------------
      | Helpers
      | ------------------------------------------------------------------- */

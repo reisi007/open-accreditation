@@ -8,6 +8,7 @@ import type { FailedMail } from '../../api/types';
 import {
     FAILED_MAIL_EXCEPTION_LIMIT,
     failedMailListErrorMessage,
+    failedMailListState,
     failedMailWindow,
     filterFailedMails,
     hasMultiplePages,
@@ -194,6 +195,54 @@ describe('failedMailWindow', () => {
         // about that — it stops a malformed response from rendering "0 Briefe"
         // above a table that has rows in it.
         expect(failedMailWindow(meta({ total: 3, last_page: 1 }), 50).total).toBe(50);
+    });
+});
+
+describe('failedMailListState', () => {
+    const state = (overrides: Partial<Parameters<typeof failedMailListState>[0]>) =>
+        failedMailListState({
+            serverRows: 0,
+            visibleRows: 0,
+            total: 0,
+            filtersActive: false,
+            ...overrides,
+        });
+
+    it('is "filled" as soon as the server sent rows', () => {
+        expect(state({ serverRows: 3, visibleRows: 3, total: 213 })).toBe('filled');
+    });
+
+    it('never calls an empty page of a NON-empty queue an empty queue', () => {
+        // THE case (MEASURED 2026-10-06, 1050 letters at `per_page=50`): the
+        // server reported `last_page: 21`, page 21 came back with 0 rows, and the
+        // page rendered "Alle Briefe wurden zugestellt." over a full queue. An
+        // operator reads that as a healthy queue.
+        expect(state({ total: 1050 })).toBe('unreachable');
+        expect(state({ total: 1050, filtersActive: true })).toBe('unreachable');
+    });
+
+    it('reads a filter that matches nothing as "nothing matched"', () => {
+        // Decided on the SERVER's rows, not the filtered ones: a filter can empty
+        // a window, it cannot make one unreachable.
+        expect(state({ filtersActive: true })).toBe('filtered-empty');
+    });
+
+    it('reads a genuinely empty queue as the good news it is', () => {
+        expect(state({})).toBe('empty-queue');
+    });
+
+    it('keeps a filter on an empty queue as "nothing matched", as before', () => {
+        // Preserves the old behaviour (the filter branch came first) rather than
+        // inventing a fifth reading: both sentences are honest, and the page has
+        // always answered "nothing matched" when a filter is set.
+        expect(state({ filtersActive: true })).toBe('filtered-empty');
+    });
+
+    it('treats a filter that empties a FILLED page as "nothing matched"', () => {
+        // The regression this order protects: the rows arrived, the filter removed
+        // them. Reporting "unreachable" here would send the admin to page 1 for
+        // nothing.
+        expect(state({ serverRows: 4, visibleRows: 0, total: 213, filtersActive: true })).toBe('filtered-empty');
     });
 });
 

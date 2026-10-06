@@ -415,14 +415,9 @@ den Unterschied benennt; der Payload filtert auf dieselbe Menge, weil
 Speichern. „Konto löschen" hat er nirgends.
 
 **Der Beweis, dass die Deklaration jetzt einen Träger hat** — derselbe Tausch,
-der vorher 30/30 und 64/64 grün ließ, ist rot (2026-10-06 gemessen, SQLite):
-
-```text
-AdminUsersPermissionSeparationTest > a team admin may assign roles but may not delete accounts   FAILED
-AdminUsersPermissionSeparationTest > the two routes are gated by two different permissions          FAILED
-AccountDeletionTest              > team admin user and verifier are forbidden …                      FAILED
-Tests: 3 failed, 91 passed (474 assertions)
-```
+der vorher 30/30 und 64/64 grün ließ, ist rot. Die **Filter-Kombi und der
+konkrete Tausch** stehen unten; die Zusammenfassung ersetzt die frühere, nicht
+reproduzierbare Pass-Zahl.
 
 `AdminUsersPermissionSeparationTest` benutzt dafür keine erfundene Matrix mehr,
 sondern die ausgelieferte — die künstliche Trennung ist überflüssig, seit eine
@@ -431,6 +426,60 @@ Haltermengen direkt aus `config('permissions')` und verlangt
 `array_diff(manage, delete) === ['team_admin']`: ohne sie würde der erste Test
 auch für eine Matrix grün sein, in der die Mengen für `team_admin` zufällig
 übereinstimmen.
+
+**Die tragende Aussage des Beweises ist „exakt 3 rot" — nicht die Nebenzahl.**
+Filter-Kombi **und** der Tausch, der sie liefert, beide 2026-10-06 gemessen:
+
+```bash
+# Mutation: die Lösch-Route auf `can:users.manage` hängen (statt `users.delete`)
+php artisan test --filter 'AdminUsersPermissionSeparationTest|AccountDeletionTest'
+# → 3 failed, 25 passed (124 assertions)
+```
+
+Die drei Fehlschläge sind `a team admin may assign roles but may not delete
+accounts` und `the two routes are gated by two different permissions`
+(`AdminUsersPermissionSeparationTest`) sowie `team admin user and verifier are
+forbidden on the admin delete route` (`AccountDeletionTest`).
+
+**Die Richtung ist nicht beliebig, und das ist gemessen:** der umgekehrte Tausch
+(Manage-Route auf `can:users.delete`) liefert bei derselben Kombi **2** rot, nicht
+3 — `AccountDeletionTest` prüft die **Lösch**-Route und bleibt grün, wenn die
+Lösch-Route unverändert hinter `users.delete` liegt. Wer „3 rot" zitiert, muss also
+sagen, **welche** Route verschoben wurde.
+
+Die früher notierte `Tests: 3 failed, 91 passed (474 assertions)` ist **mit
+keiner Filter-Kombi reproduzierbar** (R71: 62–284 je Kombi, je nachdem welche
+Nachbarn mitliefen) — eine Zahl, die von der **Kombi** hing und nicht vom
+Sachverhalt, und deshalb durch diese Aussage ersetzt statt behalten. Wer eine
+Pass-Zahl braucht, misst sie selbst und nennt die Kombi dazu.
+
+- **Akzeptierte Restinfo: `applications_count`/`sub_applications_count` sind
+  mandantweit, nicht team-skaliert** (2026-10-06 gemessen, Verifikationsrunde 71).
+  Die **Liste** ist für einen `team_admin` auf sein Team verengt
+  (`scopeVisibleAssignments`), der **`withCount` am Ende derselben Query nicht**
+  (`UserController::index`, `:185`): er zählt über die Correlation
+  `applications.mandant_id = users.mandant_id` ohne jede Team-Bedingung. Gemessen:
+  ein Team-A-Mitglied mit 4 Anträgen, davon **3 in Team B** →
+  `applications_count: 4`. **Kein Leak** — die Zahl ist eine eigene aggregate
+  Anzahl über Anträge, die alle im **sichtbaren Verband** liegen, und sie nennt
+  weder Person noch Antrag noch Team. **Aber breiter als die Liste**, auf der sie
+  steht, und das ist hier eine bewusste, benannte Grenze: eine Verengung müsste
+  `applications.team_id` mitbedingungen, und ein mandantsweiter Antrag ohne
+  Team-Zuordnung gehörte dann zu **keinem** Team eines `team_admin` — die Zahl
+  wäre dort **0**, also ein **stiller Unter-Report** statt Breite. Nach
+  `AGENTS.md` §10 ist das die Richtung, die man nicht wählt. **Nicht „repariert",
+  benannt.**
+- **Die Dual-Halter-Verengung ist eine stille Verhaltensänderung.** Für
+  `users.manage` gibt es mit `mandant_admin` + `team_admin` **zwei** Halter. Der
+  `team_admin`-Zweig wird verengt (Liste = nur sein Team, Schreiben = nur
+  `team_admin`-Rollen seiner Teams), der `mandant_admin`-Zweig bleibt mandantweit
+  — **konsistent** mit `categories.manage` und `events.manage`, wo dieselbe Logik
+  dasselbe tut. Sie ist trotzdem keine Änderung, die man bemerkt, sondern eine,
+  die man **benennen** muss: ein `team_admin`, der vorher über `users.manage` das
+  Verbands-Adressbuch sah, sieht jetzt nur noch sein eigenes Team. Auslöser war
+  nicht der F4-Auftrag (Rollenvergabe), sondern das Durchreichen der Scope-Frage
+  an den Controller — die Tabelle oben nennt den Scope, diese Zeile benennt,
+  dass er sich **geändert** hat.
 
 - Nutzung in Controllern/Policies (P2+): `Gate::allows()`/`Gate::authorize()`
   oder direkt `$user->hasPermission($permission, $mandantId, $teamId)`.
