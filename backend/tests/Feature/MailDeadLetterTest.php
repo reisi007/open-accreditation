@@ -665,10 +665,12 @@ class MailDeadLetterTest extends TestCase
      *
      * The UI's whole pagination contract rests on it: "Weiter" is enabled while
      * `page < last_page`, and a `last_page` past the scan ceiling hands the admin
-     * a control whose target is empty. MEASURED on the old shape (1050 letters,
-     * `per_page=50`): `last_page: 21`, and `page=21` answered with **0 rows** —
-     * the walk reaches at most `MAX_SCAN_BATCHES × per_page` = 1000 rows. The page
-     * rendered that as "Alle Briefe wurden zugestellt" over a full queue.
+     * a control whose target is empty. MEASURED on the old shape (5050 letters,
+     * `per_page=50`): `last_page: 101`, and `page=101` answered with **0 rows** —
+     * the walk reaches at most `MAX_SCAN_BATCHES × per_page` = 5000 rows. (First
+     * measured at 1050 letters / `last_page: 21` under the previous ceiling of 20,
+     * verification round 71 — the page rendered that as "Alle Briefe wurden
+     * zugestellt" over a full queue.)
      *
      * The cap is at the CEILING and not derived per request, so the second half is
      * the part that matters: what the clamp hides is not lost. A narrower
@@ -676,13 +678,13 @@ class MailDeadLetterTest extends TestCase
      * letters `per_page=50` cannot reach are served at `per_page=200`.
      *
      * MUTATION: `min(…, self::MAX_SCAN_BATCHES)` → `max(1, ceil(…))` (the old
-     * shape) — `last_page` is 21 again and the first assertion fails.
+     * shape) — `last_page` is 101 again and the first assertion fails.
      */
     public function test_the_reported_last_page_is_one_the_endpoint_can_serve(): void
     {
         $perPage = 1;
         // One more letter than the ceiling can reach in windows of one: the last
-        // page of the arithmetic is page 22, the last servable one is page 20.
+        // page of the arithmetic is page 102, the last servable one is page 100.
         $letters = (FailedMailController::MAX_SCAN_BATCHES * $perPage) + 2;
 
         for ($i = 1; $i <= $letters; $i++) {
@@ -707,7 +709,7 @@ class MailDeadLetterTest extends TestCase
 
         $this->assertCount(1, $last->json('data'), 'the reported last page holds its letter');
 
-        // What the narrow window cannot reach, a wider one serves: 22 letters at
+        // What the narrow window cannot reach, a wider one serves: 102 letters at
         // `per_page=200` are ONE page, and it is full.
         $wide = $this->actingAsApi($admin)
             ->getJson('/api/admin/failed-mails?per_page=200&page=1')
@@ -726,10 +728,12 @@ class MailDeadLetterTest extends TestCase
      * of the `for` and returned whatever it had collected — so a page reached at the
      * ceiling came back with a PARTLY filled page.
      *
-     * MEASURED on the old shape (this fixture, real controller): 39 letters + 1
-     * phantom, `per_page=2`, `page=20` → **1** row, while `meta.total` = 40. One row
-     * presented as the last page of a queue that holds 39 is worse than an empty
-     * page: the UI has no way to tell a truncated window from the end of the queue.
+     * MEASURED on the old shape (this fixture, real controller): 199 letters + 1
+     * phantom, `per_page=2`, `page=100` → **1** row, while `meta.total` = 200.
+     * (First measured at 39 letters + 1 phantom, `page=20`, `total` = 40, under
+     * the previous ceiling of 20.) One row presented as the last page of a queue
+     * that holds 199 is worse than an empty page: the UI has no way to tell a
+     * truncated window from the end of the queue.
      *
      * The fixture is derived from the constant, not typed in: the walk reads
      * `MAX_SCAN_BATCHES × per_page` SQL rows, and the letters are one more than the

@@ -102,9 +102,10 @@ export function hasMultiplePages(lastPage: number): boolean {
  *
  * ## Why "unreachable" is its own state and not an empty queue
  *
- * MEASURED 2026-10-06 (verification round 71): 1050 letters, `per_page=50` →
- * `meta.last_page: 21`, but `page=21` answered with **0 rows**, because the
- * server's scan reads at most 20 windows. The page then rendered
+ * MEASURED 2026-10-06 (verification round 71, previous ceiling of 20 windows):
+ * 1050 letters, `per_page=50` → `meta.last_page: 21`, but `page=21` answered with
+ * **0 rows**, because the server's scan read at most 20 windows (ceiling since
+ * 2026-10-06: 100 — 5000 letters at `per_page=50`). The page then rendered
  * `<h2>Keine toten Briefe.</h2>` with the sentence "Alle Briefe wurden
  * zugestellt." — over a queue holding 1050 letters. That is the worst lie this
  * surface can tell: an operator reads a full dead-letter queue as a healthy one.

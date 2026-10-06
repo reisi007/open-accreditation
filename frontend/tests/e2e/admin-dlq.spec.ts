@@ -452,10 +452,12 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         await loginMain.getByRole('button', { name: 'Anmelden' }).click();
         await expect(page).toHaveURL(/\/admin\//);
 
-        // MEASURED 2026-10-06 (verification round 71, real controller): 1050
-        // letters, `per_page=50` → `meta.last_page: 21`, and `page=21` answered
-        // with **0 rows** — the walk reads at most 20 windows. The page rendered
+        // MEASURED 2026-10-06 (verification round 71, real controller, previous
+        // ceiling of 20 windows): 1050 letters, `per_page=50` → `meta.last_page: 21`,
+        // and `page=21` answered with **0 rows**. The page rendered
         // "Alle Briefe wurden zugestellt." over a queue holding 1050 letters.
+        // (Ceiling since 2026-10-06: 100 windows — the same 1050 letters now
+        // report `last_page: 21` AND serve it.)
         //
         // Why the envelope is served here rather than measured from the running
         // backend: producing 1050 real dead letters needs a worker (only a worker
@@ -465,11 +467,13 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         // happens to hold — and it is served with the same shape the real
         // endpoint produces.
         //
-        // `last_page: 21` is therefore served DELIBERATELY although the fixed
-        // server would now report 20: the client state under test — no rows while
-        // `total > 0` — is still reachable after the server fix, because a window
+        // `last_page: 21` with an empty page 21 is therefore served DELIBERATELY
+        // although the raised server would now FILL page 21 for these 1050 letters:
+        // the client state under test — no rows while `total > 0` — is still
+        // reachable after the ceiling raise, because a window
         // filled with non-mail rows counts into `total` without yielding a letter
-        // (`total` is a documented upper bound). The client cannot tell that apart
+        // (`total` is a documented upper bound), as does a short last page landing
+        // exactly on window 100. The client cannot tell any of that apart
         // from the ceiling, so it must not say "everything was delivered" in
         // either case. A fixture that only served the fixed answer would delete the
         // state instead of testing it.
@@ -477,8 +481,9 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
             if (route.request().method() !== 'GET') return route.continue();
             const url = new URL(route.request().url());
             const requested = Number(url.searchParams.get('page') ?? '1');
-            // The walk reaches pages 1–20; page 21 is the one `last_page` named and
-            // the walk cannot fill. That split is the measured shape, not a guess.
+            // Pages 1–20 are served full; page 21 is the one `last_page` names and
+            // this stub leaves empty — the phantom-window shape, not a guess about
+            // the ceiling (at ceiling 100 the real walk would fill it).
             const servable = requested <= 20;
             // Inlined rather than a helper with a typed parameter: this directory is
             // linted as plain ES2020 (espree), where an annotation is a PARSE error,
@@ -547,9 +552,9 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         // The REAL endpoint, unstubbed, no fixture — the only assertion is about
         // the number it reports, and it is derived from that same answer.
         //
-        // What it pins: `meta.last_page` is capped at the scan ceiling (20), which
+        // What it pins: `meta.last_page` is capped at the scan ceiling (100), which
         // is what removes the empty-last-page control. The cap bites only above
-        // `20 × per_page` letters, so on a small stack this passes VACUOUSLY —
+        // `100 × per_page` letters, so on a small stack this passes VACUOUSLY —
         // `last_page` is 1 there whatever the cap does. Stated rather than implied:
         // `test_the_reported_last_page_is_one_the_endpoint_can_serve` (PHPUnit) is
         // the test that carries the claim; this one measures the contract on the
@@ -559,7 +564,7 @@ test.describe('Admin: Tote Briefe (DLQ)', () => {
         expect(
             real.body.meta?.last_page ?? 0,
             'last_page must never name a page beyond the scan ceiling',
-        ).toBeLessThanOrEqual(20);
+        ).toBeLessThanOrEqual(100);
 
         // The page it names really is asked for and really answers — with the SAME queue
         // count it reported a moment ago, which is what "served" means here.

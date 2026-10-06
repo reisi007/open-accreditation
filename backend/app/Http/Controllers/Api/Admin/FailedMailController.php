@@ -122,17 +122,22 @@ use Illuminate\Support\Str;
  *    dead letters are above page N" is only knowable by walking — that is what
  *    {@see collectPage()} pays for exactness. It is never SLOWER than the code it
  *    replaces (`->get()` read the whole table on every request), and page 1 reads
- *    about one window. MEASURED at 1000 rows: the old shape 33.5 ms, page 1
- *    6.1 ms (5.5× faster), last page 285.9 ms.
+ *    about one window. MEASURED at 1000 rows (model-level, 2026-10-06): the old
+ *    shape 28 ms, page 1 6 ms (5× faster), last page 250 ms (9× the old shape).
+ *    At the raised ceiling the cost grows with the depth: MEASURED at 5050 rows,
+ *    `per_page=50` (same day), the deepest servable page (100) costs 8.7 s
+ *    model-level — and the empty page 101 costs the same walk. Deep pages are
+ *    slow, which is what the ceiling bounds; past it the answer is nothing.
  *
  * ### `last_page` is capped at the ceiling, and that is the fix for an empty last page
  *
  * The arithmetic last page (`ceil(total / perPage)`) can name a page the walk is
  * not allowed to reach, which produced a control that led nowhere: MEASURED at
- * 1050 letters with `per_page=50` (verification round 71, 2026-10-06),
- * `ceil(1050/50) = 21`, while the walk reads at most `20 × 50 = 1000` rows — so
- * page 21 answered with **0 rows** under a `last_page: 21`, and the UI rendered
- * that as "all letters were delivered" over a full queue.
+ * 5050 letters with `per_page=50` (2026-10-06), `ceil(5050/50) = 101`, while the
+ * walk reads at most `100 × 50 = 5000` rows — so page 101 answers with **0 rows**
+ * under a `last_page: 101`. (The same shape was first measured at 1050 letters /
+ * page 21 under the previous ceiling of 20, verification round 71 — the UI
+ * rendered that as "all letters were delivered" over a full queue.)
  * `reachableLastPage()` caps the number at {@see MAX_SCAN_BATCHES},
  * the letters beyond it stay counted by `total`, and they are reachable by asking
  * for a wider `per_page`.
@@ -172,7 +177,7 @@ class FailedMailController extends Controller
      * MEASURED: 1 window for every data set in the suite, including 30
      * non-mail rows stacked above 120 mail rows.
      */
-    public const MAX_SCAN_BATCHES = 20;
+    public const MAX_SCAN_BATCHES = 100;
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -219,18 +224,26 @@ class FailedMailController extends Controller
      * The last page this endpoint can SERVE, which is not `ceil(total / perPage)`.
      *
      * `collectPage()` reaches page N by reading N windows, and
-     * {@see MAX_SCAN_BATCHES} caps that at 20 — so the arithmetic last page is a
+     * {@see MAX_SCAN_BATCHES} caps that at 100 — so the arithmetic last page is a
      * page the walk is not allowed to fill. Reporting it made the UI offer a
-     * control that leads nowhere: MEASURED at 1050 letters with `per_page=50`
-     * (verification round 71, 2026-10-06), `ceil(1050/50) = 21` while the walk
-     * reads at most `20 × 50 = 1000` rows, so page 21 came back EMPTY while
-     * `last_page: 21` claimed otherwise.
+     * control that leads nowhere: MEASURED at 5050 letters with `per_page=50`
+     * (2026-10-06), `ceil(5050/50) = 101` while the walk
+     * reads at most `100 × 50 = 5000` rows, so page 101 came back EMPTY while
+     * `last_page: 101` claimed otherwise.
      *
      * Clamping here (rather than in the UI) is the honest direction: `last_page`
      * becomes a statement about what the endpoint delivers, and the queue beyond it
-     * stays reachable by asking for a WIDER `per_page` — the same 1050 letters at
-     * `per_page=200` are 6 pages, all of them servable. The letters the clamp hides
+     * stays reachable by asking for a WIDER `per_page` — the same 5050 letters at
+     * `per_page=200` are 26 pages, all of them servable. The letters the clamp hides
      * are still counted by `total`, which the UI shows next to the counter.
+     *
+     * One edge stays, and it is stated rather than rounded away: the clamp is exact
+     * for FULL last pages. A SHORT last page landing exactly on window 100 still
+     * reads empty — the walk never sees the confirming empty window 101. MEASURED
+     * at 5050 letters with `per_page=51` (2026-10-06): `last_page: 100` is offered
+     * and page 100 answers with **0 rows** for the 1 letter it holds. "Wider" needs
+     * margin, then: 5050 letters at `per_page=200` are 26 servable pages, while
+     * `per_page=51` only moves the same empty page from 101 to 100.
      *
      * It stays an UPPER BOUND in the other direction too, for the same reason
      * `total` does: a page whose window is filled by non-mail rows is counted but
@@ -269,9 +282,9 @@ class FailedMailController extends Controller
      * Reaching page N costs N windows to read, because "how many dead letters
      * are above page N" is only knowable by walking. This is never SLOWER than
      * the code it replaces — `->get()` read the whole table on every request —
-     * and page 1 reads roughly one window. MEASURED at 1000 rows: the old shape
-     * 33.5 ms, page 1 6.1 ms (5.5× faster), the LAST page 285.9 ms (8.5× the
-     * old shape). That last number is the honest cost of exactness and the
+     * and page 1 reads roughly one window. MEASURED at 1000 rows (model-level,
+     * 2026-10-06): the old shape 28 ms, page 1 6 ms (5× faster), the LAST page
+     * 250 ms (9× the old shape). That last number is the honest cost of exactness and the
      * reason the alternative is not free either: an exact `total` by `cursor()`
      * costs 32.2 ms at 2000 rows against 6.6 ms for the SQL count, on EVERY page.
      *
@@ -281,10 +294,12 @@ class FailedMailController extends Controller
      * never belongs to an earlier page). The reason is that a partly filled page
      * is indistinguishable from a page the walk simply ran out of before the end
      * of the table: both look like "the queue ends here", and the second reading
-     * is false. MEASURED at 39 letters + 1 phantom, `per_page=2`, `page=20`
-     * (verification round 71, 2026-10-06): the ceiling is reached with 1 row
-     * collected, and the old shape returned it — 1 row presented as the last page
-     * of a queue that holds more. A short page
+     * is false. MEASURED at 199 letters + 1 phantom, `per_page=2`, `page=100`
+     * (the constant-derived fixture in `MailDeadLetterTest`, 2026-10-06): the
+     * ceiling is reached with 1 row collected, and the old shape returned it —
+     * 1 row presented as the last page of a queue that holds more. (First
+     * measured at 39 letters + 1 phantom, `page=20`, under the previous ceiling
+     * of 20, verification round 71.) A short page
      * is a claim about the END of the queue, which a truncated walk cannot make,
      * so the failure direction is "nothing" instead of "the wrong thing".
      *

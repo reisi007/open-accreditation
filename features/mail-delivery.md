@@ -390,20 +390,25 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   - **Der Scan ist O(Seite).** Seite N kostet N Fenster zu lesen, weil „wie
      viele Briefe liegen über Seite N" nur durch Gehen bekannt wird. Das ist
      **nie langsamer als der ersetzte Code** (`->get()` las die ganze Tabelle bei
-     jeder Anfrage), und Seite 1 liest etwa ein Fenster. `MAX_SCAN_BATCHES = 20`
-     ist die Decke; hat sie gegriffen, ist die Seite **leer**. **Der Grund ist
+     jeder Anfrage), und Seite 1 liest etwa ein Fenster. `MAX_SCAN_BATCHES = 100`
+     ist die Decke (Nutzerentscheid 2026-10-06: 5000 Briefe bei `per_page=50`); hat sie gegriffen, ist die Seite **leer**. **Der Grund ist
      nicht** der Doppelzeilen-Defekt von eben — der Skip zählt **Briefe**, eine
      eingesammelte Zeile kann also gar nicht zu einer früheren Seite gehören.
      Der Grund ist der andere: eine **teilweise gefüllte** Seite ist von einer
      Seite, bei der die Queue wirklich endet, nicht unterscheidbar — beide lesen
      sich als „hier ist Schluss", und die zweite Deutung ist falsch. Gemessen bei
-     39 Briefen + 1 Phantom, `per_page=2`, `page=20`: die Decke griff mit **1**
+     199 Briefen + 1 Phantom, `per_page=2`, `page=100`: die Decke griff mit **1**
      eingesammelten Zeile, und die alte Form lieferte genau diese 1 Zeile aus —
-     präsentiert als letzte Seite einer Queue, die mehr enthält. Eine kurze Seite
+     präsentiert als letzte Seite einer Queue, die mehr enthält (zuerst gemessen
+     bei 39 + 1, `page=20`, unter der vorigen Decke 20). Eine kurze Seite
      ist eine **Aussage über das Ende** der Queue, die ein abgeschnittener Scan
      nicht machen darf; die Fehlerrichtung ist deshalb „nichts" statt „das
      Falsche". Gepinnt von
      `test_a_page_past_the_scan_ceiling_is_empty_and_a_short_page_is_not`.
+     Der ehrliche Preis der angehobenen Decke: gemessen bei 5050 Zeilen,
+     `per_page=50`, kostet die tiefste lieferbare Seite (100) **8,7 s**
+     (Modell-Ebene) — tiefe Seiten sind langsam, und das ist es, was die Decke
+     begrenzt; dahinter antwortet der Endpunkt mit nichts.
   - **Ohne Migration.** Der Diskriminator ist bereits persistiert (`mandant_id`,
     indiziert, vom Provider genau für Mail-Jobs gestempelt), und die
     Migrations-Policy hätte für eine **neue** Spalte eine **neue** Datei gebraucht
@@ -418,17 +423,24 @@ beim Ausführen pro Zeile einen Restore auslösen und den N+1-Wächter drown.
   `test_pagination_keeps_the_mandant_scope_on_every_page`.
 
   **`meta.last_page` ist geklemmt — und das ist der Fix gegen eine leere letzte
-  Seite** (2026-10-06, Verifikationsrunde 71). Die rechnerische letzte Seite
-  (`ceil(total / perPage)`) kann eine Seite benennen, die der Scan nicht
-  erreichen darf. Gemessen bei 1050 Briefen mit `per_page=50`:
-  `ceil(1050/50) = 21`, während der Walk höchstens `20 × 50 = 1000` Zeilen liest —
-  `page=21` antwortete mit **0 Zeilen** unter `last_page: 21`, und die UI malte
-  darüber „Alle Briefe wurden zugestellt.". **`reachableLastPage()` klemmt auf
+  Seite** (2026-10-06; zuerst Verifikationsrunde 71 unter der vorigen Decke 20).
+  Die rechnerische letzte Seite (`ceil(total / perPage)`) kann eine Seite benennen,
+  die der Scan nicht erreichen darf. Gemessen bei 5050 Briefen mit `per_page=50`:
+  `ceil(5050/50) = 101`, während der Walk höchstens `100 × 50 = 5000` Zeilen liest —
+  `page=101` antwortete mit **0 Zeilen** unter `last_page: 101`. (Erstmals gemessen
+  bei 1050 Briefen / `page=21` unter der Decke 20 — die UI malte darüber
+  „Alle Briefe wurden zugestellt.".) **`reachableLastPage()` klemmt auf
   `MAX_SCAN_BATCHES`**: `last_page` ist damit eine Aussage über das, was der
   Endpunkt **liefert**; die Briefe dahinter bleiben in `total` gezählt (die UI zeigt
   die Zahl neben dem Zähler) und sind mit einem **breiteren** `per_page` erreichbar
-  — dieselben 1050 Briefe sind bei `per_page=200` **eine** Seite, vollständig
+  — dieselben 5050 Briefe sind bei `per_page=200` **26** Seiten, alle lieferbar
   (gepinnt in `test_the_reported_last_page_is_one_the_endpoint_can_serve`).
+  Die Klemme greift, sobald `ceil(total / perPage) > 100` ist — bei `per_page=50`
+  also ab **5001** Briefen. „Breiter" braucht dabei Marge, kein Rechnen auf Kante:
+  gemessen antworten 5050 Briefe bei `per_page=51` mit `last_page: 100`, und Seite
+  100 ist **leer** für den einen Brief, den sie hält — eine kurze letzte Seite genau
+  auf Fenster 100 sieht das bestätigende leere Fenster 101 nie. `per_page=51`
+  verschiebt dieselbe leere Seite nur von 101 auf 100.
   Geklemmt wird **serverseitig**, weil die Clamp des Clients die Zahl nur
   interpretieren, nicht korrigieren kann.
 

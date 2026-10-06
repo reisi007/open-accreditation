@@ -72,13 +72,16 @@ import {
  * ## A window the server cannot fill is not an empty queue
  *
  * The list area makes one of four claims (see `failedMailListState`), and the
- * three empty ones are three DIFFERENT claims. MEASURED 2026-10-06: 1050 letters,
- * `per_page=50` → `last_page: 21`, but `page=21` came back with **0 rows** (the
- * server's scan reads at most 20 windows). This page then said
+ * three empty ones are three DIFFERENT claims. MEASURED 2026-10-06 under the
+ * previous ceiling of 20 windows: 1050 letters, `per_page=50` → `last_page: 21`,
+ * but `page=21` came back with **0 rows**. This page then said
  * "Alle Briefe wurden zugestellt." over a queue holding 1050 letters — the worst
  * lie this surface can tell, because an operator reads a full dead-letter queue
- * as a healthy one. The server now caps `last_page` at what it can serve, and the
- * `unreachable` state keeps the client honest about what it can see.
+ * as a healthy one. The server now caps `last_page` at what it can serve
+ * (ceiling since 2026-10-06: 100 windows — 5000 letters at `per_page=50`), and the
+ * `unreachable` state keeps the client honest about what it can see: it still
+ * fires for a window clogged with non-mail rows and for a short last page
+ * landing exactly on window 100, neither of which the clamp removes.
  *
  * ## What stays stale, named rather than glossed over
  *

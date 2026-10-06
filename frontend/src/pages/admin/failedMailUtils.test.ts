@@ -213,7 +213,8 @@ describe('failedMailListState', () => {
     });
 
     it('never calls an empty page of a NON-empty queue an empty queue', () => {
-        // THE case (MEASURED 2026-10-06, 1050 letters at `per_page=50`): the
+        // THE case (MEASURED 2026-10-06, 1050 letters at `per_page=50`, previous
+        // ceiling of 20 windows — ceiling since 2026-10-06: 100): the
         // server reported `last_page: 21`, page 21 came back with 0 rows, and the
         // page rendered "Alle Briefe wurden zugestellt." over a full queue. An
         // operator reads that as a healthy queue.
