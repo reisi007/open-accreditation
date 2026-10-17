@@ -146,8 +146,7 @@ Ein Task gilt nur dann als **abgeschlossen**, wenn BEIDE Kriterien erfüllt sind
      Implementer) — für den Koordinations-/Token-Footprint prüfen.
   4. **Build-/Verify-Flow — zentral, nicht hier:** Der komplette Flow (Delegation, separater
      Verifikator, Befunde mit `Datei:Zeile` + Schweregrad, `nach-verify`-Modus, Verifikations-Gate)
-     steht im Skill **`build-verify`** (agents-skills; Kernregel `.agents/rules/build-verify.md`)
-     und **gilt hier unverändert** — diese Datei hält nur die Repo-Spezifika, die Kommandos in
+     **gilt hier unverändert** — diese Datei hält nur die Repo-Spezifika, die Kommandos in
      `frontend/AGENTS.md` und `backend/AGENTS.md`.
   - **Operational Discipline (bewährt):** (a) Konsolidierung grundsätzlich auf dem **main**-Branch — KEINE per-Task `fix/*`-Branches (verursachten Branch-Churn: Commits auf falschen Branches, Cross-Kontamination der Fixes, verlorene `AGENTS.todo.md`-Edits, ungewollte Stashes). (b) Parallelität auf **max. 2 Subagenten** begrenzen und nur bei disjunkten Ziel-Dateien; sonst sequenziell. (c) In einem geteilten Working-Tree dürfen Subagenten **nie `git add -A`** verwenden — immer explizite Pfade (`git add <datei1> <datei2>`), sonst werden fremde in-flight-Änderungen in den Commit gezogen. (d) Nach Fertigstellung: auf main mergen/cherry-picken, Tests verifizieren, Scratch-Branches + Stashes aufräumen. (e) **Restart-Regel:** Kommt ein Implementer-Subagent mit einem Fehler/abgebrochen zurück → mit `sessionID` + Prompt „continue" neu starten (Kontext wiederaufnehmen), nicht von vorne beginnen; danach erneut separat verifizieren lassen. (f) **CI-Grün hat immer Priorität:** Ist CI nach einem Push rot (oder bricht lokal eine Suite/der Build), hat dessen Fix **Vorrang vor aller neuen Arbeit** — sofort analysieren, isoliert fixen, grün pushen, erst dann neue Tasks fortsetzen.
 - **Implementer (Subagent):** läuft in frischem, isoliertem Kontext; erhält präzise Anweisungen +
@@ -426,7 +425,7 @@ Loop (Schritte 1–4):
 3. **Findings-Report:** Konsolidierter Bericht je Befund `Severity | Screenshot | Finding | Suggested fix`
    (Template im Skill: `references/findings-report.md`); Severities `critical/high/medium/low`;
    **`critical`/`high` blockieren das Verdict `APPROVED`** (→ eigene Fix-Todos, wie das
-   Verifikations-Gate im Skill **`build-verify`**; §5 Build-Agent Punkt 4).
+   Verifikations-Gate; §5 Build-Agent Punkt 4).
 4. **Fix-Loop:** Fixes delegieren (Implementer + separater Verifikator, §5) → **Re-Capture nur der
    betroffenen Routen** (`cd frontend && pnpm test:screenshots -g <routenname>`) → **old vs new**
    wird verglichen, die Behebung bestätigt bzw. neue Befunde gemeldet; gesamten betroffenen
