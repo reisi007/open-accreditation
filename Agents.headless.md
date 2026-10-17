@@ -225,7 +225,7 @@ zweite Lauf der, der die Aussage der ersten zerstört — nicht der langsamste.
 **Reihenfolge ist eine Betriebsregel, kein Vorschlag:** Implementierung →
 Commit → Verifikation. Nie umgekehrt. Ein Verifikator, der in einem Baum mit
 uncommitteter Arbeit mutiert, hat keinen Rückweg (ein Verifikator zerstört nie Implementierer-Arbeit —
-Skill **`build-verify`**, agents-skills, Always-on-Regel 3 in `.agents/rules/build-verify.md`) — das
+Skill **`build-verify`**, agents-skills, Kernregel 3 in `.agents/rules/build-verify.md`) — das
 ist hier keine theoretische Vorsicht, sondern ein Fehler, der in dieser Sitzung
 real passiert ist.
 
