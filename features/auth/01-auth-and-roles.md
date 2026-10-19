@@ -470,7 +470,7 @@ Pass-Zahl braucht, misst sie selbst und nennt die Kombi dazu.
   auf `applications` selbst gibt es kein `team_id`), und ein mandantsweiter Antrag ohne
   Team-Zuordnung gehörte dann zu **keinem** Team eines `team_admin` — die Zahl
   wäre dort **0**, also ein **stiller Unter-Report** statt Breite. Nach
-  `AGENTS.md` §10 ist das die Richtung, die man nicht wählt. **Nicht „repariert",
+  `features/security/accepted-risks.md` ist das die Richtung, die man nicht wählt. **Nicht „repariert",
   benannt.**
 - **Die Dual-Halter-Verengung ist eine stille Verhaltensänderung.** Für
   `users.manage` gibt es mit `mandant_admin` + `team_admin` **zwei** Halter. Der

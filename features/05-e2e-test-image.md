@@ -293,7 +293,7 @@ er rot, ist es laut statt still — was genau der Zweck ist.
 > **Warum dieser Abschnitt hier steht und nicht nur im Board.** §3 verlangt, dass ein
 > wissentlich roter Testbereich als akzeptiertes Risiko in `features/` festgehalten wird. Der
 > erste Entwurf lag nur in `AGENTS.todo.md` — und §4 schneidet genau diese Datei weg. Ein §4-Durchgang
-> hätte die Notiz still gelöscht. Das ist derselbe Fehler, den `AGENTS.md` §10 **A7** beschreibt:
+> hätte die Notiz still gelöscht. Das ist derselbe Fehler, den `features/security/accepted-risks.md` **A7** beschreibt:
 > eine offene Position, die nirgends geführt war und deshalb verschwand.
 
 ## Invarianten (nicht regredieren)

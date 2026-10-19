@@ -167,7 +167,7 @@
 > aus D26/D27 steht **nicht** mehr nur hier, sondern dauerhaft in `features/05-e2e-test-image.md` (`077d51d`).
 > **Abschluss dieser Session:** unten im Board.
 > 
-> **Archiv entfernt (2026-09-28, auf deine Entscheidung):** die abgeschlossene Session-Historie ist weg — §4 verlangt nur offene Punkte, also den aktuellen Plan. Sie steht im Git: Commit-Range `263290f..<dieser Commit>`, Datei `AGENTS.todo.md`. **Was der Schnitt dabei gerettet hat, steht im Abschluss** — die `Mandant`-Route-Bindung war als offener Punkt in **keiner** Position geführt und ist jetzt `AGENTS.md` §10 **A7**.
+> **Archiv entfernt (2026-09-28, auf deine Entscheidung):** die abgeschlossene Session-Historie ist weg — §4 verlangt nur offene Punkte, also den aktuellen Plan. Sie steht im Git: Commit-Range `263290f..<dieser Commit>`, Datei `AGENTS.todo.md`. **Was der Schnitt dabei gerettet hat, steht im Abschluss** — die `Mandant`-Route-Bindung war als offener Punkt in **keiner** Position geführt und ist jetzt `features/security/accepted-risks.md` **A7**.
 
 ---
 
@@ -422,7 +422,7 @@ die §3 verlangt. Der Test ist aber grün, sobald **irgendein** Reaper existiert
 nicht die **Ursache**. **Dauerhaft festgehalten in `features/05-e2e-test-image.md`** (`077d51d`) — §3 verlangt
 ein wissentlich roter Testbereich als akzeptiertes Risiko in `features/`, und §4 schneidet **diese** Datei weg;
 eine Notiz nur hier wäre bei jedem §4-Durchgang still verschwunden. **Das ist genau der Fehler, den
-`AGENTS.md` §10 A7 beschreibt** — er ist hier beinahe passiert und wurde nur durch den Hinweis des
+`features/security/accepted-risks.md` A7 beschreibt** — er ist hier beinahe passiert und wurde nur durch den Hinweis des
 Re-Verifikators gefangen.
 
 ### Die vier neuen Befunde und ihr Verbleib — **jeder gegen HEAD geprüft, keiner stillschweigend weg**
@@ -558,7 +558,7 @@ Weitere: **Guard-Write mit wiederholter Vorbedingung** (`AllocationRules::markSt
 1. **`AuthController.php:127` (`ActivationMail`)** umgeht `MandantMailerService` komplett — Default-Mailer, **innerhalb** der Registrierungs-Transaktion (`:98-135`), **wirft** bei Fehler. „ALLE Mandant-Mails" (Nutzerentscheid) liest beide Richtungen. Es ist der einzige Pfad, dessen Scheitern heute eine sichtbare `201` kippt — seine Semantik ist eine andere als die der übrigen sechs.
 2. **`resend`** (`AdminApplicationController:155-193`): dispatcht es einen Job oder umgeht er die Queue? Heute ohne Cap, ohne Marker, ohne Rate-Limit — und die manuelle `dead → pending`-Requeue wäre ein **zweiter, überlappender** Ausstieg für dieselbe Sache.
 3. **Erinnerung:** einmal pro Tag über 4 Tage (heutige Implementierung, `:19-24`) oder einmal pro Fenster? Der Docblock nennt das Letztere selbst als Follow-up (`reminder_sent_at`) — **der Idempotenzschlüssel des Jobs ist der Ort, an dem das entschieden wird**, also vor dem Key-Design.
-4. **Aufbewahrung** der `dead`-Briefe: unbegrenzt? `AGENTS.md` §10-A5 mahnt für das Anwendungslog bereits die harte `LOG_DAILY_FILES`-Grenze.
+4. **Aufbewahrung** der `dead`-Briefe: unbegrenzt? `features/security/accepted-risks.md` A5 mahnt für das Anwendungslog bereits die harte `LOG_DAILY_FILES`-Grenze.
 5. **Deckt „no mail lost" auch das ab, was nie *versucht* wurde?** Ein Request, der vor dem Mailer mit 500 abbricht (Registrierung), hinterlässt heute keine Spur.
 6. **Idempotenz gegen Worker-Crash-vor-Ack:** heute gibt es keinen Zustand, den man befragen könnte. Das ist die **einzige** Form doppelter Zustellung, die eine Queue *neu einführt* — sie muss also mit born, nicht nachträglich.
 
@@ -567,7 +567,7 @@ Weitere: **Guard-Write mit wiederholter Vorbedingung** (`AllocationRules::markSt
 1. **`ActivationMail` läuft AUCH über die Queue.** Konsequentes „ALLE Mandant-Mails": die Registrierung antwortet **201** auch dann, wenn die Aktivierungs-Mail noch nicht raus ist — die Zustellung wird nachgeholt. Der bisherige **werfende** Pfad innerhalb der Registrierungs-Transaktion (`AuthController:127`) entfällt damit **bewusst**; seine Sondersemantik ist damit aufgegeben, nicht vergessen.
 2. **Erinnerung: Laravel-Scheduler, KEINE OS-Crontab.** Der Scheduler **erzeugt** den Zustellauftrag (`reminders:send`, täglich registriert in `routes/console.php`), der **Standard-Worker** arbeitet ihn ab. Ausgeführt wird `schedule:run` im **60-s-Takt** durch das Supervisor-Skript (`backend-supervisor.sh` aus `portal.reisinger.pictures`: Neustart-Schleife, `queue:work` daneben, Healthcheck verlangt FPM + Supervisor + Worker + **Scheduler** als laufend). Die Frage „echter cron oder Laravel-Fähigkeit" ist damit **entschieden: Laravel**. Der per-Tag-Rhythmus bleibt (der Scheduler läuft einmal täglich); ein `reminder_sent_at`-Key ist dafür **nicht** nötig.
 3. **Der manuelle Admin-Resend läuft über die Queue.** Der Nutzer beschreibt ihn als „quasi aus der Dead-Letter-Queue in die normale Queue verschieben" — derselbe Zustellpfad wie die Freigabe, die DLQ greift auch hier.
-4. **Tote Briefe: UNBEGRENZT.** Keine automatische Löschung; sie bleiben, bis ein Mensch sie requeut oder entfernt — `queue:prune-failed` wird **nicht** eingerichtet. (Verhält sich damit **anders** als die Log-Grenze aus §10-A5, und das ist die Entscheidung, kein Versehen.)
+4. **Tote Briefe: UNBEGRENZT.** Keine automatische Löschung; sie bleiben, bis ein Mensch sie requeut oder entfernt — `queue:prune-failed` wird **nicht** eingerichtet. (Verhält sich damit **anders** als die Log-Grenze aus A5 (`features/security/accepted-risks.md`), und das ist die Entscheidung, kein Versehen.)
 5. **Technisch, nicht Produkt:** der Job braucht eine **Idempotenz-Wache gegen Worker-Crash-vor-Ack** (Guard-Write wie `AllocationRules::markStatus():195-209` — `where(...)` + 0 Treffer beim zweiten Lauf), sonst führt die Queue genau diese Doppelzustellung *neu* ein. Das ist die eine Zusage, die „mit born" muss, nicht nachträglich.
 6. **„No mail lost" beginnt beim Auftrag, nicht beim Versuch:** mit der Queue entsteht der Zustellauftrag **in derselben Transaktion** wie der Statuswechsel (`after_commit`), also hat auch der Fall „Request bricht vor dem Mailer ab (500)" eine Spur — die Frage 5 ist damit **strukturell** beantwortet, nicht per Konvention.
 
@@ -854,7 +854,7 @@ falsch, nur unvollständig: Last ist der **Auslöser**, nicht die **Ursache**.
 - **D23 — E2E-Fixture-Besitz:** jeder Test registriert, was er angelegt hat, und löscht es selbst, auch wenn er halb scheitert. Ein Sweep über Namensmarker ist Übergang, nie Modell.
 - **Drei bewusste Abweichungen vom Portal** (`portal.reisinger.pictures`): dessen `deleteResources` verschluckt jeden Fehler in `console.warn` — **das ist F1 in der Vorlage**; dessen `throw` **vor** dem `push` lässt Zeilen unregistriert; und **nichts** prüft dort, dass eine Spec mit Fixtures auch `afterEach` hat — bei uns scannt `namespace-isolation.spec.ts` bereits alle Specs.
 - **F1 behoben, gemessen:** 107 Zeilen zurückgeholt (54 Teams, 53 Venues), danach nach jedem vollen E2E-Lauf **0**. Die **Bandzahl fiel 51/52 → 24**, weil sie vorher eine fremde Datenmenge zählte.
-- **§7 Fixture-Besitz**, **§5 Build-Agent Punkt 4 / Skill `build-verify`** (ein Verifikator darf uncommittete Arbeit nicht zerstören), **§10 A5/A6/A7**.
+- **§7 Fixture-Besitz**, **§5 Build-Agent Punkt 4 / Skill `build-verify`** (ein Verifikator darf uncommittete Arbeit nicht zerstören), **A5/A6/A7 im Register `features/security/accepted-risks.md`**.
 - **Die Board-Tabelle war von mir selbst zerschossen** — ich hatte mehrzeiligen Text in Markdown-Tabellenzeilen eingesetzt. Inhaltlich geprüft (59185 Zeichen normalisiert, `Inhalt identisch: True`), aber die Prüfung, die mich darauf aufmerksam machte, suchte zuerst zweimal nach dem **falschen** Muster und meldete „FEHLT", während alles korrekt drinstand.
 
 ### Was der Board jetzt nicht mehr enthält — §4-Schnitt
@@ -872,7 +872,7 @@ die offene Punkte (aktueller Plan)"**. Entfallen sind die Abschnitte **Session 2
 **Vor dem Schnitt geprüft, nicht geraten.** Drei Dinge hätten dabei fallen können, und keines ist
 gefallen: die **Venue-Schreibbreite für `team_admin`** steht als **D20** (die Session-Notiz sagte
 noch „Nicht selbst entscheiden" — veraltet); die **`Mandant`-/`MandantDomain`-Route-Bindung** war
-als offener Punkt in keiner Position geführt und steht jetzt als **`AGENTS.md` §10 A7**; der
+als offener Punkt in keiner Position geführt und steht jetzt als **`features/security/accepted-risks.md` A7**; der
 **§6-Parallelitätsbefund** aus Session 09-19 steht als **§6** in `AGENTS.md`. **Der Schnitt hat
 also einen offenen Punkt gerettet** — der wäre sonst still verschwunden, und Position 24(a) ist
 genau der Befund, der beschreibt, wie so etwas aussieht, wenn es niemand bemerkt.

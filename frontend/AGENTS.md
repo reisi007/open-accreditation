@@ -2,7 +2,9 @@
 
 Module-scoped operating guidelines for the React frontend in `frontend/`.
 
-Global rules (Definition of Done, AI workflow & TODO management, E2E tag policy, agent roles, security risk register) live in the repo root `AGENTS.md` and apply here as well. This file only covers what is specific to the frontend module.
+Global rules (Definition of Done, AI workflow & TODO management, E2E tag policy, agent roles, accepted
+risks) live in the repo root `AGENTS.md` and apply here as well. This file only covers what is specific
+to the frontend module.
 
 ## Stack
 
@@ -93,9 +95,7 @@ Daten via `page.evaluate()` oder `addInitScript` in `localStorage` zu injizieren
 * Die CSS-Regel in `index.css` ist der zentrale Mechanismus und darf nicht umgangen werden.
 
 ### Lingui / i18n — No Module-Scope `t` (STRICT)
-Das `t`-Makro MUSS innerhalb von Funktions- oder Render-Bodies aufgerufen werden. **Auf Modulebene ist es strikt verboten** (z. B. `const schema = z.object({ ... t\`...\` ... })`, `const msg = t\`...\``).
-
-Grund: Im **Produktions-Bundle** werden statisch importierte Shell-Chunks vor dem `i18n.activate("de")` in `I18nProvider.tsx` evaluiert. Ein module-scope `t` crasht dort mit `Lingui: Attempted to call a translation function without setting a locale` und die Seite bleibt leer (blank). Im Dev-Server (native ESM) tritt der Fehler NICHT auf — reproduzierbar nur via `pnpm build` + `pnpm preview`.
+Das `t`-Makro MUSS innerhalb von Funktions- oder Render-Bodies aufgerufen werden. **Auf Modulebene ist es strikt verboten** (z. B. `const schema = z.object({ ... t\`...\` ... })`, `const msg = t\`...\``). Ein module-scope `t` crasht im **Produktions-Bundle** („Attempted to call a translation function without setting a locale") und die Seite bleibt leer; im Dev-Server tritt der Fehler NICHT auf — reproduzierbar nur via `pnpm build` + `pnpm preview`.
 
 Regel bei Schemas in Shell-Komponenten (statisch von `App` erreichbar):
 - Schema als **Factory-Funktion** anlegen und im Component-Body aufrufen:

@@ -315,7 +315,7 @@ der maximal möglichen Box sauber bleibt.
 
 **Kein SVGO, kein Optimizer-Pfad.** Der Icon-Body ist ein einziger `<path>` — es
 gibt nichts zu optimieren. Das Skript fasst `svgo` nicht an: nicht zur Build-Zeit,
-nicht zur Laufzeit. Damit bleibt das akzeptierte Risiko **A4** (AGENTS.md §10)
+nicht zur Laufzeit. Damit bleibt das akzeptierte Risiko **A4** (`features/security/accepted-risks.md`)
 unberührt; es entsteht kein npm-Pfad, der untrusted SVG durch einen Sanitizer
 schickt.
 

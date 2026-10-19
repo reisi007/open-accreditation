@@ -446,7 +446,7 @@ Migration, Seeder, Import, CLI-Command oder späterer Service umschreiben — mu
 „macht derjenige, der es braucht": Die Pflicht hängt an der **Schreiboperation**,
 nicht am Leser.
 
-**Warum (A3, `AGENTS.md` §10):** Die Allow-List der `trustHosts`-Middleware ist
+**Warum (A3, `features/security/accepted-risks.md`):** Die Allow-List der `trustHosts`-Middleware ist
 eine `pluck()`-Liste aller Hostnamen, gecacht unter
 `MandantContext::HOSTNAMES_CACHE_KEY` mit `MANDANTS_CACHE_TTL` (Default **3600 s**).
 Ein Write-Pfad, der den Cache nicht droppt, lässt einen **verwaisten** Host

@@ -24,6 +24,7 @@ Temporäre Task-Listen, Code-Review-Notizen und Bug-Analysen gehören in
 | `mail-delivery.md` | **Mail-Zustellung (SOLL, 2026-10-02):** `MandantMailerService` dispatcht `SendMandantMail`, `after_commit`, gedeckelte Retries, Idempotenz-Wache, `failed_jobs.mandant_id`, mandanten-isolierte DLQ-API + manueller Requeue, unbegrenzte Aufbewahrung |
 | `accreditation/01-allocation-engine.md` | Allocation-Engine (P3c): deterministische Freigabe (VIP → FCFS), Quota, Blacklist, manuell + automatisch |
 | `auth/01-auth-and-roles.md` | Auth-Flow (Registrierung → Aktivierung → Login-Cookie → Logout → `/me`), Rollen-Matrix, Profil/Media-Vertrag |
+| `security/accepted-risks.md` | **Akzeptierte Risiken (Security Risk Register A1–A8):** bewusst getragene Restrisiken inkl. Begründung und Re-Evaluierungsbedingung; Regel zum Ort der Führung in `AGENTS.md` §10 |
 
 ## P1-Status
 
