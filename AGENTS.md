@@ -285,9 +285,11 @@ Loop (Schritte 1–4):
    **beide** Gründe. Schlägt ein Screenshot-Test fehl, ist Harness oder Seite kaputt — zuerst fixen.
 2. **Vision-Analyse:** Die PNG-Pfade liest **das Modell selbst** (jedes konfigurierte Modell ist
    vision-fähig; einen Vision-Subagenten braucht der Loop nicht). **Nur** subjektive oder feingranulare
-   Bilder gehen an **`vision-creative`** (Skill `vision-agents`: eskalieren, nicht squinten). Max. **10
-   Bilder pro Batch**; Batching-Reihenfolge: erst nach State (`filled` → `empty`), dann Viewport
-   (desktop → mobile).
+   Bilder liest das Modell **erneut selbst** mit einer konkreten Frage nach (Skill `ui-review`:
+   re-read, do not guess) — es gibt keinen Vision-Subagenten mehr, und der Report wird nicht mit
+   unsicheren Befunden gefüllt.
+   Max. **10 Bilder pro Batch**; Batching-Reihenfolge: erst nach State (`filled` → `empty`), dann
+   Viewport (desktop → mobile).
 3. **Findings-Report:** Konsolidierter Bericht je Befund `Severity | Screenshot | Finding | Suggested fix`
    (Template im Skill); Severities `critical/high/medium/low`; **`critical`/`high` blockieren das Verdict
    `APPROVED`** (→ eigene Fix-Todos, wie das Verifikations-Gate; §5 Build-Agent Punkt 4). **Bandzahl und

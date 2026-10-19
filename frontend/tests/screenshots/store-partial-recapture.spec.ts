@@ -15,9 +15,10 @@ import { PLAYWRIGHT_SCRATCH_DIR, captureStoreRoot, playwrightScratchDir } from '
  *   > (`cd frontend && pnpm test:screenshots -g <routenname>`) → **old vs new**
  *   > wird verglichen
  *
- * (Quoted as AGENTS.md §7 step 4 reads since D28: the model reads the PNGs
- * itself — there is no vision subagent in this loop; only subjective images go
- * to `vision-creative`.)
+ * (Quoted as AGENTS.md §7 step 2 reads since D28: the model reads the PNGs
+ * itself — there is no vision subagent in this loop; only subjective or
+ * fine-grained images are re-read by the model itself, with one concrete
+ * question.)
  *
  * The second half of that sentence needs BOTH halves of the comparison to exist
  * on disk afterwards: every UNTOUCHED route's capture byte-for-byte, and the
