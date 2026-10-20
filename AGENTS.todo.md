@@ -909,7 +909,7 @@ sondern eine umgegebene, die sich als Code-Fehler ausgab.**
 > geprüft 2026-10-04 — HEAD des Skills-Repos, keine Range zu bilden).
 > **Nichts hiervon ist implementiert** — das sind Positionen, keine
 > Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur
-> auf ausdrücklichen Auftrag (`AGENTS.md:121-123`). GHCR-Verdikt (beide Packages
+> auf ausdrücklichen Auftrag (`AGENTS.md:88-90` §4). GHCR-Verdikt (beide Packages
 > public, anonymer Pull-Token erteilt + `gh api visibility=public`, 2026-10-04)
 > steht im Marker und braucht keine Position.
 
