@@ -9,12 +9,20 @@ geprüft am: 2026-10-20
 > **acht** Commits `787670a..5a0c1b0` (`git rev-list --count 787670a..5a0c1b0` → 8)
 > sind **nicht** Teil dieser Range und gehören in den nächsten Lauf — die Tabelle
 > führt sie trotzdem, weil sie den **aktuellen** Skill-Bestand abbildet. Was die
-> acht tun: **zwei** legen Skills an (`00dbd22` → `generated-docs`, `70d49e0` →
-> `ratchet-gates`), **einer** ändert die Sichtbarkeit (`817c01e` — `agent-config`,
-> `update-models` und `github-ci-filters` jetzt hidden), **vier** sind reine
-> Textänderungen an bestehenden Skills (`0024d7e`, `8c6b9af`, `fa2268f`,
-> `219171c`), **einer** (`5a0c1b0`) berührt überhaupt keinen Skill (nur
-> `AGENTS.todo.md` des Skills-Repos).
+> acht tun — **je Commit der Haupteffekt**, in der Reihenfolge der Range, gemessen
+> an `git show --stat`; **mehrere Commits änderten mehr als eine Sache**:
+> `219171c` — reine Textänderung in `update-models`; `fa2268f` — reine
+> Textänderung in `ui-review`; `8c6b9af` — reine Textänderung in `update-models`;
+> `70d49e0` — legt den Skill `ratchet-gates` an, ändert zusätzlich `agent-config`
+> und `README.md`; `00dbd22` — legt den Skill `generated-docs` an, ändert
+> zusätzlich `agent-config`, `ratchet-gates` und `README.md`; `817c01e` — macht
+> `agent-config`, `update-models` und `github-ci-filters` hidden, kürzt
+> zusätzlich Beschreibung und Body von `build-verify` und zieht `README.md` und
+> `.github/skill-budget.json` nach; `0024d7e` — schließt die Drift um den
+> ungenutzten `instructions`-Key (in `agent-config`, `build-verify`,
+> `skills-marker`, der Regel `.agents/rules/build-verify.md`, `AGENTS.md` und
+> `README.md`) und zieht `.github/skill-budget.json` nach; `5a0c1b0` — berührt
+> überhaupt keinen Skill (nur `AGENTS.todo.md` des Skills-Repos).
 > Der Pfad zum Skills-Repo steht hier bewusst nicht (Marker bleibt bei Verschiebung
 > gültig). Jede Ja-Zeile nennt eine **stabile Referenz** (Abschnitt, Überschrift oder
 > Suchstring); Zeilennummern nur als Lesehilfe.
@@ -25,7 +33,7 @@ geprüft am: 2026-10-20
 |---|---|---|---|
 | `agent-config` | nein | | Maschinen-Konfiguration (opencode.jsonc, MCP, Skill-/Command-Registrierung, Modell-Registry) — das Projekt hat keine opencode.jsonc und keine Modell-/MCP-Datei |
 | `build-verify` | ja | `AGENTS.md` §5 Punkt 4 „Build-/Verify-Flow — zentral, nicht hier" (`:114-117`) | Position 52 — zwei Sätze in `AGENTS.md` §5 widersprechen der neuen Skill-Fassung |
-| `codegraph-project-setup` | ja | `.githooks/pre-commit` (CodeGraph-Sync-Hook, versioniert — **läuft aber nicht**: `core.hooksPath` nirgends gesetzt, `.git/hooks/pre-commit` fehlt); `.codegraph/` trägt **nur** `.gitignore`, **keinen Index** (`codegraph status`: „Not initialized") | Position 54 — der Pflichtteil des Skills (Index + verdrahteter Hook) ist offen: `codegraph init` + `git config core.hooksPath .githooks`; ein Code-Projekt ist dieses Repo (`backend/composer.json` + `frontend/package.json`) |
+| `codegraph-project-setup` | ja | `.githooks/pre-commit` (CodeGraph-Sync-Hook, versioniert — **läuft aber nicht**: `core.hooksPath` nirgends gesetzt, `.git/hooks/pre-commit` fehlt); `.codegraph/` trägt **nur** `.gitignore`, **keinen Index** (`codegraph status`: „Not initialized") | Position 54 — der Pflichtteil des Skills (Index + verdrahteter Hook) ist **nicht erfüllt**: `codegraph init` + `git config core.hooksPath .githooks`; ein Code-Projekt ist dieses Repo (`backend/composer.json` + `frontend/package.json`) |
 | `docker-test-image` | ja | `.github/workflows/e2e-image.yml` (Job `build`, BASE_REF-/PLAYWRIGHT_VERSION-Auflösung), `deployment/Dockerfile.e2e` (ARG-Block), `features/05-e2e-test-image.md` | |
 | `generated-docs` | offen | | außerhalb der geprüften Range (neu in `00dbd22`) — **die Prüfung folgt im nächsten Marker-Lauf**; bis dahin ist das Ergebnis offen, nicht „trifft nicht zu". Sichtung heute: das Repo hat **keine** generierten Doku-Artefakte (README-/features-Zahlen stehen als Prosa in der Hand, genau der Fall, den der Skill adressiert) — das ist aber erst im nächsten Lauf zu entscheiden, nicht hier |
 | `ghcr-visibility` | ja | `.github/workflows/ci.yml` (Kommentar „ein public GHCR-Package" + `image: ghcr.io/…`), `features/05-e2e-test-image.md` (Abschnitt „public GHCR-Package") | keine — beide Packages public (geprüft 2026-10-20: `gh api visibility=public` für `accriditation-e2e` und `accriditation-base`) |
@@ -43,9 +51,12 @@ geprüft am: 2026-10-20
 | `update-models` | nein | | Modell-Registry (Maschine) — das Projekt hat keine opencode.jsonc und keine Modell-Datei |
 | `web-audit` | nein | | trifft nicht zu, weil das Projekt keine Marketing-/Content-Website hat (kein SEO-, Sitemap- oder Performance-Audit-Gegenstand) — die visuelle Prüfung der App ist der Screenshot-Design-QA-Loop (`ui-review`), ausdrücklich getrennt von funktionalen Tests |
 
-`ja` = am Code geprüft und im Projekt getragen · `nein` = trifft nicht zu,
-Begründung in der Zeile · `offen` = noch nicht geprüft (Prüfung folgt im nächsten
-Marker-Lauf). Die Tabelle ist ein **Zustand**, kein Auftrag.
+`ja` = die Pflicht des Skills **trifft hier zu** und ist am Code geprüft · `nein` =
+trifft nicht zu, Begründung in der Zeile · `offen` = noch nicht geprüft (Prüfung
+folgt im nächsten Marker-Lauf). Ob das Projekt die Pflicht **schon erfüllt**,
+steht getrennt davon in der Spalte „offene Position": leer (oder „keine — …") =
+getragen, eine Positionsnummer = **gemessene Lücke** (Log-Eintrag im Board, kein
+Auftrag). Die Tabelle ist ein **Zustand**, kein Auftrag.
 
 ## Offen aus dem Bereich 6629ad2..787670a (2026-10-20)
 
@@ -59,10 +70,15 @@ Marker-Lauf). Die Tabelle ist ein **Zustand**, kein Auftrag.
 > `update-opencode-models`, `vision-agents`, `web-audit`.
 > **Die Tabelle ist ein Zustand, kein Auftrag.** Die 21 Skill-Verzeichnisse oben
 > sind **keine** offenen Positionen und **keine** 21 unerledigten Arbeiten: die
-> Tabelle sagt je Skill, ob er geprüft und getragen ist (`ja`), ob er hier nichts
-> regelt (`nein`) oder ob die Prüfung noch aussteht (`offen`). Was offen ist,
-> steht als **Position** im Board (`AGENTS.todo.md`, 52–54) — und eine Position
-> ist ein Log-Eintrag, kein Arbeitsauftrag.
+> Tabelle sagt je Skill, ob seine Pflicht hier **trifft** und geprüft ist (`ja`),
+> ob der Skill hier nichts regelt (`nein`) oder ob die Prüfung noch aussteht
+> (`offen`). **Zwei Bedeutungen von „offen" — nicht vermischen.** Das **Verdikt
+> `offen`** (Zeilen `generated-docs`, `ratchet-gates`) heißt *die Prüfung steht
+> noch aus*, sie folgt im nächsten Marker-Lauf, und diese beiden Zeilen haben
+> **keine** Board-Position. Eine **Lücke** dagegen ist **gemessen** und steht als
+> **Position** im Board (`AGENTS.todo.md`): 52 (`build-verify`), 53 (`laravel`),
+> 54 (`codegraph-project-setup`) — alle drei sind `ja`-Zeilen. Beides ist ein
+> Log, kein Arbeitsauftrag.
 
 **Neu in der Range:** `laravel` (Backend-Konventionen, destilliert aus
 open-accreditation + portal), `react-i18n` (Lingui-Muster), `security-review`
@@ -77,20 +93,21 @@ Fortschreibung aus der Tabelle verschwunden, der Inhalt bleibt hier nachvollzieh
 entfernt in 1c51237 (ebenfalls aufgegangen in `models`).
 
 **Ergebnis je Skill aus der Range** — `laravel` → **ja** (Konventionen tragen
-`backend/AGENTS.md` + `backend/phpunit.xml`; offen bleibt Position 53) ·
+`backend/AGENTS.md` + `backend/phpunit.xml`; die Lücke bleibt Position 53) ·
 `react-i18n` → **ja** (Lingui-Muster getragen; Abweichung zwei Locales ist
 Entscheidung D15, kein Gap) · `security-review` → **ja** (Register + Test-Pinning
 getragen; Aufruf-Workflow, keine Dauer-Pflicht) · `web-audit` → **nein** (kein
-Marketing-Site-Gegenstand) · `build-verify` → **ja** (Flow delegiert, offen bleibt
-Position 52) · `ui-review` → **ja** (§7-Loop getragen; die Vision-Eskalation geht
-seit `f58f2ae` an das Modell selbst) · `skills-marker` → **ja** (diese Datei) ·
-`docker-test-image`, `ghcr-visibility`, `github-ci-filters`, `node-deps`,
-`playwright-parallel` → **ja** (unverändert angewendet; die Range änderte an ihnen
-nur Beschreibung und `autoinvoke`-Flag) · `agent-config`, `permissions`,
-`update-models`, `tailscale-serve` → **nein** (Maschinen-Konfiguration bzw. kein
-Projektbezug) · `codegraph-project-setup` → **ja** (die Scope-Klarstellung der
-Range trifft dieses Repo: es ist ein Code-Projekt. Der Pflichtteil des Skills —
-Index + verdrahteter Hook — ist nicht erfüllt, also offene Position 54).
+Marketing-Site-Gegenstand) · `build-verify` → **ja** (Flow delegiert, die Lücke
+bleibt Position 52) · `ui-review` → **ja** (§7-Loop getragen; die
+Vision-Eskalation geht seit `f58f2ae` an das Modell selbst) · `skills-marker` →
+**ja** (diese Datei) · `docker-test-image`, `ghcr-visibility`, `github-ci-filters`,
+`node-deps`, `playwright-parallel` → **ja** (unverändert angewendet; die Range
+änderte an ihnen nur Beschreibung und `autoinvoke`-Flag) · `agent-config`,
+`permissions`, `update-models`, `tailscale-serve` → **nein** (Maschinen-Konfiguration
+bzw. kein Projektbezug) · `codegraph-project-setup` → **ja** (die Scope-Klarstellung
+der Range trifft dieses Repo: es ist ein Code-Projekt. Der Pflichtteil des Skills —
+Index + verdrahteter Hook — ist nicht erfüllt, also steht die Lücke als Position 54
+im Board).
 
 **Die Alt-Anker wurden vollständig neu geprüft — 7 von 14 Ankern der
 Vorgängerversion zeigten nicht mehr auf das Bezeichnete.** (Die Vorgängerversion

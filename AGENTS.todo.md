@@ -1095,7 +1095,7 @@ folgend: *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"* �
 liegt nicht einmal ein Zweifel vor. Der Marker ist berichtigt (Verdikt **ja**,
 offene Position).
 
-**Zum Vergleich — der Geschwister-Repo `/projects/opencode-pwa` hat genau diese
+**Zum Vergleich — das Geschwister-Repo `/projects/opencode-pwa` hat genau diese
 zwei Dinge.** `.codegraph/codegraph.db` (16 MB) **und**
 `core.hooksPath=.githooks` (`git config --list --show-origin` →
 `file:.git/config core.hookspath=.githooks`); dort steht im Marker folgerichtig
