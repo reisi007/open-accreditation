@@ -5,11 +5,16 @@ geprüft am: 2026-10-20
 
 > Drittmarker. Geprüfte Range `6629ad2..787670a` (37 Commits des Skills-Repos).
 > Geprüft am 2026-10-19/20 gegen `787670a` als Endstand der Range. Der Skills-Repo
-> stand danach bei `0024d7e`: die vier Commits `787670a..0024d7e` (neue Hidden-Skills
-> `ratchet-gates` und `generated-docs`; `agent-config`, `update-models` und
-> `github-ci-filters` jetzt hidden) sind **nicht** Teil dieser Range und gehören in
-> den nächsten Lauf — die Tabelle führt sie trotzdem, weil sie den **aktuellen**
-> Skill-Bestand abbildet.
+> stand beim Marker-Commit `9170e03` (2026-10-20 12:59 UTC) bei `5a0c1b0` — die
+> **acht** Commits `787670a..5a0c1b0` (`git rev-list --count 787670a..5a0c1b0` → 8)
+> sind **nicht** Teil dieser Range und gehören in den nächsten Lauf — die Tabelle
+> führt sie trotzdem, weil sie den **aktuellen** Skill-Bestand abbildet. Was die
+> acht tun: **zwei** legen Skills an (`00dbd22` → `generated-docs`, `70d49e0` →
+> `ratchet-gates`), **einer** ändert die Sichtbarkeit (`817c01e` — `agent-config`,
+> `update-models` und `github-ci-filters` jetzt hidden), **vier** sind reine
+> Textänderungen an bestehenden Skills (`0024d7e`, `8c6b9af`, `fa2268f`,
+> `219171c`), **einer** (`5a0c1b0`) berührt überhaupt keinen Skill (nur
+> `AGENTS.todo.md` des Skills-Repos).
 > Der Pfad zum Skills-Repo steht hier bewusst nicht (Marker bleibt bei Verschiebung
 > gültig). Jede Ja-Zeile nennt eine **stabile Referenz** (Abschnitt, Überschrift oder
 > Suchstring); Zeilennummern nur als Lesehilfe.
@@ -20,16 +25,16 @@ geprüft am: 2026-10-20
 |---|---|---|---|
 | `agent-config` | nein | | Maschinen-Konfiguration (opencode.jsonc, MCP, Skill-/Command-Registrierung, Modell-Registry) — das Projekt hat keine opencode.jsonc und keine Modell-/MCP-Datei |
 | `build-verify` | ja | `AGENTS.md` §5 Punkt 4 „Build-/Verify-Flow — zentral, nicht hier" (`:114-117`) | Position 52 — zwei Sätze in `AGENTS.md` §5 widersprechen der neuen Skill-Fassung |
-| `codegraph-project-setup` | nein | | trifft nicht zu, weil die Änderung den Scope für **neue** Projekte klärt (Code-Projekt ja / Markdown-Repo nein) — dieses Repo wird nicht gescaffoldet und definiert keine CodeGraph-Pflicht. Stand gemessen: kein Index (`codegraph status`: „Not initialized"), und die Hook-Datei `.githooks/pre-commit` (CodeGraph-Sync) läuft nicht, weil `core.hooksPath` nirgends gesetzt ist |
+| `codegraph-project-setup` | ja | `.githooks/pre-commit` (CodeGraph-Sync-Hook, versioniert — **läuft aber nicht**: `core.hooksPath` nirgends gesetzt, `.git/hooks/pre-commit` fehlt); `.codegraph/` trägt **nur** `.gitignore`, **keinen Index** (`codegraph status`: „Not initialized") | Position 54 — der Pflichtteil des Skills (Index + verdrahteter Hook) ist offen: `codegraph init` + `git config core.hooksPath .githooks`; ein Code-Projekt ist dieses Repo (`backend/composer.json` + `frontend/package.json`) |
 | `docker-test-image` | ja | `.github/workflows/e2e-image.yml` (Job `build`, BASE_REF-/PLAYWRIGHT_VERSION-Auflösung), `deployment/Dockerfile.e2e` (ARG-Block), `features/05-e2e-test-image.md` | |
-| `generated-docs` | nein | | außerhalb der geprüften Range (neu in `00dbd22`) — Prüfung folgt im nächsten Marker-Lauf. Sichtung heute: das Repo hat **keine** generierten Doku-Artefakte (README-/features-Zahlen stehen als Prosa in der Hand, genau der Fall, den der Skill adressiert) — das ist aber erst im nächsten Lauf zu entscheiden, nicht hier |
+| `generated-docs` | offen | | außerhalb der geprüften Range (neu in `00dbd22`) — **die Prüfung folgt im nächsten Marker-Lauf**; bis dahin ist das Ergebnis offen, nicht „trifft nicht zu". Sichtung heute: das Repo hat **keine** generierten Doku-Artefakte (README-/features-Zahlen stehen als Prosa in der Hand, genau der Fall, den der Skill adressiert) — das ist aber erst im nächsten Lauf zu entscheiden, nicht hier |
 | `ghcr-visibility` | ja | `.github/workflows/ci.yml` (Kommentar „ein public GHCR-Package" + `image: ghcr.io/…`), `features/05-e2e-test-image.md` (Abschnitt „public GHCR-Package") | keine — beide Packages public (geprüft 2026-10-20: `gh api visibility=public` für `accriditation-e2e` und `accriditation-base`) |
 | `github-ci-filters` | ja | `.github/workflows/ci.yml` → `paths-ignore: '**/*.md'` auf `push` **und** `pull_request` | |
 | `laravel` | ja | `backend/AGENTS.md` (Commands, DB-/Migrations-Policy, Parallel-Testing, Datei-Tests), `backend/phpunit.xml` (Hermetik-Pins), `backend/composer.json` (PHP ^8.5, pint, paratest, jwt-auth) | Position 53 — Validierungs-Konvention nicht umgesetzt: `FormRequest`-Struktur fehlt, `rules()` bei 8/23 Controllern getragen, 17 mit Inline-Array |
 | `node-deps` | ja | `frontend/package.json` (keine Pins/Overrides), `ci.yml` (`version: 11`), `e2e-image.yml` (`PNPM_VERSION: "11"`), `deployment/Dockerfile.e2e` (`ARG PNPM_VERSION=11`) | |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine) — das Projekt definiert keine; `backend/config/permissions.php` ist die Gate-Matrix des Projekts, nicht diese Policy |
 | `playwright-parallel` | ja | `.github/workflows/ci.yml` (Run-Step: strikt `--workers=4`, verzeihend `--workers=1`), `frontend/playwright.config.ts` (`workers:`, `fullyParallel`) | |
-| `ratchet-gates` | nein | | außerhalb der geprüften Range (neu in `70d49e0`) — Prüfung folgt im nächsten Marker-Lauf; das Repo kennt keine Schulden-Baseline (`AGENTS.md` §4 Zero-Pre-existing-Failures-Policy) |
+| `ratchet-gates` | offen | | außerhalb der geprüften Range (neu in `70d49e0`) — **die Prüfung folgt im nächsten Marker-Lauf**; bis dahin ist das Ergebnis offen, nicht „trifft nicht zu". Das Repo kennt keine Schulden-Baseline (`AGENTS.md` §4 Zero-Pre-existing-Failures-Policy) |
 | `react-i18n` | ja | `frontend/AGENTS.md` (§ „Lingui / i18n — No Module-Scope `t` (STRICT)"), `frontend/vite.config.ts` (lingui-Plugin + Babel-Preset-Reihenfolge), `frontend/src/main.tsx` (I18nProvider als erster Import), `frontend/package.json` (`lingui:extract`/`lingui:compile`, `check:i18n` in `prebuild`) | keine — das Projekt weicht bewusst ab: zwei Locales (de+en) mit Vollständigkeits-Gate statt der Portal-Referenz (eine Locale + Rohstring-Pass) |
 | `security-review` | ja | `AGENTS.md` §10 (Fundort der Befunde) + `features/security/accepted-risks.md` (Register A1–A8), `AGENTS.md` §3 (Regressionstest je Fix) | keine — Register + Test-Pinning sind getragen; die Route-Enumeration ist Teil des beauftragten Review-Laufs, keine Dauer-Pflicht |
 | `skills-marker` | ja | `AGENTS.skills.md` (diese Datei; Abschnitt „Fortschreiben") | |
@@ -37,6 +42,10 @@ geprüft am: 2026-10-20
 | `ui-review` | ja | `AGENTS.md` §7 „Visuelle Verifikation / UI-Review (Design-QA, STRICT)" (`:262-271`, Loop-Schritte 1–4 `:273-300`), `frontend/tests/screenshots/` | |
 | `update-models` | nein | | Modell-Registry (Maschine) — das Projekt hat keine opencode.jsonc und keine Modell-Datei |
 | `web-audit` | nein | | trifft nicht zu, weil das Projekt keine Marketing-/Content-Website hat (kein SEO-, Sitemap- oder Performance-Audit-Gegenstand) — die visuelle Prüfung der App ist der Screenshot-Design-QA-Loop (`ui-review`), ausdrücklich getrennt von funktionalen Tests |
+
+`ja` = am Code geprüft und im Projekt getragen · `nein` = trifft nicht zu,
+Begründung in der Zeile · `offen` = noch nicht geprüft (Prüfung folgt im nächsten
+Marker-Lauf). Die Tabelle ist ein **Zustand**, kein Auftrag.
 
 ## Offen aus dem Bereich 6629ad2..787670a (2026-10-20)
 
@@ -48,8 +57,12 @@ geprüft am: 2026-10-20
 > `node-deps`, `permissions`, `playwright-parallel`, `react-i18n`, `security-review`,
 > `skills-marker`, `tailscale-serve`, `ui-review`, `update-models`,
 > `update-opencode-models`, `vision-agents`, `web-audit`.
-> **Nichts hiervon ist implementiert** — das sind Positionen, keine Arbeitsaufträge:
-> `AGENTS.todo.md` ist ein Log, kein Auftrag.
+> **Die Tabelle ist ein Zustand, kein Auftrag.** Die 21 Skill-Verzeichnisse oben
+> sind **keine** offenen Positionen und **keine** 21 unerledigten Arbeiten: die
+> Tabelle sagt je Skill, ob er geprüft und getragen ist (`ja`), ob er hier nichts
+> regelt (`nein`) oder ob die Prüfung noch aussteht (`offen`). Was offen ist,
+> steht als **Position** im Board (`AGENTS.todo.md`, 52–54) — und eine Position
+> ist ein Log-Eintrag, kein Arbeitsauftrag.
 
 **Neu in der Range:** `laravel` (Backend-Konventionen, destilliert aus
 open-accreditation + portal), `react-i18n` (Lingui-Muster), `security-review`
@@ -75,20 +88,24 @@ seit `f58f2ae` an das Modell selbst) · `skills-marker` → **ja** (diese Datei)
 `playwright-parallel` → **ja** (unverändert angewendet; die Range änderte an ihnen
 nur Beschreibung und `autoinvoke`-Flag) · `agent-config`, `permissions`,
 `update-models`, `tailscale-serve` → **nein** (Maschinen-Konfiguration bzw. kein
-Projektbezug) · `codegraph-project-setup` → **nein** (Scope-Klarstellung für neue
-Projekte; dieses Repo wird nicht gescaffoldet).
+Projektbezug) · `codegraph-project-setup` → **ja** (die Scope-Klarstellung der
+Range trifft dieses Repo: es ist ein Code-Projekt. Der Pflichtteil des Skills —
+Index + verdrahteter Hook — ist nicht erfüllt, also offene Position 54).
 
-**Die Alt-Anker wurden vollständig neu geprüft — 7 von 15 Ankern der
-Vorgängerversion zeigten nicht mehr auf das Bezeichnete.** Falsch waren
-`build-verify` (`AGENTS.md:147-155` → heute die Peak-Regel, der Flow steht bei
-`:114-117`), `docker-test-image` (`ci.yml:534` → `container:` steht heute bei
-`:539`), `ghcr-visibility` (`ci.yml:522-524` → der GHCR-Hinweis steht heute bei
-`:526-530`), `playwright-parallel` (`ci.yml:782-786` → die Worker-Begründung steht
-heute bei `:792-802`, die Kommandos bei `:866-870`) sowie alle drei Anker der
-Zeile `ui-review` und der Zeile `vision-agents` — die beiden letzteren lagen
-**jenseits des Dateiendes** (`AGENTS.md` hat heute 380 Zeilen, die Anker endeten bei
-433 bzw. 421; `ui-review:361-433` zeigt heute auf den Modul-Abschnitt §9). Exakt
-hielten dagegen alle vier Anker der Zeile `node-deps` (`ci.yml:481`/`:739`,
+**Die Alt-Anker wurden vollständig neu geprüft — 7 von 14 Ankern der
+Vorgängerversion zeigten nicht mehr auf das Bezeichnete.** (Die Vorgängerversion
+hatte **15** Einträge in der Spalte „wo im Projekt", davon **14** mit
+`Datei:Zeile` — der 15. (`skills-marker` → `AGENTS.skills.md`) trägt keine
+Zeilennummer.) Falsch waren `build-verify` (`AGENTS.md:147-155` → heute die
+Peak-Regel, der Flow steht bei `:114-117`), `docker-test-image` (`ci.yml:534` →
+`container:` steht heute bei `:539`), `ghcr-visibility` (`ci.yml:522-524` → der
+GHCR-Hinweis steht heute bei `:526-530`), `playwright-parallel` (`ci.yml:782-786`
+→ die Worker-Begründung steht heute bei `:792-802`, die Kommandos bei `:866-870`)
+sowie **die drei Anker der beiden Zeilen** `ui-review` (zwei: `AGENTS.md:361-433`
+und `:424-425`) und `vision-agents` (einer: `AGENTS.md:418-421`) — **alle drei**
+lagen **jenseits des Dateiendes** (`AGENTS.md` hat heute 380 Zeilen, die Anker
+endeten bei 433 bzw. 421; `ui-review:361-433` zeigt heute auf den Modul-Abschnitt
+§9). Exakt hielten dagegen alle vier Anker der Zeile `node-deps` (`ci.yml:481`/`:739`,
 `e2e-image.yml:64`, `Dockerfile.e2e:117`) und `github-ci-filters` (`ci.yml:61-67`);
 `ghcr-visibility`/`docker-test-image` hielten je einen ihrer zwei Anker. Zwei
 Zeilen der Vorgängerversion (`model-updater`, `update-opencode-models`) und die
@@ -96,16 +113,23 @@ Zeile `vision-agents` sind mit dieser Fortschreibung weg — der Skill existiert
 upstream nicht mehr (siehe „Entfernt in der Range"). **Die Zeile `codegraph-project-setup`
 trug eine unvollständige Begründung** („keine Hook-Verdrahtung" — die Datei
 `.githooks/pre-commit` existiert, ist aber nirgends verdrahtet, weil
-`core.hooksPath` nicht gesetzt ist); die neue Zeile nennt beides. Alle Zeilen der
-neuen Tabelle nennen deshalb Abschnitt, Überschrift oder Suchstring; Zeilennummern
-stehen nur als Lesehilfe dahinter.
+`core.hooksPath` nicht gesetzt ist); die neue Zeile nennt beides. **Ihr Verdikt
+stand aber im Widerspruch zu diesem eigenen Befund** — `nein` hieß „trifft nicht
+zu", obwohl der Zustand das Gegenteil belegte (Position 54). Alle Zeilen der
+neuen Tabelle nennen deshalb Abschnitt, Überschrift oder Suchstring;
+Zeilennummern stehen nur als Lesehilfe dahinter.
 
-**Regel-Drift (§5 Schritt 3) auf dieser Maschine: kein Befund.** Die einzige
-eingebettete Regel der globalen `~/.config/opencode/AGENTS.md` ist die Frage-Regel
-aus `.agents/rules/ask.md` — die Quelle ist in dieser Range **unverändert**, die
-Pflicht also unverändert. `build-verify.md` ist nicht eingebettet (das Projekt
-verweist auf den Skill), und die `agent-config`-Änderungen der Range betreffen die
-maschinenweite Verdrahtung, nicht das Projekt.
+**Regel-Drift (§5 Schritt 3) auf dieser Maschine: kein Befund.** Die globale
+`~/.config/opencode/AGENTS.md` besteht aus **vier** Blöcken (`## CodeGraph` L2,
+`## Grundsätze` L12, `## Always-on rules` L23, `## Dieser Host (code-dev)` L29) —
+**eine** Regel daraus ist aus `.agents/rules/` eingebettet: die Frage-Regel aus
+`.agents/rules/ask.md`. Die anderen drei Blöcke haben eigene Quellen
+(CodeGraph-Setup, allgemeine Projekt-Grundsätze, Host-Beschreibung) und sind
+**keine** `.agents/rules/`-Einbettung. Die Quelle der Frage-Regel ist in dieser
+Range **unverändert** (`git diff 6629ad2..787670a -- .agents/rules/ask.md` →
+leer), die Pflicht also unverändert. `build-verify.md` ist nicht eingebettet (das
+Projekt verweist auf den Skill), und die `agent-config`-Änderungen der Range
+betreffen die maschinenweite Verdrahtung, nicht das Projekt.
 
 Dieser Abschnitt wird beim nächsten Pull im Skills-Repo durch den neuen
 Range-Abschnitt (`<dieser-sha>..<neuer-sha>`) ersetzt; bleibt die Liste leer,
@@ -138,4 +162,6 @@ entfällt er ganz.
    prüfen und bei geänderter **Pflicht** sinngemäß nachziehen. Drift ist eine
    geänderte Pflicht, kein abweichender Wortlaut — die Einbettung ist die Kurzform
    der Pflicht, kein wörtliches Abbild. Dann `touch ~/.config/opencode/opencode.jsonc`
-   (Reload der globalen Config; das `instructions`-Array ist leer und liefert nichts).
+   (Reload der globalen Config; ein `instructions`-Key existiert dort **nicht** —
+   `~/.config/opencode/opencode.jsonc:7` sagt das ausdrücklich: die always-on
+   Regeln stehen inline in der globalen `AGENTS.md`).

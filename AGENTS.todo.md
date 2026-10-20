@@ -28,12 +28,12 @@
 > **Frontend und E2E wurden lokal nicht nachgefahren** — dort steht weiter die CI-Zahl, und wer sie als frisch liest, irrt.
 > 
 > **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **2 Positionen** in der Batch-Tabelle (**17, 21** — beide stehengeblieben, weil je ein lebender Querverweis daran hängt; der einzige repo-weite ist `README.md:193` und zeigt auf **21**). **23 und 25 sind am 2026-10-05 per Nutzerentscheid entfernt** — beide waren verifiziert geschlossen, und die Begründung „lebende Querverweise" ist für sie **gemessen falsch**: repo-weit zeigte auf sie nichts. In der Tabelle ist damit **keine** offene Zeile mehr. **Positionen 45 (Mail-Zustellung: Queue/DLQ) und 46 (Scheduler) sind am 2026-10-04 per §4 entfernt** — beide Ströme implementiert und verifiziert (Verdicts 12, 13, 14 `APPROVED`, kein `critical`/`high`; CI-Lauf `37183737789` zu `219c398`, alle vier Jobs grün). **Gate nach den Skills-Wellen (Stand 2026-10-05, Lauf `37277096174`):** SQLite **1983 passed** (12501) · Postgres **1982 + 1 skipped** (12495) (= **dieselben** 1983) · E2E strikt `--workers=4` **168 passed / 64 skipped / 0 failed** · `check:i18n` **467**. **Der E2E-Zähler ist nicht mit den 157 der Gate-Tabelle zu vergleichen** — anderer Umfang (striktes Profil, volle Suite) und anderer Tag; **je Zahl steht ihr Lauf.** **GATE 4 GRÜN (Lauf `37034641045`, SHA `ab4c0c7`, 2026-10-02, **alle vier Jobs**):** SQLite **1771 passed** (9047 Assertions) · Postgres **1 skipped + 1770 passed** (9041) (= **dieselben** 1771) · Vitest **52 Dateien / 552 Tests** · E2E **157 passed** · `check:i18n` **436** · Pint/Lint/Build clean. **Gate 3 war auf `267c767` rot** (Lauf `37023069080`: `QrTokenV2Test`, „actual size 4 matches expected size 3" — nur Postgres) und ist auf `ab4c0c7` **behoben, nicht etikettiert**: die Behauptung `assertCount(3, explode('.'))` war nie eine Format-Invariante, sondern eine Eigenschaft der Id-Sequenz. **Sieben Positionen — 8, 9, 12, 22, 38, 41, 42 — sind am 2026-10-02 per §4 entfernt:** alle vier Wellen sind verifiziert (Verdict `APPROVED`, kein `critical`/`high`), ihr Dauerinhalt steht in `features/`, im Code und in den Wellen-Abschnitten. **Geschlossen, aber stehengeblieben sind 2:**
-> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe"). **Außerhalb der Batch-Tabelle stehen zwei offene Positionen: 52, 53 (Skills-Marker-Nachtrag, 2026-10-20)** — beide Positionen, keine Arbeitsaufträge, beide entscheidungs offen; die Batch-Tabelle bleibt davon unberührt (2 Zeilen = 0 offen + 2 stehengeblieben).
+> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe"). **Außerhalb der Batch-Tabelle stehen drei offene Positionen: 52, 53, 54 (Skills-Marker-Nachtrag, 2026-10-20)** — alle drei Positionen, keine Arbeitsaufträge, alle drei entscheidungs offen; die Batch-Tabelle bleibt davon unberührt (2 Zeilen = 0 offen + 2 stehengeblieben).
 > **Lokaler Voll-Lauf gegen `00bd0bc` (2026-10-05, seriell) — das ist der Stand dieses HEAD, nicht der von `37277096174`:** SQLite **2017 passed** · Postgres **2016 + 1 skipped** (= **dieselben** 2017) · Vitest **58 Dateien / 626** · E2E **170 passed / 67 skipped / 1 failed**. **Der eine Fehlschlag ist `child-lifetime.spec.ts:394` und damit D27, kein neuer Befund:** PID 1 ist auf diesem Host `opencode serve` (kein `init`), und der Test nennt die Ursache in seiner eigenen Fehlermeldung mit — **Host-Limitation, kein Code-Defekt**; mit `options: --init` (CI) läuft er. Dauerfassung in `features/05-e2e-test-image.md`.
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-05, nach dem §4-Schnitt und dem 23/25-Schnitt):** **2 Zeilen** in der Batch-Tabelle = **0 offen** + **2 stehengeblieben** (17, 21 — lebende Querverweise). **Die sieben Positionen 8, 9, 12, 22, 38, 41, 42 sind entfernt** (verifiziert `APPROVED`), mit ihnen **45** (dieselbe Zeile, jetzt geschlossen). **Position 46** (kein Scheduler) stand nie in dieser Tabelle, sondern unter P6, und ist mit 45 entfernt. **Position 47** (Sub-`resend`-Button, P6-Block, Runden 24/25 `APPROVED`) ist am 2026-10-04 ebenfalls per §4 entfernt.
 > **Positionen 48–51 (2026-10-04, Skills-Marker-Erstmarker `AGENTS.skills.md`, Doku-only):** vier neue Positionen am Dateiende — 48 (Serial-Pin vs. Named Locks), 49 (Test-Budget/Akteur-Schlüssel), 50 (`packageManager`/`overrides`), 51 (CI-Pfadfilter). **Alle vier sind inzwischen umgesetzt und verifiziert** (Abschnitt unten: 48 am 2026-10-04 als Isolation statt Locks, Messlauf 2026-10-05 grün; 49 Runden 43/44/45 `APPROVED`; 50 Runden 48/49; 51 Runden 36/37) — der damalige Satz „Nichts davon ist implementiert" galt am 2026-10-04 und ist hiermit überholt. Die GHCR-Prüfung (beide Packages public) steht im Marker, nicht als Position.
 >
-> **Positionen 52–53 (2026-10-20, Marker-Fortschreibung `AGENTS.skills.md` auf `787670a`, Doku-only):** zwei neue Positionen am Dateiende — 52 (`build-verify`: zwei `AGENTS.md`-Sätze gegen die neue Skill-Fassung), 53 (`laravel`: Validierungs-Konvention). **Beide sind offen** — Positionen, keine Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag.
+> **Positionen 52–54 (2026-10-20, Marker-Fortschreibung `AGENTS.skills.md` auf `787670a`, Doku-only):** drei neue Positionen am Dateiende — 52 (`build-verify`: zwei `AGENTS.md`-Sätze gegen die neue Skill-Fassung), 53 (`laravel`: Validierungs-Konvention), 54 (`codegraph-project-setup`: Index + verdrahteter Hook fehlen). **Alle drei sind offen** — Positionen, keine Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag.
 > **Position 10 ist am 2026-09-30 per §4 entfernt** — drei Verifikationsrunden, Verdict **`APPROVED`**, kein critical/high. Ihre Befunde sind **nicht** ins Board gewandert, sondern in `features/auth/01-auth-and-roles.md` (F1-Wächter, F3-Akteur, F5-Invariante, F6-Zustandstest, F4s **offene** Produktfrage) und `features/badges-qr.md` (Content-Stream-Defekt, `/Length`-Extraktor); beides vom Sweep-Agenten **am Code verifiziert**, nicht geglaubt.
 > **Der Sweep hat dabei eine Nutzerentscheidung gefunden, die ich beim Schreiben der Zeile verloren hatte:** die Verzögerung der `/konto`-Manifest-Eintragung stand ausschließlich dort. Zurück als **43**.
 > **Position 10 ist am 2026-09-29 per §4 entfernt** (Konto-Löschung, dritte Verifikations-Runde: `APPROVED`, kein critical/high). Ihr **F1/F3/F4/F5/F6 stehen in `features/auth/01-auth-and-roles.md`**, die Badge-Befunde in `features/badges-qr.md` — gegen den Code geprüft, nicht geglaubt (§3).
@@ -987,7 +987,7 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 
 ---
 
-## 🔒 Skills-Marker-Nachtrag (Positionen 52–53, 2026-10-20)
+## 🔒 Skills-Marker-Nachtrag (Positionen 52–54, 2026-10-20)
 
 > **Herkunft:** Marker-Fortschreibung `AGENTS.skills.md` (`agents-skills-consumed: 6629ad2`
 > → `787670a`), Range `6629ad2..787670a` (37 Commits, 21 Skill-Verzeichnisse).
@@ -995,7 +995,12 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 > `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag
 > (`.agents/rules/build-verify.md:26` — Regel 9: „`AGENTS.todo.md` is a log, not an order";
 > im Projekt `AGENTS.md:88-90` §4). Die Skill-Prüfung selbst ist im Marker protokolliert,
-> nicht hier.
+> nicht hier. **Position 54 kam nicht aus dem Marker-Lauf selbst, sondern aus dessen
+> Verifikationsrunde:** der Marker-Commit `9170e03` trug in der Zeile
+> `codegraph-project-setup` das Verdikt **nein**, obwohl dieselbe Zeile den
+> unerfüllten Zustand (kein Index, Hook nicht verdrahtet) selbst benennt. Die
+> Verifikationsrunde hat das als falsches Verdikt gemeldet; der Marker ist inzwischen
+> berichtigt.
 
 ### 52 — `build-verify`: zwei Sätze in `AGENTS.md` §5 widersprechen der neuen Skill-Fassung
 
@@ -1057,3 +1062,64 @@ Controller sind Code, kein Doku-Eintrag.
 `grep -rl 'extends FormRequest' backend/app` = 0,
 `grep -rlE '\$request->validate\(\s*\[' backend/app/Http/Controllers` = 17,
 `grep -rl 'private function rules(' backend/app/Http/Controllers` = 8, Schnittmenge = 2.
+
+### 54 — `codegraph-project-setup`: der Pflichtteil fehlt — kein Index, und der Hook ist nicht verdrahtet
+
+**Der Skill gilt hier, und er ist nicht erfüllt.** `codegraph-project-setup` (Upstream
+`787670a`, §1) formuliert die Bereitschaft eines Projekts als genau zwei Dinge:
+*Project readiness == `codegraph init` + pre-commit hook.* Dieses Repo ist ein
+**Code-Projekt** — der Scope-Satz des Skills („**Scope: code projects**") greift,
+der Ausnahmefall (Markdown-Repo) nicht.
+
+**Was gemessen ist — jeder Befund mit dem Kommando, das ihn erzeugt.**
+
+| Befund | Kommando | Ergebnis |
+|---|---|---|
+| Code-Projekt | `ls backend/composer.json frontend/package.json` | **beide da** (Laravel-Backend + React-Frontend) |
+| Index fehlt | `ls -la .codegraph/` | nur `.gitignore` — **kein** `codegraph.db`, keine Nodes |
+| Index fehlt (zweite Messung) | `codegraph status` | `⚠ Not initialized` · `Run "codegraph init" to initialize` |
+| Hook-Datei existiert | `ls -la .githooks/` | `pre-commit` (CodeGraph-Sync, 689 B, versioniert) |
+| Hook **nicht** verdrahtet | `git config --list --show-origin \| grep -i hookspath` | **keine** Ausgabe (local/global/system leer) |
+| Kein Hook im Default-Pfad | `ls .git/hooks/pre-commit` | *No such file or directory* |
+
+**Die Konsequenz: der Hook läuft nie.** Die Datei `.githooks/pre-commit` ist
+versioniert, aber ohne `core.hooksPath` zeigt git auf `.git/hooks/` — und dort
+liegt kein Hook. Der Marker-Commit `9170e03` benannte den Zustand richtig (seine
+Zeile trug: „kein Index (`codegraph status`: „Not initialized"), und die
+Hook-Datei `.githooks/pre-commit` (CodeGraph-Sync) läuft nicht, weil
+`core.hooksPath` nirgends gesetzt ist") und schloss daraus trotzdem **„nein"** —
+das war die falsche Entscheidung: `nein` heißt „trifft nicht zu", und hier liegt
+keine Nicht-Anwendbarkeit vor, sondern eine **gemessene Lücke** an einer Pflicht,
+die dieses Projekt selbst festlegt. Der Auswahlregel des `skills-marker` (§4)
+folgend: *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"* — hier
+liegt nicht einmal ein Zweifel vor. Der Marker ist berichtigt (Verdikt **ja**,
+offene Position).
+
+**Zum Vergleich — der Geschwister-Repo `/projects/opencode-pwa` hat genau diese
+zwei Dinge.** `.codegraph/codegraph.db` (16 MB) **und**
+`core.hooksPath=.githooks` (`git config --list --show-origin` →
+`file:.git/config core.hookspath=.githooks`); dort steht im Marker folgerichtig
+`codegraph-project-setup | ja` mit `.codegraph/` (Index) und `.githooks/pre-commit`
+(Hook). Das ist die **Form einer erfüllten** Anwendung — für dieses Repo ist sie
+die Zielform, nicht der Ist-Stand.
+
+**Was offen ist — zwei Schritte, in dieser Reihenfolge.** (1) `codegraph init` im
+Repo-Root (erzeugt `.codegraph/codegraph.db`; `.codegraph/.gitignore` ist bereits
+versioniert und tracked). (2) `git config core.hooksPath .githooks` (lokale Config,
+einmal pro Clone). Danach `git hook run pre-commit` → `codegraph: index synced`,
+exit 0.
+
+**Das ist eine Position und kein Arbeitsauftrag.** `AGENTS.todo.md` ist ein Log,
+kein Auftrag — die Verifikationsrunde, die das gefunden hat, hat **nichts
+ausgeführt und nichts verdrahtet**. **Ob `codegraph init` hier läuft, ist die
+Entscheidung des Eigentümers**, nicht die einer Zeile im Board; ein Index ist ein
+lokales Artefakt, die Verdrahtung eine lokale Config, und beides ist kein
+Vorgang, der sich von selbst erledigt.
+
+**Beleg:** Upstream `787670a`: `.agents/skills/codegraph-project-setup/SKILL.md`
+(§1 „Project readiness == `codegraph init` + pre-commit hook", §2.2/§2.3,
+§3 Verification checklist). Projekt: `backend/composer.json`, `frontend/package.json`,
+`.codegraph/` (nur `.gitignore`), `.githooks/pre-commit`, `git config --list
+--show-origin` (kein `hooksPath`), `.git/hooks/pre-commit` (existiert nicht).
+Vergleich: `/projects/opencode-pwa` (`.codegraph/codegraph.db`,
+`core.hooksPath=.githooks`).
