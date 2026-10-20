@@ -28,7 +28,7 @@
 > **Frontend und E2E wurden lokal nicht nachgefahren** — dort steht weiter die CI-Zahl, und wer sie als frisch liest, irrt.
 > 
 > **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **2 Positionen** in der Batch-Tabelle (**17, 21** — beide stehengeblieben, weil je ein lebender Querverweis daran hängt; der einzige repo-weite ist `README.md:193` und zeigt auf **21**). **23 und 25 sind am 2026-10-05 per Nutzerentscheid entfernt** — beide waren verifiziert geschlossen, und die Begründung „lebende Querverweise" ist für sie **gemessen falsch**: repo-weit zeigte auf sie nichts. In der Tabelle ist damit **keine** offene Zeile mehr. **Positionen 45 (Mail-Zustellung: Queue/DLQ) und 46 (Scheduler) sind am 2026-10-04 per §4 entfernt** — beide Ströme implementiert und verifiziert (Verdicts 12, 13, 14 `APPROVED`, kein `critical`/`high`; CI-Lauf `37183737789` zu `219c398`, alle vier Jobs grün). **Gate nach den Skills-Wellen (Stand 2026-10-05, Lauf `37277096174`):** SQLite **1983 passed** (12501) · Postgres **1982 + 1 skipped** (12495) (= **dieselben** 1983) · E2E strikt `--workers=4` **168 passed / 64 skipped / 0 failed** · `check:i18n` **467**. **Der E2E-Zähler ist nicht mit den 157 der Gate-Tabelle zu vergleichen** — anderer Umfang (striktes Profil, volle Suite) und anderer Tag; **je Zahl steht ihr Lauf.** **GATE 4 GRÜN (Lauf `37034641045`, SHA `ab4c0c7`, 2026-10-02, **alle vier Jobs**):** SQLite **1771 passed** (9047 Assertions) · Postgres **1 skipped + 1770 passed** (9041) (= **dieselben** 1771) · Vitest **52 Dateien / 552 Tests** · E2E **157 passed** · `check:i18n` **436** · Pint/Lint/Build clean. **Gate 3 war auf `267c767` rot** (Lauf `37023069080`: `QrTokenV2Test`, „actual size 4 matches expected size 3" — nur Postgres) und ist auf `ab4c0c7` **behoben, nicht etikettiert**: die Behauptung `assertCount(3, explode('.'))` war nie eine Format-Invariante, sondern eine Eigenschaft der Id-Sequenz. **Sieben Positionen — 8, 9, 12, 22, 38, 41, 42 — sind am 2026-10-02 per §4 entfernt:** alle vier Wellen sind verifiziert (Verdict `APPROVED`, kein `critical`/`high`), ihr Dauerinhalt steht in `features/`, im Code und in den Wellen-Abschnitten. **Geschlossen, aber stehengeblieben sind 2:**
-> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe").
+> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe"). **Außerhalb der Batch-Tabelle stehen zwei offene Positionen: 52, 53 (Skills-Marker-Nachtrag, 2026-10-20)** — beide Positionen, keine Arbeitsaufträge, beide entscheidungs offen; die Batch-Tabelle bleibt davon unberührt (2 Zeilen = 0 offen + 2 stehengeblieben).
 > **Lokaler Voll-Lauf gegen `00bd0bc` (2026-10-05, seriell) — das ist der Stand dieses HEAD, nicht der von `37277096174`:** SQLite **2017 passed** · Postgres **2016 + 1 skipped** (= **dieselben** 2017) · Vitest **58 Dateien / 626** · E2E **170 passed / 67 skipped / 1 failed**. **Der eine Fehlschlag ist `child-lifetime.spec.ts:394` und damit D27, kein neuer Befund:** PID 1 ist auf diesem Host `opencode serve` (kein `init`), und der Test nennt die Ursache in seiner eigenen Fehlermeldung mit — **Host-Limitation, kein Code-Defekt**; mit `options: --init` (CI) läuft er. Dauerfassung in `features/05-e2e-test-image.md`.
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-05, nach dem §4-Schnitt und dem 23/25-Schnitt):** **2 Zeilen** in der Batch-Tabelle = **0 offen** + **2 stehengeblieben** (17, 21 — lebende Querverweise). **Die sieben Positionen 8, 9, 12, 22, 38, 41, 42 sind entfernt** (verifiziert `APPROVED`), mit ihnen **45** (dieselbe Zeile, jetzt geschlossen). **Position 46** (kein Scheduler) stand nie in dieser Tabelle, sondern unter P6, und ist mit 45 entfernt. **Position 47** (Sub-`resend`-Button, P6-Block, Runden 24/25 `APPROVED`) ist am 2026-10-04 ebenfalls per §4 entfernt.
 > **Positionen 48–51 (2026-10-04, Skills-Marker-Erstmarker `AGENTS.skills.md`, Doku-only):** vier neue Positionen am Dateiende — 48 (Serial-Pin vs. Named Locks), 49 (Test-Budget/Akteur-Schlüssel), 50 (`packageManager`/`overrides`), 51 (CI-Pfadfilter). **Alle vier sind inzwischen umgesetzt und verifiziert** (Abschnitt unten: 48 am 2026-10-04 als Isolation statt Locks, Messlauf 2026-10-05 grün; 49 Runden 43/44/45 `APPROVED`; 50 Runden 48/49; 51 Runden 36/37) — der damalige Satz „Nichts davon ist implementiert" galt am 2026-10-04 und ist hiermit überholt. Die GHCR-Prüfung (beide Packages public) steht im Marker, nicht als Position.
@@ -993,7 +993,9 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 > → `787670a`), Range `6629ad2..787670a` (37 Commits, 21 Skill-Verzeichnisse).
 > **Nichts hiervon ist implementiert** — das sind Positionen, keine Arbeitsaufträge:
 > `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag
-> (`AGENTS.md:121-123`). Die Skill-Prüfung selbst ist im Marker protokolliert, nicht hier.
+> (`.agents/rules/build-verify.md:26` — Regel 9: „`AGENTS.todo.md` is a log, not an order";
+> im Projekt `AGENTS.md:88-90` §4). Die Skill-Prüfung selbst ist im Marker protokolliert,
+> nicht hier.
 
 ### 52 — `build-verify`: zwei Sätze in `AGENTS.md` §5 widersprechen der neuen Skill-Fassung
 
@@ -1010,10 +1012,11 @@ damit an der einen Stelle **stiller Widerspruch** zur Regel, auf die es sich sel
 **(b) Die Restart-Regel.** `AGENTS.md:123-125` (e) schreibt vor: *mit `sessionID` + Prompt
 „continue" neu starten (Kontext wiederaufnehmen), nicht von vorne beginnen.* Die
 Upstream-Fassung seit `424a7c3` dreht das um — *every dispatch is a **new** subagent
-session* (`.agents/skills/build-verify/SKILL.md:33, 73-75`); eine Fortsetzung ist nur für
-eine Fix-Runde **in derselben** Aufgabe zulässig und *even then the orchestrator decides
-consciously*. Der Kontext wird upstream ausdrücklich als Fehlerquelle begründet (*a
-continued context carries the round's own defects into the next round*).
+session* (`.agents/skills/build-verify/SKILL.md:34` und `:74-77` in der Fassung `787670a`);
+eine Fortsetzung ist nur für eine Fix-Runde **in derselben** Aufgabe zulässig und *even
+then the orchestrator decides consciously*. Der Kontext wird upstream ausdrücklich als
+Fehlerquelle begründet (*a continued context carries the round's own defects into the next
+round*).
 
 **Warum das eine Position ist und kein Mitlaufen.** Beide Sätze stehen in `AGENTS.md` §5 —
 also in der Datei, die §5 Punkt 4 als *unverändert geltend* erklärt. Bleiben sie so,
@@ -1022,11 +1025,11 @@ gilt) ist eine Nutzerentscheidung** — deshalb steht sie hier als Position, nic
 stille Korrektur.
 
 **Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` Regel 3 (`:18`);
-`.agents/skills/build-verify/SKILL.md` („Fresh session per round", `:73-75`). Projekt:
-`AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)), `AGENTS.md:114-117`
-(Punkt 4).
+`.agents/skills/build-verify/SKILL.md` („Fresh session per round", `:34`, `:74-77`).
+Projekt: `AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)),
+`AGENTS.md:114-117` (Punkt 4).
 
-### 53 — `laravel`: Validierungs-Konvention (FormRequest/`rules()`) ist nicht umgesetzt
+### 53 — `laravel`: Validierungs-Konvention nicht umgesetzt — `FormRequest`-Struktur fehlt, `rules()` bei 8/23 Controllern getragen, 17 mit Inline-Array
 
 **Der Skill ist aus diesem Repo destilliert** und nennt die Struktur explizit:
 `app/Http/Requests/` — *one `FormRequest` per write endpoint (`authorize()` + `rules()`)*;
@@ -1051,4 +1054,6 @@ Controller sind Code, kein Doku-Eintrag.
 **Beleg:** Upstream `787670a`: `.agents/skills/laravel/SKILL.md:20, 60-61`,
 `.agents/skills/laravel/references/backend-conventions.md` (Zeile „Validation"). Projekt:
 `backend/app/Http/` (kein `Requests/`), `grep -rl 'validate(' backend/app/Http/Controllers` = 23,
-`grep -rl 'extends FormRequest' backend/app` = 0.
+`grep -rl 'extends FormRequest' backend/app` = 0,
+`grep -rlE '\$request->validate\(\s*\[' backend/app/Http/Controllers` = 17,
+`grep -rl 'private function rules(' backend/app/Http/Controllers` = 8, Schnittmenge = 2.
