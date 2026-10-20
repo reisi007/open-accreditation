@@ -20,8 +20,10 @@ geprüft am: 2026-10-20
 > zusätzlich Beschreibung und Body von `build-verify` und zieht `README.md` und
 > `.github/skill-budget.json` nach; `0024d7e` — schließt die Drift um den
 > ungenutzten `instructions`-Key (in `agent-config`, `build-verify`,
-> `skills-marker`, der Regel `.agents/rules/build-verify.md`, `AGENTS.md` und
-> `README.md`) und zieht `.github/skill-budget.json` nach; `5a0c1b0` — berührt
+> `skills-marker`, der Regel `.agents/rules/build-verify.md` und `README.md`;
+> an `AGENTS.md` änderte derselbe Commit nur die Kennzeichnung von
+> `agent-config` als hidden — „load it by exact ID", keine `instructions`-Aussage)
+> und zieht `.github/skill-budget.json` nach; `5a0c1b0` — berührt
 > überhaupt keinen Skill (nur `AGENTS.todo.md` des Skills-Repos).
 > Der Pfad zum Skills-Repo steht hier bewusst nicht (Marker bleibt bei Verschiebung
 > gültig). Jede Ja-Zeile nennt eine **stabile Referenz** (Abschnitt, Überschrift oder
@@ -119,10 +121,11 @@ Peak-Regel, der Flow steht bei `:114-117`), `docker-test-image` (`ci.yml:534` �
 GHCR-Hinweis steht heute bei `:526-530`), `playwright-parallel` (`ci.yml:782-786`
 → die Worker-Begründung steht heute bei `:792-802`, die Kommandos bei `:866-870`)
 sowie **die drei Anker der beiden Zeilen** `ui-review` (zwei: `AGENTS.md:361-433`
-und `:424-425`) und `vision-agents` (einer: `AGENTS.md:418-421`) — **alle drei**
-lagen **jenseits des Dateiendes** (`AGENTS.md` hat heute 380 Zeilen, die Anker
-endeten bei 433 bzw. 421; `ui-review:361-433` zeigt heute auf den Modul-Abschnitt
-§9). Exakt hielten dagegen alle vier Anker der Zeile `node-deps` (`ci.yml:481`/`:739`,
+und `:424-425`) und `vision-agents` (einer: `AGENTS.md:418-421`) — **zwei der drei
+lagen vollständig jenseits des Dateiendes** (`AGENTS.md` hat heute 380 Zeilen),
+der dritte (`ui-review:361-433`) **beginnt bei 361 innerhalb der Datei** (§9, der
+Modul-Abschnitt) und ragt nur mit seinem Ende (433) hinaus; die drei Enden lagen
+bei 433, 425 und 421. Exakt hielten dagegen alle vier Anker der Zeile `node-deps` (`ci.yml:481`/`:739`,
 `e2e-image.yml:64`, `Dockerfile.e2e:117`) und `github-ci-filters` (`ci.yml:61-67`);
 `ghcr-visibility`/`docker-test-image` hielten je einen ihrer zwei Anker. Zwei
 Zeilen der Vorgängerversion (`model-updater`, `update-opencode-models`) und die
