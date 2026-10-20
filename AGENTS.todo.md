@@ -32,6 +32,8 @@
 > **Lokaler Voll-Lauf gegen `00bd0bc` (2026-10-05, seriell) — das ist der Stand dieses HEAD, nicht der von `37277096174`:** SQLite **2017 passed** · Postgres **2016 + 1 skipped** (= **dieselben** 2017) · Vitest **58 Dateien / 626** · E2E **170 passed / 67 skipped / 1 failed**. **Der eine Fehlschlag ist `child-lifetime.spec.ts:394` und damit D27, kein neuer Befund:** PID 1 ist auf diesem Host `opencode serve` (kein `init`), und der Test nennt die Ursache in seiner eigenen Fehlermeldung mit — **Host-Limitation, kein Code-Defekt**; mit `options: --init` (CI) läuft er. Dauerfassung in `features/05-e2e-test-image.md`.
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-05, nach dem §4-Schnitt und dem 23/25-Schnitt):** **2 Zeilen** in der Batch-Tabelle = **0 offen** + **2 stehengeblieben** (17, 21 — lebende Querverweise). **Die sieben Positionen 8, 9, 12, 22, 38, 41, 42 sind entfernt** (verifiziert `APPROVED`), mit ihnen **45** (dieselbe Zeile, jetzt geschlossen). **Position 46** (kein Scheduler) stand nie in dieser Tabelle, sondern unter P6, und ist mit 45 entfernt. **Position 47** (Sub-`resend`-Button, P6-Block, Runden 24/25 `APPROVED`) ist am 2026-10-04 ebenfalls per §4 entfernt.
 > **Positionen 48–51 (2026-10-04, Skills-Marker-Erstmarker `AGENTS.skills.md`, Doku-only):** vier neue Positionen am Dateiende — 48 (Serial-Pin vs. Named Locks), 49 (Test-Budget/Akteur-Schlüssel), 50 (`packageManager`/`overrides`), 51 (CI-Pfadfilter). **Alle vier sind inzwischen umgesetzt und verifiziert** (Abschnitt unten: 48 am 2026-10-04 als Isolation statt Locks, Messlauf 2026-10-05 grün; 49 Runden 43/44/45 `APPROVED`; 50 Runden 48/49; 51 Runden 36/37) — der damalige Satz „Nichts davon ist implementiert" galt am 2026-10-04 und ist hiermit überholt. Die GHCR-Prüfung (beide Packages public) steht im Marker, nicht als Position.
+>
+> **Positionen 52–53 (2026-10-20, Marker-Fortschreibung `AGENTS.skills.md` auf `787670a`, Doku-only):** zwei neue Positionen am Dateiende — 52 (`build-verify`: zwei `AGENTS.md`-Sätze gegen die neue Skill-Fassung), 53 (`laravel`: Validierungs-Konvention). **Beide sind offen** — Positionen, keine Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag.
 > **Position 10 ist am 2026-09-30 per §4 entfernt** — drei Verifikationsrunden, Verdict **`APPROVED`**, kein critical/high. Ihre Befunde sind **nicht** ins Board gewandert, sondern in `features/auth/01-auth-and-roles.md` (F1-Wächter, F3-Akteur, F5-Invariante, F6-Zustandstest, F4s **offene** Produktfrage) und `features/badges-qr.md` (Content-Stream-Defekt, `/Length`-Extraktor); beides vom Sweep-Agenten **am Code verifiziert**, nicht geglaubt.
 > **Der Sweep hat dabei eine Nutzerentscheidung gefunden, die ich beim Schreiben der Zeile verloren hatte:** die Verzögerung der `/konto`-Manifest-Eintragung stand ausschließlich dort. Zurück als **43**.
 > **Position 10 ist am 2026-09-29 per §4 entfernt** (Konto-Löschung, dritte Verifikations-Runde: `APPROVED`, kein critical/high). Ihr **F1/F3/F4/F5/F6 stehen in `features/auth/01-auth-and-roles.md`**, die Badge-Befunde in `features/badges-qr.md` — gegen den Code geprüft, nicht geglaubt (§3).
@@ -982,3 +984,71 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 ### ✅ 51 — `github-ci-filters`: umgesetzt 2026-10-04 (verifiziert Runden 36/37, Befunde in Arbeit)
 
 **Was gebaut wurde:** `ci.yml` `paths-ignore: ['**/*.md']` auf `push` + `pull_request` (24/649 Pfade, kein `.md`-Leser im Repo, Branch unprotected gemessen); Image-`paths:` **behalten mit Begründung** (Build-Eingabe positiv+winzig; `paths-ignore` ohne Negation unpflegbar) — aber zwei echte Lücken geschlossen: `deployment/Dockerfile` → `deployment/**` (Skripte per `RUN --mount` installiert, bis 24 h Drift), `e2e-image` + `frontend/package.json` (PNPM_VERSION aus Pin, bis 7 Tage Drift). Gate-Gefährdung: 0 Key-Diffs, kein erlöschender Check (Dependabot kann keinen `.md`-only-PR erzeugen). Messung 40 Commits: 9 SKIP / 31 RUN / 0 Mismatch *(korrigiert 2026-10-04, Runde 36, Befund F2: 9+30=39 ≠ 40 — der 40. ist Leer-Commit `324a27e5`, ohne Pfade fällt die Enumeration auf RUN)*. Echte Bewährung beobachtet: Docs-Commit `d048ef2` erzeugte 0 Runs.
+
+---
+
+## 🔒 Skills-Marker-Nachtrag (Positionen 52–53, 2026-10-20)
+
+> **Herkunft:** Marker-Fortschreibung `AGENTS.skills.md` (`agents-skills-consumed: 6629ad2`
+> → `787670a`), Range `6629ad2..787670a` (37 Commits, 21 Skill-Verzeichnisse).
+> **Nichts hiervon ist implementiert** — das sind Positionen, keine Arbeitsaufträge:
+> `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag
+> (`AGENTS.md:121-123`). Die Skill-Prüfung selbst ist im Marker protokolliert, nicht hier.
+
+### 52 — `build-verify`: zwei Sätze in `AGENTS.md` §5 widersprechen der neuen Skill-Fassung
+
+**Zwei Stellen, gemessen an der Upstream-Fassung `787670a`, nicht behauptet.**
+
+**(a) Der Verifikator-Konflikt.** `AGENTS.md:131` (Rolle „Verifikator (Subagent)") sagt
+heute: *führt Tests/Lint/Build aus und prüft den Diff.* Die Upstream-Regel 3
+(`.agents/rules/build-verify.md:18`) sagt seit `86d677e` das Gegenteil: der Verifikator
+prüft die **Substanz**, nicht die mechanischen Gates — *reported green with quoted output,
+the gates are not re-run* (vier Ausnahmen stehen im Skill). Das Projekt-`AGENTS.md` ist
+damit an der einen Stelle **stiller Widerspruch** zur Regel, auf die es sich selbst beruft
+(`AGENTS.md:114-117`: „**gilt hier unverändert**").
+
+**(b) Die Restart-Regel.** `AGENTS.md:123-125` (e) schreibt vor: *mit `sessionID` + Prompt
+„continue" neu starten (Kontext wiederaufnehmen), nicht von vorne beginnen.* Die
+Upstream-Fassung seit `424a7c3` dreht das um — *every dispatch is a **new** subagent
+session* (`.agents/skills/build-verify/SKILL.md:33, 73-75`); eine Fortsetzung ist nur für
+eine Fix-Runde **in derselben** Aufgabe zulässig und *even then the orchestrator decides
+consciously*. Der Kontext wird upstream ausdrücklich als Fehlerquelle begründet (*a
+continued context carries the round's own defects into the next round*).
+
+**Warum das eine Position ist und kein Mitlaufen.** Beide Sätze stehen in `AGENTS.md` §5 —
+also in der Datei, die §5 Punkt 4 als *unverändert geltend* erklärt. Bleiben sie so,
+widerspricht das Projekt seiner eigenen Delegation. **Die Entscheidung (welche Fassung
+gilt) ist eine Nutzerentscheidung** — deshalb steht sie hier als Position, nicht als
+stille Korrektur.
+
+**Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` Regel 3 (`:18`);
+`.agents/skills/build-verify/SKILL.md` („Fresh session per round", `:73-75`). Projekt:
+`AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)), `AGENTS.md:114-117`
+(Punkt 4).
+
+### 53 — `laravel`: Validierungs-Konvention (FormRequest/`rules()`) ist nicht umgesetzt
+
+**Der Skill ist aus diesem Repo destilliert** und nennt die Struktur explizit:
+`app/Http/Requests/` — *one `FormRequest` per write endpoint (`authorize()` + `rules()`)*;
+einfache Fälle dürfen `$request->validate($this->rules())` nutzen
+(`.agents/skills/laravel/SKILL.md:20, 60-61`). Seine eigene Referenz nennt den
+open-acc-Zweig ausdrücklich als zulässig: *`app/Http/Requests/` (portal) or controller
+`rules()` (open-acc)*.
+
+**Was im Projekt steht (gemessen, nicht geschätzt).** `backend/app/Http/Requests/` existiert
+**nicht**; im ganzen `backend/app` gibt es **0** Klassen, die `FormRequest` erweitern
+(`grep -rl 'extends FormRequest' backend/app` → 0). Von **23** Controllern mit `validate(...)`
+(`grep -rl 'validate(' backend/app/Http/Controllers` → 23) nutzen **17** ein Inline-Array
+direkt am Aufruf (`$request->validate([...])`), **8** eine private `rules()`-Methode (2 in
+beiden Formen). Die im Skill genannte `rules()`-Variante ist also bei 8 von 23 Controllern
+getragen — die Inline-Array-Form ist es bei 17.
+
+**Was offen ist.** Ob die Inline-Array-Form bleiben darf oder auf `rules()`/FormRequest
+umgestellt wird, ist eine **Konventionsentscheidung des Projekts** — der Skill ist die
+upstream-Vorlage, nicht das Projektgesetz. Umgestellt wird das nicht nebenbei: 17
+Controller sind Code, kein Doku-Eintrag.
+
+**Beleg:** Upstream `787670a`: `.agents/skills/laravel/SKILL.md:20, 60-61`,
+`.agents/skills/laravel/references/backend-conventions.md` (Zeile „Validation"). Projekt:
+`backend/app/Http/` (kein `Requests/`), `grep -rl 'validate(' backend/app/Http/Controllers` = 23,
+`grep -rl 'extends FormRequest' backend/app` = 0.
