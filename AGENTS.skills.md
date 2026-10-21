@@ -10,14 +10,30 @@ Anker bleibt); Wortlaut, Belege und Fälle: `skills-marker/references/notes.md`
 Commits (die SHA, die erst mit dem Commit existiert), `<messstand>` = der Stand, an dem
 gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills-Repos.
 
-> Fünftmarker. Geprüfte Range `0449b05..820c140` — **9 Commits** des Skills-Repos
+> Fünftmarker — der Cursor-Stand `820c140` ist der **fünfte** Stand, den der Cursor dieses
+> Markers geführt hat (`aad25d1` → `6629ad2` → `787670a` → `0449b05` → `820c140`; gemessen
+> am committeten Stand dieses Commits: `git log --format=%h -- AGENTS.skills.md` und
+> `git show <sha>:AGENTS.skills.md | grep -m1 '^agents-skills-consumed:'`). **Zwischenstand
+> ohne eigenen Marker:** der Commit `7304a03` führte den Cursor zwischenzeitlich auf
+> `f7b8f9c`; dieser Zwischenstand wurde von `6c544a9` auf `820c140` **erweitert** und ist
+> deshalb **kein** eigener Marker-Stand. **Lokale Ergänzung:** die Regel, die diese
+> Zählung trägt — „eine Aufzählung trägt zwei Behauptungen: jedes Element trägt die
+> Eigenschaft **und** die Liste ist die ganze Menge" — steht erst im Skills-Stand
+> `c056e75`, den dieser Marker **nicht** konsumiert (siehe den ungeprüften Rest im Kopf);
+> sie wird hier **angewendet**, nicht zitiert. Geprüfte Range
+> `0449b05..820c140` — **9 Commits** des Skills-Repos
 > (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**, gemessen am
 > **Skills-Repo-Commit `820c140`**, den dieser Marker konsumiert; **Messzeitpunkt
 > 2026-10-21**). **Der Cursor `820c140` ist der Stand des Skills-Repos, den dieser
-> Marker konsumiert.** Beim **Messen** (unmittelbar vor dem Commit, 2026-10-21) stand
-> der Skills-Repo-HEAD auf `820c140` und war mit `origin/main` identisch
+> Marker konsumiert.** Bei der **zweiten** Messung — derjenigen, die den Cursor setzte —
+> stand der Skills-Repo-HEAD auf `820c140` und war mit `origin/main` identisch
 > (`git -C <skills-repo> rev-list --count origin/main..HEAD` → **0**,
-> `... HEAD..origin/main` → **0**). Der Cursor ist **9 Commits** vorgerückt
+> `... HEAD..origin/main` → **0**). **Diese Messung ist datiert, nicht relativ zum
+> Commit:** sie fiel **nach** dem Skills-Repo-Commit `820c140` (2026-10-21 20:28:26 +0000)
+> und **vor** dem Projekt-Commit `7304a03` (2026-10-21 20:30:42 +0000) — **nicht**
+> unmittelbar vor dem Projekt-Commit `2d55b0f` (2026-10-21 20:37:44 +0000), bei dem der
+> Skills-Repo-HEAD auf `37cefe2` stand (2026-10-21 20:36:14 +0000). Der Cursor ist
+> **9 Commits** vorgerückt
 > (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**).
 > Die Range berührte **genau 2 Skill-Verzeichnisse** unter `.agents/skills/`
 > (`git log --name-only --format= 0449b05..820c140 -- .agents/skills | sort -u` →
@@ -29,15 +45,22 @@ gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills
 > Anker-Prüfung) auf `820c140` — der Commit `820c140` landete **während** dieses Laufs
 > (Commit-Datum 2026-10-21 20:28:26 +0000). Die Range ist deshalb auf den **gemessenen**
 > Endstand `820c140` gezogen (**9** Commits); `f7b8f9c` ist ein **Vorgänger** darin.
-> **Nach** dieser Messung ist **ein weiterer** Commit im Skills-Repo gelandet:
-> `37cefe2` („docs(skills-marker): the noun does not decide the case, and an
-> enumeration carries two claims"). Er ist **NICHT** Teil der geprüften Range und **NICHT
-> geprüft** — er berührt **nur** `skills-marker` (`SKILL.md`, `references/notes.md`,
-> `templates/AGENTS.skills.md`; **89** Einfügungen, **35** Löschungen) und gehört in den
-> nächsten Marker-Lauf; **der Cursor bleibt `820c140`**. Zur Kontrolle gemessen: die
-> **Anker** dieses Markers lösen auch am Stand `37cefe2` auf (je **1** Treffer,
-> `Bezugsrahmen-Regel` weiterhin **7-mal** im Skill-Verzeichnis) — das ändert nichts an
-> der Prüfpflicht: der Cursor nennt den **konsumierten** Stand, und dieser ist `820c140`.
+> **Nach** dieser Messung sind im Skills-Repo **drei** weitere Commits gelandet:
+> `37cefe2` (2026-10-21 20:36:14 +0000; „docs(skills-marker): the noun does not decide the
+> case, and an enumeration carries two claims"; **nur** `skills-marker` — `SKILL.md`,
+> `references/notes.md`, `templates/AGENTS.skills.md`; **89** Einfügungen, **35** Löschungen),
+> `7328fc3` (2026-10-21 20:48:22 +0000; „docs(github-ci-filters): a catch-all `paths`
+> subtracts, and the diff needs named endpoints"; **nur** `github-ci-filters` — `SKILL.md`,
+> `references/notes.md`; **189** Einfügungen, **123** Löschungen) und `c056e75`
+> (2026-10-21 20:49:28 +0000; „docs(skills-marker): the notes may not carry the claim they
+> just removed"; **nur** `skills-marker` — `references/notes.md`; **21** Einfügungen,
+> **14** Löschungen). **Keiner** davon ist Teil der geprüften Range und **keiner** ist
+> geprüft; alle **drei** gehören in den nächsten Marker-Lauf; **der Cursor bleibt
+> `820c140`**. Zur Kontrolle gemessen: die **Anker** dieses Markers lösen auch am Stand
+> `c056e75` auf (je **1** Treffer; `Bezugsrahmen-Regel` dort **8-mal** im
+> Skill-Verzeichnis — **7** in `skills-marker`, **1** in `github-ci-filters`) — das ändert
+> nichts an der Prüfpflicht: der Cursor nennt den **konsumierten** Stand, und dieser ist
+> `820c140`.
 > **Neu in der Range:** **0** Skills (`git log --diff-filter=A --name-only --format=
 > 0449b05..820c140 -- .agents/skills` → **leer**) — **neu versteckt: 0** —
 > **entfernt: 0**. **Versteckt gesamt:** unverändert **17** von **19** Skills mit
@@ -62,13 +85,13 @@ gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills
 | `generated-docs` | offen | `features/venue-master-data.md` „Portabilität (§2)" (`:358-368`: die Gate-Zahlen nennen Lauf `37280377310`, Datum und Leser — die Zahl steht **in** der Prosa), `features/auth/01-auth-and-roles.md` (`:430-454`: die unbezifferte Zahl wurde durch **andere Prosa** ersetzt) | **Position 56** — die Pflicht trifft zu und ist **nicht erfüllt**: das Projekt hat **weder einen Generator noch ein Drift-Gate** (gemessen am Vorgänger `a4551c8`, seitdem unverändert — `git diff --stat a4551c8..<stand> -- scripts/` → leer: `scripts/` enthält nur `assert-db-driver.php`, `dev-worker.sh`, `e2e-up.sh`, `lib/`, `pdf-to-png-vision.sh`, `render-badge-photo-placeholder.mjs`, `test-pgsql.sh`; im committeten Baum **keine** Datei mit `gen_`/`drift`/`doc_fact`/`generate` im Namen). Die Skill-Regel nennt die Zahl in Prosa ausdrücklich als Fehlerfall (Upstream `generated-docs/SKILL.md`, Anker „## Numbers in prose" — **ohne Zeilennummer**, die driftet; **1** Treffer am Stand `820c140`, die Datei ist in dieser Range unverändert). **Kein „nein"**, weil das Projekt die Pflicht in eigener Form trägt: `AGENTS.md:80` („für ein Dokument Diff gegen den Code, nicht gegen die Absicht") — die Lücke ist der **fehlende maschinelle Check**, nicht die fehlende Pflicht |
 | `ghcr-visibility` | ja | `.github/workflows/ci.yml` (Kommentar „ein public GHCR-Package" `:526-530` + `image: ghcr.io/…` `:550`), `features/05-e2e-test-image.md` (`:167-168`) | keine — beide Packages public (geprüft 2026-10-20: `gh api visibility=public` für `accriditation-e2e` und `accriditation-base`) |
 | `github-ci-filters` | ja | `.github/workflows/ci.yml` → `paths-ignore: '**/*.md'` auf `push` **und** `pull_request` (`:63`, `:66`) | keine — **seit `817c01e` hidden**: die Pflicht gilt unverändert, nur der Ladeweg ändert sich (per exakter ID) |
-| `laravel` | offen | `backend/AGENTS.md` (Commands, DB-/Migrations-Policy, Parallel-Testing, Datei-Tests), `backend/phpunit.xml` (Hermetik-Pins), `backend/composer.json` (PHP ^8.5, pint, paratest, jwt-auth) | Position 53 — Validierungs-Konvention nicht umgesetzt; am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..<stand> -- backend/` → leer): `FormRequest`-Klassen **0**, `rules()` bei **8** von **23** Controllern, Inline-Array bei **17** |
+| `laravel` | offen | `backend/AGENTS.md` (Commands, DB-/Migrations-Policy, Parallel-Testing, Datei-Tests), `backend/phpunit.xml` (Hermetik-Pins), `backend/composer.json` (PHP ^8.5, pint, paratest, jwt-auth) | Position 53 — Validierungs-Konvention nicht umgesetzt; am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..<stand> -- backend/` → leer): `FormRequest`-Klassen **0**, `rules()` bei **8** von **23** Controllern **mit Schreib-Endpunkten** (store/update/destroy/create/edit), Inline-Array bei **17** Controllern **insgesamt** (unabhängig von der Schreib-Endpunkt-Eigenschaft) |
 | `node-deps` | ja | `frontend/package.json` (keine Pins/Overrides), `ci.yml` (`version: 11` `:481`, `:739`), `e2e-image.yml` (`PNPM_VERSION: "11"` `:64`), `deployment/Dockerfile.e2e` (`ARG PNPM_VERSION=11` `:117`) | keine |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine) — das Projekt definiert keine; `backend/config/permissions.php` ist die Gate-Matrix des Projekts, nicht diese Policy |
 | `playwright-parallel` | ja | `.github/workflows/ci.yml` (Run-Step: die Worker-Begründung `:792-802`, die Kommandos `:866-870`), `frontend/playwright.config.ts` (`fullyParallel: true` `:24`, `workers: process.env.CI ? 4 : 8` `:27`) | keine |
-| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: Upstream `ratchet-gates/references/vocabulary.md`, Anker „**A finding needs an owner and a ticket**" (unless it is `fixed`) — und Upstream `ratchet-gates/SKILL.md`, Anker „an owner and a ticket per entry" (der Anker steht über den Zeilenumbruch). **Beide sind ohne Zeilennummer zitiert** (die Zeilennummer driftet) und **beide sind unverändert**: **1** Treffer je Anker am Stand `820c140` wie am Vorgänger `0449b05` (`git diff --stat 0449b05..820c140 -- .agents/skills/ratchet-gates/SKILL.md .agents/skills/ratchet-gates/references/vocabulary.md` → leer). Die Regeln waren in der Range `787670a..0449b05` **neu**; das Projekt trägt sie bis heute nirgends. **Die Range `0449b05..820c140` hat diesen Skill berührt** (`d5dc52f` → `references/cli.md`), **an der Gate-Substanz aber nichts**: die geänderte Datei ist die CLI-Karte, nicht die Gates (Niveaus, Stände, Zählregel, Owner-/Ticket-Regel, Baseline-Teil) — das Verdikt `offen` und die Position **57** bleiben deshalb sachlich richtig. Die Release-Aussage dreht sich um („**No tag was pushed yet** … build from source" → „**The releases are published**"), das Projekt hat **keinen** `ratchet`-Werkzeugbaum, **keine** Baseline und **keine** Release-Pipeline, und die **alte** Aussage stand nie in diesem Marker oder im Board (gemessen: `git grep -inE 'No tag was pushed|build from source|kein Tag.*(push|veröffentlicht)' <stand> -- AGENTS.skills.md AGENTS.todo.md` → **0** Treffer) — es ist **nichts** zu korrigieren. **Zwei Messungen, zwei Rahmen:** das **Register** ist eine Fremddatei — am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..<stand> -- features/security/accepted-risks.md` → leer): `git grep -ciE 'owner|ticket' a4551c8 -- features/security/accepted-risks.md` → **0** Treffer. Der **Board** ist eine der beiden geänderten Dateien — daher am **committeten Stand dieses Commits** gemessen, und die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (die Form aus dem Marker von `/projects/LuminaRust`): `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` trifft ausschließlich den **Meta-Text** (die Kopfzeile mit dem Positions-Index und die Positionstexte 55–57), in den **Befund-Zeilen der Batch-Tabelle** (`| **N** | …`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im **Projektbaum** gibt es **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes bekannter Fehler). **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; am Vorgänger `a4551c8` gemessen — der Projektbaum ist gegenüber dem Vorgänger unverändert, **45** Zeilen-Treffer in **20** Dateien an beiden Ständen): `git grep -in baseline 2da0404 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → **45**; Verteilung `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, Rest **23**; nach Bereich: 1 Dokumentationsdatei, 10 Backend-Dateien (davon 7 in `backend/tests/`), 9 Frontend-Dateien. **Repo-weit** (mit den beiden Doku-Dateien) sind es **56** Zeilen-Treffer in **22** Dateien am committeten Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist. Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy), und die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
+| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: Upstream `ratchet-gates/references/vocabulary.md`, Anker „**A finding needs an owner and a ticket**" (unless it is `fixed`) — und Upstream `ratchet-gates/SKILL.md`, Anker „an owner and a ticket per entry" (der Anker steht über den Zeilenumbruch). **Beide sind ohne Zeilennummer zitiert** (die Zeilennummer driftet) und **beide sind unverändert**: **1** Treffer je Anker am Stand `820c140` wie am Vorgänger `0449b05` (`git diff --stat 0449b05..820c140 -- .agents/skills/ratchet-gates/SKILL.md .agents/skills/ratchet-gates/references/vocabulary.md` → leer). Die Regeln waren in der Range `787670a..0449b05` **neu**; das Projekt trägt sie bis heute nirgends. **Die Range `0449b05..820c140` hat diesen Skill berührt** (`d5dc52f` → `references/cli.md`), **an der Gate-Substanz aber nichts**: die geänderte Datei ist die CLI-Karte, nicht die Gates (Niveaus, Stände, Zählregel, Owner-/Ticket-Regel, Baseline-Teil) — das Verdikt `offen` und die Position **57** bleiben deshalb sachlich richtig. Die Release-Aussage dreht sich um („**No tag was pushed yet** … build from source" → „**The releases are published**"), das Projekt hat **keinen** `ratchet`-Werkzeugbaum, **keine** Baseline und **keine** Release-Pipeline, und die **alte** Aussage stand nie in diesem Marker oder im Board (gemessen: **3** Treffer am committeten Stand, **alle drei sind die Zitate des Markers selbst**; im Board **0**; am Vorgänger `734d7d1` **0** — Abfrage, Umfang und Belege im Range-Abschnitt) — es ist **nichts** zu korrigieren. **Zwei Messungen, zwei Rahmen:** das **Register** ist eine Fremddatei — am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..<stand> -- features/security/accepted-risks.md` → leer): `git grep -ciE 'owner|ticket' a4551c8 -- features/security/accepted-risks.md` → **0** Treffer. Der **Board** ist eine der beiden geänderten Dateien — daher am **committeten Stand dieses Commits** gemessen, und die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (die Form aus dem Marker von `/projects/LuminaRust`): `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` trifft ausschließlich den **Meta-Text** (die Kopfzeile mit dem Positions-Index und die Positionstexte 55–57), in den **Befund-Zeilen der Batch-Tabelle** (`| **N** | …`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im **Projektbaum** gibt es **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes bekannter Fehler). **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; am Vorgänger `a4551c8` gemessen — der Projektbaum ist gegenüber dem Vorgänger unverändert, **45** Zeilen-Treffer in **20** Dateien an beiden Ständen): `git grep -in baseline 2da0404 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → **45**; Verteilung `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, Rest **23**; nach Bereich: 1 Dokumentationsdatei, 10 Backend-Dateien (davon 7 in `backend/tests/`), 9 Frontend-Dateien. **Repo-weit** (mit den beiden Doku-Dateien) sind es **56** Zeilen-Treffer in **22** Dateien am committeten Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist. Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — **davon 7 Trefferzeilen mit 9 Vorkommen in den beiden geänderten Doku-Dateien selbst** (dieser Marker **1** Zeile mit **2** Vorkommen, der Board **6** Zeilen mit **7** Vorkommen) — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy), und die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
 | `react-i18n` | ja | `frontend/AGENTS.md` (§ „Lingui / i18n — No Module-Scope `t` (STRICT)" `:97`), `frontend/vite.config.ts` (lingui-Plugin + Babel-Preset `:32-33`), `frontend/src/main.tsx` (I18nProvider als erster Import `:1`, `:5`), `frontend/package.json` (`lingui:extract`/`lingui:compile`, `check:i18n` in `prebuild`) | keine — das Projekt weicht bewusst ab: zwei Locales (de+en) mit Vollständigkeits-Gate statt der Portal-Referenz (eine Locale + Rohstring-Pass) |
-| `security-review` | ja | `AGENTS.md` §10 (Fundort der Befunde) + `features/security/accepted-risks.md` (Register A1–A8), `AGENTS.md` §3 (Regressionstest je Fix `:59`) | keine — das Register trägt die kanonischen Stände (`accepted`) und Niveaus (`low`/`medium`) mit stabilen Ids; die Klassen BELEGT/HEURISTIK/AKZEPTIERT bleiben daneben stehen und kollidieren nicht **Board-Messung am committeten Stand dieses Commits** (der Board ist eine der beiden geänderten Dateien): die Klassen-Namen in **Großschreibung** (`BELEGT`/`HEURISTIK`/`AKZEPTIERT`/`ZURÜCKGENOMMEN`) stehen **0** Mal im Board — **case-sensitiv** gemessen (`git show <stand>:AGENTS.todo.md | grep -cE 'BELEGT|HEURISTIK|AKZEPTIERT|ZURÜCKGENOMMEN'` → 0; `<stand>` = committeter Stand dieses Commits); das case-insensitive Muster greift zusätzlich Prosa wie „belegt“/„akzeptiert“ und taugt hier nicht. Als Schweregrade kommen dort nur die kanonischen Wörter vor — `critical`/`high`/`medium`/`low`/`info`; `Major`/`hoch`/`niedrig` nur in Prosa |
+| `security-review` | ja | `AGENTS.md` §10 (Fundort der Befunde) + `features/security/accepted-risks.md` (Register A1–A8), `AGENTS.md` §3 (Regressionstest je Fix `:59`) | keine — das Register trägt die kanonischen Stände (`accepted`) und Niveaus (`low`/`medium`) mit stabilen Ids; die Klassen BELEGT/HEURISTIK/AKZEPTIERT bleiben daneben stehen und kollidieren nicht **Board-Messung am committeten Stand dieses Commits** (der Board ist eine der beiden geänderten Dateien): die Klassen-Namen in **Großschreibung** (`BELEGT`/`HEURISTIK`/`AKZEPTIERT`/`ZURÜCKGENOMMEN`) stehen **0** Mal im Board — **case-sensitiv** gemessen (`git show <stand>:AGENTS.todo.md | grep -cE 'BELEGT|HEURISTIK|AKZEPTIERT|ZURÜCKGENOMMEN'` → 0; `<stand>` = committeter Stand dieses Commits); das case-insensitive Muster greift zusätzlich Prosa wie „belegt“/„akzeptiert“ und taugt hier nicht. Als Schweregrade kommen dort nur die kanonischen Wörter vor — `critical`/`high`/`medium`/`low`/`info` (im **Board**, am committeten Stand dieses Commits: `critical` **18**, `high` **24**, `medium` **11**, `low` **10**, `info` **2** Zeilen); `Major` (**3** Zeilen), `hoch` (**1**), `niedrig` (**1**) kommen nur in Prosa vor und sind **keine** Schweregrade |
 | `skills-marker` | ja | `AGENTS.skills.md` (diese Datei; Abschnitt „Fortschreiben"; die Regel wird **zitiert statt kopiert** — Upstream `skills-marker/SKILL.md`, Anker „Bezugsrahmen-Regel" (Skill-ID + Datei + Anker, **ohne Zeilennummer**), belegt im Kopf dieser Datei) | keine |
 | `tailscale-serve` | nein | | kein Tailscale-Bezug im Projekt (repo-weiter Treffer: nur diese Datei) |
 | `ui-review` | offen | `AGENTS.md` §7 „Visuelle Verifikation / UI-Review (Design-QA, STRICT)" (`:262-271`, Loop-Schritte 1–4 `:273-300`), `frontend/tests/screenshots/` | Position 55 — der Findings-Report in `AGENTS.md` §7 Schritt 3 (`:293-295`) führt die **alte** Vorlage (4 Spalten, 4 Niveaus, kein Statusfeld, keine Id/Eigentümer/Ticket) |
@@ -137,11 +160,14 @@ Commit** gemessen (`git show --stat <sha>`, `git show --numstat <sha>`):
 **Neu in der Range:** **keiner** (`git log --diff-filter=A --name-only --format=
 0449b05..820c140 -- .agents/skills` → **leer**).
 
-**Nicht Teil dieser Range:** `37cefe2` — der Commit ist **nach** der Messung gelandet,
-auf die der Cursor gestellt ist, und ist **nicht** geprüft; er berührt **nur**
-`skills-marker` (`SKILL.md`, `references/notes.md`, `templates/AGENTS.skills.md`; **89**
-Einfügungen, **35** Löschungen). Er gehört in den nächsten Marker-Lauf; **der Cursor
-bleibt `820c140`**.
+**Nicht Teil dieser Range:** `37cefe2`, `7328fc3`, `c056e75` — die **drei** Commits sind
+**nach** der Messung gelandet, auf die der Cursor gestellt ist, und sind **nicht**
+geprüft; `37cefe2` berührt **nur** `skills-marker` (`SKILL.md`, `references/notes.md`,
+`templates/AGENTS.skills.md`; **89** Einfügungen, **35** Löschungen), `7328fc3` **nur**
+`github-ci-filters` (`SKILL.md`, `references/notes.md`; **189** Einfügungen, **123**
+Löschungen), `c056e75` **nur** `skills-marker` (`references/notes.md`; **21** Einfügungen,
+**14** Löschungen). Sie gehören in den nächsten Marker-Lauf; **der Cursor bleibt
+`820c140`**.
 
 **Neu versteckt:** keiner — die Range fasst **keine** Frontmatter an; **versteckt gesamt**
 unverändert **17** von **19** Skills (`git grep -l "opencode/autoinvoke: false" <stand> --
@@ -160,8 +186,8 @@ Entscheidungen aus §3:**
   **Zitierform** (der Marker zitiert die Regel mit Pfad + Anker und **ohne
   Zeilennummer** — von `734d7d1` an so, jetzt mit dem Anker `Bezugsrahmen-Regel` aus
   `65fbecc`), die **`**Lokale Ergänzung:**`-Markierung** (am committeten Stand dieses
-  Commits **6** Markierungen im Marker und **1** im Board — `grep -c 'Lokale Ergänzung'`
-  zählt im Marker **8**, die zwei zusätzlichen Treffer sind diese Nennung und das
+  Commits **7** Markierungen im Marker und **1** im Board — `grep -c 'Lokale Ergänzung'`
+  zählt im Marker **9**, die zwei zusätzlichen Treffer sind diese Nennung und das
   Suchkommando selbst; von `65fbecc` verlangt), die
   **Rahmenformen** (a)/(b)/(c) und die neue
   **Cursor-Klausel**. Die Zeile `skills-marker | ja | AGENTS.skills.md (diese Datei)`
@@ -175,8 +201,14 @@ Entscheidungen aus §3:**
   **leer**). Die gedrehte Release-Aussage und die neue `ratchet release`-Zeile begründen
   **hier** nichts: das Projekt hat **keinen** `ratchet`-Werkzeugbaum, **keine** Baseline
   und **keine** Release-Pipeline. Die **alte** Aussage stand nie in diesem Marker oder im
-  Board (gemessen: `git grep -inE 'No tag was pushed|build from source' <stand> --
-  AGENTS.skills.md AGENTS.todo.md` → **0** Treffer) — es ist **nichts** zu korrigieren. Die
+  Board — **gemessen** (Stand, Umfang und Selbstbezug): die Abfrage
+  `git grep -inE 'No tag was pushed|build from source' <stand> -- AGENTS.skills.md AGENTS.todo.md`
+  → **3** Treffer am committeten Stand dieses Commits; **alle drei sind die Zitate des
+  Markers selbst** (die Tabellenzeile `ratchet-gates`, die Tabellenzeile `d5dc52f` der
+  Range-Tabelle und das Suchkommando im Range-Abschnitt) — **im Board `0`**. Am Vorgänger
+  `734d7d1` war der Bestand **0** (gleiche Abfrage, gleicher Umfang, Stand `734d7d1` →
+  keine Ausgabe); erst `7304a03` hat die Aussage **zitiert** und damit den Bestand von
+  **0** auf **3** gebracht. Es ist **nichts** zu korrigieren. Die
   Owner-/Ticket-Lücke, die Position 57 festhält, ist unverändert (unten nachgemessen).
 
 **Nicht berührt (17)** — von der Range nicht angefasst, das Verdikt ist der unveränderte
@@ -187,13 +219,18 @@ Bestand: `build-verify` → **offen** (Position 52) · `laravel` → **offen** (
 **ja** · `agent-config`, `permissions`, `tailscale-serve`, `update-models`, `web-audit` →
 **nein**.
 
-**Die Alt-Anker wurden vollständig neu geprüft: 41 Anker-Vorkommen der Tabelle, 41 treffen
-zu, 0 gedriftet, 0 tot.** Gezählt so: **38** Anker mit Zeilennummer — **36** in der Form
-„`:N`" (Fortsetzung des unmittelbar davor genannten Pfads) **+ 2** in der vollen Form
-„`Pfad:N`" (`AGENTS.md:80` und `AGENTS.md:99-101`) — **+ 3** Upstream-Zitate in
-**Ankerform** (vorher mit Zeilennummer, unten umgestellt) = **41** Vorkommen; **40** davon
-sind verschiedene Anker (`:64` — `e2e-image.yml`, `PNPM_VERSION` — wird aus zwei Zeilen
-genannt). Geprüft wurde gegen den **committeten Stand dieses Commits**
+**Die Alt-Anker wurden vollständig neu geprüft: 41 Anker-Vorkommen der Tabelle **mit
+Zeilennummer**, 41 treffen zu, 0 gedriftet, 0 tot.** Gezählt so: **38** Anker mit
+Zeilennummer — **36** in der Form „`:N`" (Fortsetzung des unmittelbar davor genannten
+Pfads) **+ 2** in der vollen Form „`Pfad:N`" (`AGENTS.md:80` und `AGENTS.md:99-101`) —
+**+ 3** Upstream-Zitate in **Ankerform** (vorher mit Zeilennummer, unten umgestellt) =
+**41** Vorkommen; **40** davon sind verschiedene Anker (`:64` — `e2e-image.yml`,
+`PNPM_VERSION` — **zweimal** genannt, in zwei Tabellenzeilen). **Abgrenzung:** die **41**
+zählen die Vorkommen **mit Zeilennummer**; die Tabelle trägt **ein viertes** Zitat in
+Ankerform **ohne** Zeilennummer — `Bezugsrahmen-Regel` in der Zeile `skills-marker` (neu
+in dieser Runde); **alle Zitate der Tabelle zusammen sind es 42**, und das vierte trifft
+**1-mal** zu (`skills-marker/SKILL.md` → „Bezugsrahmen-Regel", **1** Treffer am Stand
+`820c140`, siehe unten). Geprüft wurde gegen den **committeten Stand dieses Commits**
 — den Datei-Stand, den dieser Commit festschreibt — mit `git show <rev>:<datei>` /
 `git grep <rev> -- <pfad>`, nicht gegen einen Working Tree; die Fremddateien sind gegenüber
 dem Vorgänger `a4551c8` **unverändert** (`git diff --stat a4551c8..<stand> -- .
@@ -235,7 +272,8 @@ Zeile
 `features/security/accepted-risks.md` (A1–A8)) wurden am committeten Stand **dieses
 Commits** ebenfalls geprüft. **Kein Anker ist verroten.** Die Zahlen der betroffenen Zeilen
 wurden neu gemessen (Position 53: `FormRequest`-Klassen **0**, `rules()` bei **8** von
-**23** Controllern, Inline-Array bei **17** — `git grep -l … <stand> -- backend/app…`,
+**23** Controllern **mit Schreib-Endpunkten** (store/update/destroy/create/edit),
+Inline-Array bei **17** Controllern **insgesamt** — `git grep -l … <stand> -- backend/app…`,
 gemessen am Vorgänger `a4551c8`, seitdem unverändert: `git diff --stat a4551c8..<stand> --
 backend/` → leer).
 
@@ -255,10 +293,15 @@ unverändert — aber sie **driften** und sind damit **keine Anker**:
 
 **Dieselbe Umstellung im Board** (`AGENTS.todo.md`, die Positionen **52–57** — die
 Positionen, die diesem Marker selbst führt; **22** Upstream-Zitate mit Zeilennummer —
-gezählt am Stand `0449b05` in diesem Bereich: **20** Backtick-Token mit Zeilennummer, die
-**nicht** auf eine Projektdatei zeigen, **+ 2** Klartext-Funde „Zeile 18" (die Regeldatei
-`.agents/rules/build-verify.md` nannte ihre Zeile im Fließtext), dazu **17**
-Fortsetzungs-Token der Form „`:N`", die denselben Zitierstellen folgen):
+gezählt am **Projekt**-Stand `734d7d1` in diesem Bereich, dem letzten Projekt-Stand, in
+dem der Board diese Zitate noch trug (**seit `7304a03` sind sie umgestellt, dort `0`**):
+**20** Backtick-Token mit Zeilennummer, die **nicht** auf eine Projektdatei zeigen, **+ 2**
+Klartext-Funde „Zeile 18" (die Regeldatei `.agents/rules/build-verify.md` nannte ihre
+Zeile im Fließtext), dazu **17** Fortsetzungs-Token der Form „`:N`", die einem
+**Upstream**-Zitat folgen — die **zwei** übrigen `:N`-Token des Bereichs zählen nicht mit
+(`:17` folgt „der alten Vorlage" ohne Pfadangabe, `:366-368` folgt einem **Projekt**zitat);
+`0449b05` ist der **Skills**-Stand der vorigen Marker-Fassung und **kein** Projekt-Stand,
+er wird deshalb hier **nicht** als Messstand geführt):
 Position 52 (`.agents/rules/build-verify.md` „Zeile 18" → **Regel 3** mit Anker;
 `.agents/skills/build-verify/SKILL.md:34` und `:74-77` → Anker „Fresh session per round") ·
 Position 53 (`.agents/skills/laravel/SKILL.md:20, 60-61` → Anker „one `FormRequest` per
