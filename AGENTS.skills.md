@@ -18,9 +18,11 @@ gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills
 > `f7b8f9c`; dieser Zwischenstand wurde von `6c544a9` auf `820c140` **erweitert** und ist
 > deshalb **kein** eigener Marker-Stand. **Lokale Ergänzung:** die Regel, die diese
 > Zählung trägt — „eine Aufzählung trägt zwei Behauptungen: jedes Element trägt die
-> Eigenschaft **und** die Liste ist die ganze Menge" — steht erst im Skills-Stand
-> `c056e75`, den dieser Marker **nicht** konsumiert (siehe den ungeprüften Rest im Kopf);
-> sie wird hier **angewendet**, nicht zitiert. Geprüfte Range
+> Eigenschaft **und** die Liste ist die ganze Menge" — steht **erstmals** im
+> Skills-Stand `37cefe2` (`skills-marker/SKILL.md`, Anker „Eine Aufzählung trägt zwei
+> Behauptungen"; **1** Treffer in der Datei, gemessen am Stand `37cefe2`), den dieser
+> Marker **nicht** konsumiert (siehe den ungeprüften Rest im Kopf; am Stand `c056e75`
+> unverändert); sie wird hier **angewendet**, nicht zitiert. Geprüfte Range
 > `0449b05..820c140` — **9 Commits** des Skills-Repos
 > (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**, gemessen am
 > **Skills-Repo-Commit `820c140`**, den dieser Marker konsumiert; **Messzeitpunkt
