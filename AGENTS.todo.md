@@ -1015,9 +1015,11 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 
 **(a) Der Verifikator-Konflikt.** `AGENTS.md:131` (Rolle „Verifikator (Subagent)") sagt
 heute: *führt Tests/Lint/Build aus und prüft den Diff.* Die Upstream-Regel 3
-(`.agents/rules/build-verify.md`, Zeile 18 — **gemessen `@787670a` und `@0449b05`, die
-Zeile ist durch die Range nicht gewandert**) sagt seit `86d677e` das Gegenteil: der Verifikator
-prüft die **Substanz**, nicht die mechanischen Gates — *reported green with quoted output,
+(`.agents/rules/build-verify.md`, **Regel 3**, Anker „it checks the **substance**, not the
+mechanical gates" — **ohne Zeilennummer**, die driftet; **gemessen `@787670a` und
+`@0449b05`, die Regel ist durch die Range nicht gewandert**) sagt seit `86d677e` das
+Gegenteil: der Verifikator prüft die **Substanz**, nicht die mechanischen Gates —
+*reported green with quoted output,
 the gates are not re-run* (vier Ausnahmen stehen im Skill). Das Projekt-`AGENTS.md` ist
 damit an der einen Stelle **stiller Widerspruch** zur Regel, auf die es sich selbst beruft
 (`AGENTS.md:114-117`: „**gilt hier unverändert**").
@@ -1025,7 +1027,9 @@ damit an der einen Stelle **stiller Widerspruch** zur Regel, auf die es sich sel
 **(b) Die Restart-Regel.** `AGENTS.md:123-125` (e) schreibt vor: *mit `sessionID` + Prompt
 „continue" neu starten (Kontext wiederaufnehmen), nicht von vorne beginnen.* Die
 Upstream-Fassung seit `424a7c3` dreht das um — *every dispatch is a **new** subagent
-session* (`.agents/skills/build-verify/SKILL.md:34` und `:74-77` in der Fassung `787670a`);
+session* (Upstream `build-verify/SKILL.md`, Anker „every subagent dispatch in it is a
+fresh session" und Anker „Fresh session per round" — **ohne Zeilennummer**, die driftet;
+in der Fassung `787670a`);
 eine Fortsetzung ist nur für eine Fix-Runde **in derselben** Aufgabe zulässig und *even
 then the orchestrator decides consciously*. Der Kontext wird upstream ausdrücklich als
 Fehlerquelle begründet (*a continued context carries the round's own defects into the next
@@ -1037,9 +1041,11 @@ widerspricht das Projekt seiner eigenen Delegation. **Die Entscheidung (welche F
 gilt) ist eine Nutzerentscheidung** — deshalb steht sie hier als Position, nicht als
 stille Korrektur.
 
-**Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` Regel 3 (Zeile 18 — `@787670a`
-und `@0449b05` gleich);
-`.agents/skills/build-verify/SKILL.md` („Fresh session per round", `:34`, `:74-77`).
+**Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` **Regel 3**, Anker „it
+checks the **substance**, not the mechanical gates" (an beiden Ständen `@787670a` und
+`@0449b05` gleich);
+Upstream `build-verify/SKILL.md`, Anker „Fresh session per round" und Anker „every
+subagent dispatch in it is a fresh session".
 Projekt: `AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)),
 `AGENTS.md:114-117` (Punkt 4).
 
@@ -1048,8 +1054,9 @@ Projekt: `AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)
 **Der Skill ist aus diesem Repo destilliert** und nennt die Struktur explizit:
 `app/Http/Requests/` — *one `FormRequest` per write endpoint (`authorize()` + `rules()`)*;
 einfache Fälle dürfen `$request->validate($this->rules())` nutzen
-(`.agents/skills/laravel/SKILL.md:20, 60-61`). Seine eigene Referenz nennt den
-open-acc-Zweig ausdrücklich als zulässig: *`app/Http/Requests/` (portal) or controller
+(Upstream `laravel/SKILL.md`, Anker „one `FormRequest` per write endpoint" und Anker
+„Write endpoints validate via `FormRequest`" — **ohne Zeilennummer**, die driftet). Seine
+eigene Referenz nennt den open-acc-Zweig ausdrücklich als zulässig: *`app/Http/Requests/` (portal) or controller
 `rules()` (open-acc)*.
 
 **Was im Projekt steht (gemessen, nicht geschätzt).** `backend/app/Http/Requests/` existiert
@@ -1065,7 +1072,8 @@ umgestellt wird, ist eine **Konventionsentscheidung des Projekts** — der Skill
 upstream-Vorlage, nicht das Projektgesetz. Umgestellt wird das nicht nebenbei: 17
 Controller sind Code, kein Doku-Eintrag.
 
-**Beleg:** Upstream `787670a`: `.agents/skills/laravel/SKILL.md:20, 60-61`,
+**Beleg:** Upstream `787670a`: `laravel/SKILL.md`, Anker „one `FormRequest` per write
+endpoint" und Anker „Write endpoints validate via `FormRequest`",
 `.agents/skills/laravel/references/backend-conventions.md` (Zeile „Validation"). Projekt:
 `backend/app/Http/` (kein `Requests/`), `grep -rl 'validate(' backend/app/Http/Controllers` = 23,
 `grep -rl 'extends FormRequest' backend/app` = 0,
@@ -1163,12 +1171,12 @@ und die Stände, und die Findings-Vorlage des `ui-review`-Skills
 | | vorher (`787670a`) | jetzt (`0449b05`) |
 |---|---|---|
 | Spalten der Vorlage | `Severity \| File:Line \| Screenshot \| Finding \| Suggested fix` | `Id \| Severity \| Status \| Owner \| Ticket \| File:Line \| Screenshot \| Finding \| Suggested fix` |
-| Niveaus | `critical/high/medium/low` | `critical/high/medium/low/info` (kanonisch: `vocabulary.md:10-18`) |
-| Status | **kein Feld** — es gab keinen Status | eigenes Feld (`open`/`in-progress`/`fixed`/`accepted`/`wontfix`, `vocabulary.md:25-33`); `APPROVED` erst, wenn kein `critical`/`high` **ungeklärt** (`open`/`in-progress`) ist |
-| Zählregel | keine | es zählen **nur** `open` und `in-progress`; `accepted`/`wontfix` bleiben sichtbar und zählen nicht (`vocabulary.md:35-37`) |
-| Eigentümer/Ticket | nicht gefordert | jeder Befund, der nicht `fixed` ist, braucht **Id, Eigentümer und Ticket** (`vocabulary.md:44`, `findings-report.md:61-62`) |
-| `medium` | „polish issues, minor alignment, suboptimal hierarchy" | „a defect with a workaround"; ohne Workaround: `high` (ein anderer Weg wirkt) bzw. `critical` (der Kernweg ist für alle blockiert) (`findings-report.md:46`) |
-| Severity/Status | — | „Severity and status are recorded separately" (`vocabulary.md:51`) — ein Status im Schweregrad-Feld zerstört das Niveau |
+| Niveaus | `critical/high/medium/low` | `critical/high/medium/low/info` (kanonisch: Upstream `ratchet-gates/references/vocabulary.md`, Anker „## Severity levels") |
+| Status | **kein Feld** — es gab keinen Status | eigenes Feld (`open`/`in-progress`/`fixed`/`accepted`/`wontfix`, Upstream `ratchet-gates/references/vocabulary.md`, Anker „## Statuses"); `APPROVED` erst, wenn kein `critical`/`high` **ungeklärt** (`open`/`in-progress`) ist |
+| Zählregel | keine | es zählen **nur** `open` und `in-progress`; `accepted`/`wontfix` bleiben sichtbar und zählen nicht (Upstream `ratchet-gates/references/vocabulary.md`, Anker „The **count is the number of findings in the counting statuses**") |
+| Eigentümer/Ticket | nicht gefordert | jeder Befund, der nicht `fixed` ist, braucht **Id, Eigentümer und Ticket** (Upstream `ratchet-gates/references/vocabulary.md`, Anker „**A finding needs an owner and a ticket**", und Upstream `ui-review/references/findings-report.md`, Anker „carries an **id**, an **owner** and a") |
+| `medium` | „polish issues, minor alignment, suboptimal hierarchy" | „a defect with a workaround"; ohne Workaround: `high` (ein anderer Weg wirkt) bzw. `critical` (der Kernweg ist für alle blockiert) (Upstream `ui-review/references/findings-report.md`, Anker „A defect with a workaround") |
+| Severity/Status | — | „Severity and status are recorded separately" (Upstream `ratchet-gates/references/vocabulary.md`, Anker „**Severity and status are recorded separately.**") — ein Status im Schweregrad-Feld zerstört das Niveau |
 
 **Was im Projekt steht (gemessen am Vorgänger `27739d5`, seitdem unverändert —
 `git diff --stat 27739d5..HEAD -- AGENTS.md` → leer).**
@@ -1180,7 +1188,13 @@ und die Stände, und die Findings-Vorlage des `ui-review`-Skills
 
 Das ist die alte Vorlage — und zwar **nicht** einmal die alte Vorlage upstream: die
 Spaltenliste des Projekts (4 Spalten) hat schon vor dieser Range das `File:Line`
-der Upstream-Vorlage weggelassen; upstream hatte sie (`:17` der alten Vorlage).
+der Upstream-Vorlage weggelassen; upstream hatte sie — im Stand `787670a` stand die
+alte Spaltenliste in **Zeile 17** der alten Vorlage
+(`git show 787670a:.agents/skills/ui-review/references/findings-report.md | sed -n '17p'`
+→ die alte Kopfzeile). **An `f7b8f9c` ist diese Zeile leer** — die Datei trägt dort die
+**neuen** neun Spalten (Anker „| Id | Severity | Status | Owner | Ticket | File:Line |
+Screenshot | Finding | Suggested fix |"). Die Zeilennummer ist damit **kein** Anker mehr,
+sondern eine Messung an einem **benannten** Stand.
 
 **Warum das eine Position ist und kein Mitlaufen.** Vier Dinge gehen auseinander:
 (a) Ohne Statusfeld ist ein Befund nicht zählbar — kanonisch zählen nur `open` und
@@ -1201,19 +1215,27 @@ Commit-Messages der Fix-Läufe — eine Umstellung ändert also das Format jedes
 künftigen Reports.
 
 **Und upstream ist das selbst gerade uneinheitlich** (gemessen an `0449b05`):
-`ui-review/SKILL.md:99-100` nennt weiterhin die **alten** Spalten
-(`Severity | File:Line | Screenshot | Finding | Suggested fix`) und `:102-107` die
-**alten** vier Niveaus, während `references/findings-report.md:18` die neuen neun
+Upstream `ui-review/SKILL.md`, Anker „columns `Severity | File:Line | Screenshot | Finding |
+Suggested fix`" nennt weiterhin die **alten** Spalten und der Anker „Assign each finding a
+severity:" die **alten** vier Niveaus, während Upstream
+`ui-review/references/findings-report.md`, Anker „| Id | Severity | Status | Owner | Ticket |
+File:Line | Screenshot | Finding | Suggested fix |" die neuen neun
 Spalten führt — `b0d1b51` hat nur die Referenzdatei angefasst, den Skill-Body nicht.
 Welche der beiden upstream-Fassungen gilt, ist damit **selbst offen** und gehört in
 diese Position, nicht in eine stille Korrektur.
 
-**Beleg:** Upstream `0449b05`: `.agents/skills/ui-review/references/findings-report.md`
-(Vorlage `:18`, Verdict `:5`, kanonische Niveaus `:37-46`, Status `:50-57`,
-Eigentümer-/Ticket-Regel `:61-62`), `.agents/skills/ratchet-gates/references/vocabulary.md`
-(Niveaus `:10-18`, Stände `:25-33`, Zählregel `:35-37`, Regeln `:39-53`),
-`.agents/skills/ui-review/SKILL.md:99-109` (die **alte** Spalten- und Niveausliste
-im Skill-Body). Projekt: `AGENTS.md:293-295`.
+**Beleg:** Upstream `0449b05`: `ui-review/references/findings-report.md` (Vorlage: Anker
+„| Id | Severity | Status | Owner | Ticket | File:Line | Screenshot | Finding | Suggested fix
+|"; Verdict: Anker „A verdict is only APPROVED when no `critical` or `high` findings remain
+unresolved"; kanonische Niveaus: Anker „## Severity definitions"; Status: Anker „## Status";
+Eigentümer-/Ticket-Regel: Anker „carries an **id**, an **owner** and a"),
+`ratchet-gates/references/vocabulary.md` (Niveaus: Anker „## Severity levels"; Stände: Anker
+„## Statuses"; Zählregel: Anker „The **count is the number of findings in the counting
+statuses**"; Regeln: Anker „## Rules"), `ui-review/SKILL.md` (die **alte** Spalten- und
+Niveausliste im Skill-Body: Anker „Assign each finding a severity:"). Projekt:
+`AGENTS.md:293-295`. **Jeder Anker trifft genau 1-mal** am Stand `f7b8f9c` (und am
+Vorgänger `0449b05`) — die Upstream-Dateien sind in der Range `0449b05..f7b8f9c`
+unverändert.
 
 ### 56 — `generated-docs`: keine Zahlen in Prosa ohne Quelle — das Projekt hat weder einen Generator noch ein Drift-Gate
 
@@ -1224,7 +1246,7 @@ implementiert** — das ist eine Position, kein Arbeitsauftrag.
 
 **Der Skill, um den es geht.** `generated-docs` (neu in `00dbd22`, hidden) behandelt
 den Fall „Doku, die geprüft statt geglaubt wird". Die Kernregel steht in
-`.agents/skills/generated-docs/SKILL.md:74-80` (Upstream `0449b05`):
+Upstream `generated-docs/SKILL.md`, Anker „## Numbers in prose" (Upstream `0449b05`):
 
 > A number in prose is an artifact: it is generated together with the block that owns
 > it, **or it is replaced by a reference to the generated table** — a number typed into
@@ -1263,9 +1285,10 @@ wird ausdrücklich **nicht** eingeführt, und das wird als Entscheidung im Board
 vermerkt. **Ohne eine dieser drei Entscheidungen bleibt die Position offen** — jede
 Zahl in `features/` ist eine Kopie einer Zahl, die jemand anders pflegt.
 
-**Beleg:** Upstream `0449b05`: `.agents/skills/generated-docs/SKILL.md:74-80`
-(„Numbers in prose"), `:22` (Who owns the claim), `:38` (Was ist nicht generiert),
-`:49` (Der Drift-Gate: drei Bedingungen). Projekt (gemessen am Vorgänger `a4551c8`,
+**Beleg:** Upstream `0449b05`: `generated-docs/SKILL.md`, Anker „## Numbers in prose"
+(„Numbers in prose"), Anker „## Who owns the claim?" (Wer trägt die Aussage),
+Anker „## What is not generated — and why" (Was nicht generiert wird),
+Anker „## The drift gate" (Der Drift-Gate: drei Bedingungen). Projekt (gemessen am Vorgänger `a4551c8`,
 die genannten Dateien seitdem unverändert — `git diff --stat a4551c8..HEAD --
 scripts/ features/ AGENTS.md` → leer): `scripts/` (Inhalt oben),
 `features/venue-master-data.md:358-368` (die Zahlen in Prosa) und `:366-368` (der
@@ -1286,8 +1309,8 @@ sind **neu in dieser Range** und treffen dieses Projekt:
 
 | Regel | Upstream `0449b05` | Wortlaut |
 |---|---|---|
-| Eigentümer + Ticket je Eintrag | `ratchet-gates/references/vocabulary.md:44` | „**A finding needs an owner and a ticket** unless it is `fixed` … an open one has nobody → a graveyard entry." |
-| dieselbe Regel für Gap-Listen | `ratchet-gates/SKILL.md:119-120` | „The gap list gets the same discipline as the code: **an owner and a ticket per entry**, otherwise it is a graveyard." |
+| Eigentümer + Ticket je Eintrag | Upstream `ratchet-gates/references/vocabulary.md`, Anker „**A finding needs an owner and a ticket**" | „**A finding needs an owner and a ticket** unless it is `fixed` … an open one has nobody → a graveyard entry." |
+| dieselbe Regel für Gap-Listen | Upstream `ratchet-gates/SKILL.md`, Anker „The gap list gets the same discipline as the code" | „The gap list gets the same discipline as the code: **an owner and a ticket per entry**, otherwise it is a graveyard." |
 
 **Was im Projekt steht (gemessen am Vorgänger `a4551c8`; die Register-Datei ist
 seitdem unverändert — `git diff --stat a4551c8..HEAD --
@@ -1296,10 +1319,10 @@ features/security/accepted-risks.md` → leer).**
 | Teil | Befund | Kommando | Ergebnis |
 |---|---|---|---|
 | Stände | **getragen** | `git grep -oE '\(accepted [0-9-]+, [a-z]+\)' a4551c8 -- features/security/accepted-risks.md` | **8** Treffer, alle `accepted` (kanonischer Status) mit Datum |
-| Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (`vocabulary.md:10-18`) |
+| Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (Upstream `ratchet-gates/references/vocabulary.md`, Anker „## Severity levels") |
 | stabile Ids | **getragen** | `git grep -cE '^- \*\*A[0-9]+' a4551c8 -- features/security/accepted-risks.md` | **8** Einträge `A1`–`A8` |
 | **Eigentümer + Ticket** (Register) | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** — das Register ist eine Fremddatei: gemessen am **Vorgänger** `a4551c8`, seitdem unverändert (`git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer) |
-| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` | der Board ist eine der beiden **geänderten** Dateien → Rahmen „am **committeten Stand dieses Commits**". Die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (Form aus dem Marker von `/projects/LuminaRust`). Die Treffer liegen **ausschließlich** im **Meta-Text** (der Kopfzeile mit dem Positions-Index und den Positionstexten 55–57); in den **Befund-Zeilen der Batch-Tabelle** (`\| \*\*[0-9]+\*\* \|`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). Eine **Gesamtzahl** des Boards wird hier **nicht** festgeschrieben: jeder neue Positions-Text erhöht sie — **4** Zeilen-Treffer am Stand `a4551c8`, **15** am Stand `2da0404` und **15** am committeten Stand dieses Commits (gemessen 2026-10-21); das ist eine **Momentaufnahme**, kein fester Wert |
+| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` | der Board ist eine der beiden **geänderten** Dateien → Rahmen „am **committeten Stand dieses Commits**". Die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (Form aus dem Marker von `/projects/LuminaRust`). Die Treffer liegen **ausschließlich** im **Meta-Text** (der Kopfzeile mit dem Positions-Index und den Positionstexten 55–57); in den **Befund-Zeilen der Batch-Tabelle** (`\| \*\*[0-9]+\*\* \|`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). Eine **Gesamtzahl** des Boards wird hier **nicht** festgeschrieben: jeder neue Positions-Text erhöht sie — **4** Zeilen-Treffer am Stand `a4551c8`, **15** am Stand `2da0404` und **18** Zeilen-Treffer (vorkommensweise **41** Vorkommen) am committeten Stand dieses Commits (gemessen 2026-10-21); das ist eine **Momentaufnahme**, kein fester Wert — die **18** sind höher als die **15** am Vorgänger, weil dieser Lauf die **Ankerformen** der Positionen 55–57 eingeführt hat und die Ankertexte selbst die Wörter „owner" und „ticket" enthalten |
 
 **Was das nicht ist — und dafür ist keine Position nötig.** Der **Ratchet-Teil** des
 Skills (eine Baseline, die nur in eine Richtung wandert) ist hier **nicht anwendbar**,
@@ -1314,7 +1337,7 @@ unverändert: **45** Zeilen-Treffer in **20** Dateien an beiden Ständen):
 `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der Rest (**23**) ist Prosa
 bzw. Bezeichner; nach Bereich: **1** Dokumentationsdatei, **10** Backend-Dateien
 (davon **7** in `backend/tests/`), **9** Frontend-Dateien. **Repo-weit** (mit den
-beiden Doku-Dateien) sind es **54** Zeilen-Treffer in **22** Dateien am committeten
+beiden Doku-Dateien) sind es **55** Zeilen-Treffer in **22** Dateien am committeten
 Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen**
 Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist.
 Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0** (am Vorgänger `a4551c8` mit der Wortgrenze **0** Treffer repo-weit; der Marker nannte dort nur „Known-Failure“, nicht „xfail“). Ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
@@ -1331,9 +1354,12 @@ Mandant-Verantwortung. Zu entscheiden ist, **wovon** eine offene Zeile ihren
 Eigentümer und ihr Ticket bekommt — und ob das Board (offene Befunde) und das
 Register (akzeptierte Risiken) beide darunter fallen.
 
-**Beleg:** Upstream `0449b05`: `.agents/skills/ratchet-gates/references/vocabulary.md:44`
-(Eigentümer/Ticket), `:48-50` (stabile Id), `.agents/skills/ratchet-gates/SKILL.md:119-122`
-(Eigentümer/Ticket für Gap-Listen). Projekt (gemessen am Vorgänger `a4551c8`, die
+**Beleg:** Upstream `0449b05`: `ratchet-gates/references/vocabulary.md`, Anker „**A finding
+needs an owner and a ticket**" (Eigentümer/Ticket) und Anker „**A finding has a stable
+id.**" (stabile Id); `ratchet-gates/SKILL.md`, Anker „The gap list gets the same discipline
+as the code" (Eigentümer/Ticket für Gap-Listen). **Jeder Anker trifft genau 1-mal** am
+Stand `f7b8f9c` (und am Vorgänger `0449b05`) — die Upstream-Dateien sind in der Range
+`0449b05..f7b8f9c` unverändert. Projekt (gemessen am Vorgänger `a4551c8`, die
 Register-Datei seitdem unverändert): `features/security/accepted-risks.md` (A1–A8,
 Inhalt oben), `AGENTS.todo.md` (Treffer nur im Meta-Text, s. o.),
 `AGENTS.md:99-101`.
