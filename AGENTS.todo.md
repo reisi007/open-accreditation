@@ -28,13 +28,14 @@
 > **Frontend und E2E wurden lokal nicht nachgefahren** — dort steht weiter die CI-Zahl, und wer sie als frisch liest, irrt.
 > 
 > **Verbleibend:** Go-Live (wartet auf Benutzer-Freigabe) + **2 Positionen** in der Batch-Tabelle (**17, 21** — beide stehengeblieben, weil je ein lebender Querverweis daran hängt; der einzige repo-weite ist `README.md:193` und zeigt auf **21**). **23 und 25 sind am 2026-10-05 per Nutzerentscheid entfernt** — beide waren verifiziert geschlossen, und die Begründung „lebende Querverweise" ist für sie **gemessen falsch**: repo-weit zeigte auf sie nichts. In der Tabelle ist damit **keine** offene Zeile mehr. **Positionen 45 (Mail-Zustellung: Queue/DLQ) und 46 (Scheduler) sind am 2026-10-04 per §4 entfernt** — beide Ströme implementiert und verifiziert (Verdicts 12, 13, 14 `APPROVED`, kein `critical`/`high`; CI-Lauf `37183737789` zu `219c398`, alle vier Jobs grün). **Gate nach den Skills-Wellen (Stand 2026-10-05, Lauf `37277096174`):** SQLite **1983 passed** (12501) · Postgres **1982 + 1 skipped** (12495) (= **dieselben** 1983) · E2E strikt `--workers=4` **168 passed / 64 skipped / 0 failed** · `check:i18n` **467**. **Der E2E-Zähler ist nicht mit den 157 der Gate-Tabelle zu vergleichen** — anderer Umfang (striktes Profil, volle Suite) und anderer Tag; **je Zahl steht ihr Lauf.** **GATE 4 GRÜN (Lauf `37034641045`, SHA `ab4c0c7`, 2026-10-02, **alle vier Jobs**):** SQLite **1771 passed** (9047 Assertions) · Postgres **1 skipped + 1770 passed** (9041) (= **dieselben** 1771) · Vitest **52 Dateien / 552 Tests** · E2E **157 passed** · `check:i18n` **436** · Pint/Lint/Build clean. **Gate 3 war auf `267c767` rot** (Lauf `37023069080`: `QrTokenV2Test`, „actual size 4 matches expected size 3" — nur Postgres) und ist auf `ab4c0c7` **behoben, nicht etikettiert**: die Behauptung `assertCount(3, explode('.'))` war nie eine Format-Invariante, sondern eine Eigenschaft der Id-Sequenz. **Sieben Positionen — 8, 9, 12, 22, 38, 41, 42 — sind am 2026-10-02 per §4 entfernt:** alle vier Wellen sind verifiziert (Verdict `APPROVED`, kein `critical`/`high`), ihr Dauerinhalt steht in `features/`, im Code und in den Wellen-Abschnitten. **Geschlossen, aber stehengeblieben sind 2:**
-> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe"). **Außerhalb der Batch-Tabelle stehen vier offene Positionen: 52, 53, 54, 55 (Skills-Marker-Nachtrag, 2026-10-20/21)** — alle vier Positionen, keine Arbeitsaufträge, alle vier entscheidungs offen; die Batch-Tabelle bleibt davon unberührt (2 Zeilen = 0 offen + 2 stehengeblieben).
+> 17, 21 — sie bleiben stehen, weil **lebende Querverweise** daran hängen (`README.md:193` zeigt auf **21**; Begründung: „Offen bei Übergabe"). **Außerhalb der Batch-Tabelle stehen sechs offene Positionen: 52, 53, 54, 55, 56, 57 (Skills-Marker-Nachtrag, 2026-10-20/21)** — alle sechs Positionen, keine Arbeitsaufträge, alle sechs entscheidungs offen; die Batch-Tabelle bleibt davon unberührt (2 Zeilen = 0 offen + 2 stehengeblieben).
 > **Lokaler Voll-Lauf gegen `00bd0bc` (2026-10-05, seriell) — das ist der Stand dieses HEAD, nicht der von `37277096174`:** SQLite **2017 passed** · Postgres **2016 + 1 skipped** (= **dieselben** 2017) · Vitest **58 Dateien / 626** · E2E **170 passed / 67 skipped / 1 failed**. **Der eine Fehlschlag ist `child-lifetime.spec.ts:394` und damit D27, kein neuer Befund:** PID 1 ist auf diesem Host `opencode serve` (kein `init`), und der Test nennt die Ursache in seiner eigenen Fehlermeldung mit — **Host-Limitation, kein Code-Defekt**; mit `options: --init` (CI) läuft er. Dauerfassung in `features/05-e2e-test-image.md`.
 > **Arithmetik, aus der Datei gezählt (Stand 2026-10-05, nach dem §4-Schnitt und dem 23/25-Schnitt):** **2 Zeilen** in der Batch-Tabelle = **0 offen** + **2 stehengeblieben** (17, 21 — lebende Querverweise). **Die sieben Positionen 8, 9, 12, 22, 38, 41, 42 sind entfernt** (verifiziert `APPROVED`), mit ihnen **45** (dieselbe Zeile, jetzt geschlossen). **Position 46** (kein Scheduler) stand nie in dieser Tabelle, sondern unter P6, und ist mit 45 entfernt. **Position 47** (Sub-`resend`-Button, P6-Block, Runden 24/25 `APPROVED`) ist am 2026-10-04 ebenfalls per §4 entfernt.
 > **Positionen 48–51 (2026-10-04, Skills-Marker-Erstmarker `AGENTS.skills.md`, Doku-only):** vier neue Positionen am Dateiende — 48 (Serial-Pin vs. Named Locks), 49 (Test-Budget/Akteur-Schlüssel), 50 (`packageManager`/`overrides`), 51 (CI-Pfadfilter). **Alle vier sind inzwischen umgesetzt und verifiziert** (Abschnitt unten: 48 am 2026-10-04 als Isolation statt Locks, Messlauf 2026-10-05 grün; 49 Runden 43/44/45 `APPROVED`; 50 Runden 48/49; 51 Runden 36/37) — der damalige Satz „Nichts davon ist implementiert" galt am 2026-10-04 und ist hiermit überholt. Die GHCR-Prüfung (beide Packages public) steht im Marker, nicht als Position.
 >
 > **Positionen 52–54 (2026-10-20, Marker-Fortschreibung `AGENTS.skills.md` auf `787670a`, Doku-only):** drei neue Positionen am Dateiende — 52 (`build-verify`: zwei `AGENTS.md`-Sätze gegen die neue Skill-Fassung), 53 (`laravel`: Validierungs-Konvention), 54 (`codegraph-project-setup`: Index + verdrahteter Hook fehlen). **Alle drei sind offen** — Positionen, keine Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag.
 > **Position 55 (2026-10-21, zweite Marker-Fortschreibung `AGENTS.skills.md` auf `0449b05`, Doku-only):** eine neue Position am Dateiende — 55 (`ui-review`: der Findings-Report in `AGENTS.md` §7 Schritt 3 führt die alte Vorlage). Sie ist am 2026-10-21 **neu aufgenommen**; die Positionen 52–54 sind am selben Tag am committeten Stand nachgemessen und **alle drei unverändert offen** — kein Platz ist gegenstandslos geworden.
+> **Positionen 56 und 57 (2026-10-21, Verifikationsrunde zu `a4551c8`, Doku-only):** zwei neue Positionen am Dateiende — 56 (`generated-docs`: kein Doku-Generator und kein Drift-Gate), 57 (`ratchet-gates`: die Owner-/Ticket-Regel fehlt). Beide sind **Entscheidungen der Orchestrierung** aus der Verifikationsrunde: das Marker-Verdikt der betroffenen Zeilen wurde von `ja` auf **`offen`** umgestellt und die Lücke als Position geführt. **Alle sechs Positionen (52–57) sind offen** — Positionen, keine Arbeitsaufträge: `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag.
 > **Position 10 ist am 2026-09-30 per §4 entfernt** — drei Verifikationsrunden, Verdict **`APPROVED`**, kein critical/high. Ihre Befunde sind **nicht** ins Board gewandert, sondern in `features/auth/01-auth-and-roles.md` (F1-Wächter, F3-Akteur, F5-Invariante, F6-Zustandstest, F4s **offene** Produktfrage) und `features/badges-qr.md` (Content-Stream-Defekt, `/Length`-Extraktor); beides vom Sweep-Agenten **am Code verifiziert**, nicht geglaubt.
 > **Der Sweep hat dabei eine Nutzerentscheidung gefunden, die ich beim Schreiben der Zeile verloren hatte:** die Verzögerung der `/konto`-Manifest-Eintragung stand ausschließlich dort. Zurück als **43**.
 > **Position 10 ist am 2026-09-29 per §4 entfernt** (Konto-Löschung, dritte Verifikations-Runde: `APPROVED`, kein critical/high). Ihr **F1/F3/F4/F5/F6 stehen in `features/auth/01-auth-and-roles.md`**, die Badge-Befunde in `features/badges-qr.md` — gegen den Code geprüft, nicht geglaubt (§3).
@@ -988,16 +989,19 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 
 ---
 
-## 🔒 Skills-Marker-Nachtrag (Positionen 52–55, 2026-10-20/21)
+## 🔒 Skills-Marker-Nachtrag (Positionen 52–57, 2026-10-20/21)
 
 > **Herkunft:** Marker-Fortschreibung `AGENTS.skills.md` (`agents-skills-consumed: 6629ad2`
 > → `787670a`), Range `6629ad2..787670a` (37 Commits, 21 Skill-Verzeichnisse) — die
 > Positionen 52–54. **Position 55** kam aus der **zweiten** Fortschreibung
-> (`787670a` → `0449b05`, Range 12 Commits, 9 Skill-Verzeichnisse).
+> (`787670a` → `0449b05`, Range 12 Commits, 9 Skill-Verzeichnisse). **Die Positionen 56
+> und 57** kamen aus der **Verifikationsrunde** zu `a4551c8` (Entscheidung der
+> Orchestrierung: Verdikt `offen` + offene Position).
 > **Nichts hiervon ist implementiert** — das sind Positionen, keine Arbeitsaufträge:
 > `AGENTS.todo.md` ist ein Log, kein Auftrag; Abarbeitung nur auf ausdrücklichen Auftrag
-> (`.agents/rules/build-verify.md:26` — Regel 9: „`AGENTS.todo.md` is a log, not an order";
-> im Projekt `AGENTS.md:88-90` §4). Die Skill-Prüfung selbst ist im Marker protokolliert,
+> (`.agents/rules/build-verify.md` — Regel 9 „`AGENTS.todo.md` is a log, not an order",
+> Zeile 29 @`0449b05`, Zeile 26 @`787670a`; im Projekt `AGENTS.md:88-90` §4). Die
+> Skill-Prüfung selbst ist im Marker protokolliert,
 > nicht hier. **Position 54 kam nicht aus dem Marker-Lauf selbst, sondern aus dessen
 > Verifikationsrunde:** der Marker-Commit `9170e03` trug in der Zeile
 > `codegraph-project-setup` das Verdikt **nein**, obwohl dieselbe Zeile den
@@ -1011,7 +1015,8 @@ unverändert fort. **Erledigt-Verweis:** Die hier geforderte Umstellung (Pin-Ent
 
 **(a) Der Verifikator-Konflikt.** `AGENTS.md:131` (Rolle „Verifikator (Subagent)") sagt
 heute: *führt Tests/Lint/Build aus und prüft den Diff.* Die Upstream-Regel 3
-(`.agents/rules/build-verify.md:18`) sagt seit `86d677e` das Gegenteil: der Verifikator
+(`.agents/rules/build-verify.md`, Zeile 18 — **gemessen `@787670a` und `@0449b05`, die
+Zeile ist durch die Range nicht gewandert**) sagt seit `86d677e` das Gegenteil: der Verifikator
 prüft die **Substanz**, nicht die mechanischen Gates — *reported green with quoted output,
 the gates are not re-run* (vier Ausnahmen stehen im Skill). Das Projekt-`AGENTS.md` ist
 damit an der einen Stelle **stiller Widerspruch** zur Regel, auf die es sich selbst beruft
@@ -1032,7 +1037,8 @@ widerspricht das Projekt seiner eigenen Delegation. **Die Entscheidung (welche F
 gilt) ist eine Nutzerentscheidung** — deshalb steht sie hier als Position, nicht als
 stille Korrektur.
 
-**Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` Regel 3 (`:18`);
+**Beleg:** Upstream `787670a`: `.agents/rules/build-verify.md` Regel 3 (Zeile 18 — `@787670a`
+und `@0449b05` gleich);
 `.agents/skills/build-verify/SKILL.md` („Fresh session per round", `:34`, `:74-77`).
 Projekt: `AGENTS.md:131` (Rolle „Verifikator"), `AGENTS.md:123-125` (Punkt (e)),
 `AGENTS.md:114-117` (Punkt 4).
@@ -1097,6 +1103,21 @@ die dieses Projekt selbst festlegt. Der Auswahlregel des `skills-marker` (§4)
 folgend: *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"* — hier
 liegt nicht einmal ein Zweifel vor. Der Marker ist berichtigt (Verdikt **ja**,
 offene Position).
+
+*Anmerkung zur Form (2026-10-21):* die Upstream-Regel nennt die Stufe „**ja** mit
+offener Position"; die Marker-Datei führt dieselbe Information seit dem 2026-10-21 als
+das **eigene** Verdikt **`offen`** (die drei Werte `ja` / `nein` / `offen` sind disjunkt
+— `ja` = trifft zu **und ist erfüllt**). Der Inhalt dieser Zeile ändert sich dadurch
+**nicht**: es bleibt dieselbe gemessene Lücke, dieselbe Position, derselbe Beleg.
+
+**Verdikt-Nachtrag 2026-10-21 (Entscheidung der Orchestrierung):** die drei
+Marker-Werte sind jetzt disjunkt — `ja` = trifft zu **und ist erfüllt**, `nein` = trifft
+nicht zu, `offen` = trifft zu, **ist aber nicht erfüllt** (die Lücke steht als Position
+im Board). Diese Zeile trägt deshalb seit dem 2026-10-21 das Verdikt **`offen`** statt
+`ja` + Position. **Die Lücke selbst ist unverändert** — Index und Hook-Verdrahtung
+fehlen weiterhin, am committeten Stand `a4551c8` neu gemessen
+(`.codegraph/`: nur `.gitignore`; `core.hooksPath`: nicht gesetzt; `.git/hooks/pre-commit`:
+existiert nicht).
 
 **Zum Vergleich — das Geschwister-Repo `/projects/opencode-pwa` hat genau diese
 zwei Dinge.** `.codegraph/codegraph.db` (16 MB) **und**
@@ -1190,3 +1211,110 @@ Eigentümer-/Ticket-Regel `:61-62`), `.agents/skills/ratchet-gates/references/vo
 (Niveaus `:10-18`, Stände `:25-33`, Zählregel `:35-37`, Regeln `:39-53`),
 `.agents/skills/ui-review/SKILL.md:99-109` (die **alte** Spalten- und Niveausliste
 im Skill-Body). Projekt: `AGENTS.md:293-295`.
+
+### 56 — `generated-docs`: keine Zahlen in Prosa ohne Quelle — das Projekt hat weder einen Generator noch ein Drift-Gate
+
+**Herkunft:** Verifikationsrunde zu `a4551c8` (2026-10-21) — **Entscheidung der
+Orchestrierung**: das Marker-Verdikt der Zeile `generated-docs` wird von `ja` auf
+**`offen`** umgestellt, und die Lücke wird als Position geführt. **Nichts hiervon ist
+implementiert** — das ist eine Position, kein Arbeitsauftrag.
+
+**Der Skill, um den es geht.** `generated-docs` (neu in `00dbd22`, hidden) behandelt
+den Fall „Doku, die geprüft statt geglaubt wird". Die Kernregel steht in
+`.agents/skills/generated-docs/SKILL.md:74-80` (Upstream `0449b05`):
+
+> A number in prose is an artifact: it is generated together with the block that owns
+> it, **or it is replaced by a reference to the generated table** — a number typed into
+> a sentence is a copy of a fact somebody else maintains, and it ages silently.
+
+**Was im Projekt steht (gemessen am committeten Stand `a4551c8`).**
+
+| Befund | Kommando | Ergebnis |
+|---|---|---|
+| **kein** Doku-Generator, **kein** Drift-Gate | `ls scripts/` | nur `assert-db-driver.php`, `dev-worker.sh`, `e2e-up.sh`, `lib/`, `pdf-to-png-vision.sh`, `render-badge-photo-placeholder.mjs`, `test-pgsql.sh` — **kein** Generator, **kein** Drift-Check |
+| **kein** Generator im Baum | `git ls-tree -r a4551c8 --name-only \| grep -iE 'gen_\|drift\|doc_fact\|generate'` | **0** Treffer |
+| **kein** Test liest eine versionierte `.md` | `git grep -l -i 'severity' a4551c8 -- '*.md'` | **1** Treffer (`AGENTS.md`) — die `.md`-Treffer in `backend/tests/` sind **Prosa in Kommentaren**, keine Lesezugriffe |
+| Zahl in Prosa (Fall 1) | `features/venue-master-data.md:358-368` | „Gate: dieselbe Suite auf SQLite … **1983 passed** (12501 Assertions), PostgreSQL **1982 passed + 1 skipped**" — mit Lauf `37280377310`, Datum und Leser, aber **als Prosa im Fließtext** |
+| Zahl in Prosa (Fall 2) | `features/auth/01-auth-and-roles.md:430-454` | „→ 3 failed, 25 passed (124 assertions)" — die unbezifferte Zahl wurde **durch andere Prosa** ersetzt, nicht durch einen Verweis auf eine generierte Tabelle |
+| das Projekt hat die Lücke **schon einmal** getroffen | `features/venue-master-data.md:366-368` | „Die frühere Fassung dieser Zeile nannte **1534 / 1533**" — der Board dokumentiert den Fund (korrigiert in `3f71027`) |
+
+**Warum das eine Lücke ist und kein „nein".** Das Projekt **trägt die Pflicht in eigener
+Form**: `AGENTS.md:80` verlangt genau das, was der Skill verlangt — „für ein Dokument
+**Diff gegen den Code**, nicht gegen die Absicht" — und `AGENTS.md:46` („Wer eine Zahl
+zitiert, prüft sie gegen einen Lauf"). Ein Fehler **ist** aufgetreten (der Fall
+`1534/1533`) und wurde gefunden. **Was fehlt, ist der maschinelle Check**: die
+Disziplin hängt an einem Menschen, der die Zahl gegen einen Lauf prüft; die
+Skill-Regel verlangt einen **Gate**, der die Abweichung selbst findet. Der
+Vergleichsfall ist das Projekt, aus dem die Zahlen stammen:
+`/projects/LuminaRust/scripts/` trägt `gen_doc_facts.sh`, `check_doc_facts_generator.sh`
+und `check_doc_facts_drift.sh` — **dieses** Projekt trägt nichts davon.
+
+**Der Entscheidungsbedarf (drei Wege, alle offen).**
+(a) **Generator + Drift-Gate einführen**: ein Generator für die Zahlen in
+`features/` (Quelle: der CI-Lauf) plus ein Gate, das die committed Datei gegen die
+generierte temporäre Datei diffet. (b) **Die Zahl ersetzen**: jede Zahl in Prosa
+entfällt und wird ein Verweis auf eine generierte Tabelle. (c) **Die manuelle Disziplin
+bewusst festhalten**: `AGENTS.md:80` bleibt die tragende Regel, der maschinelle Check
+wird ausdrücklich **nicht** eingeführt, und das wird als Entscheidung im Board
+vermerkt. **Ohne eine dieser drei Entscheidungen bleibt die Position offen** — jede
+Zahl in `features/` ist eine Kopie einer Zahl, die jemand anders pflegt.
+
+**Beleg:** Upstream `0449b05`: `.agents/skills/generated-docs/SKILL.md:74-80`
+(„Numbers in prose"), `:22` (Who owns the claim), `:38` (Was ist nicht generiert),
+`:49` (Der Drift-Gate: drei Bedingungen). Projekt (am committeten Stand
+`a4551c8`): `scripts/` (Inhalt oben), `features/venue-master-data.md:358-368`
+(die Zahlen in Prosa) und `:366-368` (der frühere, überholte Stand `1534 / 1533`),
+`features/auth/01-auth-and-roles.md:430-454`, `AGENTS.md:80`, `AGENTS.md:46`.
+
+### 57 — `ratchet-gates`: die Owner-/Ticket-Regel fehlt — das Register führt keinen Eigentümer und kein Ticket je Eintrag
+
+**Herkunft:** Verifikationsrunde zu `a4551c8` (2026-10-21) — **Entscheidung der
+Orchestrierung**: das Marker-Verdikt der Zeile `ratchet-gates` wird von
+„ja, aber nur zur Hälfte" (ein undefinierter Wert) auf **`offen`** umgestellt, und die
+Lücke wird als Position geführt. **Nichts hiervon ist implementiert** — das ist eine
+Position, kein Arbeitsauftrag.
+
+**Der Skill, um den es geht.** `ratchet-gates` (neu in `70d49e0`, hidden) besitzt mit
+`b0d1b51` das **kanonische Vokabular** für Findings- und Gap-Listen. Zwei Regeln davon
+sind **neu in dieser Range** und treffen dieses Projekt:
+
+| Regel | Upstream `0449b05` | Wortlaut |
+|---|---|---|
+| Eigentümer + Ticket je Eintrag | `ratchet-gates/references/vocabulary.md:44` | „**A finding needs an owner and a ticket** unless it is `fixed` … an open one has nobody → a graveyard entry." |
+| dieselbe Regel für Gap-Listen | `ratchet-gates/SKILL.md:119-120` | „The gap list gets the same discipline as the code: **an owner and a ticket per entry**, otherwise it is a graveyard." |
+
+**Was im Projekt steht (gemessen am committeten Stand `a4551c8`).**
+
+| Teil | Befund | Kommando | Ergebnis |
+|---|---|---|---|
+| Stände | **getragen** | `git grep -oE '\(accepted [0-9-]+, [a-z]+\)' a4551c8 -- features/security/accepted-risks.md` | **8** Treffer, alle `accepted` (kanonischer Status) mit Datum |
+| Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (`vocabulary.md:10-18`) |
+| stabile Ids | **getragen** | `git grep -cE '^- \*\*A[0-9]+' a4551c8 -- features/security/accepted-risks.md` | **8** Einträge `A1`–`A8` |
+| **Eigentümer + Ticket** | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** |
+| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b\|\bticket\b' a4551c8 -- AGENTS.todo.md` | **4** Treffer — **alle vier** in der Position 55 (dem Text dieses Boards vom 2026-10-21), **keiner** in einem Board-Eintrag |
+
+**Was das nicht ist — und dafür ist keine Position nötig.** Der **Ratchet-Teil** des
+Skills (eine Baseline, die nur in eine Richtung wandert) ist hier **nicht anwendbar**,
+und das ist eine begründete Abweichung, keine Lücke: im committeten Baum gibt es
+**kein** Baseline-Artefakt (die `baseline`-Treffer in `ci.yml`, `AGENTS.md`,
+`AGENTS.todo.md` und `Agents.headless.md` sind `maxFailures` in den
+Playwright-Konfigurationen bzw. die Prosa „Gate-Baseline"; `known.?failure` und `xfail`:
+**0** Treffer), und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
+getragene Altfehler — das Projekt antwortet auf dieselbe Frage mit der anderen,
+strengeren Antwort. Die **7** `markTestSkipped` (am committeten Stand `a4551c8`, 5
+Dateien) sind je **umgebungsbedingt** und mit ihrer Ursache benannt (`ext-intl`, `gd`,
+`OpenSSL`, SQLite-FK-Verzicht, Postgres-`DEFERRABLE`) — also kein getragener
+Fehlerbestand, sondern benannte Einzelgründe.
+
+**Der Entscheidungsbedarf.** Für jeden Eintrag im Register (A1–A8) und für jeden
+offenen Befund im Board fehlen **Eigentümer und Ticket**. Das Projekt hat **kein**
+Ticket-System: das Board-Pendant ist die Positionsnummer, das Eigentümer-Pendant die
+Mandant-Verantwortung. Zu entscheiden ist, **wovon** eine offene Zeile ihren
+Eigentümer und ihr Ticket bekommt — und ob das Board (offene Befunde) und das
+Register (akzeptierte Risiken) beide darunter fallen.
+
+**Beleg:** Upstream `0449b05`: `.agents/skills/ratchet-gates/references/vocabulary.md:44`
+(Eigentümer/Ticket), `:48-50` (stabile Id), `.agents/skills/ratchet-gates/SKILL.md:119-122`
+(Eigentümer/Ticket für Gap-Listen). Projekt (am committeten Stand `a4551c8`):
+`features/security/accepted-risks.md` (A1–A8, Inhalt oben), `AGENTS.todo.md`
+(4 Treffer, alle in Position 55), `AGENTS.md:99-101`.
