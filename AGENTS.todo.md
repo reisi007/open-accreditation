@@ -1101,23 +1101,22 @@ das war die falsche Entscheidung: `nein` heißt „trifft nicht zu", und hier li
 keine Nicht-Anwendbarkeit vor, sondern eine **gemessene Lücke** an einer Pflicht,
 die dieses Projekt selbst festlegt. Der Auswahlregel des `skills-marker` (§4)
 folgend: *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"* — hier
-liegt nicht einmal ein Zweifel vor. Der Marker ist berichtigt (Verdikt **ja**,
+liegt nicht einmal ein Zweifel vor. Der Marker ist berichtigt (Verdikt **`offen`**,
 offene Position).
 
-*Anmerkung zur Form (2026-10-21):* die Upstream-Regel nennt die Stufe „**ja** mit
-offener Position"; die Marker-Datei führt dieselbe Information seit dem 2026-10-21 als
-das **eigene** Verdikt **`offen`** (die drei Werte `ja` / `nein` / `offen` sind disjunkt
-— `ja` = trifft zu **und ist erfüllt**). Der Inhalt dieser Zeile ändert sich dadurch
-**nicht**: es bleibt dieselbe gemessene Lücke, dieselbe Position, derselbe Beleg.
-
-**Verdikt-Nachtrag 2026-10-21 (Entscheidung der Orchestrierung):** die drei
-Marker-Werte sind jetzt disjunkt — `ja` = trifft zu **und ist erfüllt**, `nein` = trifft
-nicht zu, `offen` = trifft zu, **ist aber nicht erfüllt** (die Lücke steht als Position
-im Board). Diese Zeile trägt deshalb seit dem 2026-10-21 das Verdikt **`offen`** statt
-`ja` + Position. **Die Lücke selbst ist unverändert** — Index und Hook-Verdrahtung
-fehlen weiterhin, am committeten Stand `a4551c8` neu gemessen
-(`.codegraph/`: nur `.gitignore`; `core.hooksPath`: nicht gesetzt; `.git/hooks/pre-commit`:
-existiert nicht).
+*Anmerkung zur Form (2026-10-21, Entscheidung der Orchestrierung):* die Upstream-Regel
+nennt die Stufe „**ja** mit offener Position"; die Marker-Datei führt dieselbe
+Information seit dem 2026-10-21 als das **eigene** Verdikt **`offen`** — die drei
+Marker-Werte sind disjunkt: `ja` = trifft zu **und ist erfüllt**, `nein` = trifft nicht
+zu, `offen` = trifft zu, **ist aber nicht erfüllt** (die Lücke steht als Position im
+Board). Der Upstream-Satz *„im Zweifel gewinnt **ja** mit offener Position, nicht
+**nein**"* (`skills-marker/SKILL.md:111-112`) betrifft die **Anwendbarkeit** (zwischen
+`ja` und `nein`), nicht die Erfüllung; er gilt unverändert. **Der Inhalt dieser Zeile
+ändert sich dadurch nicht**: es bleibt dieselbe gemessene Lücke, dieselbe Position,
+derselbe Beleg — Index und Hook-Verdrahtung fehlen weiterhin (gemessen am Vorgänger
+`a4551c8`, seitdem unverändert: `git diff --stat a4551c8..HEAD -- .codegraph/
+.githooks/` → leer; `.codegraph/` trägt nur `.gitignore`, `core.hooksPath` ist nicht
+gesetzt, `.git/hooks/pre-commit` existiert nicht).
 
 **Zum Vergleich — das Geschwister-Repo `/projects/opencode-pwa` hat genau diese
 zwei Dinge.** `.codegraph/codegraph.db` (16 MB) **und**
@@ -1170,7 +1169,8 @@ und die Stände, und die Findings-Vorlage des `ui-review`-Skills
 | `medium` | „polish issues, minor alignment, suboptimal hierarchy" | „a defect with a workaround"; ohne Workaround: `high` (ein anderer Weg wirkt) bzw. `critical` (der Kernweg ist für alle blockiert) (`findings-report.md:46`) |
 | Severity/Status | — | „Severity and status are recorded separately" (`vocabulary.md:51`) — ein Status im Schweregrad-Feld zerstört das Niveau |
 
-**Was im Projekt steht (gemessen am committeten Stand `27739d5`).**
+**Was im Projekt steht (gemessen am Vorgänger `27739d5`, seitdem unverändert —
+`git diff --stat 27739d5..HEAD -- AGENTS.md` → leer).**
 `AGENTS.md:293-295` (Schritt 3 des UI-Loops) schreibt fest:
 
 > 3. **Findings-Report:** Konsolidierter Bericht je Befund `Severity | Screenshot | Finding | Suggested fix`
@@ -1227,13 +1227,14 @@ den Fall „Doku, die geprüft statt geglaubt wird". Die Kernregel steht in
 > it, **or it is replaced by a reference to the generated table** — a number typed into
 > a sentence is a copy of a fact somebody else maintains, and it ages silently.
 
-**Was im Projekt steht (gemessen am committeten Stand `a4551c8`).**
+**Was im Projekt steht (gemessen am Vorgänger `a4551c8`, seitdem unverändert —
+`git diff --stat a4551c8..HEAD -- scripts/ features/ AGENTS.md` → leer).**
 
 | Befund | Kommando | Ergebnis |
 |---|---|---|
 | **kein** Doku-Generator, **kein** Drift-Gate | `ls scripts/` | nur `assert-db-driver.php`, `dev-worker.sh`, `e2e-up.sh`, `lib/`, `pdf-to-png-vision.sh`, `render-badge-photo-placeholder.mjs`, `test-pgsql.sh` — **kein** Generator, **kein** Drift-Check |
 | **kein** Generator im Baum | `git ls-tree -r a4551c8 --name-only \| grep -iE 'gen_\|drift\|doc_fact\|generate'` | **0** Treffer |
-| **kein** Test liest eine versionierte `.md` | `git grep -l -i 'severity' a4551c8 -- '*.md'` | **1** Treffer (`AGENTS.md`) — die `.md`-Treffer in `backend/tests/` sind **Prosa in Kommentaren**, keine Lesezugriffe |
+| **kein** Test liest eine versionierte `.md` | `git grep -l -i 'severity' a4551c8 -- '*.md'` | **3** Treffer (`AGENTS.md`, `AGENTS.skills.md`, `AGENTS.todo.md`) — **alle drei** sind **Dokumentationsdateien**; in `backend/tests/` ist die Trefferzahl **0**; der einzige Treffer **außerhalb** der `.md`-Dateien liegt in `backend/database/migrations/2026_09_26_000500_harden_role_user_scope_uniqueness.php:62` („Severity is low" im Kommentar) — **kein** Test liest eine `.md` |
 | Zahl in Prosa (Fall 1) | `features/venue-master-data.md:358-368` | „Gate: dieselbe Suite auf SQLite … **1983 passed** (12501 Assertions), PostgreSQL **1982 passed + 1 skipped**" — mit Lauf `37280377310`, Datum und Leser, aber **als Prosa im Fließtext** |
 | Zahl in Prosa (Fall 2) | `features/auth/01-auth-and-roles.md:430-454` | „→ 3 failed, 25 passed (124 assertions)" — die unbezifferte Zahl wurde **durch andere Prosa** ersetzt, nicht durch einen Verweis auf eine generierte Tabelle |
 | das Projekt hat die Lücke **schon einmal** getroffen | `features/venue-master-data.md:366-368` | „Die frühere Fassung dieser Zeile nannte **1534 / 1533**" — der Board dokumentiert den Fund (korrigiert in `3f71027`) |
@@ -1261,10 +1262,12 @@ Zahl in `features/` ist eine Kopie einer Zahl, die jemand anders pflegt.
 
 **Beleg:** Upstream `0449b05`: `.agents/skills/generated-docs/SKILL.md:74-80`
 („Numbers in prose"), `:22` (Who owns the claim), `:38` (Was ist nicht generiert),
-`:49` (Der Drift-Gate: drei Bedingungen). Projekt (am committeten Stand
-`a4551c8`): `scripts/` (Inhalt oben), `features/venue-master-data.md:358-368`
-(die Zahlen in Prosa) und `:366-368` (der frühere, überholte Stand `1534 / 1533`),
-`features/auth/01-auth-and-roles.md:430-454`, `AGENTS.md:80`, `AGENTS.md:46`.
+`:49` (Der Drift-Gate: drei Bedingungen). Projekt (gemessen am Vorgänger `a4551c8`,
+die genannten Dateien seitdem unverändert — `git diff --stat a4551c8..HEAD --
+scripts/ features/ AGENTS.md` → leer): `scripts/` (Inhalt oben),
+`features/venue-master-data.md:358-368` (die Zahlen in Prosa) und `:366-368` (der
+frühere, überholte Stand `1534 / 1533`), `features/auth/01-auth-and-roles.md:430-454`,
+`AGENTS.md:80`, `AGENTS.md:46`.
 
 ### 57 — `ratchet-gates`: die Owner-/Ticket-Regel fehlt — das Register führt keinen Eigentümer und kein Ticket je Eintrag
 
@@ -1283,7 +1286,9 @@ sind **neu in dieser Range** und treffen dieses Projekt:
 | Eigentümer + Ticket je Eintrag | `ratchet-gates/references/vocabulary.md:44` | „**A finding needs an owner and a ticket** unless it is `fixed` … an open one has nobody → a graveyard entry." |
 | dieselbe Regel für Gap-Listen | `ratchet-gates/SKILL.md:119-120` | „The gap list gets the same discipline as the code: **an owner and a ticket per entry**, otherwise it is a graveyard." |
 
-**Was im Projekt steht (gemessen am committeten Stand `a4551c8`).**
+**Was im Projekt steht (gemessen am Vorgänger `a4551c8`; die Register-Datei ist
+seitdem unverändert — `git diff --stat a4551c8..HEAD --
+features/security/accepted-risks.md` → leer).**
 
 | Teil | Befund | Kommando | Ergebnis |
 |---|---|---|---|
@@ -1291,17 +1296,21 @@ sind **neu in dieser Range** und treffen dieses Projekt:
 | Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (`vocabulary.md:10-18`) |
 | stabile Ids | **getragen** | `git grep -cE '^- \*\*A[0-9]+' a4551c8 -- features/security/accepted-risks.md` | **8** Einträge `A1`–`A8` |
 | **Eigentümer + Ticket** | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** |
-| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b\|\bticket\b' a4551c8 -- AGENTS.todo.md` | **4** Treffer — **alle vier** in der Position 55 (dem Text dieses Boards vom 2026-10-21), **keiner** in einem Board-Eintrag |
+| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b\|\bticket\b' <stand> -- AGENTS.todo.md` | die Treffer liegen **ausschließlich** im **Meta-Text** des Boards — der Kopfzeile (der Positions-Index) und den Positionstexten 55–57 —, **keiner** in einem Eintrag, der einen **Befund** führt (weder in der Batch-Tabelle noch in den Wellen-Abschnitten). Der Wert ist damit **nicht** als Trefferzahl festzuschreiben: jeder neue Positions-Text erhöht sie |
 
 **Was das nicht ist — und dafür ist keine Position nötig.** Der **Ratchet-Teil** des
 Skills (eine Baseline, die nur in eine Richtung wandert) ist hier **nicht anwendbar**,
 und das ist eine begründete Abweichung, keine Lücke: im committeten Baum gibt es
-**kein** Baseline-Artefakt (die `baseline`-Treffer in `ci.yml`, `AGENTS.md`,
-`AGENTS.todo.md` und `Agents.headless.md` sind `maxFailures` in den
-Playwright-Konfigurationen bzw. die Prosa „Gate-Baseline"; `known.?failure` und `xfail`:
-**0** Treffer), und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
+**kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes **bekannter
+Fehler**). Gemessen am Vorgänger `a4551c8` (seitdem unverändert): `git grep -in
+baseline a4551c8` → **49** Zeilen-Treffer in **22** Dateien, und **keiner** davon ist
+ein solches Artefakt — `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline`
+(PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der
+Rest (**27**) ist Prosa bzw. Bezeichner; nach Bereich: **3** Dokumentationsdateien,
+**10** Backend-Dateien (davon **7** in `backend/tests/`), **9** Frontend-Dateien.
+Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) ist der einzige Treffer im Repo die **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die **30** `maxFailures`-Stellen der Playwright-Konfigurationen und des Workflows dazu (am Vorgänger `a4551c8` mit dem damaligen Marker-Eigentext: **31** Treffer) — deshalb die Wortgrenze. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
 getragene Altfehler — das Projekt antwortet auf dieselbe Frage mit der anderen,
-strengeren Antwort. Die **7** `markTestSkipped` (am committeten Stand `a4551c8`, 5
+strengeren Antwort. Die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5
 Dateien) sind je **umgebungsbedingt** und mit ihrer Ursache benannt (`ext-intl`, `gd`,
 `OpenSSL`, SQLite-FK-Verzicht, Postgres-`DEFERRABLE`) — also kein getragener
 Fehlerbestand, sondern benannte Einzelgründe.
@@ -1315,6 +1324,7 @@ Register (akzeptierte Risiken) beide darunter fallen.
 
 **Beleg:** Upstream `0449b05`: `.agents/skills/ratchet-gates/references/vocabulary.md:44`
 (Eigentümer/Ticket), `:48-50` (stabile Id), `.agents/skills/ratchet-gates/SKILL.md:119-122`
-(Eigentümer/Ticket für Gap-Listen). Projekt (am committeten Stand `a4551c8`):
-`features/security/accepted-risks.md` (A1–A8, Inhalt oben), `AGENTS.todo.md`
-(4 Treffer, alle in Position 55), `AGENTS.md:99-101`.
+(Eigentümer/Ticket für Gap-Listen). Projekt (gemessen am Vorgänger `a4551c8`, die
+Register-Datei seitdem unverändert): `features/security/accepted-risks.md` (A1–A8,
+Inhalt oben), `AGENTS.todo.md` (Treffer nur im Meta-Text, s. o.),
+`AGENTS.md:99-101`.

@@ -5,7 +5,9 @@ geprüft am: 2026-10-21
 
 > Viertermarker. Geprüfte Range `787670a..0449b05` — **12 Commits** des Skills-Repos
 > (`git -C <skills-repo> rev-list --count 787670a..0449b05` → 12, gemessen am
-> committeten Stand `0449b05`; der Cursor ist genau dieser HEAD).
+> **Skills-Repo-Commit `0449b05`**, den dieser Marker konsumiert; der HEAD des
+> Skills-Repos stand beim Commit dieses Markers auf `0449b05` — der Cursor ist genau
+> dieser HEAD).
 > Die Range berührte **9 Skill-Verzeichnisse** unter `.agents/skills/`
 > (`git log --name-only --format= 787670a..0449b05 -- .agents/skills | sort -u` →
 > 22 Dateien in 9 Verzeichnissen): `agent-config`, `build-verify`, `generated-docs`,
@@ -29,16 +31,16 @@ geprüft am: 2026-10-21
 |---|---|---|---|
 | `agent-config` | nein | | Maschinen-Konfiguration (globale `opencode.jsonc`, MCP, Skill-/Command-Registrierung) — das Projekt hat keine `opencode.jsonc` und keine Modell-/MCP-Datei. **Seit `817c01e` hidden** (nur per exakter ID ladbar) — das ändert die Anwendbarkeit nicht: die Pflicht bleibt eine Pflicht der Maschine, nicht des Projekts |
 | `build-verify` | offen | `AGENTS.md` §5 Punkt 4 „Build-/Verify-Flow — zentral, nicht hier" (`:114-117`) | Position 52 — zwei Sätze in `AGENTS.md` §5 widersprechen der Skill-Fassung; die zitierten Upstream-Sätze sind in dieser Range **unverändert** |
-| `codegraph-project-setup` | offen | `.githooks/pre-commit` (CodeGraph-Sync-Hook, versioniert — **läuft aber nicht**: `core.hooksPath` nirgends gesetzt, `.git/hooks/pre-commit` fehlt); `.codegraph/` trägt **nur** `.gitignore`, **keinen** Index (`codegraph status`, gemessen 2026-10-21: „⚠ Not initialized") | Position 54 — der Pflichtteil des Skills (Index + verdrahteter Hook) ist **nicht erfüllt**; am committeten Stand `a4551c8` neu gemessen, unverändert |
-| `docker-test-image` | ja | `.github/workflows/e2e-image.yml` (Job `build` `:67`; PLAYWRIGHT_VERSION-Auflösung `:91-94` im Schritt „Extract build args from repository" `:79` — der `PNPM_VERSION` kommt aus dem Job-`env` `:87` und wird `:93-95` geprüft; **BASE_REF**-Auflösung im eigenen Schritt „Resolve base image reference (digest pass-through)" `:107-147`, der Wert `base_ref` steht in `:147` und wird `:164` als Build-Arg verbraucht), `deployment/Dockerfile.e2e` (ARG-Block `:68`, `:115`), `features/05-e2e-test-image.md` | keine |
-| `generated-docs` | offen | `features/venue-master-data.md` „Portabilität (§2)" (`:358-368`: die Gate-Zahlen nennen Lauf `37280377310`, Datum und Leser — die Zahl steht **in** der Prosa), `features/auth/01-auth-and-roles.md` (`:430-454`: die unbezifferte Zahl wurde durch **andere Prosa** ersetzt) | **Position 56** — die Pflicht trifft zu und ist **nicht erfüllt**: das Projekt hat **weder einen Generator noch ein Drift-Gate** (gemessen am committeten Stand `a4551c8`: `scripts/` enthält nur `assert-db-driver.php`, `dev-worker.sh`, `e2e-up.sh`, `lib/`, `pdf-to-png-vision.sh`, `render-badge-photo-placeholder.mjs`, `test-pgsql.sh`; im committeten Baum keine Datei mit `gen`/`drift`/`doc_fact` im Namen). Die Skill-Regel nennt die Zahl in Prosa ausdrücklich als Fehlerfall (`generated-docs/SKILL.md:74-80`). **Kein „nein"**, weil das Projekt die Pflicht in eigener Form trägt: `AGENTS.md:80` („für ein Dokument Diff gegen den Code, nicht gegen die Absicht") — die Lücke ist der **fehlende maschinelle Check**, nicht die fehlende Pflicht |
+| `codegraph-project-setup` | offen | `.githooks/pre-commit` (CodeGraph-Sync-Hook, versioniert — **läuft aber nicht**: `core.hooksPath` nirgends gesetzt, `.git/hooks/pre-commit` fehlt); `.codegraph/` trägt **nur** `.gitignore`, **keinen** Index (`codegraph status`, gemessen 2026-10-21: „⚠ Not initialized") | Position 54 — der Pflichtteil des Skills (Index + verdrahteter Hook) ist **nicht erfüllt**; am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..HEAD -- .codegraph/` → leer) |
+| `docker-test-image` | ja | `.github/workflows/e2e-image.yml` (Job `build` `:67`; PLAYWRIGHT_VERSION-Auflösung `:91-94` im Schritt „Extract build args from repository" `:79` — der `PNPM_VERSION`-Wert steht im **Workflow**-`env:` `:64`; der Step holt ihn in seinem **Step**-`env:` `:81`/`:87` (`PNPM_VERSION: ${{ env.PNPM_VERSION }}`) und prüft ihn `:93-95`; ein **Job**-`env:`-Block existiert nicht (der Job `build` hat keinen); **BASE_REF**-Auflösung im eigenen Schritt „Resolve base image reference (digest pass-through)" `:107-147`, der Wert `base_ref` steht in `:147` und wird `:164` als Build-Arg verbraucht), `deployment/Dockerfile.e2e` (ARG-Block `:68`, `:115`), `features/05-e2e-test-image.md` | keine |
+| `generated-docs` | offen | `features/venue-master-data.md` „Portabilität (§2)" (`:358-368`: die Gate-Zahlen nennen Lauf `37280377310`, Datum und Leser — die Zahl steht **in** der Prosa), `features/auth/01-auth-and-roles.md` (`:430-454`: die unbezifferte Zahl wurde durch **andere Prosa** ersetzt) | **Position 56** — die Pflicht trifft zu und ist **nicht erfüllt**: das Projekt hat **weder einen Generator noch ein Drift-Gate** (gemessen am Vorgänger `a4551c8`, seitdem unverändert — `git diff --stat a4551c8..HEAD -- scripts/` → leer: `scripts/` enthält nur `assert-db-driver.php`, `dev-worker.sh`, `e2e-up.sh`, `lib/`, `pdf-to-png-vision.sh`, `render-badge-photo-placeholder.mjs`, `test-pgsql.sh`; im committeten Baum **keine** Datei mit `gen_`/`drift`/`doc_fact`/`generate` im Namen). Die Skill-Regel nennt die Zahl in Prosa ausdrücklich als Fehlerfall (`generated-docs/SKILL.md:74-80`). **Kein „nein"**, weil das Projekt die Pflicht in eigener Form trägt: `AGENTS.md:80` („für ein Dokument Diff gegen den Code, nicht gegen die Absicht") — die Lücke ist der **fehlende maschinelle Check**, nicht die fehlende Pflicht |
 | `ghcr-visibility` | ja | `.github/workflows/ci.yml` (Kommentar „ein public GHCR-Package" `:526-530` + `image: ghcr.io/…` `:550`), `features/05-e2e-test-image.md` (`:167-168`) | keine — beide Packages public (geprüft 2026-10-20: `gh api visibility=public` für `accriditation-e2e` und `accriditation-base`) |
 | `github-ci-filters` | ja | `.github/workflows/ci.yml` → `paths-ignore: '**/*.md'` auf `push` **und** `pull_request` (`:63`, `:66`) | keine — **seit `817c01e` hidden**: die Pflicht gilt unverändert, nur der Ladeweg ändert sich (per exakter ID) |
-| `laravel` | offen | `backend/AGENTS.md` (Commands, DB-/Migrations-Policy, Parallel-Testing, Datei-Tests), `backend/phpunit.xml` (Hermetik-Pins), `backend/composer.json` (PHP ^8.5, pint, paratest, jwt-auth) | Position 53 — Validierungs-Konvention nicht umgesetzt; am committeten Stand `a4551c8` neu gemessen: `FormRequest`-Klassen **0**, `rules()` bei **8** von **23** Controllern, Inline-Array bei **17** |
+| `laravel` | offen | `backend/AGENTS.md` (Commands, DB-/Migrations-Policy, Parallel-Testing, Datei-Tests), `backend/phpunit.xml` (Hermetik-Pins), `backend/composer.json` (PHP ^8.5, pint, paratest, jwt-auth) | Position 53 — Validierungs-Konvention nicht umgesetzt; am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..HEAD -- backend/` → leer): `FormRequest`-Klassen **0**, `rules()` bei **8** von **23** Controllern, Inline-Array bei **17** |
 | `node-deps` | ja | `frontend/package.json` (keine Pins/Overrides), `ci.yml` (`version: 11` `:481`, `:739`), `e2e-image.yml` (`PNPM_VERSION: "11"` `:64`), `deployment/Dockerfile.e2e` (`ARG PNPM_VERSION=11` `:117`) | keine |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine) — das Projekt definiert keine; `backend/config/permissions.php` ist die Gate-Matrix des Projekts, nicht diese Policy |
 | `playwright-parallel` | ja | `.github/workflows/ci.yml` (Run-Step: die Worker-Begründung `:792-802`, die Kommandos `:866-870`), `frontend/playwright.config.ts` (`fullyParallel: true` `:24`, `workers: process.env.CI ? 4 : 8` `:27`) | keine |
-| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: `ratchet-gates/references/vocabulary.md:44` („A finding needs an owner and a ticket unless it is `fixed`") und `ratchet-gates/SKILL.md:119` („an owner and a ticket per entry") sind **neu in dieser Range**, und das Projekt trägt sie nirgends (gemessen am committeten Stand `a4551c8`: `git grep -ciE 'owner\|ticket' HEAD -- features/security/accepted-risks.md` → **0** Treffer; im Board 4 Treffer, **alle** im Text der Position 55 — gemessen vor den Positionen 56/57, also **kein** Board-Eintrag außerhalb der eigenen Texte). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im committeten Baum gibt es kein Baseline-Artefakt (die `baseline`-Treffer sind `maxFailures` in den Playwright-Konfigurationen und die Prosa „Gate-Baseline" im Board; `known.?failure`/`xfail`: **0** Treffer), und `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy) — die **7** `markTestSkipped` (am committeten Stand `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
+| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: `ratchet-gates/references/vocabulary.md:44` („A finding needs an owner and a ticket unless it is `fixed`") und `ratchet-gates/SKILL.md:119` („an owner and a ticket per entry") sind **neu in dieser Range**, und das Projekt trägt sie nirgends (gemessen am Vorgänger `a4551c8`, seitdem unverändert — `git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer: `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` → **0** Treffer; im Board liegen die Treffer **ausschließlich** im Meta-Text — der Kopfzeile und den Positionstexten 55–57 —, **keiner** in einem Eintrag, der einen Befund führt). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im committeten Baum gibt es **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes bekannter Fehler). Gemessen am Vorgänger `a4551c8` (seitdem unverändert): `git grep -in baseline a4551c8` → **49** Zeilen-Treffer in **22** Dateien, und **keiner** davon ist ein solches Artefakt — `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der Rest (**27**) ist Prosa bzw. Bezeichner; nach Bereich: 3 Dokumentationsdateien, 10 Backend-Dateien (davon 7 in `backend/tests/`), 9 Frontend-Dateien. Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) ist der einzige Treffer im Repo die **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die **30** `maxFailures`-Stellen der Playwright-Konfigurationen und des Workflows dazu (am Vorgänger `a4551c8` mit dem damaligen Marker-Eigentext: **31** Treffer) — deshalb die Wortgrenze. `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy), und die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
 | `react-i18n` | ja | `frontend/AGENTS.md` (§ „Lingui / i18n — No Module-Scope `t` (STRICT)" `:97`), `frontend/vite.config.ts` (lingui-Plugin + Babel-Preset `:32-33`), `frontend/src/main.tsx` (I18nProvider als erster Import `:1`, `:5`), `frontend/package.json` (`lingui:extract`/`lingui:compile`, `check:i18n` in `prebuild`) | keine — das Projekt weicht bewusst ab: zwei Locales (de+en) mit Vollständigkeits-Gate statt der Portal-Referenz (eine Locale + Rohstring-Pass) |
 | `security-review` | ja | `AGENTS.md` §10 (Fundort der Befunde) + `features/security/accepted-risks.md` (Register A1–A8), `AGENTS.md` §3 (Regressionstest je Fix `:59`) | keine — das Register trägt die kanonischen Stände (`accepted`) und Niveaus (`low`/`medium`) mit stabilen Ids; die Klassen BELEGT/HEURISTIK/AKZEPTIERT bleiben daneben stehen und kollidieren nicht (im Board gemessen: **0** Treffer auf die Klassenliste; als Schweregrade kommen dort nur die kanonischen Wörter vor — `critical`/`high`/`medium`/`low`/`info`; `Major`/`hoch`/`niedrig` nur in Prosa) |
 | `skills-marker` | ja | `AGENTS.skills.md` (diese Datei; Abschnitt „Fortschreiben") | keine |
@@ -59,6 +61,17 @@ Auftrag. **Die sechs `offen`-Zeilen** (`build-verify`, `laravel`,
 geprüft — `offen` heißt hier **nicht** „ungeprüft", sondern „geprüft, und die Pflicht ist
 nicht erfüllt".
 
+**`offen` ist das eigene Verdikt dieses Markers.** Das Upstream-Template kennt nur
+zwei Werte (`templates/AGENTS.skills.md:20`: „`angewendet?` = ja | nein"), und „ja"
+bedeutet dort *geprüft*, nicht *erfüllt*; der dritte Fall steht dort als Spalte
+(„`offene Position` = Verweis auf den Eintrag in `AGENTS.todo.md`",
+`skills-marker/SKILL.md:80`). Dieser Marker macht daraus ein **eigenes** drittes
+Verdikt, damit „trifft zu" und „ist erfüllt" nicht dieselbe Zelle tragen. **Die
+Upstream-Auswahlregel gilt unverändert und betrifft die Anwendbarkeit, nicht die
+Erfüllung:** *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"*
+(`skills-marker/SKILL.md:111-112`) — sie entscheidet zwischen `ja` und `nein`, nicht
+zwischen `ja` und `offen`.
+
 ## Offen aus dem Bereich 787670a..0449b05 (2026-10-21)
 
 > **Herkunft:** Fortschreibung des Markers `AGENTS.skills.md`
@@ -78,8 +91,8 @@ nicht erfüllt".
 > 56 (`generated-docs`), 57 (`ratchet-gates`) — alle **sechs** sind `offen`-Zeilen.
 > Beides ist ein Log, kein Arbeitsauftrag.
 
-**Je Commit der Range, in der Reihenfolge der Range** — jeder Effekt an
-`git show --stat` am committeten Stand gemessen:
+**Je Commit der Range, in der Reihenfolge der Range** — jeder Effekt am **jeweiligen
+Commit** gemessen (`git show --stat <sha>`):
 
 | Commit | Was |
 |---|---|
@@ -110,48 +123,77 @@ und ist getragen; nur der Ladeweg ändert sich).
 
 **Entfernt in der Range:** keiner.
 
-**Ergebnis je Skill aus der Range** — `build-verify` → **offen** (die Pflicht trifft zu
-und ist nicht erfüllt: die Divergenz in `AGENTS.md` §5; die Range fügt die
-Zahlen-Frame-Pflicht hinzu, die über `AGENTS.md` §5 Punkt 4 („gilt hier unverändert")
-mitgilt und hier keine eigene Form braucht — Position 52) · `laravel` → **offen**
-(unverändert: Position 53) · `codegraph-project-setup` → **offen** (unverändert:
-Position 54) · `ui-review` → **offen** (der Loop trägt, die Findings-Vorlage in
-`AGENTS.md` §7 Schritt 3 ist die alte — Position 55) · `generated-docs` → **offen**
-(Entscheidung der Orchestrierung: die Pflicht trifft zu — Zahlen in Prosa, die aus
-einem Lauf stammen —, aber das Projekt hat weder Generator noch Drift-Gate; Position
-56) · `ratchet-gates` → **offen** (Entscheidung der Orchestrierung: Stände, Niveaus
-und stabile Ids sind getragen, die Owner-/Ticket-Regel fehlt; der Ratchet-Teil ist
-nicht anwendbar; Position 57) · `security-review` → **ja** (unverändert; das Register
-trägt die kanonischen Stände und Niveaus) · `skills-marker` → **ja** (diese Datei) ·
-`github-ci-filters` → **ja** (unverändert angewendet; die Range änderte an ihm nur die
-Sichtbarkeit) · `agent-config`, `update-models` → **nein** (Maschinen-Konfiguration) ·
-`docker-test-image`, `ghcr-visibility`, `node-deps`, `playwright-parallel`,
-`react-i18n` → **ja** (unverändert angewendet; die Range berührte sie nicht).
+**Ergebnis je Skill aus der Range** — die Range hat **9** Skill-Verzeichnisse
+berührt (die Liste oben; gezählt mit `git log --name-only --format= 787670a..0449b05 --
+.agents/skills | cut -d/ -f3 | sort -u`). **Berührt (9):** `build-verify` → **offen**
+(die Pflicht trifft zu und ist nicht erfüllt: die Divergenz in `AGENTS.md` §5; die
+Range fügt die Zahlen-Frame-Pflicht hinzu, die über `AGENTS.md` §5 Punkt 4 („gilt hier
+unverändert") mitgilt und hier keine eigene Form braucht — Position 52) ·
+`ui-review` → **offen** (der Loop trägt, die Findings-Vorlage in `AGENTS.md` §7
+Schritt 3 ist die alte — Position 55) · `generated-docs` → **offen** (Entscheidung der
+Orchestrierung: die Pflicht trifft zu — Zahlen in Prosa, die aus einem Lauf stammen —,
+aber das Projekt hat weder Generator noch Drift-Gate; Position 56) · `ratchet-gates` →
+**offen** (Entscheidung der Orchestrierung: Stände, Niveaus und stabile Ids sind
+getragen, die Owner-/Ticket-Regel fehlt; der Ratchet-Teil ist nicht anwendbar; Position
+57) · `security-review` → **ja** (unverändert; das Register trägt die kanonischen
+Stände und Niveaus) · `skills-marker` → **ja** (diese Datei) · `github-ci-filters` →
+**ja** (unverändert angewendet; die Range änderte an ihm nur die Sichtbarkeit) ·
+`agent-config`, `update-models` → **nein** (Maschinen-Konfiguration).
+**Nicht berührt (10)** — von der Range nicht angefasst, das Verdikt ist der
+unveränderte Bestand: `codegraph-project-setup` → **offen** (Position 54) ·
+`laravel` → **offen** (Position 53) · `docker-test-image`, `ghcr-visibility`,
+`node-deps`, `playwright-parallel`, `react-i18n` → **ja** · `permissions`,
+`tailscale-serve`, `web-audit` → **nein**.
 
-**Die Alt-Anker wurden vollständig neu geprüft — alle 37 `Datei:Zeile`-Anker der
-Tabelle lösen auf das Bezeichnete.** Geprüft wurde gegen den **committeten** Stand des
-Projekts (`a4551c8`, `git show <rev>:<datei>` / `git grep <rev> -- <pfad>`), nicht gegen
-einen Working Tree. Die geprüften Stellen: `AGENTS.md:114-117` (Build-/Verify-Flow),
-`:59` (Regressionstest), `:262-271` und `:273-300` (UI-Review-Loop), `:293-295`
-(Findings-Report), `ci.yml:63`/`:66` (paths-ignore), `:481`/`:739` (pnpm-Version),
-`:526-530` und `:550` (GHCR), `:792-802` und `:866-870` (Playwright-Worker),
-`e2e-image.yml:64` (PNPM_VERSION), `:67` (Job `build`), `:79`/`:87`/`:91-94`/`:93-95`
-(PLAYWRIGHT_VERSION-/PNPM_VERSION-Auflösung) und `:107-147`/`:147`/`:164` (BASE_REF-
-Auflösung, Wert, Verbrauch), `Dockerfile.e2e:68`/`:115`/`:117` (ARG-Block),
-`frontend/playwright.config.ts:24`/`:27`, `frontend/vite.config.ts:32-33`,
-`frontend/src/main.tsx:1`/`:5`, `frontend/AGENTS.md:97`,
-`features/05-e2e-test-image.md:167-168`, `features/venue-master-data.md:358-368`,
-`features/auth/01-auth-and-roles.md:430-454`. Die dateiweisen Anker ohne Zeile
+**Die Alt-Anker wurden vollständig neu geprüft — alle 41 Anker-Vorkommen der Tabelle
+lösen auf das Bezeichnete.** Gezählt so: **36** Anker in der Form „`:N`" (Fortsetzung
+des unmittelbar davor genannten Pfads) **+ 5** Anker in der vollen Form „`Pfad:N`" =
+**41** Vorkommen; **40** davon sind verschiedene Anker (`:64` — `e2e-image.yml`,
+`PNPM_VERSION` — wird aus zwei Zeilen genannt). Die Aufzählung unten nennt **alle
+41**, nach Zeilen der Tabelle geordnet. Geprüft wurde gegen den **committeten Stand
+dieses Commits** — den
+Datei-Stand, den dieser Commit festschreibt — mit `git show <rev>:<datei>` /
+`git grep <rev> -- <pfad>`, nicht gegen einen Working Tree; die Fremddateien sind
+gegenüber dem Vorgänger `a4551c8` **unverändert** (`git diff --stat a4551c8..HEAD --
+<datei>` → leer). Die geprüften Stellen, Zeile für Zeile der Tabelle:
+`build-verify` — `AGENTS.md:114-117` (Build-/Verify-Flow) ·
+`docker-test-image` — `e2e-image.yml:67` (Job `build`), `:79` (Schritt „Extract build
+args"), `:91-94` (PLAYWRIGHT_VERSION), `:64` (PNPM_VERSION im Workflow-`env:`),
+`:81`/`:87` (Step-`env:`), `:93-95` (Prüfung und Outputs), `:107-147` (Schritt
+„Resolve base image reference"), `:147` (Wert `base_ref`), `:164` (Verbrauch als
+Build-Arg), `Dockerfile.e2e:68`/`:115` (ARG-Block) ·
+`generated-docs` — `features/venue-master-data.md:358-368`,
+`features/auth/01-auth-and-roles.md:430-454`, in voller Form
+`generated-docs/SKILL.md:74-80` („Numbers in prose") und `AGENTS.md:80` (Pflicht
+„Diff gegen den Code") ·
+`ghcr-visibility` — `ci.yml:526-530` (GHCR-Kommentar), `:550` (`image: ghcr.io/…`),
+`features/05-e2e-test-image.md:167-168` ·
+`github-ci-filters` — `ci.yml:63`/`:66` (paths-ignore) ·
+`node-deps` — `ci.yml:481`/`:739` (pnpm-Version), `e2e-image.yml:64`,
+`Dockerfile.e2e:117` ·
+`playwright-parallel` — `ci.yml:792-802` (Worker-Begründung), `:866-870` (Kommandos),
+`frontend/playwright.config.ts:24`/`:27` ·
+`react-i18n` — `frontend/AGENTS.md:97`, `frontend/vite.config.ts:32-33`,
+`frontend/src/main.tsx:1`/`:5` ·
+`security-review` — `AGENTS.md:59` (Regressionstest) ·
+`ui-review` — `AGENTS.md:262-271` (Loop-Einleitung), `:273-300` (Loop-Schritte 1–4),
+`:293-295` (Findings-Report) ·
+`ratchet-gates` — in voller Form `ratchet-gates/references/vocabulary.md:44`
+(Eigentümer/Ticket), `ratchet-gates/SKILL.md:119` (Eigentümer/Ticket für
+Gap-Listen), `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy).
+Die dateiweisen Anker ohne
+Zeile
 (`.githooks/pre-commit`, `.codegraph/.gitignore`, `backend/AGENTS.md`,
 `backend/phpunit.xml`, `backend/composer.json`, `backend/config/permissions.php`,
 `frontend/package.json`, `frontend/tests/screenshots/`,
-`features/security/accepted-risks.md` (A1–A8)) wurden am committeten Stand ebenfalls
-geprüft. **Kein Anker ist verroten.** Die Zahlen der betroffenen Zeilen wurden neu
+`features/security/accepted-risks.md` (A1–A8)) wurden am committeten Stand **dieses
+Commits** ebenfalls geprüft. **Kein Anker ist verroten.** Die Zahlen der betroffenen Zeilen wurden neu
 gemessen (Position 53: `FormRequest`-Klassen **0**, `rules()` bei **8** von **23**
 Controllern, Inline-Array bei **17** — `git grep -l … HEAD -- backend/app…`, gemessen
-am committeten Stand `a4551c8`; die Zahlen sind unverändert gegenüber `787670a`).
-**Die offenen Positionen wurden am committeten Stand nachgemessen, keine ist
-gegenstandslos geworden:** 52 — `AGENTS.md:123-125`
+am Vorgänger `a4551c8`, seitdem unverändert: `git diff --stat a4551c8..HEAD --
+backend/` → leer).
+**Die offenen Positionen wurden nachgemessen, keine ist gegenstandslos geworden:**
+52 — `AGENTS.md:123-125`
 (Restart-Regel) und `:131` (Verifikator-Rolle) stehen unverändert im Widerspruch zur
 Upstream-Fassung, und die Upstream-Sätze selbst sind in dieser Range **unverändert**
 (`git diff 787670a..0449b05 -- .agents/skills/build-verify/SKILL.md
@@ -161,11 +203,11 @@ Gates-Regel); 53 — die Zahlen oben; 54 — `.codegraph/` trägt weiterhin **nu
 weiterhin **nicht** gesetzt (`git config --list --show-origin | grep -i hookspath` →
 keine Ausgabe), `.git/hooks/pre-commit` existiert weiterhin **nicht**; 55 — der
 Findings-Report in `AGENTS.md:293-295` führt unverändert die alte Vorlage; 56 — kein
-Generator und kein Drift-Gate im Baum (gemessen am committeten Stand `a4551c8`:
-`scripts/` ohne Doku-Werkzeug, keine Datei mit `gen`/`drift`/`doc_fact` im Namen);
-57 — kein Owner und kein Ticket je Registereintrag (gemessen am committeten Stand
-`a4551c8`: `git grep -ciE 'owner|ticket' HEAD -- features/security/accepted-risks.md`
-→ **0**).
+Generator und kein Drift-Gate im Baum (gemessen am Vorgänger `a4551c8`, seitdem
+unverändert: `scripts/` ohne Doku-Werkzeug, keine Datei mit
+`gen_`/`drift`/`doc_fact`/`generate` im Namen); 57 — kein Owner und kein Ticket je
+Registereintrag (gemessen am Vorgänger `a4551c8`, seitdem unverändert:
+`git grep -ciE 'owner|ticket' a4551c8 -- features/security/accepted-risks.md` → **0**).
 
 **Regel-Drift (§5 Schritt 3) auf dieser Maschine: kein Befund.** Die globale
 `~/.config/opencode/AGENTS.md` besteht aus **vier** Blöcken (`## CodeGraph` L2,
