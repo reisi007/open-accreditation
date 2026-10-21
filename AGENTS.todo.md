@@ -1295,20 +1295,26 @@ features/security/accepted-risks.md` → leer).**
 | Stände | **getragen** | `git grep -oE '\(accepted [0-9-]+, [a-z]+\)' a4551c8 -- features/security/accepted-risks.md` | **8** Treffer, alle `accepted` (kanonischer Status) mit Datum |
 | Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (`vocabulary.md:10-18`) |
 | stabile Ids | **getragen** | `git grep -cE '^- \*\*A[0-9]+' a4551c8 -- features/security/accepted-risks.md` | **8** Einträge `A1`–`A8` |
-| **Eigentümer + Ticket** | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** |
-| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b\|\bticket\b' <stand> -- AGENTS.todo.md` | die Treffer liegen **ausschließlich** im **Meta-Text** des Boards — der Kopfzeile (der Positions-Index) und den Positionstexten 55–57 —, **keiner** in einem Eintrag, der einen **Befund** führt (weder in der Batch-Tabelle noch in den Wellen-Abschnitten). Der Wert ist damit **nicht** als Trefferzahl festzuschreiben: jeder neue Positions-Text erhöht sie |
+| **Eigentümer + Ticket** (Register) | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** — das Register ist eine Fremddatei: gemessen am **Vorgänger** `a4551c8`, seitdem unverändert (`git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer) |
+| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b\|\bticket\b' -- AGENTS.todo.md` | der Board ist eine der beiden **geänderten** Dateien → Rahmen „am **committeten Stand dieses Commits**". Die Treffer liegen **ausschließlich** im **Meta-Text** (der Kopfzeile mit dem Positions-Index und den Positionstexten 55–57); in den **Befund-Zeilen der Batch-Tabelle** (`\| \*\*[0-9]+\*\* \|`) **0** (`git show HEAD:AGENTS.todo.md \| grep -E '^\| \*\*[0-9]+\*\* \|' \| grep -icE '\bowner\b\|\bticket\b'` → 0). Eine **Gesamtzahl** des Boards wird hier **nicht** festgeschrieben: jeder neue Positions-Text erhöht sie (am Vorgänger `a4551c8` waren es **4**, am Stand `2da0404` **15**) |
 
 **Was das nicht ist — und dafür ist keine Position nötig.** Der **Ratchet-Teil** des
 Skills (eine Baseline, die nur in eine Richtung wandert) ist hier **nicht anwendbar**,
-und das ist eine begründete Abweichung, keine Lücke: im committeten Baum gibt es
+und das ist eine begründete Abweichung, keine Lücke: im **Projektbaum** gibt es
 **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes **bekannter
-Fehler**). Gemessen am Vorgänger `a4551c8` (seitdem unverändert): `git grep -in
-baseline a4551c8` → **49** Zeilen-Treffer in **22** Dateien, und **keiner** davon ist
-ein solches Artefakt — `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline`
-(PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der
-Rest (**27**) ist Prosa bzw. Bezeichner; nach Bereich: **3** Dokumentationsdateien,
-**10** Backend-Dateien (davon **7** in `backend/tests/`), **9** Frontend-Dateien.
-Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) ist der einzige Treffer im Repo die **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die **30** `maxFailures`-Stellen der Playwright-Konfigurationen und des Workflows dazu (am Vorgänger `a4551c8` mit dem damaligen Marker-Eigentext: **31** Treffer) — deshalb die Wortgrenze. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
+Fehler**). **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; am
+**Vorgänger** `a4551c8` gemessen — der Projektbaum ist gegenüber dem Vorgänger
+unverändert: **45** Zeilen-Treffer in **20** Dateien an beiden Ständen):
+`git grep -in baseline 2da0404 -- . ':(exclude)AGENTS.skills.md'
+':(exclude)AGENTS.todo.md'` → **45**, und **keiner** davon ist ein solches Artefakt —
+`items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**,
+`baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der Rest (**23**) ist Prosa
+bzw. Bezeichner; nach Bereich: **1** Dokumentationsdatei, **10** Backend-Dateien
+(davon **7** in `backend/tests/`), **9** Frontend-Dateien. **Repo-weit** (mit den
+beiden Doku-Dateien) sind es **54** Zeilen-Treffer in **22** Dateien am committeten
+Stand dieses Commits — dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die
+Doku Teil des Repos ist.
+Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die **30** `maxFailures`-Stellen der Playwright-Konfigurationen und des Workflows dazu (am Vorgänger `a4551c8` mit dem damaligen Marker-Eigentext: **31** Treffer) — deshalb die Wortgrenze. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
 getragene Altfehler — das Projekt antwortet auf dieselbe Frage mit der anderen,
 strengeren Antwort. Die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5
 Dateien) sind je **umgebungsbedingt** und mit ihrer Ursache benannt (`ext-intl`, `gd`,
