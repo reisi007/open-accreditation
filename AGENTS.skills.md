@@ -13,23 +13,31 @@ gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills
 > Fünftmarker. Geprüfte Range `0449b05..820c140` — **9 Commits** des Skills-Repos
 > (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**, gemessen am
 > **Skills-Repo-Commit `820c140`**, den dieser Marker konsumiert; **Messzeitpunkt
-> 2026-10-21**). **Der Cursor `820c140` ist der Stand des Skills-Repos** — beim
-> Schreiben dieses Markers stand der Skills-Repo-HEAD auf `820c140` und ist mit
-> `origin/main` identisch (`git -C <skills-repo> rev-list --count origin/main..HEAD` →
-> **0**, `... HEAD..origin/main` → **0**, gemessen 2026-10-21): **es gibt keinen
-> ungeprüften Rest**, der Cursor hinkt nicht hinterher. Der Cursor ist **9 Commits**
-> vorgerückt (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**).
+> 2026-10-21**). **Der Cursor `820c140` ist der Stand des Skills-Repos, den dieser
+> Marker konsumiert.** Beim **Messen** (unmittelbar vor dem Commit, 2026-10-21) stand
+> der Skills-Repo-HEAD auf `820c140` und war mit `origin/main` identisch
+> (`git -C <skills-repo> rev-list --count origin/main..HEAD` → **0**,
+> `... HEAD..origin/main` → **0**). Der Cursor ist **9 Commits** vorgerückt
+> (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**).
 > Die Range berührte **genau 2 Skill-Verzeichnisse** unter `.agents/skills/`
 > (`git log --name-only --format= 0449b05..820c140 -- .agents/skills | sort -u` →
 > **4 Dateien** in **2 Verzeichnissen**): `skills-marker` (7 Commits, 3 Dateien:
 > `SKILL.md`, `references/notes.md`, `templates/AGENTS.skills.md`) und `ratchet-gates`
 > (1 Commit `d5dc52f`, 1 Datei `references/cli.md`).
 > **Der Stand des Skills-Repos ist während dieses Laufs weitergewandert:** bei der
-> **ersten** Messung stand der HEAD auf `f7b8f9c`, bei der **letzten** (unmittelbar vor
-> dem Commit) auf `820c140` — der Commit `820c140` landete **während** dieses Laufs
+> **ersten** Messung stand der HEAD auf `f7b8f9c`, bei der **zweiten** (nach dem Lauf der
+> Anker-Prüfung) auf `820c140` — der Commit `820c140` landete **während** dieses Laufs
 > (Commit-Datum 2026-10-21 20:28:26 +0000). Die Range ist deshalb auf den **gemessenen**
-> Endstand `820c140` gezogen (**9** Commits); `f7b8f9c` ist ein **Vorgänger** darin, kein
-> ungeprüfter Rest.
+> Endstand `820c140` gezogen (**9** Commits); `f7b8f9c` ist ein **Vorgänger** darin.
+> **Nach** dieser Messung ist **ein weiterer** Commit im Skills-Repo gelandet:
+> `37cefe2` („docs(skills-marker): the noun does not decide the case, and an
+> enumeration carries two claims"). Er ist **NICHT** Teil der geprüften Range und **NICHT
+> geprüft** — er berührt **nur** `skills-marker` (`SKILL.md`, `references/notes.md`,
+> `templates/AGENTS.skills.md`; **89** Einfügungen, **35** Löschungen) und gehört in den
+> nächsten Marker-Lauf; **der Cursor bleibt `820c140`**. Zur Kontrolle gemessen: die
+> **Anker** dieses Markers lösen auch am Stand `37cefe2` auf (je **1** Treffer,
+> `Bezugsrahmen-Regel` weiterhin **7-mal** im Skill-Verzeichnis) — das ändert nichts an
+> der Prüfpflicht: der Cursor nennt den **konsumierten** Stand, und dieser ist `820c140`.
 > **Neu in der Range:** **0** Skills (`git log --diff-filter=A --name-only --format=
 > 0449b05..820c140 -- .agents/skills` → **leer**) — **neu versteckt: 0** —
 > **entfernt: 0**. **Versteckt gesamt:** unverändert **17** von **19** Skills mit
@@ -128,6 +136,12 @@ Commit** gemessen (`git show --stat <sha>`, `git show --numstat <sha>`):
 
 **Neu in der Range:** **keiner** (`git log --diff-filter=A --name-only --format=
 0449b05..820c140 -- .agents/skills` → **leer**).
+
+**Nicht Teil dieser Range:** `37cefe2` — der Commit ist **nach** der Messung gelandet,
+auf die der Cursor gestellt ist, und ist **nicht** geprüft; er berührt **nur**
+`skills-marker` (`SKILL.md`, `references/notes.md`, `templates/AGENTS.skills.md`; **89**
+Einfügungen, **35** Löschungen). Er gehört in den nächsten Marker-Lauf; **der Cursor
+bleibt `820c140`**.
 
 **Neu versteckt:** keiner — die Range fasst **keine** Frontmatter an; **versteckt gesamt**
 unverändert **17** von **19** Skills (`git grep -l "opencode/autoinvoke: false" <stand> --
