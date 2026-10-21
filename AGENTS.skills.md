@@ -17,7 +17,7 @@ gemessen wurde. Der Cursor ist **kein** Rahmen — er zeigt den Stand des Skills
 > Schreiben dieses Markers stand der Skills-Repo-HEAD auf `820c140` und ist mit
 > `origin/main` identisch (`git -C <skills-repo> rev-list --count origin/main..HEAD` →
 > **0**, `... HEAD..origin/main` → **0**, gemessen 2026-10-21): **es gibt keinen
-> ungeprüften Rest**, der Cursor hinkt nicht hinterher. Der Cursor ist **8 Commits**
+> ungeprüften Rest**, der Cursor hinkt nicht hinterher. Der Cursor ist **9 Commits**
 > vorgerückt (`git -C <skills-repo> rev-list --count 0449b05..820c140` → **9**).
 > Die Range berührte **genau 2 Skill-Verzeichnisse** unter `.agents/skills/`
 > (`git log --name-only --format= 0449b05..820c140 -- .agents/skills | sort -u` →
@@ -140,7 +140,7 @@ unverändert **17** von **19** Skills (`git grep -l "opencode/autoinvoke: false"
 | sort -u` → `ratchet-gates`, `skills-marker`). **Je Skill genau eine der drei
 Entscheidungen aus §3:**
 
-- **`skills-marker` → `angewendet: ja`** (trifft zu **und** ist drin). Die sechs Commits
+- **`skills-marker` → `angewendet: ja`** (trifft zu **und** ist drin). Die sieben Commits
   ändern **die Regel, nach der dieser Marker gebaut ist**, nicht eine Pflicht, die das
   Projekt trägt. Geprüft wurde, was davon die **Anwendung hier** betrifft: die
   **Zitierform** (der Marker zitiert die Regel mit Pfad + Anker und **ohne
