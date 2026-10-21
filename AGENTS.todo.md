@@ -1110,7 +1110,8 @@ Information seit dem 2026-10-21 als das **eigene** Verdikt **`offen`** — die d
 Marker-Werte sind disjunkt: `ja` = trifft zu **und ist erfüllt**, `nein` = trifft nicht
 zu, `offen` = trifft zu, **ist aber nicht erfüllt** (die Lücke steht als Position im
 Board). Der Upstream-Satz *„im Zweifel gewinnt **ja** mit offener Position, nicht
-**nein**"* (`skills-marker/SKILL.md:111-112`) betrifft die **Anwendbarkeit** (zwischen
+**nein**"* (`skills-marker/SKILL.md`, Anker „im Zweifel gewinnt **ja** mit offener Position,
+nicht **nein**") betrifft die **Anwendbarkeit** (zwischen
 `ja` und `nein`), nicht die Erfüllung; er gilt unverändert. **Der Inhalt dieser Zeile
 ändert sich dadurch nicht**: es bleibt dieselbe gemessene Lücke, dieselbe Position,
 derselbe Beleg — Index und Hook-Verdrahtung fehlen weiterhin (gemessen am Vorgänger
@@ -1192,8 +1193,10 @@ oder `critical`. Ein nach der alten Skala gesetztes `medium` ist nach der neuen
 Skala unter Umständen `high` — die Grade der alten Runs sind also nicht direkt
 übernahmbar. **Welche Fassung gilt, ist eine Konventionsentscheidung des Projekts**,
 und sie ist nicht nur ein Nachziehen: der Loop schreibt seine Reports nach der alten
-Vorlage, und die Reports liegen **nicht als Datei** im Repo (gemessen:
-`git grep -l -i 'severity' HEAD -- '*.md'` trifft nur `AGENTS.md`), sondern in den
+Vorlage, und die Reports liegen **nicht als Datei** im Repo (gemessen am committeten
+Stand dieses Commits — das Kommando ist auf **`<stand>`** gepinnt:
+`git grep -l -i 'severity' <stand> -- '*.md'` — trifft **3** Dateien: `AGENTS.md`,
+`AGENTS.skills.md`, `AGENTS.todo.md`), sondern in den
 Commit-Messages der Fix-Läufe — eine Umstellung ändert also das Format jedes
 künftigen Reports.
 
@@ -1296,7 +1299,7 @@ features/security/accepted-risks.md` → leer).**
 | Niveaus | **getragen** | dieselbe Abfrage | `low`/`medium` — kanonische Niveaus (`vocabulary.md:10-18`) |
 | stabile Ids | **getragen** | `git grep -cE '^- \*\*A[0-9]+' a4551c8 -- features/security/accepted-risks.md` | **8** Einträge `A1`–`A8` |
 | **Eigentümer + Ticket** (Register) | **fehlt** | `git grep -ciE 'owner\|ticket' a4551c8 -- features/security/accepted-risks.md` | **0** — das Register ist eine Fremddatei: gemessen am **Vorgänger** `a4551c8`, seitdem unverändert (`git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer) |
-| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` | der Board ist eine der beiden **geänderten** Dateien → Rahmen „am **committeten Stand dieses Commits**". Die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (Form aus dem Marker von `/projects/LuminaRust`). Die Treffer liegen **ausschließlich** im **Meta-Text** (der Kopfzeile mit dem Positions-Index und den Positionstexten 55–57); in den **Befund-Zeilen der Batch-Tabelle** (`\| \*\*[0-9]+\*\* \|`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). Eine **Gesamtzahl** des Boards wird hier **nicht** festgeschrieben: jeder neue Positions-Text erhöht sie (am Vorgänger `a4551c8` waren es **4**, am Stand `2da0404` **15**) |
+| **Eigentümer + Ticket** (Board) | **fehlt** | `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` | der Board ist eine der beiden **geänderten** Dateien → Rahmen „am **committeten Stand dieses Commits**". Die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (Form aus dem Marker von `/projects/LuminaRust`). Die Treffer liegen **ausschließlich** im **Meta-Text** (der Kopfzeile mit dem Positions-Index und den Positionstexten 55–57); in den **Befund-Zeilen der Batch-Tabelle** (`\| \*\*[0-9]+\*\* \|`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). Eine **Gesamtzahl** des Boards wird hier **nicht** festgeschrieben: jeder neue Positions-Text erhöht sie — **4** Zeilen-Treffer am Stand `a4551c8`, **15** am Stand `2da0404` und **15** am committeten Stand dieses Commits (gemessen 2026-10-21); das ist eine **Momentaufnahme**, kein fester Wert |
 
 **Was das nicht ist — und dafür ist keine Position nötig.** Der **Ratchet-Teil** des
 Skills (eine Baseline, die nur in eine Richtung wandert) ist hier **nicht anwendbar**,
@@ -1312,9 +1315,9 @@ unverändert: **45** Zeilen-Treffer in **20** Dateien an beiden Ständen):
 bzw. Bezeichner; nach Bereich: **1** Dokumentationsdatei, **10** Backend-Dateien
 (davon **7** in `backend/tests/`), **9** Frontend-Dateien. **Repo-weit** (mit den
 beiden Doku-Dateien) sind es **54** Zeilen-Treffer in **22** Dateien am committeten
-Stand dieses Commits — dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die
-Doku Teil des Repos ist.
-Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0** (am Vorgänger `a4551c8` mit der Wortgrenze **0** Treffer repo-weit; der Marker nannte dort nur „Known-Failure“, nicht „xfail“). Ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** repo-weit am Vorgänger `a4551c8` (**14** in `ci.yml` und den beiden Playwright-Configs, **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/playwright.config.ts` 1, `frontend/tests/e2e/helpers/admin-data.ts` 1), **25** im **Projektbaum** (an den Ständen `a4551c8` und `c353313` identisch) und **32** repo-weit am committeten Stand `c353313` — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
+Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen**
+Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist.
+Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0** (am Vorgänger `a4551c8` mit der Wortgrenze **0** Treffer repo-weit; der Marker nannte dort nur „Known-Failure“, nicht „xfail“). Ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
 getragene Altfehler — das Projekt antwortet auf dieselbe Frage mit der anderen,
 strengeren Antwort. Die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5
 Dateien) sind je **umgebungsbedingt** und mit ihrer Ursache benannt (`ext-intl`, `gd`,

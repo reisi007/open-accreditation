@@ -8,8 +8,8 @@ geprüft am: 2026-10-21
 > **Skills-Repo-Commit `0449b05`**, den dieser Marker konsumiert). **Der Cursor
 > `0449b05` ist 2 Commits hinter dem Skills-Repo-HEAD, der beim Schreiben dieses
 > Markers auf `7910ec6` stand** (gemessen unmittelbar vor dem Commit:
-> `git -C <skills-repo> rev-parse --short HEAD` → `7910ec6`,
-> `git -C <skills-repo> rev-list --count 0449b05..7910ec6` → 2). **Diese 2 Commits
+> `git -C <skills-repo> rev-parse --short 7910ec6` → `7910ec6` (der benannte Commit,
+> nicht `HEAD`), `git -C <skills-repo> rev-list --count 0449b05..7910ec6` → 2). **Diese 2 Commits
 > sind NICHT Teil der geprüften Range und NICHT geprüft** — `d5dc52f`
 > (`ratchet-gates/references/cli.md`: der Release-Befehl kommt in die Karte) und
 > `7910ec6` (nur `AGENTS.todo.md` des Skills-Repos). Sie gehören in den nächsten
@@ -27,9 +27,9 @@ geprüft am: 2026-10-21
 > über `git log --name-only --format='COMMIT %h %s' 787670a..0449b05`).
 > **Versteckt gesamt:** **12 → 17** Skills mit `metadata.opencode/autoinvoke: false`
 > (Frontmatter-Messung an beiden Revs; die Differenz 5 = 3 neu versteckte + 2 neue
-> Skills). Jede Zeile nennt eine **stabile Referenz** (Abschnitt, Überschrift oder
-> Suchstring); Zeilennummern nur als Lesehilfe. Der Pfad zum Skills-Repo steht hier
-> bewusst nicht — der Marker bleibt bei einer Verschiebung gültig.
+> Skills). **Lokale Ergänzung:** Jede Zeile nennt eine **stabile Referenz** (Abschnitt,
+> Überschrift oder Suchstring); Zeilennummern nur als Lesehilfe. Der Pfad zum
+> Skills-Repo steht hier bewusst nicht — der Marker bleibt bei einer Verschiebung gültig.
 
 ## Skill-Stand
 
@@ -46,7 +46,7 @@ geprüft am: 2026-10-21
 | `node-deps` | ja | `frontend/package.json` (keine Pins/Overrides), `ci.yml` (`version: 11` `:481`, `:739`), `e2e-image.yml` (`PNPM_VERSION: "11"` `:64`), `deployment/Dockerfile.e2e` (`ARG PNPM_VERSION=11` `:117`) | keine |
 | `permissions` | nein | | opencode.jsonc-Policy (Maschine) — das Projekt definiert keine; `backend/config/permissions.php` ist die Gate-Matrix des Projekts, nicht diese Policy |
 | `playwright-parallel` | ja | `.github/workflows/ci.yml` (Run-Step: die Worker-Begründung `:792-802`, die Kommandos `:866-870`), `frontend/playwright.config.ts` (`fullyParallel: true` `:24`, `workers: process.env.CI ? 4 : 8` `:27`) | keine |
-| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: `ratchet-gates/references/vocabulary.md:44` („A finding needs an owner and a ticket unless it is `fixed`") und `ratchet-gates/SKILL.md:119` („an owner and a ticket per entry") sind **neu in dieser Range**, und das Projekt trägt sie nirgends. **Zwei Messungen, zwei Rahmen:** das **Register** ist eine Fremddatei — am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer): `git grep -ciE 'owner|ticket' a4551c8 -- features/security/accepted-risks.md` → **0** Treffer. Der **Board** ist eine der beiden geänderten Dateien — daher am **committeten Stand dieses Commits** gemessen, und die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (die Form aus dem Marker von `/projects/LuminaRust`): `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` trifft ausschließlich den **Meta-Text** (die Kopfzeile mit dem Positions-Index und die Positionstexte 55–57), in den **Befund-Zeilen der Batch-Tabelle** (`| **N** | …`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im **Projektbaum** gibt es **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes bekannter Fehler). **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; am Vorgänger `a4551c8` gemessen — der Projektbaum ist gegenüber dem Vorgänger unverändert, **45** Zeilen-Treffer in **20** Dateien an beiden Ständen): `git grep -in baseline 2da0404 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → **45**; Verteilung `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, Rest **23**; nach Bereich: 1 Dokumentationsdatei, 10 Backend-Dateien (davon 7 in `backend/tests/`), 9 Frontend-Dateien. **Repo-weit** (mit den beiden Doku-Dateien) sind es **54** Zeilen-Treffer in **22** Dateien am committeten Stand dieses Commits — dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist. Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** repo-weit am Vorgänger `a4551c8` (**14** in `ci.yml` und den beiden Playwright-Configs, **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/playwright.config.ts` 1, `frontend/tests/e2e/helpers/admin-data.ts` 1), **25** im **Projektbaum** (an den Ständen `a4551c8` und `c353313` identisch) und **32** repo-weit am committeten Stand `c353313` — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy), und die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
+| `ratchet-gates` | offen | `features/security/accepted-risks.md` (A1–A8: kanonischer Status `accepted` + kanonische Niveaus `low`/`medium`, stabile Ids — **getragen**), `backend/config/permissions.php` („Single source of truth for the authorization layer") | **Position 57** — die **Owner-/Ticket-Regel** fehlt: `ratchet-gates/references/vocabulary.md:44` („A finding needs an owner and a ticket unless it is `fixed`") und `ratchet-gates/SKILL.md:119` („an owner and a ticket per entry") sind **neu in dieser Range**, und das Projekt trägt sie nirgends. **Zwei Messungen, zwei Rahmen:** das **Register** ist eine Fremddatei — am Vorgänger `a4551c8` gemessen, seitdem unverändert (`git diff --stat a4551c8..HEAD -- features/security/accepted-risks.md` → leer): `git grep -ciE 'owner|ticket' a4551c8 -- features/security/accepted-risks.md` → **0** Treffer. Der **Board** ist eine der beiden geänderten Dateien — daher am **committeten Stand dieses Commits** gemessen, und die Kommandos sind auf **`<stand>` gepinnt**, damit der Leser genau den Stand setzt, den der Rahmen nennt (die Form aus dem Marker von `/projects/LuminaRust`): `git grep -inE '\bowner\b|\bticket\b' <stand> -- AGENTS.todo.md` trifft ausschließlich den **Meta-Text** (die Kopfzeile mit dem Positions-Index und die Positionstexte 55–57), in den **Befund-Zeilen der Batch-Tabelle** (`| **N** | …`) **0** (`git show <stand>:AGENTS.todo.md | grep -E '^\| \*\*[0-9]+\*\* \|' | grep -icE '\bowner\b|\bticket\b'` → 0). **Der Ratchet-Teil ist nicht anwendbar** — dafür ist **keine** Position nötig, das ist eine begründete Abweichung: im **Projektbaum** gibt es **kein** Baseline-Artefakt im Sinne des Skills (ein festgehaltenes bekannter Fehler). **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; am Vorgänger `a4551c8` gemessen — der Projektbaum ist gegenüber dem Vorgänger unverändert, **45** Zeilen-Treffer in **20** Dateien an beiden Ständen): `git grep -in baseline 2da0404 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → **45**; Verteilung `items-baseline` (Tailwind-CSS-Klasse) **10**, `$baseline` (PHP-Variable) **9**, `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, Rest **23**; nach Bereich: 1 Dokumentationsdatei, 10 Backend-Dateien (davon 7 in `backend/tests/`), 9 Frontend-Dateien. **Repo-weit** (mit den beiden Doku-Dateien) sind es **54** Zeilen-Treffer in **22** Dateien am committeten Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen** Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist. Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0**; ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. `AGENTS.md:99-101` verbietet getragene Altfehler (Zero-Pre-existing-Failures-Policy), und die **7** `markTestSkipped` (gemessen am Vorgänger `a4551c8`, 5 Dateien) sind je **umgebungsbedingt** und mit Ursache benannt, also kein getragener Fehlerbestand |
 | `react-i18n` | ja | `frontend/AGENTS.md` (§ „Lingui / i18n — No Module-Scope `t` (STRICT)" `:97`), `frontend/vite.config.ts` (lingui-Plugin + Babel-Preset `:32-33`), `frontend/src/main.tsx` (I18nProvider als erster Import `:1`, `:5`), `frontend/package.json` (`lingui:extract`/`lingui:compile`, `check:i18n` in `prebuild`) | keine — das Projekt weicht bewusst ab: zwei Locales (de+en) mit Vollständigkeits-Gate statt der Portal-Referenz (eine Locale + Rohstring-Pass) |
 | `security-review` | ja | `AGENTS.md` §10 (Fundort der Befunde) + `features/security/accepted-risks.md` (Register A1–A8), `AGENTS.md` §3 (Regressionstest je Fix `:59`) | keine — das Register trägt die kanonischen Stände (`accepted`) und Niveaus (`low`/`medium`) mit stabilen Ids; die Klassen BELEGT/HEURISTIK/AKZEPTIERT bleiben daneben stehen und kollidieren nicht **Board-Messung am committeten Stand dieses Commits** (der Board ist eine der beiden geänderten Dateien): die Klassen-Namen in **Großschreibung** (`BELEGT`/`HEURISTIK`/`AKZEPTIERT`/`ZURÜCKGENOMMEN`) stehen **0** Mal im Board — **case-sensitiv** gemessen (`git show <stand>:AGENTS.todo.md | grep -cE 'BELEGT|HEURISTIK|AKZEPTIERT|ZURÜCKGENOMMEN'` → 0; `<stand>` = committeter Stand dieses Commits); das case-insensitive Muster greift zusätzlich Prosa wie „belegt“/„akzeptiert“ und taugt hier nicht. Als Schweregrade kommen dort nur die kanonischen Wörter vor — `critical`/`high`/`medium`/`low`/`info`; `Major`/`hoch`/`niedrig` nur in Prosa |
 | `skills-marker` | ja | `AGENTS.skills.md` (diese Datei; Abschnitt „Fortschreiben") | keine |
@@ -67,18 +67,20 @@ Auftrag. **Die sechs `offen`-Zeilen** (`build-verify`, `laravel`,
 geprüft — `offen` heißt hier **nicht** „ungeprüft", sondern „geprüft, und die Pflicht ist
 nicht erfüllt".
 
-**`offen` ist das eigene Verdikt dieses Markers.** Das Upstream-Template kennt nur
-zwei Werte (`templates/AGENTS.skills.md:20`: „`angewendet?` = ja | nein"), und „ja"
-bedeutet dort *geprüft*, nicht *erfüllt* — das steht in derselben Datei in `:24` („Angewendet"
-heißt: am Code dieses Projekts **geprüft** — nicht: die Doku gelesen") und in
-`skills-marker/SKILL.md:56`; der dritte Fall steht dort als Spalte
-(„`offene Position` = Verweis auf den Eintrag in `AGENTS.todo.md`",
-`skills-marker/SKILL.md:80`). Dieser Marker macht daraus ein **eigenes** drittes
-Verdikt, damit „trifft zu" und „ist erfüllt" nicht dieselbe Zelle tragen. **Die
-Upstream-Auswahlregel gilt unverändert und betrifft die Anwendbarkeit, nicht die
-Erfüllung:** *„im Zweifel gewinnt **ja** mit offener Position, nicht **nein**"*
-(`skills-marker/SKILL.md:111-112`) — sie entscheidet zwischen `ja` und `nein`, nicht
-zwischen `ja` und `offen`.
+**Lokale Ergänzung:** **`offen` ist das eigene Verdikt dieses Markers.** Das
+Upstream-Template kennt nur zwei Werte — „`angewendet?` = ja | nein"
+(`skills-marker/templates/AGENTS.skills.md`, Anker „ja | nein") —, und „ja" bedeutet
+dort *geprüft*, nicht *erfüllt*; das steht in derselben Datei im Anker „"Angewendet"
+heißt: am Code dieses Projekts geprüft — nicht: die Doku gelesen." und in
+`skills-marker/SKILL.md` (Anker „**Angewendet** heißt **am Code geprüft**, nicht
+gelesen"); der dritte Fall steht dort als Spalte („`offene Position` = Verweis auf den
+Eintrag in `AGENTS.todo.md`" — `skills-marker/SKILL.md`, Anker „| Trifft zu, ist aber
+nicht drin |"). Dieser Marker macht daraus ein **eigenes** drittes Verdikt, damit „trifft
+zu" und „ist erfüllt" nicht dieselbe Zelle tragen. **Die Upstream-Auswahlregel gilt
+unverändert und betrifft die Anwendbarkeit, nicht die Erfüllung:** *„im Zweifel gewinnt
+**ja** mit offener Position, nicht **nein**"* (`skills-marker/SKILL.md`, Anker „im Zweifel
+gewinnt **ja** mit offener Position, nicht **nein**") — sie entscheidet zwischen `ja` und
+`nein`, nicht zwischen `ja` und `offen`.
 
 ## Offen aus dem Bereich 787670a..0449b05 (2026-10-21)
 
@@ -87,9 +89,9 @@ zwischen `ja` und `offen`.
 > und berührte **9 Skill-Verzeichnisse**. **Die Tabelle ist ein Zustand, kein Auftrag.**
 > Die 9 Skill-Verzeichnisse oben sind **keine** offenen Positionen und **keine** 9
 > unerledigten Arbeiten: die Tabelle sagt je Skill, ob seine Pflicht hier **trifft**
-> und ob sie **erfüllt** ist. **Eine Bedeutung von „offen" — und sie ist nicht
-> „ungeprüft".** Das **Verdikt `offen`** heißt in dieser Tabelle: *geprüft, die Pflicht
-> trifft zu und ist nicht erfüllt* — die Lücke steht als **Position** im Board. Die
+> und ob sie **erfüllt** ist. **Lokale Ergänzung:** eine Bedeutung von „offen" — und sie
+> ist nicht „ungeprüft". Das **Verdikt `offen`** heißt in dieser Tabelle: *geprüft, die
+> Pflicht trifft zu und ist nicht erfüllt* — die Lücke steht als **Position** im Board. Die
 > **Prüfung** selbst
 > ist für **jeden** der 9 Skill-Verzeichnisse aus dieser Range abgeschlossen; die
 > beiden Zeilen, die in der Vorgängerversion noch „ungeprüft" waren
@@ -259,8 +261,9 @@ entfällt er ganz.
      erfüllt, `nein` = trifft nicht zu, `offen` = trifft zu und ist nicht erfüllt
      (die Lücke steht dann als Position im Board)
 4. **Alle bestehenden Anker neu prüfen** — Advancing ist kein Updating; eine
-   Zeilennummer in einer wachsenden Datei hat ein Verfallsdatum. Gemessen wird gegen
-   den **committeten** Stand (`git show <rev>:<datei>`), nicht gegen einen Working Tree.
+   Zeilennummer in einer wachsenden Datei hat ein Verfallsdatum. **Lokale Ergänzung:**
+   Gemessen wird gegen den **committeten** Stand (`git show <rev>:<datei>`), nicht gegen
+   einen Working Tree.
 5. Offene Positionen nach `AGENTS.todo.md`; Belege als stabile Referenz.
 6. Erst wenn für **jeden** Skill aus der Range eine Zeile steht:
    `agents-skills-consumed: $(git -C <skills-repo> rev-parse --short HEAD)`,
