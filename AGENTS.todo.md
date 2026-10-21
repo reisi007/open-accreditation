@@ -1168,7 +1168,7 @@ und die Stände, und die Findings-Vorlage des `ui-review`-Skills
 (`references/findings-report.md`) wurde darauf umgestellt. `b9f140b` hat die
 `medium`-Zeile nachgezogen.
 
-| | vorher (`787670a`) | jetzt (`0449b05`) |
+| | vorher (`787670a`) | jetzt (`5243791`) |
 |---|---|---|
 | Spalten der Vorlage | `Severity \| File:Line \| Screenshot \| Finding \| Suggested fix` | `Id \| Severity \| Status \| Owner \| Ticket \| File:Line \| Screenshot \| Finding \| Suggested fix` |
 | Niveaus | `critical/high/medium/low` | `critical/high/medium/low/info` (kanonisch: Upstream `ratchet-gates/references/vocabulary.md`, Anker „## Severity levels") |
@@ -1193,7 +1193,9 @@ alte Spaltenliste in **Zeile 17** der alten Vorlage
 (`git show 787670a:.agents/skills/ui-review/references/findings-report.md | sed -n '17p'`
 → die alte Kopfzeile). **An `820c140` ist diese Zeile leer** — die Datei trägt dort die
 **neuen** neun Spalten (Anker „| Id | Severity | Status | Owner | Ticket | File:Line |
-Screenshot | Finding | Suggested fix |"). Die Zeilennummer ist damit **kein** Anker mehr,
+Screenshot | Finding | Suggested fix |"), und **an `5243791` ebenfalls** (die Datei ist seit
+`b0d1b51` unverändert — `git diff --stat 820c140..5243791 -- .agents/skills/ui-review/
+references/findings-report.md` → **leer**). Die Zeilennummer ist damit **kein** Anker mehr,
 sondern eine Messung an einem **benannten** Stand.
 
 **Warum das eine Position ist und kein Mitlaufen.** Vier Dinge gehen auseinander:
@@ -1214,28 +1216,36 @@ Stand dieses Commits — das Kommando ist auf **`<stand>`** gepinnt:
 Commit-Messages der Fix-Läufe — eine Umstellung ändert also das Format jedes
 künftigen Reports.
 
-**Und upstream ist das selbst gerade uneinheitlich** (gemessen an `0449b05`):
-Upstream `ui-review/SKILL.md`, Anker „columns `Severity | File:Line | Screenshot | Finding |
-Suggested fix`" nennt weiterhin die **alten** Spalten und der Anker „Assign each finding a
-severity:" die **alten** vier Niveaus, während Upstream
-`ui-review/references/findings-report.md`, Anker „| Id | Severity | Status | Owner | Ticket |
-File:Line | Screenshot | Finding | Suggested fix |" die neuen neun
-Spalten führt — `b0d1b51` hat nur die Referenzdatei angefasst, den Skill-Body nicht.
-Welche der beiden upstream-Fassungen gilt, ist damit **selbst offen** und gehört in
-diese Position, nicht in eine stille Korrektur.
+**Und upstream war das selbst gerade uneinheitlich — das ist seit `2e09608` erledigt**
+(gemessen am Stand `5243791`): `2e09608` hat `ui-review/SKILL.md` umgestellt — der
+Skill-Body nennt jetzt die **neun** Spalten und verweist für die Schweregrade auf das
+**kanonische Vokabular** (`ratchet-gates`, `references/vocabulary.md`) statt auf eine
+eigene Liste. Die beiden Anker, die diese Position genannt hat, sind am Stand `5243791`
+**tot** (**0** Treffer in `ui-review/SKILL.md`; am Vorgänger `820c140` dort noch je **1**):
+„columns `Severity | File:Line | Screenshot | Finding | Suggested fix`" und „Assign each
+finding a severity:". Upstream ist damit **einheitlich** — der Skill-Body und die Vorlage
+`ui-review/references/findings-report.md` nennen dieselben neun Spalten. **Die Lücke
+dieses Projekts ist unverändert** — `AGENTS.md:293-295` führt weiterhin die alte Vorlage;
+die Position bleibt offen und hat jetzt ein **eindeutiges Ziel**: neun Spalten, die fünf
+kanonischen Niveaus (einschließlich `info`), die Render-Kriterien und die Verdikt-Regel aus
+`references/findings-report.md`.
 
-**Beleg:** Upstream `0449b05`: `ui-review/references/findings-report.md` (Vorlage: Anker
+**Beleg:** Upstream `5243791`: `ui-review/references/findings-report.md` (Vorlage: Anker
 „| Id | Severity | Status | Owner | Ticket | File:Line | Screenshot | Finding | Suggested fix
 |"; Verdict: Anker „A verdict is only APPROVED when no `critical` or `high` findings remain
 unresolved"; kanonische Niveaus: Anker „## Severity definitions"; Status: Anker „## Status";
 Eigentümer-/Ticket-Regel: Anker „carries an **id**, an **owner** and a"),
 `ratchet-gates/references/vocabulary.md` (Niveaus: Anker „## Severity levels"; Stände: Anker
 „## Statuses"; Zählregel: Anker „The **count is the number of findings in the counting
-statuses**"; Regeln: Anker „## Rules"), `ui-review/SKILL.md` (die **alte** Spalten- und
-Niveausliste im Skill-Body: Anker „Assign each finding a severity:"). Projekt:
-`AGENTS.md:293-295`. **Jeder Anker trifft genau 1-mal** am Stand `820c140` (und am
-Vorgänger `0449b05`) — die Upstream-Dateien sind in der Range `0449b05..820c140`
-unverändert.
+statuses**"; Regeln: Anker „## Rules"), `ui-review/SKILL.md` (Anker „columns `Id | Severity |
+Status | Owner | Ticket | File:Line | Screenshot | Finding | Suggested fix`" und Anker „the
+**canonical vocabulary**"). Projekt: `AGENTS.md:293-295`. **Jeder Anker trifft genau 1-mal**
+am Stand `5243791` — `ui-review/references/findings-report.md` und
+`ratchet-gates/references/vocabulary.md` sind in der Range `820c140..5243791`
+**unverändert** (`git diff --stat 820c140..5243791 -- .agents/skills/ui-review/references/
+findings-report.md .agents/skills/ratchet-gates/` → **leer**), `ui-review/SKILL.md` ist von
+`2e09608` geändert worden; die beiden **toten** Anker der alten Fassung stehen oben nicht
+mehr — sie sind durch die lebenden ersetzt.
 
 ### 56 — `generated-docs`: keine Zahlen in Prosa ohne Quelle — das Projekt hat weder einen Generator noch ein Drift-Gate
 
@@ -1337,7 +1347,7 @@ unverändert: **45** Zeilen-Treffer in **20** Dateien an beiden Ständen):
 `baseline-browser-mapping` (npm-Paket im Lockfile) **3**, der Rest (**23**) ist Prosa
 bzw. Bezeichner; nach Bereich: **1** Dokumentationsdatei, **10** Backend-Dateien
 (davon **7** in `backend/tests/`), **9** Frontend-Dateien. **Repo-weit** (mit den
-beiden Doku-Dateien) sind es **56** Zeilen-Treffer in **22** Dateien am committeten
+beiden Doku-Dateien) sind es **53** Zeilen-Treffer in **22** Dateien am committeten
 Stand dieses Commits — **Lokale Ergänzung:** dieser Wert kann **keinen**
 Vorgänger-Rahmen tragen, weil die Doku Teil des Repos ist.
 Ebenso **kein** known-failure/xfail-Marker im Projekt: mit **Wortgrenze** (`\bxfail\b`) liegen die Treffer im Repo **ausschließlich** in der **Doku, die das Muster selbst nennt** (dieser Marker, das Board) — in `backend/`, `frontend/`, `features/`, `deployment/`, `AGENTS.md`: **0** (am Vorgänger `a4551c8` mit der Wortgrenze **0** Treffer repo-weit; der Marker nannte dort nur „Known-Failure“, nicht „xfail“). Ohne Wortgrenze kommen die `maxFailures`-Stellen dazu: **30** Zeilen-Treffer am Stand `a4551c8` (**14** in Konfiguration und Code: `ci.yml` 8, `frontend/playwright.config.ts` 1, `frontend/playwright.regression.config.ts` 5; **16** in Prosa: `AGENTS.todo.md` 5, `features/05-e2e-test-image.md` 4, `AGENTS.md` 3, `Agents.headless.md` 3, `frontend/tests/e2e/helpers/admin-data.ts` 1 — davon **15** in Markdown-Prosa und **1** als Prosa in einer Code-Kommentarzeile), **25** Zeilen-Treffer im **Projektbaum** (die beiden geänderten Doku-Dateien ausgeschlossen; an den Ständen `a4551c8`, `2da0404`, `c353313` und `78051f0` identisch — der Vorgänger-Vergleich trägt nur das, was **gleich** bleibt: `git diff --stat 2da0404..78051f0 -- . ':(exclude)AGENTS.skills.md' ':(exclude)AGENTS.todo.md'` → leer; dieser Commit fasst nur die beiden Doku-Dateien an, der Wert gilt an seinem committeten Stand genauso) und repo-weit **32 Zeilen-Treffer, vorkommensweise 34 Vorkommen** am committeten Stand dieses Commits — **davon 7 Trefferzeilen mit 9 Vorkommen in den beiden geänderten Doku-Dateien selbst** (dieser Board **6** Zeilen mit **7** Vorkommen, der Marker **1** Zeile mit **2** Vorkommen) — deshalb die Wortgrenze, denn ohne sie zählt jede `maxFailures`-Stelle mit. Und `AGENTS.md:99-101` (Zero-Pre-existing-Failures-Policy) **verbietet**
