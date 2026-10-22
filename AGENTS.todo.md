@@ -1168,7 +1168,7 @@ und die Stände, und die Findings-Vorlage des `ui-review`-Skills
 (`references/findings-report.md`) wurde darauf umgestellt. `b9f140b` hat die
 `medium`-Zeile nachgezogen.
 
-| | vorher (`787670a`) | jetzt (`5243791`) |
+| | vorher (`787670a`) | jetzt (`33cbd00`) |
 |---|---|---|
 | Spalten der Vorlage | `Severity \| File:Line \| Screenshot \| Finding \| Suggested fix` | `Id \| Severity \| Status \| Owner \| Ticket \| File:Line \| Screenshot \| Finding \| Suggested fix` |
 | Niveaus | `critical/high/medium/low` | `critical/high/medium/low/info` (kanonisch: Upstream `ratchet-gates/references/vocabulary.md`, Anker „## Severity levels") |
@@ -1193,8 +1193,8 @@ alte Spaltenliste in **Zeile 17** der alten Vorlage
 (`git show 787670a:.agents/skills/ui-review/references/findings-report.md | sed -n '17p'`
 → die alte Kopfzeile). **An `820c140` ist diese Zeile leer** — die Datei trägt dort die
 **neuen** neun Spalten (Anker „| Id | Severity | Status | Owner | Ticket | File:Line |
-Screenshot | Finding | Suggested fix |"), und **an `5243791` ebenfalls** (die Datei ist seit
-`b0d1b51` unverändert — `git diff --stat 820c140..5243791 -- .agents/skills/ui-review/
+Screenshot | Finding | Suggested fix |"), und **an `33cbd00` ebenfalls** (die Datei ist seit
+`b0d1b51` unverändert — `git diff --stat 820c140..33cbd00 -- .agents/skills/ui-review/
 references/findings-report.md` → **leer**). Die Zeilennummer ist damit **kein** Anker mehr,
 sondern eine Messung an einem **benannten** Stand.
 
@@ -1217,11 +1217,12 @@ Commit-Messages der Fix-Läufe — eine Umstellung ändert also das Format jedes
 künftigen Reports.
 
 **Und upstream war das selbst gerade uneinheitlich — das ist seit `2e09608` erledigt**
-(gemessen am Stand `5243791`): `2e09608` hat `ui-review/SKILL.md` umgestellt — der
+(gemessen am Stand `33cbd00`): `2e09608` hat `ui-review/SKILL.md` umgestellt — der
 Skill-Body nennt jetzt die **neun** Spalten und verweist für die Schweregrade auf das
 **kanonische Vokabular** (`ratchet-gates`, `references/vocabulary.md`) statt auf eine
-eigene Liste. Die beiden Anker, die diese Position genannt hat, sind am Stand `5243791`
-**tot** (**0** Treffer in `ui-review/SKILL.md`; am Vorgänger `820c140` dort noch je **1**):
+eigene Liste. Die beiden Anker, die diese Position genannt hat, sind am Stand `33cbd00`
+**tot** (**0** Treffer in `ui-review/SKILL.md`; dort am Vorgänger `5243791` ebenfalls **0**,
+am Vorgänger `820c140` noch je **1**):
 „columns `Severity | File:Line | Screenshot | Finding | Suggested fix`" und „Assign each
 finding a severity:". Upstream ist damit **einheitlich** — der Skill-Body und die Vorlage
 `ui-review/references/findings-report.md` nennen dieselben neun Spalten. **Die Lücke
@@ -1230,7 +1231,7 @@ die Position bleibt offen und hat jetzt ein **eindeutiges Ziel**: neun Spalten, 
 kanonischen Niveaus (einschließlich `info`), die Render-Kriterien und die Verdikt-Regel aus
 `references/findings-report.md`.
 
-**Beleg:** Upstream `5243791`: `ui-review/references/findings-report.md` (Vorlage: Anker
+**Beleg:** Upstream `33cbd00`: `ui-review/references/findings-report.md` (Vorlage: Anker
 „| Id | Severity | Status | Owner | Ticket | File:Line | Screenshot | Finding | Suggested fix
 |"; Verdict: Anker „A verdict is only APPROVED when no `critical` or `high` findings remain
 unresolved"; kanonische Niveaus: Anker „## Severity definitions"; Status: Anker „## Status";
@@ -1240,9 +1241,9 @@ Eigentümer-/Ticket-Regel: Anker „carries an **id**, an **owner** and a"),
 statuses**"; Regeln: Anker „## Rules"), `ui-review/SKILL.md` (Anker „columns `Id | Severity |
 Status | Owner | Ticket | File:Line | Screenshot | Finding | Suggested fix`" und Anker „the
 **canonical vocabulary**"). Projekt: `AGENTS.md:293-295`. **Jeder Anker trifft genau 1-mal**
-am Stand `5243791` — `ui-review/references/findings-report.md` und
-`ratchet-gates/references/vocabulary.md` sind in der Range `820c140..5243791`
-**unverändert** (`git diff --stat 820c140..5243791 -- .agents/skills/ui-review/references/
+am Stand `33cbd00` — `ui-review/references/findings-report.md` und
+`ratchet-gates/references/vocabulary.md` sind in der Range `820c140..33cbd00`
+**unverändert** (`git diff --stat 820c140..33cbd00 -- .agents/skills/ui-review/references/
 findings-report.md .agents/skills/ratchet-gates/` → **leer**), `ui-review/SKILL.md` ist von
 `2e09608` geändert worden; die beiden **toten** Anker der alten Fassung stehen oben nicht
 mehr — sie sind durch die lebenden ersetzt.
