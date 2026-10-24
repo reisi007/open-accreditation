@@ -164,6 +164,7 @@ RUN chown -R root:root /var/www/html \
 
 # PHP Config (higher limits for PDF/image-intensive apps)
 RUN echo "memory_limit = 1024M" > /usr/local/etc/php/conf.d/php-base.ini \
+    && echo "session.upload_progress.enabled = Off" >> /usr/local/etc/php/conf.d/php-base.ini \
     && echo "upload_max_filesize = 64M" >> /usr/local/etc/php/conf.d/php-base.ini \
     && echo "post_max_size = 64M" >> /usr/local/etc/php/conf.d/php-base.ini \
     && echo "max_execution_time = 600" >> /usr/local/etc/php/conf.d/php-base.ini
