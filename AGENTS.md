@@ -378,3 +378,15 @@ Befunde aus Reviews werden **offen** in `AGENTS.todo.md` geführt bzw. als **akz
 - Bildupload mehrstufig validiert (Laravel-Rules + `mimes` + `exiftool`-MIME-Check).
 - HTML-Sanitize beim Persistieren + Rendern (Symfony `HtmlSanitizer` / DOMPurify).
 - Preis-/Freigabe-Logik server-autoritativ (Allocation-Engine), nicht im Client.
+
+## Gates
+
+Regeln dieser Ebene. Was nur ein Verzeichnis betrifft, gehört in die
+`AGENTS.md` **dieses** Verzeichnisses — sie wird geladen, wenn eine Datei
+daraus gelesen wird.
+
+Ein Plan in `docs/plans/` beginnt mit `**Status:** Plan | In Arbeit | Done |
+Empfehlung, nicht implementiert`.
+
+Die kanonischen Agent-Regeln laufen über `ratchet` (Preset `agent-rules`):
+`ratchet check` vor jedem Commit und in der CI.
