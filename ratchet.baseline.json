@@ -17,7 +17,8 @@
       "value": 1
     },
     "unverified-commits": {
-      "value": 404
+      "value": 406,
+      "reason": "merged foreign history without Verify: footers during the migration rebase; the count records history, not new work"
     }
   }
 }
