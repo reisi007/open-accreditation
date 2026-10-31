@@ -5,6 +5,18 @@ updates:
     schedule: {interval: "daily"}
     open-pull-requests-limit: 8
     labels: ["dependencies"]
+    # Nennt GENAU EINE Version, ist also kein blinder Fleck: eine Advisory mit
+    # Fix in 5.8.1+ wird weiter gemeldet. Grund: phpdotenv 5.8.0 meldet
+    # unterminierte doppelte Anführungszeichen als Parser-Fehler, statt sie
+    # stillschweigend zu verwerfen (#621). Genau dieses stille Verwerfen ist
+    # die dokumentierte Divergenz-Klasse M in
+    # `tests/Feature/DotenvReaderMatchesPhpDotenvTest.php`; mit 5.8.0 wirft
+    # `Dotenv::parse()` dort, und 3 Rows der Tabelle verlieren ihre Prämisse
+    # ("phpdotenv AKZEPTIERT diesen Body"). Die Klasse muss gegen die neue
+    # Semantik neu hergeleitet werden — solange bleibt 5.7.0.
+    ignore:
+      - dependency-name: vlucas/phpdotenv
+        versions: ["5.8.0"]
     groups:
       minor-and-patch:
         applies-to: version-updates
