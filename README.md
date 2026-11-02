@@ -1,15 +1,57 @@
 # open-accreditation
 
-Moderne, mandantenfähige **Akkreditierungs-Plattform (Multi-Tenant)** für
-Sportverbände und Vereine — Nachbau des Feature-Umfangs von Sportdata
-„Accreditation Services" (set.sportdata.org) mit eigenem Stack.
+**Accreditation management for sports federations and clubs.** Organize events,
+publish accreditation opportunities, review applications, and issue verifiable
+credentials from one multi-tenant platform.
 
-Super Admin verwaltet Mandanten (Verbände), optional Teams (Vereine),
-Kategorien (z. B. Presse), Events (Spiele), Selbstanmeldung, Freigabe-Workflow,
-Ausweis-Druck (PDF), QR-Verifikation, PKPASS-Wallets sowie Park-/Sitzkarten als
-Sub-Akkreditierungen.
+Federations manage their own workspace; clubs can be added as teams where
+needed. Applicants browse available accreditations and apply online. Authorized
+staff review requests, produce printable badges, and verify credentials by QR
+code.
 
-## Architektur
+## Product preview
+
+These genuine browser captures were produced by the repository's UI-review
+Playwright suite. They show the public portal's empty UI states and the sign-in
+screen; the portal captures use stubbed API responses for the primary tenant,
+not live or customer data. Screenshots are kept unaltered.
+
+### Public event calendar — empty state
+
+![Public event calendar showing its empty state](docs/screenshots/public-home-empty.png)
+
+### Available accreditations — empty state
+
+![Public accreditation page showing that no accreditations are currently available](docs/screenshots/public-accreditations-empty.png)
+
+### Sign in
+
+![Sign-in form](docs/screenshots/login.png)
+
+## What you can do
+
+- Manage federations (tenants), optional clubs (teams), categories, events, and
+  accreditation quotas and deadlines.
+- Let applicants submit requests online and give staff a review workflow with
+  approval, denial, and blacklist handling.
+- Design badge templates, export printable PDF badges, and verify issued
+  credentials with QR codes.
+- Manage subordinate accreditations such as parking or seating credentials.
+
+## For applicants and federation or club users
+
+This repository does not provide a public hosted service or demo. It is
+self-hosted: your federation or event organizer must install and operate an
+instance. Ask its administrator for the sign-in URL and an account or account
+creation instructions; this README does not provide access credentials.
+
+Once you have access, browse the published events and accreditations, sign in,
+and submit an application while its application window is open. You can review
+your application status under **My accreditations** and withdraw an application
+while it is still requested. If approved, you can access your issued credential
+there, including available wallet options.
+
+## Self-hosting and development
 
 ```
 backend/     Laravel 13 API (JWT httpOnly-Cookie, Postgres, SQLite :memory: Tests)
@@ -19,7 +61,7 @@ deployment/  Dockerfile (PHP-FPM, pgsql) + entrypoint.sh + docker-compose
 features/    Dauerhafter SOLL-Zustand (Multi-Tenancy, Domain-Model)
 ```
 
-## Lokales Setup
+## Local developer setup
 
 Voraussetzungen: PHP 8.5 (z. B. via Homebrew: `brew install php`),
 Composer, Docker, Node.js + pnpm (Major-Linie 11; kein Pin).
@@ -119,7 +161,7 @@ Team → Kategorie → Akkreditierung → Application). Mandanten-Isolation übe
 `MandantContext`-Middleware + `forCurrentMandant()`-Scopes — Details/SOLL in
 `features/`.
 
-## Deployment (Prod)
+## Production self-hosting
 
 Voraussetzung neben Docker: der MEDIA_ROOT auf dem Host, UID/GID 33
 (`www-data` — der Container läuft non-root und kann Rechte nicht reparieren):
