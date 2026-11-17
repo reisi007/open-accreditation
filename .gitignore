@@ -25,7 +25,6 @@ backend/public/storage
 backend/.phpunit.result.cache
 
 # Tooling
-.idea/
 .vscode/
 *.iml
 .run/
