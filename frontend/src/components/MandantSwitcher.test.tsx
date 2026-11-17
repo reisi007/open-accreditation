@@ -157,27 +157,41 @@ function rowTarget(row: HTMLLIElement): Element {
  * from the shipped stylesheet rather than retyped here — a transcription would
  * keep asserting a rule that daisyUI may have changed.
  *
+ * Since daisyUI 5.8 the rule is a nested one inside `.menu`, written with `&`
+ * (CSS nesting's reference to the parent selector) and `:where(...)`:
+ *   & :where(li:not(.menu-title,.disabled) > …:hover, …) { cursor: pointer; … }
+ * `&` is expanded to `.menu` by the browser at build time; jsdom evaluates the
+ * selector directly, outside the cascade, so we expand it here. We locate the
+ * rule by its `cursor: pointer` declaration — the affordance itself — not by a
+ * guessed literal, and validate the extraction, so a future daisyUI change that
+ * moves or removes the rule throws here instead of passing silently.
+ *
  * jsdom cannot resolve the COMPUTED style of these rules: it fails to parse
  * daisyUI's stylesheet at all (measured, not assumed — `Could not parse CSS
  * stylesheet`, the injected sheet contributes zero rules), so no unit test in
  * this repo can assert `cursor: pointer` here. What jsdom CAN do is answer the
  * question the stylesheet asks: while an element is hovered, does the hover rule
- * match it? nwsapi evaluates that selector faithfully, `:hover` state included.
- * The resulting appearance (cursor, background, box-shadow unchanged between
- * rest and hover) was measured in Chromium against the built CSS; this test
- * pins the precondition of that appearance in both directions, so a future
- * change — ours or daisyUI's — cannot silently take the affordance away from
- * the rows that keep it or give it back to the rows that must not have it.
+ * match it? Its selector engine evaluates that selector — `:where()`, nested
+ * `:not()` and the `:hover` state included — faithfully. The resulting
+ * appearance (cursor, background, box-shadow unchanged between rest and hover)
+ * was measured in Chromium against the built CSS; this test pins the
+ * precondition of that appearance in both directions, so a future change — ours
+ * or daisyUI's — cannot silently take the affordance away from the rows that
+ * keep it or give it back to the rows that must not have it.
  */
 function daisyUiMenuHoverSelector(): string {
     const require = createRequire(import.meta.url);
     const css = readFileSync(require.resolve('daisyui/components/menu.css'), 'utf8');
-    // The unprefixed rule (the responsive variants are `.sm\:menu`, `.md\:menu`, …).
-    const selector = [...css.matchAll(/([^{}]*?):hover(?=[^{}]*\{)/g)]
-        .map((match) => `${match[1].trim()}:hover`)
-        .find((candidate) => candidate.startsWith('.menu ') && !candidate.includes('\\:'));
-    if (selector === undefined) {
-        throw new Error('daisyUIs menu.css contains no .menu …:hover rule any more');
+    // The hover affordance is the rule whose block starts with `cursor:pointer`.
+    // Responsive variants repeat the same `& :where(...)` body, so expanding `&`
+    // to `.menu` is correct; the first match is the unprefixed `.menu` rule.
+    const rule = /([^{}]*:hover[^{}]*)\{cursor:pointer/.exec(css);
+    if (rule === null) {
+        throw new Error('daisyUIs menu.css contains no .menu …:hover rule with a pointer cursor any more');
+    }
+    const selector = rule[1].trim().replaceAll('&', '.menu');
+    if (!selector.startsWith('.menu ') || !selector.includes(':hover')) {
+        throw new Error(`unexpected daisyUI hover rule in menu.css: ${selector}`);
     }
     return selector;
 }
